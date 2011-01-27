@@ -1,0 +1,64 @@
+; SylkServer configuration file
+
+[Server]
+
+; The following settings are the default used by the software, uncomment
+; them only if you want to make changes
+
+; default_application = conference
+
+; trace_dir = /var/log/sylkserver
+; trace_sip = False
+; trace_msrp = False
+; trace_notifications = False
+
+; TLS can be used for encryption of SIP signaling and MSRP media. TLS is
+; disabled by default.  To enabled TLS, you must have a valid X.509
+; certificate and configure it below, then set the local_tls_port in the SIP
+; section and use_tls in MSRP section
+
+; The X.509 Certificate Authorities file
+; ca_file = /etc/sylkserver/tls/ca.crt
+
+; The file containing X.509 certificate and private key in unencrypted format 
+; certificate = /etc/sylkserver/tls/sylkserver.crt
+
+; verify_server = False
+
+
+[SIP]
+
+; SIP transport settings
+; IP address used for SIP signaling; empty string or any means listen on interface used
+; by the default route
+; local_ip =
+
+; Ports used for SIP transports, if not set to any value the transport will be disabled
+; local_udp_port = 5060
+; local_tcp_port = 5060
+; local_tls_port =
+
+
+[MSRP]
+
+; MSRP transport settings
+
+; use_tls = False
+
+
+[RTP]
+
+; RTP transport settings
+
+; Allowed codec list, valid values: G722, speex, PCMU, PCMA, iLBC, GSM
+; allowed_codecs = G722,speex,PCMU,PCMA
+
+; Port range used for RTP
+; port_range = 50000:50500
+
+; SRTP valid values: disabled, mandatory, optional
+; srtp_encryption = optional
+
+; RTP stream timeout, session will be disconnected after this value
+; timeout = 30
+

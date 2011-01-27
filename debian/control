@@ -1,0 +1,19 @@
+Source: sylkserver
+Section: net
+Priority: optional
+Maintainer: Saul Ibarra <saul@ag-projects.com>
+Uploaders: Dan Pascu <dan@ag-projects.com>, Adrian Georgescu <ag@ag-projects.com>
+Build-Depends: cdbs (>= 0.4.53), debhelper (>= 7), python-all (>= 2.6), python-support
+Standards-Version: 3.9.1
+
+Package: sylkserver
+Architecture: all
+Depends: ${python:Depends}, ${misc:Depends}, python-application (>= 1.2.4), python-sipsimple (>= 0.17.0), python-sqlobject (>= 0.12.4)
+Suggests: python-mysqldb
+Description: A state of the art, extensible SIP Application Server
+ SylkServer allows creation and delivery of rich multimedia applications
+ accessed by SIP User Agents.  The server supports SIP signaling over TLS,
+ TCP and UDP transports, RTP and MSRP media planes, has built in
+ capabilities for creating ad-hoc SIP multimedia conferences with HD Audio,
+ IM and File Transfer and can be easily extended with other applications by
+ using Python programming language.

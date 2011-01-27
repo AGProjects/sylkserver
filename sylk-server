@@ -1,0 +1,113 @@
+#!/usr/bin/env python
+
+# Copyright (C) 2010-2011 AG Projects. See LICENSE for details
+#
+
+import os
+import signal
+import sys
+
+from optparse import OptionParser
+
+from application import log
+from application.process import process, ProcessError
+
+import sylk
+
+
+DEBUG = False
+
+def stop_server(*args):
+    from sylk.server import SylkServer
+    log.msg('Stopping SylkServer...')
+    server = SylkServer()
+    server.stop()
+
+def main():
+    name = 'sylk-server'
+    fullname = 'SylkServer'
+    runtime_directory = '/var/run/sylkserver'
+    system_config_directory = '/etc/sylkserver'
+    default_pid = os.path.join(runtime_directory, 'server.pid')
+    default_config = os.path.join(system_config_directory , sylk.configuration_filename)
+
+    parser = OptionParser(version='%%prog %s' % sylk.__version__)
+    parser.add_option('--no-fork', action='store_false', dest='fork', default=1,
+                      help='run the process in the foreground (for debugging)')
+    parser.add_option('--pid', dest='pid_file',
+                      help='pid file ("%s")' % default_pid, metavar='File')
+    parser.add_option('--config-file', dest='config_file', default=default_config,
+                      help='path to configuration file to read ("%s")' % default_config,
+                      metavar='File')
+    (options, args) = parser.parse_args()
+
+    try:
+        sylk.dependencies.check()
+    except Exception, e:
+        log.fatal(str(e))
+        sys.exit(1)
+
+    path, configuration_filename = os.path.split(options.config_file)
+    if path:
+        system_config_directory = path
+
+    process.system_config_directory = system_config_directory
+    sylk.configuration_filename = process.config_file(configuration_filename)
+
+    # when run in foreground, do not require root access because of /var/run/sylkserver
+    if not options.fork:
+        process._runtime_directory = None
+    else:
+        try:
+            process.runtime_directory = runtime_directory
+        except ProcessError, e:
+            log.fatal("Cannot start %s: %s" % (fullname, e))
+            sys.exit(1)
+
+    pid_file = options.pid_file or default_pid
+
+    if options.fork:
+        try:
+            process.daemonize(pid_file)
+        except ProcessError, e:
+            log.fatal("Cannot start %s: %s" % (fullname, e))
+            sys.exit(1)
+        log.start_syslog(name)
+
+    if sylk.configuration_filename:
+        log.msg("Starting %s %s, config=%s" % (fullname, sylk.__version__, sylk.configuration_filename))
+    else:
+        log.fatal('Config file not found')
+        sys.exit(1)
+
+    try:
+	if not options.fork and DEBUG:
+            from application.debug.memory import memory_dump
+        from sylk.server import SylkServer
+        server = SylkServer()
+    except Exception, e:
+        log.fatal("failed to create %s: %s" % (fullname, e))
+        log.err()
+        sys.exit(1)
+
+    process.signals.add_handler(signal.SIGTERM, stop_server)
+    process.signals.add_handler(signal.SIGINT, stop_server)
+
+    try:
+        server.start()
+        signal.pause()
+        server.stop_event.wait()
+        log.msg("%s stopped" % fullname)
+    except Exception, e:
+        log.fatal("failed to run %s: %s" % (fullname, e))
+        log.err()
+        sys.exit(1)
+
+    if not options.fork and DEBUG:
+        memory_dump()
+
+
+if __name__ == "__main__":
+    main()
+
+

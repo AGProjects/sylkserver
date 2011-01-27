@@ -1,0 +1,8 @@
+#
+# SylkServer startup options
+#
+
+# Set to yes to enable SylkServer, once configured properly
+# by editing /etc/sylkserver/config.ini
+RUN_SYLKSERVER=no
+

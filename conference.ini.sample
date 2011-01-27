@@ -1,0 +1,18 @@
+; SylkServer  Conference application configuration file
+
+[Conference]
+
+; The following settings are the default used by the software, uncomment them
+; only if you want to make changes
+
+; db_uri = sqlite:///var/lib/sylkserver/conference.sqlite
+
+; Table for storing messages history
+; history_table = message_history
+
+; Playback the last messages after join a room
+; replay_history = 20
+
+; Use MESSAGE for participants that joined a conference room with audio but without MSRP chat
+; enable_sip_message = False
+

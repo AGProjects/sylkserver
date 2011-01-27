@@ -1,0 +1,15 @@
+#!/usr/bin/make -f
+
+DEB_PYTHON_SYSTEM=pysupport
+DEB_DH_INSTALLINIT_ARGS=--no-start
+
+include /usr/share/cdbs/1/class/python-distutils.mk
+include /usr/share/cdbs/1/rules/debhelper.mk
+
+clean::
+	-rm -rf build dist MANIFEST
+
+install/sylkserver::
+	install -m 0644 config.ini.sample debian/sylkserver/etc/sylkserver/config.ini
+	install -m 0644 conference.ini.sample debian/sylkserver/etc/sylkserver/conference.ini
+

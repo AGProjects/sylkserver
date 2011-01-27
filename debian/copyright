@@ -1,0 +1,23 @@
+This work was packaged for Debian by:
+
+    Saul Ibarra <saul@ag-projects.com> on Tue Jan 25 17:21:12 CET 2011
+
+Copyright:
+
+    Copyright (C) 2010 AG Projects
+
+License:
+
+    SylkServer is licensed under GNU General Public License version 3. A copy of the
+    license is available at /usr/share/common-licenses/GPL-3 or online at:
+    http://www.gnu.org/licenses/gpl-3.0.html
+
+    The following restrictions apply:
+        * You may not alter the name of the software (SylkServer)
+        * You may not alter the Copyright and About notices
+
+The Debian packaging is:
+
+    Copyright (C) 2010 Saul Ibarra <saul@ag-projects.com>
+
+and is licensed under the GPL version 3.

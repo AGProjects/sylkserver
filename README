@@ -1,0 +1,103 @@
+
+SylkServer
+----------
+
+Copyright (c) 2010-2011 AG Projects
+http://ag-projects.com
+
+Authors: Adrian Georgescu, Denis Bilenko, Saul Ibarra
+Home page: http://sylkserver.com
+
+
+License
+-------
+
+SylkServer is licensed under GNU General Public License version 3. A copy of
+the license is available at http://www.fsf.org/licensing/licenses/agpl-3.0.html
+
+
+Description
+-----------
+
+SylkServer is a state of the art, extensible SIP Application Server
+
+SylkServer allows creation and delivery of rich multimedia applications
+accessed by SIP User Agents.  The server supports SIP signaling over TLS,
+TCP and UDP transports, RTP and MSRP media planes, has built in capabilities
+for creating ad-hoc SIP multimedia conferences with HD Audio, IM and File
+Transfer and can be easily extended with other applications by using Python
+programming language.
+
+
+Features
+--------
+
+SIP Signaling
+
+ - TLS, TCP and UDP transports
+ - INVITE and MESSAGE for sessions
+ - SUBSCRIBE/NOTIFY for conference event notifications
+
+Audio
+
+ - G722 and Speex wideband codecs
+ - G711 and GSM narrow-band codecs
+ - sRTP encryption
+ - RTP timeout
+
+Instant Messaging
+
+ - MSRP chat and SIP MESSAGE
+ - CPIM envelope
+ - Is-composing indicator
+ - History buffer
+
+Conferencing
+
+ - RTP mixer
+ - MSRP Switch, private messgaing
+ - Conference event package
+ - isfocus
+
+
+Built-in Applications
+---------------------
+
+1. Conferencing
+
+SylkServer allows SIP end-points to create ad-hoc conference rooms by
+sending INVITE to a random username at the hostname or domain where the
+server runs.  Other participants can then join by sending an INVITE to the
+same SIP URI used to create the room.  The INVITE and subsequent re-INVITE
+methods may contain one or more media types supported by the server.  Each
+conference room mixed audio, instant messages and uploded files are
+dispatched to all participants.
+
+SIP end-points that do not support MSRP chat can join the bridge by using
+audio only, they will receive the chat messages over the SIP signaling using
+SIP MESSAGE method, which is supported by many legacy end-points.  Messages
+sent to the room using SIP MESSAGE will be dispatched by either SIP MESSAGE
+or through established MSRP sessions depending on how the end-points have
+joined the room.
+
+If a participant sends a file to the SIP URI of the room, the server will
+accept it, store it for the duration of the conference and offer it to all
+participants either present at that moment, or later to those that have
+joined the conference at a later moment.
+
+
+Standards
+---------
+
+The server implements relevant features from the following standards:
+
+ * MSRP and its relay extension RFC4975, RFC4976
+ * File Transfer over RFC5547
+ * Indication of Message Composition RFC3994
+ * CPIM Message Format RFC3862
+ * Conference event package RFC4575
+ * A Framework for Conferencing with SIP RFC4353
+ * Conferencing for User Agents RFC4579
+   5.1.  INVITE: Joining a Conference Using the Conference URI - Dial-In
+ * MSRP switch draft-ietf-simple-chat-07
+
