@@ -24,9 +24,9 @@ SylkServer is a state of the art, extensible SIP Application Server
 SylkServer allows creation and delivery of rich multimedia applications
 accessed by SIP User Agents.  The server supports SIP signaling over TLS,
 TCP and UDP transports, RTP and MSRP media planes, has built in capabilities
-for creating ad-hoc SIP multimedia conferences with HD Audio, IM and File
-Transfer and can be easily extended with other applications by using Python
-programming language.
+for creating ad-hoc SIP multimedia conferences with Wideband Audio, IM and
+File Transfer and can be easily extended with other applications by using
+Python programming language.
 
 
 Features
@@ -36,15 +36,16 @@ SIP Signaling
 
  - TLS, TCP and UDP transports
  - INVITE and MESSAGE for sessions
- - SUBSCRIBE/NOTIFY for conference event notifications
+ - SUBSCRIBE/NOTIFY
 
 Audio
 
- - G722 and Speex wideband codecs
- - G711 and GSM narrow-band codecs
+ - Wideband codecs (G722 and Speex)
+ - Narrow-band codecs (G711 and GSM)
  - sRTP encryption
  - RTP timeout
-
+ - DTMF handling
+ 
 Instant Messaging
 
  - MSRP chat and SIP MESSAGE
@@ -54,16 +55,16 @@ Instant Messaging
 
 Conferencing
 
- - RTP mixer
- - MSRP Switch, private messgaing
+ - RTP wideband mixer
+ - MSRP Switch with private messgaing
  - Conference event package
- - isfocus
+ - isfocus support
 
 
 Built-in Applications
 ---------------------
 
-1. Conferencing
+1. Conference
 
 SylkServer allows SIP end-points to create ad-hoc conference rooms by
 sending INVITE to a random username at the hostname or domain where the
