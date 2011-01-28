@@ -71,7 +71,7 @@ class LogsSettingsExtension(LogsSettings):
     directory = Setting(type=Path, default=log_directory)
     trace_sip = Setting(type=bool, default=ServerConfig.trace_sip)
     trace_msrp = Setting(type=bool, default=ServerConfig.trace_msrp)
-    trace_pjsip = Setting(type=bool, default=True)
+    trace_pjsip = Setting(type=bool, default=False)
     trace_notifications = Setting(type=bool, default=ServerConfig.trace_notifications)
 
 
