@@ -443,15 +443,19 @@ class Room(object):
         users = Users()
         for session in self.sessions:
             try:
+                display_name = session.remote_identity.display_name.decode('utf-8')
+            except UnicodeDecodeError:
+                display_name = u''
+            try:
                 user = (user for user in users if user.entity == str(session.remote_identity.uri)).next()
             except StopIteration:
-                user = User(str(session.remote_identity.uri), display_text=session.remote_identity.display_name)
+                user = User(str(session.remote_identity.uri), display_text=display_name)
                 users.append(user)
             joining_info = JoiningInfo(when=session.start_time)
             holdable_streams = [stream for stream in session.streams if stream.hold_supported]
             session_on_hold = holdable_streams and all(stream.on_hold_by_remote for stream in holdable_streams)
             hold_status = EndpointStatus('on-hold' if session_on_hold else 'connected')
-            endpoint = Endpoint(str(session._invitation.remote_contact_header.uri), display_text=session.remote_identity.display_name, joining_info=joining_info, status=hold_status)
+            endpoint = Endpoint(str(session._invitation.remote_contact_header.uri), display_text=display_name, joining_info=joining_info, status=hold_status)
             for stream in session.streams:
                 endpoint.append(Media(id(stream), media_type=format_conference_stream_type(stream)))
             user.append(endpoint)
