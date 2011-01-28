@@ -203,7 +203,7 @@ class Room(object):
             try:
                 identity = CPIMIdentity.parse(format_identity(session.remote_identity, True))
                 chat_stream = (stream for stream in s.streams if stream.type == 'chat').next()
-                chat_stream.send_composing_indication(data.state, data.refresh, data.last_active, local_identity=identity, recipients=[self.identity])
+                chat_stream.send_composing_indication(data.state, data.refresh, local_identity=identity, recipients=[self.identity])
             except ChatStreamError, e:
                 log.error('Error dispatching composing indication to %s: %s' % (s.remote_identity.uri, e))
             except StopIteration:
@@ -218,7 +218,7 @@ class Room(object):
             try:
                 identity = CPIMIdentity.parse(format_identity(session.remote_identity, True))
                 chat_stream = (stream for stream in s.streams if stream.type == 'chat').next()
-                chat_stream.send_composing_indication(data.state, data.refresh, data.last_active, local_identity=identity)
+                chat_stream.send_composing_indication(data.state, data.refresh, local_identity=identity)
             except ChatStreamError, e:
                 log.error('Error dispatching private composing indication to %s: %s' % (s.remote_identity.uri, e))
 
