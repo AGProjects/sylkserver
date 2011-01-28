@@ -93,7 +93,7 @@ Standards
 The server implements relevant features from the following standards:
 
  * MSRP and its relay extension RFC4975, RFC4976
- * File Transfer over RFC5547
+ * File Transfer over MSRP RFC5547
  * Indication of Message Composition RFC3994
  * CPIM Message Format RFC3862
  * Conference event package RFC4575
