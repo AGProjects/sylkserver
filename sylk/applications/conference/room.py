@@ -223,6 +223,11 @@ class Room(object):
                 log.error('Error dispatching private composing indication to %s: %s' % (s.remote_identity.uri, e))
 
     def dispatch_server_message(self, body, content_type='text/plain', exclude=None):
+        # When message is sent it will be encoded in UTF-8, so we must provide a unicode object
+        try:
+            body = body.decode('utf-8')
+        except UnicodeDecodeError:
+            return
         for session in (session for session in self.sessions if session is not exclude):
             try:
                 chat_stream = (stream for stream in session.streams if stream.type == 'chat').next()
