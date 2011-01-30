@@ -19,7 +19,7 @@ from sylk.configuration import ServerConfig, SIPConfig, MSRPConfig, RTPConfig
 
 # Account settings extensions
 
-msrp_transport = transport = 'tls' if MSRPConfig.use_tls else 'tcp'
+msrp_transport = 'tls' if MSRPConfig.use_tls else 'tcp'
 class AccountMSRPSettingsExtension(AccountMSRPSettings):
     transport = Setting(type=MSRPTransport, default=msrp_transport)
 
