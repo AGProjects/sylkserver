@@ -109,7 +109,6 @@ class TLSSettingsExtension(TLSSettings):
 
 
 class SylkServerSettingsExtension(SettingsObjectExtension):
-    resources_directory = Setting(type=Path, default=None, nillable=True)
     user_agent = Setting(type=str, default='SylkServer-%s' % server_version)
 
     audio = AudioSettingsExtension
