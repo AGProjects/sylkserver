@@ -73,7 +73,7 @@ class IncomingRequestHandler(object):
     # TODO: apply ACLs (before or after?)
     def __init__(self):
         load_applications()
-        log.msg('Loaded applications: %s' % ','.join([app.__appname__ for app in ApplicationRegistry()]))
+        log.msg('Loaded applications: %s' % ', '.join([app.__appname__ for app in ApplicationRegistry()]))
 
     def start(self):
         notification_center = NotificationCenter()
