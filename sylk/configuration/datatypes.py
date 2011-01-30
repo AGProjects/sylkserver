@@ -57,11 +57,9 @@ class ResourcePath(object):
         binary_directory = os.path.dirname(os.path.realpath(sys.argv[0]))
         if os.path.basename(binary_directory) == 'bin':
             application_directory = os.path.dirname(binary_directory)
-        else:
-            application_directory = binary_directory
-        if os.path.basename(binary_directory) == 'bin':
             resources_component = 'share/sylkserver'
         else:
+            application_directory = binary_directory
             resources_component = 'resources'
         return os.path.realpath(os.path.join(application_directory, resources_component))
 
