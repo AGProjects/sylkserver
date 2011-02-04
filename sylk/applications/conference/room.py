@@ -101,7 +101,7 @@ class Room(object):
 
     def __init__(self, uri):
         self.uri = uri
-        self.identity = CPIMIdentity.parse('<%s>' % self.uri)
+        self.identity = CPIMIdentity.parse('<sip:%s>' % self.uri)
         self.sessions = []
         self.sessions_with_proposals = []
         self.subscriptions = []
