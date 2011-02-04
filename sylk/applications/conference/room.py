@@ -36,11 +36,11 @@ from sylk.configuration.datatypes import ResourcePath
 def format_identity(identity, cpim_format=False):
     uri = identity.uri
     if identity.display_name:
-        return '%s <sip:%s@%s>' % (identity.display_name, uri.user, uri.host)
+        return u'%s <sip:%s@%s>' % (identity.display_name, uri.user, uri.host)
     elif cpim_format:
-        return '<sip:%s@%s>' % (uri.user, uri.host)
+        return u'<sip:%s@%s>' % (uri.user, uri.host)
     else:
-        return 'sip:%s@%s' % (uri.user, uri.host)
+        return u'sip:%s@%s' % (uri.user, uri.host)
 
 def format_stream_types(streams):
     if not streams:
@@ -180,7 +180,7 @@ class Room(object):
                 chat_stream = (stream for stream in s.streams if stream.type == 'chat').next()
                 chat_stream.send_message(message.body, message.content_type, local_identity=identity, recipients=[self.identity], timestamp=message.timestamp)
             except ChatStreamError, e:
-                log.error('Error dispatching message to %s: %s' % (s.remote_identity.uri, e))
+                log.error(u'Error dispatching message to %s: %s' % (s.remote_identity.uri, e))
             except StopIteration:
                 # This session doesn't have a chat stream, send him a SIP MESSAGE
                 if ConferenceConfig.enable_sip_message:
@@ -196,7 +196,7 @@ class Room(object):
                 chat_stream = (stream for stream in s.streams if stream.type == 'chat').next()
                 chat_stream.send_message(message.body, message.content_type, local_identity=identity, recipients=[recipient], timestamp=message.timestamp)
             except ChatStreamError, e:
-                log.error('Error dispatching private message to %s: %s' % (s.remote_identity.uri, e))
+                log.error(u'Error dispatching private message to %s: %s' % (s.remote_identity.uri, e))
 
     def dispatch_iscomposing(self, session, data):
         for s in (s for s in self.sessions if s is not session):
@@ -205,7 +205,7 @@ class Room(object):
                 chat_stream = (stream for stream in s.streams if stream.type == 'chat').next()
                 chat_stream.send_composing_indication(data.state, data.refresh, local_identity=identity, recipients=[self.identity])
             except ChatStreamError, e:
-                log.error('Error dispatching composing indication to %s: %s' % (s.remote_identity.uri, e))
+                log.error(u'Error dispatching composing indication to %s: %s' % (s.remote_identity.uri, e))
             except StopIteration:
                 # This session doesn't have a chat stream, send him a SIP MESSAGE
                 if ConferenceConfig.enable_sip_message:
@@ -220,14 +220,9 @@ class Room(object):
                 chat_stream = (stream for stream in s.streams if stream.type == 'chat').next()
                 chat_stream.send_composing_indication(data.state, data.refresh, local_identity=identity)
             except ChatStreamError, e:
-                log.error('Error dispatching private composing indication to %s: %s' % (s.remote_identity.uri, e))
+                log.error(u'Error dispatching private composing indication to %s: %s' % (s.remote_identity.uri, e))
 
     def dispatch_server_message(self, body, content_type='text/plain', exclude=None):
-        # When message is sent it will be encoded in UTF-8, so we must provide a unicode object
-        try:
-            body = body.decode('utf-8')
-        except UnicodeDecodeError:
-            return
         for session in (session for session in self.sessions if session is not exclude):
             try:
                 chat_stream = (stream for stream in session.streams if stream.type == 'chat').next()
@@ -254,7 +249,7 @@ class Room(object):
         try:
             routes = lookup.lookup_sip_proxy(to_uri, settings.sip.transport_list).wait()
         except DNSLookupError:
-            log.warning('DNS lookup error while looking for %s proxy' % to_uri)
+            log.warning(u'DNS lookup error while looking for %s proxy' % to_uri)
         else:
             route = routes.pop(0)
             from_header = FromHeader(self.identity.uri)
@@ -279,12 +274,12 @@ class Room(object):
         return txt
 
     def _play_file_in_player(self, player, file, delay):
-        player.filename = str(file)
+        player.filename = file
         player.pause_time = delay
         try:
             player.play().wait()
         except WavePlayerError, e:
-            log.warning("Error playing file %s: %s" % (file, e))
+            log.warning(u"Error playing file %s: %s" % (file, e))
 
     @run_in_green_thread
     def play_audio_welcome(self, session, play_welcome=True):
@@ -346,16 +341,16 @@ class Room(object):
             pass
         else:
             notification_center.add_observer(self, sender=audio_stream)
-            log.msg('Audio stream using %s/%sHz (%s), end-points: %s:%d <-> %s:%d' % (audio_stream.codec, audio_stream.sample_rate,
+            log.msg(u'Audio stream using %s/%sHz (%s), end-points: %s:%d <-> %s:%d' % (audio_stream.codec, audio_stream.sample_rate,
                                                                                       'encrypted' if audio_stream.srtp_active else 'unencrypted',
                                                                                       audio_stream.local_rtp_address, audio_stream.local_rtp_port,
                                                                                       audio_stream.remote_rtp_address, audio_stream.remote_rtp_port))
             self.play_audio_welcome(session)
         self.dispatch_conference_info()
         if len(self.sessions) == 1:
-            log.msg('%s started conference %s %s' % (format_identity(session.remote_identity), self.uri, format_stream_types(session.streams)))
+            log.msg(u'%s started conference %s %s' % (format_identity(session.remote_identity), self.uri, format_stream_types(session.streams)))
         else:
-            log.msg('%s joined conference %s %s' % (format_identity(session.remote_identity), self.uri, format_stream_types(session.streams)))
+            log.msg(u'%s joined conference %s %s' % (format_identity(session.remote_identity), self.uri, format_stream_types(session.streams)))
         if str(session.remote_identity.uri) not in set(str(s.remote_identity.uri) for s in self.sessions if s is not session):
             self.dispatch_server_message('%s has joined the room %s' % (format_identity(session.remote_identity), format_stream_types(session.streams)), exclude=session)
 
@@ -386,9 +381,9 @@ class Room(object):
         notification_center.remove_observer(self, sender=session)
         self.sessions.remove(session)
         self.dispatch_conference_info()
-        log.msg('%s left conference %s after %s' % (format_identity(session.remote_identity), self.uri, format_session_duration(session)))
+        log.msg(u'%s left conference %s after %s' % (format_identity(session.remote_identity), self.uri, format_session_duration(session)))
         if not self.sessions:
-            log.msg('Last participant left conference %s' % self.uri)
+            log.msg(u'Last participant left conference %s' % self.uri)
         if str(session.remote_identity.uri) not in set(str(s.remote_identity.uri) for s in self.sessions if s is not session):
             self.dispatch_server_message('%s has left the room after %s' % (format_identity(session.remote_identity), format_session_duration(session)))
 
@@ -431,7 +426,7 @@ class Room(object):
         if content_type == IsComposingMessage.content_type:
             return
 
-        log.msg('New incoming MESSAGE from %s' % session.remote_identity.uri)
+        log.msg(u'New incoming MESSAGE from %s' % session.remote_identity.uri)
         self_identity = format_identity(self.identity, cpim_format=True)
         message = SIPMessage(sender=sender, recipient=self_identity, content_type=content_type, body=body)
         message.timestamp = timestamp
@@ -448,19 +443,15 @@ class Room(object):
         users = Users()
         for session in self.sessions:
             try:
-                display_name = session.remote_identity.display_name.decode('utf-8')
-            except UnicodeDecodeError:
-                display_name = u''
-            try:
                 user = (user for user in users if user.entity == str(session.remote_identity.uri)).next()
             except StopIteration:
-                user = User(str(session.remote_identity.uri), display_text=display_name)
+                user = User(str(session.remote_identity.uri), display_text=session.remote_identity.display_name)
                 users.append(user)
             joining_info = JoiningInfo(when=session.start_time)
             holdable_streams = [stream for stream in session.streams if stream.hold_supported]
             session_on_hold = holdable_streams and all(stream.on_hold_by_remote for stream in holdable_streams)
             hold_status = EndpointStatus('on-hold' if session_on_hold else 'connected')
-            endpoint = Endpoint(str(session._invitation.remote_contact_header.uri), display_text=display_name, joining_info=joining_info, status=hold_status)
+            endpoint = Endpoint(str(session._invitation.remote_contact_header.uri), display_text=session.remote_identity.display_name, joining_info=joining_info, status=hold_status)
             for stream in session.streams:
                 endpoint.append(Media(id(stream), media_type=format_conference_stream_type(stream)))
             user.append(endpoint)
@@ -487,7 +478,7 @@ class Room(object):
     def _NH_AudioStreamDidTimeout(self, notification):
         stream = notification.sender
         session = stream._session
-        log.msg('Audio stream for session %s timed out' % format_identity(session.remote_identity))
+        log.msg(u'Audio stream for session %s timed out' % format_identity(session.remote_identity))
         if session.streams == [stream]:
             session.end()
 
@@ -511,9 +502,9 @@ class Room(object):
         session = notification.sender
         if notification.data.originator == 'remote':
             if notification.data.on_hold:
-                log.msg('%s has put the audio session on hold' % format_identity(session.remote_identity))
+                log.msg(u'%s has put the audio session on hold' % format_identity(session.remote_identity))
             else:
-                log.msg('%s has taken the audio session out of hold' % format_identity(session.remote_identity))
+                log.msg(u'%s has taken the audio session out of hold' % format_identity(session.remote_identity))
             self.dispatch_conference_info()
 
     def _NH_SIPSessionGotProposal(self, notification):
@@ -549,7 +540,7 @@ class Room(object):
                     sender = CPIMIdentity.parse(msg.cpim_sender)
                     if recipient.uri in (self.identity.uri, remote_identity.uri) or sender.uri == remote_identity.uri:
                         chat_stream.send_message(msg.cpim_body, msg.cpim_content_type, local_identity=sender, recipients=[recipient], timestamp=msg.cpim_timestamp)
-                log.msg('%s has added chat to %s' % (format_identity(session.remote_identity), self.uri))
+                log.msg(u'%s has added chat to %s' % (format_identity(session.remote_identity), self.uri))
                 self.dispatch_server_message('%s has added chat' % format_identity(session.remote_identity), exclude=session)
             try:
                 audio_stream = (stream for stream in streams if stream.type == 'audio').next()
@@ -557,11 +548,11 @@ class Room(object):
                 pass
             else:
                 notification_center.add_observer(self, sender=audio_stream)
-                log.msg('Audio stream using %s/%sHz (%s), end-points: %s:%d <-> %s:%d' % (audio_stream.codec, audio_stream.sample_rate,
+                log.msg(u'Audio stream using %s/%sHz (%s), end-points: %s:%d <-> %s:%d' % (audio_stream.codec, audio_stream.sample_rate,
                                                                                           'encrypted' if audio_stream.srtp_active else 'unencrypted',
                                                                                           audio_stream.local_rtp_address, audio_stream.local_rtp_port,
                                                                                           audio_stream.remote_rtp_address, audio_stream.remote_rtp_port))
-                log.msg('%s has added audio to %s' % (format_identity(session.remote_identity), self.uri))
+                log.msg(u'%s has added audio to %s' % (format_identity(session.remote_identity), self.uri))
                 self.dispatch_server_message('%s has added audio' % format_identity(session.remote_identity), exclude=session)
                 self.play_audio_welcome(session, False)
         elif notification.data.action == 'remove':
@@ -571,7 +562,7 @@ class Room(object):
                 pass
             else:
                 notification_center.remove_observer(self, sender=chat_stream)
-                log.msg('%s has removed chat from %s' % (format_identity(session.remote_identity), self.uri))
+                log.msg(u'%s has removed chat from %s' % (format_identity(session.remote_identity), self.uri))
                 self.dispatch_server_message('%s has removed chat' % format_identity(session.remote_identity), exclude=session)
             try:
                 audio_stream = (stream for stream in streams if stream.type == 'audio').next()
@@ -589,10 +580,10 @@ class Room(object):
                     self.audio_conference.hold()
                 elif len(self.audio_conference.streams) == 1:
                     self.moh_player.play()
-                log.msg('%s has removed audio from %s' % (format_identity(session.remote_identity), self.uri))
+                log.msg(u'%s has removed audio from %s' % (format_identity(session.remote_identity), self.uri))
                 self.dispatch_server_message('%s has removed audio' % format_identity(session.remote_identity), exclude=session)
             if not session.streams:
-                log.msg('%s has removed all streams from %s, session will be terminated' % (format_identity(session.remote_identity), self.uri))
+                log.msg(u'%s has removed all streams from %s, session will be terminated' % (format_identity(session.remote_identity), self.uri))
                 session.end()
         self.dispatch_conference_info()
 
@@ -610,7 +601,7 @@ class MoHPlayer(object):
     def initialize(self):
         files = glob('%s/*.wav' % ResourcePath('sounds/moh').normalized)
         if not files:
-            log.error('No files found, MoH is disabled')
+            log.error(u'No files found, MoH is disabled')
             self.disabled = True
             return
         random.shuffle(files)
@@ -633,17 +624,16 @@ class MoHPlayer(object):
         if not self.disabled:
             self.paused = False
             self._play_next_file()
-            log.msg('Started playing music on hold')
+            log.msg(u'Started playing music on hold')
 
     def pause(self):
         if not self.disabled:
             self.paused = True
             self._player.stop()
-            log.msg('Stopped playing music on hold')
+            log.msg(u'Stopped playing music on hold')
 
     def _play_next_file(self):
-        file = self.files.next()
-        self._player.filename = str(file)
+        self._player.filename = self.files.next()
         self._player.play()
 
     @run_in_twisted_thread
