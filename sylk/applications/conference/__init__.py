@@ -74,7 +74,7 @@ class ConferenceApplication(object):
     def _NH_SIPSessionDidStart(self, notification):
         session = notification.sender
         self.pending_sessions.remove(session)
-        room = Room.get_room(session.local_identity.uri)
+        room = Room.get_room(session._invitation.request_uri)    # FIXME
         room.start()
         room.add_session(session)
         self.rooms.add(room)
@@ -84,7 +84,7 @@ class ConferenceApplication(object):
         log.msg('Session from %s ended' % session.remote_identity.uri)
         notification_center = NotificationCenter()
         notification_center.remove_observer(self, sender=session)
-        room = Room.get_room(session.local_identity.uri)
+        room = Room.get_room(session._invitation.request_uri)    # FIXME
         if session in room.sessions:
             # We could get this notifiction even if we didn't get SIPSessionDidStart
             room.remove_session(session)
