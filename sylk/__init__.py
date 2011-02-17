@@ -7,8 +7,8 @@ __version__ = '1.0.0'
 configuration_filename = "config.ini"
 
 
-package_requirements = {'python-application': '1.2.4',
-                        'python-sipsimple': '0.17.0'}
+package_requirements = {'python-application': '1.2.6',
+                        'python-sipsimple': '0.17.1'}
 
 try:
     from application.dependency import ApplicationDependencies
