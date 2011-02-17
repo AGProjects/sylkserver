@@ -1,3 +1,11 @@
+sylkserver (1.0.1) unstable; urgency=low
+
+  * Added unicode support
+  * Fixed building CPIMIdentity object
+  * Use request URI to match rooms instead of the To header
+
+ -- Saul Ibarra <saul@ag-projects.com>  Thu, 17 Feb 2011 10:45:21 +0100
+
 sylkserver (1.0.0) unstable; urgency=low
 
   * Initial release
