@@ -1,0 +1,4 @@
+[123]
+channel = test
+server = irc.freenode.net:6667
+
