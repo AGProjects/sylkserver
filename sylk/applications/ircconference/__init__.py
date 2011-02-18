@@ -24,17 +24,21 @@ class IRCConferenceApplication(object):
 
     def incoming_session(self, session):
         log.msg('New incoming session from %s' % session.remote_identity.uri)
-        try:
-            chat_stream = (stream for stream in session.proposed_streams if stream.type=='chat').next()
-        except StopIteration:
+        audio_streams = [stream for stream in session.proposed_streams if stream.type=='audio']
+        chat_streams = [stream for stream in session.proposed_streams if stream.type=='chat']
+        if not audio_streams and not chat_streams:
             session.reject(488)
             return
-        # Disable private message capability
-        chat_stream.chatroom_capabilities = []
         self.pending_sessions.append(session)
         notification_center = NotificationCenter()
         notification_center.add_observer(self, sender=session)
-        reactor.callLater(0, self.accept_session, session, [chat_stream])
+        if audio_streams:
+            session.send_ring_indication()
+        if chat_streams:
+            # Disable private message capability
+            chat_streams[0].chatroom_capabilities = []
+        streams = [streams[0] for streams in (audio_streams, chat_streams) if streams]
+        reactor.callLater(4 if audio_streams else 0, self.accept_session, session, streams)
 
     def incoming_subscription(self, subscribe_request, data):
         to_header = data.headers.get('To', Null)
