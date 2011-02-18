@@ -74,6 +74,7 @@ class IncomingRequestHandler(object):
     def __init__(self):
         load_applications()
         log.msg('Loaded applications: %s' % ', '.join([app.__appname__ for app in ApplicationRegistry()]))
+        self.application_map = dict((item.split(':')) for item in ServerConfig.application_map)
 
     def start(self):
         notification_center = NotificationCenter()
@@ -94,19 +95,21 @@ class IncomingRequestHandler(object):
 
     def _NH_SIPSessionNewIncoming(self, notification):
         session = notification.sender
+        application = self.application_map.get(session._invitation.request_uri.user, ServerConfig.default_application)
         try:
-            app = (app for app in ApplicationRegistry() if app.__appname__ == ServerConfig.default_application).next()
+            app = (app for app in ApplicationRegistry() if app.__appname__ == application).next()
         except StopIteration:
-            pass
+            log.error('Application %s is not loaded' % application)
         else:
             app.incoming_session(session)
 
     def _NH_SIPIncomingSubscriptionGotSubscribe(self, notification):
         subscribe_request = notification.sender
+        application = self.application_map.get(notification.data.request_uri.user, ServerConfig.default_application)
         try:
-            app = (app for app in ApplicationRegistry() if app.__appname__ == ServerConfig.default_application).next()
+            app = (app for app in ApplicationRegistry() if app.__appname__ == application).next()
         except StopIteration:
-            pass
+            log.error('Application %s is not loaded' % application)
         else:
             app.incoming_subscription(subscribe_request, notification.data)
 
@@ -115,10 +118,11 @@ class IncomingRequestHandler(object):
         if notification.data.method != 'MESSAGE':
             request.answer(405)
             return
+        application = self.application_map.get(notification.data.request_uri.user, ServerConfig.default_application)
         try:
-            app = (app for app in ApplicationRegistry() if app.__appname__ == ServerConfig.default_application).next()
+            app = (app for app in ApplicationRegistry() if app.__appname__ == application).next()
         except StopIteration:
-            pass
+            log.error('Application %s is not loaded' % application)
         else:
             app.incoming_sip_message(request, notification.data)
 

@@ -2,6 +2,7 @@
 #
 
 from application.configuration import ConfigSection, ConfigSetting
+from application.configuration.datatypes import StringList
 from application.system import host
 from sipsimple.configuration.datatypes import NonNegativeInteger, SRTPEncryption
 
@@ -17,6 +18,7 @@ class ServerConfig(ConfigSection):
     certificate = ConfigSetting(type=str, value='/etc/sylkserver/tls/sylkserver.crt')
     verify_server = False
     default_application = 'conference'
+    application_map = ConfigSetting(type=StringList, value='')
     trace_dir = ConfigSetting(type=str, value='/var/log/sylkserver')
     trace_sip = False
     trace_msrp = False
