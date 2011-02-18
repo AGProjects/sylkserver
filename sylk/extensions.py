@@ -33,12 +33,12 @@ del registry
 class ChatStream(_ChatStream):
     accept_types = ['message/cpim']
     accept_wrapped_types = ['*']
-    focus_capabilities = [('chatroom', 'private-messages')]
+    chatroom_capabilities = ['private-messages']
 
     def _create_local_media(self, uri_path):
         local_media = MSRPStreamBase._create_local_media(self, uri_path)
-        if self.session.local_focus:
-            local_media.attributes.extend(SDPAttribute(item[0], item[1]) for item in self.focus_capabilities)
+        if self.session.local_focus and self.chatroom_capabilities:
+            local_media.attributes.append(SDPAttribute('chatroom', ' '.join(self.chatroom_capabilities)))
         return local_media
 
     def send_message(self, content, content_type='text/plain', local_identity=None, recipients=None, courtesy_recipients=None, subject=None, timestamp=None, required=None, additional_headers=None):

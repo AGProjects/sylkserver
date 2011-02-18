@@ -30,7 +30,7 @@ class IRCConferenceApplication(object):
             session.reject(488)
             return
         # Disable private message capability
-        chat_stream.focus_capabilities = []
+        chat_stream.chatroom_capabilities = []
         self.pending_sessions.append(session)
         notification_center = NotificationCenter()
         notification_center.add_observer(self, sender=session)
