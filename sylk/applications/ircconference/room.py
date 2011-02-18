@@ -197,7 +197,7 @@ class IRCRoom(object):
         if self.conference_info_payload is None:
             settings = SIPSimpleSettings()
             conference_description = ConferenceDescription(display_text='#%s on %s' % (irc_configuration.channel, irc_configuration.server[0]), free_text='Hosted by %s' % settings.user_agent)
-            host_info = HostInfo(web_page=WebPage('http://sylkserver.com'))
+            host_info = HostInfo(web_page=WebPage(irc_configuration.website))
             self.conference_info_payload = Conference(self.identity.uri, conference_description=conference_description, host_info=host_info, users=Users())
         user_count = len(set(str(s.remote_identity.uri) for s in self.sessions)) + len(irc_participants)
         self.conference_info_payload.conference_state = ConferenceState(user_count=user_count, active=True)

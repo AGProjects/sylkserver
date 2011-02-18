@@ -27,4 +27,5 @@ class IRCConferenceConfig(ConfigSection):
 
     channel = 'test'
     server = ConfigSetting(type=IRCServer, value='irc.freenode.net:6667')
+    website = 'http://sylkserver.com'
 
