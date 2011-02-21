@@ -2,6 +2,7 @@
 #
 
 import random
+import urllib
 
 from application import log
 from application.notification import IObserver, NotificationCenter, NotificationData
@@ -217,7 +218,7 @@ class IRCRoom(object):
                 endpoint.append(Media(id(stream), media_type=format_conference_stream_type(stream)))
             user.append(endpoint)
         for nick in irc_participants:
-            irc_uri = '%s@%s' % (nick, irc_configuration.server[0])
+            irc_uri = '%s@%s' % (urllib.quote(nick), irc_configuration.server[0])
             user = User(irc_uri, display_text=nick)
             users.append(user)
             endpoint = Endpoint(irc_uri, display_text=nick)
