@@ -7,6 +7,8 @@ SIP SIMPLE SDK settings extensions.
 
 __all__ = ['AccountExtension', 'BonjourAccountExtension', 'SylkServerSettingsExtension']
 
+import os
+
 from sipsimple.account import MSRPSettings as AccountMSRPSettings, NATTraversalSettings as AccountNATTraversalSettings
 from sipsimple.account import RTPSettings as AccountRTPSettings, SIPSettings as AccountSIPSettings, TLSSettings as AccountTLSSettings
 from sipsimple.configuration import CorrelatedSetting, Setting, SettingsObjectExtension
@@ -38,7 +40,7 @@ class AccountSIPSettingsExtension(AccountSIPSettings):
     register = Setting(type=bool, default=False)
 
 
-tls_certificate = Path(ServerConfig.certificate) if ServerConfig.certificate else None
+tls_certificate = Path(ServerConfig.certificate) if ServerConfig.certificate and os.path.isfile(ServerConfig.certificate) else None
 class AccountTLSSettingsExtension(AccountTLSSettings):
     certificate = Setting(type=Path, default=tls_certificate, nillable=True)
     verify_server = Setting(type=bool, default=ServerConfig.verify_server)
@@ -103,7 +105,7 @@ class SIPSettingsExtension(SIPSettings):
     transport_list = Setting(type=SIPTransportList, default=transport_list)
 
 
-ca_list = Path(ServerConfig.ca_file) if ServerConfig.ca_file else None
+ca_list = Path(ServerConfig.ca_file) if ServerConfig.ca_file and os.path.isfile(ServerConfig.ca_file) else None
 class TLSSettingsExtension(TLSSettings):
     ca_list = Setting(type=Path, default=ca_list, nillable=True)
 
