@@ -8,7 +8,7 @@ from application.python.util import Null
 from eventlet import api
 from sipsimple.configuration.settings import SIPSimpleSettings
 from sipsimple.core import Invitation, SIPCoreError, sip_status_messages
-from sipsimple.core import ContactHeader, RouteHeader
+from sipsimple.core import RouteHeader
 from sipsimple.core import SDPConnection, SDPSession
 from sipsimple.session import Session, InvitationDidFailError, MediaStreamDidFailError, transition_state
 from sipsimple.threading.green import run_in_green_thread
@@ -19,7 +19,7 @@ class ServerSession(Session):
 
     @transition_state(None, 'connecting')
     @run_in_green_thread
-    def connect(self, from_header, to_header, routes, streams, is_focus=False, extra_headers=[]):
+    def connect(self, from_header, to_header, contact_header, routes, streams, is_focus=False, extra_headers=[]):
         self.greenlet = api.getcurrent()
         notification_center = NotificationCenter()
         settings = SIPSimpleSettings()
@@ -50,16 +50,7 @@ class ServerSession(Session):
                 notification = self._channel.wait()
                 if notification.name == 'MediaStreamDidInitialize':
                     wait_count -= 1
-            try:
-                contact_uri = self.account.contact[self.route]
-            except KeyError, e:
-                for stream in self.proposed_streams:
-                    notification_center.remove_observer(self, sender=stream)
-                    stream.deactivate()
-                    stream.end()
-                self._fail(originator='local', code=480, reason=sip_status_messages[480], error=str(e))
-                return
-            local_ip = contact_uri.host
+            local_ip = contact_header.uri.host
             local_sdp = SDPSession(local_ip, connection=SDPConnection(local_ip), name=settings.user_agent)
             stun_addresses = []
             for index, stream in enumerate(self.proposed_streams):
@@ -70,7 +61,6 @@ class ServerSession(Session):
             if stun_addresses:
                 local_sdp.connection.address = stun_addresses[0]
             route_header = RouteHeader(self.route.get_uri())
-            contact_header = ContactHeader(contact_uri)
             if is_focus:
                 contact_header.parameters['isfocus'] = None
             self._invitation.send_invite(to_header.uri, from_header, to_header, route_header, contact_header, local_sdp, extra_headers=extra_headers)
