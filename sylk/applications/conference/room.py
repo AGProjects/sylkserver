@@ -282,11 +282,11 @@ class Room(object):
             log.warning(u"Error playing file %s: %s" % (file, e))
 
     @run_in_green_thread
-    def play_audio_welcome(self, session, play_welcome=True):
+    def play_audio_welcome(self, session, welcome_prompt=True):
         audio_stream = (stream for stream in session.streams if stream.type == 'audio').next()
         player = WavePlayer(audio_stream.mixer, '', pause_time=1, initial_play=False, volume=50)
         audio_stream.bridge.add(player)
-        if play_welcome:
+        if welcome_prompt:
             file = ResourcePath('sounds/co_welcome_conference.wav').normalized
             self._play_file_in_player(player, file, 1)
         user_count = len(set(str(s.remote_identity.uri) for s in self.sessions if any(stream for stream in s.streams if stream.type == 'audio')) - set([str(session.remote_identity.uri)]))
