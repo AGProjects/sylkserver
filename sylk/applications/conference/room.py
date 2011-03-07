@@ -16,7 +16,7 @@ from sipsimple.application import SIPApplication
 from sipsimple.audio import WavePlayer, WavePlayerError
 from sipsimple.conference import AudioConference
 from sipsimple.configuration.settings import SIPSimpleSettings
-from sipsimple.core import FromHeader, ToHeader, RouteHeader, SIPURI, Message, SIPCoreInvalidStateError
+from sipsimple.core import FromHeader, ToHeader, RouteHeader, SIPURI, Message, SIPCoreError, SIPCoreInvalidStateError
 from sipsimple.lookup import DNSLookup, DNSLookupError
 from sipsimple.payloads.conference import Conference, ConferenceDescription, ConferenceState, Endpoint, EndpointStatus, HostInfo, JoiningInfo, Media, User, Users, WebPage
 from sipsimple.payloads.iscomposing import IsComposingMessage, State, LastActive, Refresh, ContentType
@@ -239,7 +239,7 @@ class Room(object):
         for subscription in (subscription for subscription in self.subscriptions if subscription.state == 'active'):
             try:
                 subscription.push_content(Conference.content_type, data)
-            except SIPCoreInvalidStateError:
+            except (SIPCoreError, SIPCoreInvalidStateError):
                 pass
 
     @run_in_green_thread
