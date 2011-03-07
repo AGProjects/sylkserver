@@ -141,6 +141,7 @@ class Room(object):
             return
         self.state = 'stopped'
         self.message_dispatcher.kill(proc.ProcExit)
+        self.moh_player.stop()
         self.moh_player = None
         self.audio_conference = None
 
@@ -593,16 +594,14 @@ class MoHPlayer(object):
 
     def __init__(self, conference):
         self.conference = conference
-        self.disabled = False
         self.files = None
-        self.paused = False
+        self.paused = True
         self._player = None
 
     def initialize(self):
         files = glob('%s/*.wav' % ResourcePath('sounds/moh').normalized)
         if not files:
             log.error(u'No files found, MoH is disabled')
-            self.disabled = True
             return
         random.shuffle(files)
         self.files = cycle(files)
@@ -612,22 +611,22 @@ class MoHPlayer(object):
         notification_center.add_observer(self, sender=self._player)
 
     def stop(self):
-        if self.disabled:
+        if self._player is None:
             return
         notification_center = NotificationCenter()
         notification_center.remove_observer(self, sender=self._player)
-        self.conference.bridge.remove(self, self._player)
+        self.conference.bridge.remove(self._player)
         self._player.stop()
         self._player = None
 
     def play(self):
-        if not self.disabled:
+        if self._player is not None and self.paused:
             self.paused = False
             self._play_next_file()
             log.msg(u'Started playing music on hold')
 
     def pause(self):
-        if not self.disabled:
+        if self._player is not None and not self.paused:
             self.paused = True
             self._player.stop()
             log.msg(u'Stopped playing music on hold')
