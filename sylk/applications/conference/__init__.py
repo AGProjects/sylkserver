@@ -150,7 +150,7 @@ class IncomingReferralHandler(object):
         self.streams = []
 
     def start(self):
-        if not re.match('^(sip:|sips:).*'):
+        if not re.match('^(sip:|sips:).*', self.refer_to_uri):
             self.refer_to_uri = 'sip:%s' % self.refer_to_uri
         try:
             self.refer_to_uri = SIPURI.parse(self.refer_to_uri)
