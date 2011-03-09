@@ -41,6 +41,9 @@
 ; local_tcp_port = 5060
 ; local_tls_port =
 
+; If set all outbound SIP requests will be sent through this SIP proxy
+; outbound_proxy =
+
 
 [MSRP]
 

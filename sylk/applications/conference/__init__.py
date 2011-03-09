@@ -162,9 +162,16 @@ class IncomingReferralHandler(object):
         if self.method == 'invite':
             self._refer_request.accept()
             settings = SIPSimpleSettings()
+            account = AccountManager().default_account
+            if account.sip.outbound_proxy is not None:
+                uri = SIPURI(host=account.sip.outbound_proxy.host,
+                             port=account.sip.outbound_proxy.port,
+                             parameters={'transport': account.sip.outbound_proxy.transport})
+            else:
+                uri = self.refer_to_uri
             lookup = DNSLookup()
             notification_center.add_observer(self, sender=lookup)
-            lookup.lookup_sip_proxy(self.refer_to_uri, settings.sip.transport_list)
+            lookup.lookup_sip_proxy(uri, settings.sip.transport_list)
         elif self.method == 'bye':
             self._refer_request.accept()
             conference_application = ConferenceApplication()

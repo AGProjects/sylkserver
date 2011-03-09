@@ -4,7 +4,7 @@
 from application.configuration import ConfigSection, ConfigSetting
 from application.configuration.datatypes import StringList
 from application.system import host
-from sipsimple.configuration.datatypes import NonNegativeInteger, SRTPEncryption
+from sipsimple.configuration.datatypes import NonNegativeInteger, SIPProxyAddress, SRTPEncryption
 
 from sylk import configuration_filename
 from sylk.configuration.datatypes import AudioCodecs, IPAddress, Port, PortRange
@@ -33,6 +33,7 @@ class SIPConfig(ConfigSection):
     local_udp_port = ConfigSetting(type=Port, value=5060)
     local_tcp_port = ConfigSetting(type=Port, value=5060)
     local_tls_port = ConfigSetting(type=Port, value=None)
+    outbound_proxy = ConfigSetting(type=SIPProxyAddress, value=None)
 
 
 class MSRPConfig(ConfigSection):

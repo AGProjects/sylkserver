@@ -12,7 +12,7 @@ import os
 from sipsimple.account import MSRPSettings as AccountMSRPSettings, NATTraversalSettings as AccountNATTraversalSettings
 from sipsimple.account import RTPSettings as AccountRTPSettings, SIPSettings as AccountSIPSettings, TLSSettings as AccountTLSSettings
 from sipsimple.configuration import CorrelatedSetting, Setting, SettingsObjectExtension
-from sipsimple.configuration.datatypes import AudioCodecList, MSRPTransport, NonNegativeInteger, Path, Port, PortRange, SampleRate, SIPTransportList, SRTPEncryption
+from sipsimple.configuration.datatypes import AudioCodecList, MSRPTransport, NonNegativeInteger, Path, Port, PortRange, SampleRate, SIPProxyAddress, SIPTransportList, SRTPEncryption
 from sipsimple.configuration.settings import AudioSettings, LogsSettings, RTPSettings, SIPSettings, TLSSettings
 
 from sylk import __version__ as server_version
@@ -38,6 +38,7 @@ class AccountRTPSettingsExtension(AccountRTPSettings):
 
 class AccountSIPSettingsExtension(AccountSIPSettings):
     register = Setting(type=bool, default=False)
+    outbound_proxy = Setting(type=SIPProxyAddress, default=SIPConfig.outbound_proxy, nillable=True)
 
 
 tls_certificate = Path(ServerConfig.certificate) if ServerConfig.certificate and os.path.isfile(ServerConfig.certificate) else None
