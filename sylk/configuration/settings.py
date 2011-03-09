@@ -12,12 +12,12 @@ import os
 from sipsimple.account import MSRPSettings as AccountMSRPSettings, NATTraversalSettings as AccountNATTraversalSettings
 from sipsimple.account import RTPSettings as AccountRTPSettings, SIPSettings as AccountSIPSettings, TLSSettings as AccountTLSSettings
 from sipsimple.configuration import CorrelatedSetting, Setting, SettingsObjectExtension
-from sipsimple.configuration.datatypes import AudioCodecList, MSRPTransport, NonNegativeInteger, Path, Port, PortRange, SampleRate, SIPTransportList, SRTPEncryption
+from sipsimple.configuration.datatypes import MSRPTransport, NonNegativeInteger, Path, PortRange, SampleRate, SIPTransportList, SRTPEncryption
 from sipsimple.configuration.settings import AudioSettings, LogsSettings, RTPSettings, SIPSettings, TLSSettings
 
 from sylk import __version__ as server_version
 from sylk.configuration import ServerConfig, SIPConfig, MSRPConfig, RTPConfig
-from sylk.configuration.datatypes import SIPProxyAddress
+from sylk.configuration.datatypes import AudioCodecs, Port, SIPProxyAddress
 
 
 # Account settings extensions
@@ -31,7 +31,7 @@ class AccountNATTraversalSettingsExtension(AccountNATTraversalSettings):
     use_msrp_relay_for_outbound = Setting(type=bool, default=False)
 
 class AccountRTPSettingsExtension(AccountRTPSettings):
-    audio_codec_list = Setting(type=AudioCodecList, default=RTPConfig.audio_codecs, nillable=True)
+    audio_codec_list = Setting(type=AudioCodecs, default=RTPConfig.audio_codecs, nillable=True)
     srtp_encryption = Setting(type=SRTPEncryption, default=RTPConfig.srtp_encryption)
     use_srtp_without_tls = Setting(type=bool, default=True)
 
