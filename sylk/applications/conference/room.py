@@ -12,6 +12,7 @@ from application import log
 from application.notification import IObserver, NotificationCenter
 from application.python.util import Null, Singleton
 from eventlet import coros, proc
+from itertools import chain
 from sipsimple.application import SIPApplication
 from sipsimple.audio import WavePlayer, WavePlayerError
 from sipsimple.conference import AudioConference
@@ -125,6 +126,10 @@ class Room(object):
     @property
     def started(self):
         return self.state == 'started'
+
+    @property
+    def active_media(self):
+        return set((stream.type for stream in chain(*(session.streams for session in self.sessions if session.streams))))
 
     def start(self):
         if self.state != 'stopped':

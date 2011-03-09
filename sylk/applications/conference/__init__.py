@@ -188,8 +188,13 @@ class IncomingReferralHandler(object):
         notification_center = NotificationCenter()
         notification_center.remove_observer(self, sender=notification.sender)
         account = AccountManager().default_account
-        self.streams.append(AudioStream(account))
-        self.streams.append(ChatStream(account))
+        active_media = Room.get_room(self.room_uri).active_media
+        if not active_media:
+            return
+        if 'audio' in active_media:
+            self.streams.append(AudioStream(account))
+        if 'chat' in active_media:
+            self.streams.append(ChatStream(account))
         self.session = ServerSession(account)
         notification_center.add_observer(self, sender=self.session)
         original_from_header = self._refer_headers.get('From')
