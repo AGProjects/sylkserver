@@ -167,13 +167,9 @@ class IncomingReferralHandler(object):
             lookup.lookup_sip_proxy(self.refer_to_uri, settings.sip.transport_list)
         elif self.method == 'bye':
             self._refer_request.accept()
-            try:
-                conference_application = ConferenceApplication()
-                conference_application.remove_participant(self.refer_to_uri, self.room_uri)
-            except RoomError:
-                self._refer_request.end(404)
-            else:
-                self._refer_request.end(200)
+            conference_application = ConferenceApplication()
+            conference_application.remove_participant(self.refer_to_uri, self.room_uri)
+            self._refer_request.end(200)
         else:
             self._refer_request.reject(488)
 
