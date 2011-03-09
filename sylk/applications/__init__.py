@@ -31,6 +31,9 @@ class ISylkApplication(Interface):
     def incoming_subscription(self, subscribe_request, data):
         pass
 
+    def incoming_referral(self, refer_request, data):
+        pass
+
     def incoming_sip_message(self, message_request, data):
         pass
 
@@ -80,12 +83,14 @@ class IncomingRequestHandler(object):
         notification_center = NotificationCenter()
         notification_center.add_observer(self, name='SIPSessionNewIncoming')
         notification_center.add_observer(self, name='SIPIncomingSubscriptionGotSubscribe')
+        notification_center.add_observer(self, name='SIPIncomingReferralGotRefer')
         notification_center.add_observer(self, name='SIPIncomingRequestGotRequest')
 
     def stop(self):
         notification_center = NotificationCenter()
         notification_center.remove_observer(self, name='SIPSessionNewIncoming')
         notification_center.remove_observer(self, name='SIPIncomingSubscriptionGotSubscribe')
+        notification_center.remove_observer(self, name='SIPIncomingReferralGotRefer')
         notification_center.remove_observer(self, name='SIPIncomingRequestGotRequest')
 
     @run_in_twisted_thread
@@ -112,6 +117,16 @@ class IncomingRequestHandler(object):
             log.error('Application %s is not loaded' % application)
         else:
             app.incoming_subscription(subscribe_request, notification.data)
+
+    def _NH_SIPIncomingReferralGotRefer(self, notification):
+        refer_request = notification.sender
+        application = self.application_map.get(notification.data.request_uri.user, ServerConfig.default_application)
+        try:
+            app = (app for app in ApplicationRegistry() if app.__appname__ == application).next()
+        except StopIteration:
+            log.error('Application %s is not loaded' % application)
+        else:
+            app.incoming_referral(refer_request, notification.data)
 
     def _NH_SIPIncomingRequestGotRequest(self, notification):
         request = notification.sender

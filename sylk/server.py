@@ -94,7 +94,8 @@ class SylkServer(SIPApplication):
                        log_level=settings.logs.pjsip_level,
                        trace_sip=True,
                        # events and requests to handle
-                       events={"conference": ["application/conference-info+xml"]},
+                       events={"conference": ["application/conference-info+xml"],
+                               "refer": ["message/sipfrag;version=2.0"]},
                        incoming_events=set(['conference']),
                        incoming_requests=set(['MESSAGE'])
                       )

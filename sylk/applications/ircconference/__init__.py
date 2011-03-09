@@ -53,6 +53,9 @@ class IRCConferenceApplication(object):
                return
         room.handle_incoming_subscription(subscribe_request, data)
 
+    def incoming_referral(self, refer_request, data):
+        pass
+
     def incoming_sip_message(self, message_request, data):
         pass
 

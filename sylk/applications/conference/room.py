@@ -388,6 +388,12 @@ class Room(object):
         if str(session.remote_identity.uri) not in set(str(s.remote_identity.uri) for s in self.sessions if s is not session):
             self.dispatch_server_message('%s has left the room after %s' % (format_identity(session.remote_identity), format_session_duration(session)))
 
+    def terminate_sessions(self, uri):
+        if not self.started:
+            return
+        for session in (session for session in self.sessions if session.remote_identity.uri == uri):
+            session.end()
+
     def handle_incoming_sip_message(self, message_request, data):
         content_type = data.headers.get('Content-Type', Null)[0]
         from_header = data.headers.get('From', Null)
