@@ -6,7 +6,7 @@ import re
 import socket
 import sys
 
-from sipsimple.configuration.datatypes import AudioCodecList
+from sipsimple.configuration.datatypes import AudioCodecList, Hostname, SIPTransport
 from sipsimple.util import classproperty
 
 
@@ -95,5 +95,50 @@ class PortRange(object):
         allowed = xrange(1024, 65537, 2)
         if not (self.start in allowed and self.end in allowed and self.start < self.end):
             raise ValueError("bad range: %r: ports must be even numbers in the range [1024, 65536] with start < end" % value)
+
+class SIPProxyAddress(object):
+    _description_re = re.compile(r"^(?P<host>(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})|([a-zA-Z0-9\-_]+(\.[a-zA-Z0-9\-_]+)*))(:(?P<port>\d+))?(;transport=(?P<transport>.+))?$")
+
+    def __new__(cls, description):
+        if not description:
+            return None
+        if not cls._description_re.match(description):
+            raise ValueError("illegal SIP proxy address: %s" % description)
+        return super(SIPProxyAddress, cls).__new__(cls)
+
+    def __init__(self, description):
+        match = self.__class__._description_re.match(description)
+        data = match.groupdict()
+        host = data.get('host')
+        port = data.get('port', None) or 5060
+        transport = data.get('transport', None) or 'udp'
+        self.host = Hostname(host)
+        self.port = Port(port)
+        if self.port == 0:
+            raise ValueError("illegal port value: 0")
+        self.transport = SIPTransport(transport)
+
+    def __getstate__(self):
+        return unicode(self)
+
+    def __setstate__(self, state):
+        if not self.__class__._description_re.match(state):
+            raise ValueError("illegal SIP proxy address: %s" % state)
+        self.__init__(state)
+
+    def __eq__(self, other):
+        try:
+            return (self.host, self.port, self.transport) == (other.host, other.port, other.transport)
+        except AttributeError:
+            return False
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
+    def __hash__(self):
+        return hash((self.host, self.port, self.transport))
+
+    def __unicode__(self):
+        return u'%s:%d;transport=%s' % (self.host, self.port, self.transport)
 
 
