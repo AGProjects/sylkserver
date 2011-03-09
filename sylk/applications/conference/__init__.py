@@ -16,7 +16,7 @@ from zope.interface import implements
 
 from sylk.applications import ISylkApplication, sylk_application
 from sylk.applications.conference.configuration import ConferenceConfig
-from sylk.applications.conference.room import Room, RoomError
+from sylk.applications.conference.room import Room
 from sylk.configuration import SIPConfig
 from sylk.extensions import ChatStream
 from sylk.session import ServerSession
