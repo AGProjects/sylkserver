@@ -622,6 +622,7 @@ class MoHPlayer(object):
         notification_center = NotificationCenter()
         notification_center.remove_observer(self, sender=self._player)
         self.conference.bridge.remove(self._player)
+        self.conference = None
         self._player.stop()
         self._player = None
 
