@@ -8,7 +8,7 @@ from application.python.util import Null
 from eventlet import api
 from sipsimple.configuration.settings import SIPSimpleSettings
 from sipsimple.core import Invitation, SIPCoreError, sip_status_messages
-from sipsimple.core import RouteHeader
+from sipsimple.core import RouteHeader, SubjectHeader
 from sipsimple.core import SDPConnection, SDPSession
 from sipsimple.session import Session, InvitationDidFailError, MediaStreamDidFailError, transition_state
 from sipsimple.threading.green import run_in_green_thread
@@ -19,7 +19,7 @@ class ServerSession(Session):
 
     @transition_state(None, 'connecting')
     @run_in_green_thread
-    def connect(self, from_header, to_header, contact_header, routes, streams, is_focus=False, extra_headers=[]):
+    def connect(self, from_header, to_header, contact_header, routes, streams, is_focus=False, subject=None, extra_headers=[]):
         self.greenlet = api.getcurrent()
         notification_center = NotificationCenter()
         settings = SIPSimpleSettings()
@@ -37,6 +37,7 @@ class ServerSession(Session):
         self._invitation = Invitation()
         self._local_identity = from_header
         self._remote_identity = to_header
+        self.__dict__['subject'] = subject
         self.conference = Null
         notification_center.add_observer(self, sender=self._invitation)
         notification_center.post_notification('SIPSessionNewOutgoing', self, TimestampedNotificationData(streams=streams))
@@ -63,6 +64,8 @@ class ServerSession(Session):
             route_header = RouteHeader(self.route.get_uri())
             if is_focus:
                 contact_header.parameters['isfocus'] = None
+            if self.subject:
+                extra_headers.append(SubjectHeader(self.subject))
             self._invitation.send_invite(to_header.uri, from_header, to_header, route_header, contact_header, local_sdp, extra_headers=extra_headers)
             try:
                 with api.timeout(settings.sip.invite_timeout):

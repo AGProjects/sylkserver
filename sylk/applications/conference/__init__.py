@@ -190,6 +190,10 @@ class IncomingReferralHandler(object):
         self.session = ServerSession(account)
         notification_center.add_observer(self, sender=self.session)
         original_from_header = self._refer_headers.get('From')
+        if original_from_header.display_name:
+            original_identity = "%s <%s@%s>" % (original_from_header.display_name, original_from_header.uri.user, original_from_header.uri.host)
+        else:
+            original_identity = "%s@%s" % (original_from_header.uri.user, original_from_header.uri.host)
         from_header = FromHeader(SIPURI.new(self.room_uri))
         to_header = ToHeader(self.refer_to_uri)
         transport = notification.data.result[0].transport
@@ -198,8 +202,8 @@ class IncomingReferralHandler(object):
         extra_headers = []
         if self._refer_headers.get('Referred-By', None) is not None:
             extra_headers.append(Header.new(self._refer_headers.get('Referred-By')))
-        extra_headers.append(Header('Subject', 'Invitation to conference from: %s' % original_from_header.uri))
-        self.session.connect(from_header, to_header, contact_header, routes=notification.data.result, streams=self.streams, is_focus=True, extra_headers=extra_headers)
+        subject = u'Join conference request from: %s' % original_identity
+        self.session.connect(from_header, to_header, contact_header, routes=notification.data.result, streams=self.streams, is_focus=True, subject=subject, extra_headers=extra_headers)
 
     def _NH_DNSLookupDidFail(self, notification):
         NotificationCenter().remove_observer(self, sender=notification.sender)
