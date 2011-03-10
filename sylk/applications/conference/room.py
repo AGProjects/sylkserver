@@ -203,6 +203,8 @@ class Room(object):
                 chat_stream.send_message(message.body, message.content_type, local_identity=identity, recipients=[recipient], timestamp=message.timestamp)
             except ChatStreamError, e:
                 log.error(u'Error dispatching private message to %s: %s' % (s.remote_identity.uri, e))
+            except StopIteration:
+                continue
 
     def dispatch_iscomposing(self, session, data):
         for s in (s for s in self.sessions if s is not session):
@@ -227,6 +229,8 @@ class Room(object):
                 chat_stream.send_composing_indication(data.state, data.refresh, local_identity=identity)
             except ChatStreamError, e:
                 log.error(u'Error dispatching private composing indication to %s: %s' % (s.remote_identity.uri, e))
+            except StopIteration:
+                continue
 
     def dispatch_server_message(self, body, content_type='text/plain', exclude=None):
         for session in (session for session in self.sessions if session is not exclude):
