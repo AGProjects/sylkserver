@@ -64,6 +64,9 @@ def load_applications():
     map(__import__, app_list)
 
 
+class ApplicationNotLoadedError(Exception):
+    pass
+
 class IncomingRequestHandler(object):
     """
     Handle incoming requests and match them to applications.
@@ -71,8 +74,6 @@ class IncomingRequestHandler(object):
     __metaclass__ = Singleton
     implements(IObserver)
 
-    # TODO: implement a 'find_application' function which will get the appropriate application
-    # as defined in the configuration
     # TODO: apply ACLs (before or after?)
     def __init__(self):
         load_applications()
@@ -93,6 +94,16 @@ class IncomingRequestHandler(object):
         notification_center.remove_observer(self, name='SIPIncomingReferralGotRefer')
         notification_center.remove_observer(self, name='SIPIncomingRequestGotRequest')
 
+    def get_application(self, uri):
+        application = self.application_map.get(uri.user, ServerConfig.default_application)
+        try:
+            app = (app for app in ApplicationRegistry() if app.__appname__ == application).next()
+        except StopIteration:
+            log.error('Application %s is not loaded' % application)
+            raise ApplicationNotLoadedError
+        else:
+            return app
+
     @run_in_twisted_thread
     def handle_notification(self, notification):
         handler = getattr(self, '_NH_%s' % notification.name, Null)
@@ -100,31 +111,28 @@ class IncomingRequestHandler(object):
 
     def _NH_SIPSessionNewIncoming(self, notification):
         session = notification.sender
-        application = self.application_map.get(session._invitation.request_uri.user, ServerConfig.default_application)
         try:
-            app = (app for app in ApplicationRegistry() if app.__appname__ == application).next()
-        except StopIteration:
-            log.error('Application %s is not loaded' % application)
+            app = self.get_application(session._invitation.request_uri)
+        except ApplicationNotLoadedError:
+            pass
         else:
             app.incoming_session(session)
 
     def _NH_SIPIncomingSubscriptionGotSubscribe(self, notification):
         subscribe_request = notification.sender
-        application = self.application_map.get(notification.data.request_uri.user, ServerConfig.default_application)
         try:
-            app = (app for app in ApplicationRegistry() if app.__appname__ == application).next()
-        except StopIteration:
-            log.error('Application %s is not loaded' % application)
+            app = self.get_application(notification.data.request_uri)
+        except ApplicationNotLoadedError:
+            pass
         else:
             app.incoming_subscription(subscribe_request, notification.data)
 
     def _NH_SIPIncomingReferralGotRefer(self, notification):
         refer_request = notification.sender
-        application = self.application_map.get(notification.data.request_uri.user, ServerConfig.default_application)
         try:
-            app = (app for app in ApplicationRegistry() if app.__appname__ == application).next()
-        except StopIteration:
-            log.error('Application %s is not loaded' % application)
+            app = self.get_application(notification.data.request_uri)
+        except ApplicationNotLoadedError:
+            pass
         else:
             app.incoming_referral(refer_request, notification.data)
 
@@ -133,13 +141,11 @@ class IncomingRequestHandler(object):
         if notification.data.method != 'MESSAGE':
             request.answer(405)
             return
-        application = self.application_map.get(notification.data.request_uri.user, ServerConfig.default_application)
         try:
-            app = (app for app in ApplicationRegistry() if app.__appname__ == application).next()
-        except StopIteration:
-            log.error('Application %s is not loaded' % application)
+            app = self.get_application(notification.data.request_uri)
+        except ApplicationNotLoadedError:
+            pass
         else:
             app.incoming_sip_message(request, notification.data)
-
 
 
