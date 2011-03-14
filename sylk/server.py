@@ -7,18 +7,22 @@ from threading import Event
 
 from application import log
 from application.notification import NotificationCenter
+from eventlet import api, proc
 from sipsimple.account import Account, BonjourAccount, AccountManager
 from sipsimple.application import SIPApplication
 from sipsimple.audio import AudioDevice, RootAudioBridge
 from sipsimple.configuration import ConfigurationError
 from sipsimple.configuration.settings import SIPSimpleSettings
 from sipsimple.core import AudioMixer, Engine, SIPCoreError
+from sipsimple.lookup import DNSManager
 from sipsimple.session import SessionManager
+from sipsimple.threading import ThreadManager
+from sipsimple.threading.green import run_in_green_thread
 from sipsimple.util import TimestampedNotificationData
 from twisted.internet import reactor
 
 from sylk.applications import IncomingRequestHandler
-from sylk.configuration import SIPConfig
+from sylk.configuration import SIPConfig, ThorNodeConfig
 from sylk.configuration.backend import MemoryBackend
 from sylk.configuration.settings import AccountExtension, BonjourAccountExtension, SylkServerSettingsExtension
 from sylk.log import Logger
@@ -37,6 +41,7 @@ class SylkServer(SIPApplication):
     def start(self):
         notification_center = NotificationCenter()
         notification_center.add_observer(self, sender=self)
+        notification_center.add_observer(self, name='ThorNetworkGotFatalError')
 
         self.logger = Logger()
 
@@ -133,6 +138,52 @@ class SylkServer(SIPApplication):
         self.state = 'started'
         notification_center.post_notification('SIPApplicationDidStart', sender=self, data=TimestampedNotificationData())
 
+    @run_in_green_thread
+    def _shutdown_subsystems(self):
+        # cleanup internals
+        if self._wakeup_timer is not None and self._wakeup_timer.active():
+            self._wakeup_timer.cancel()
+        self._wakeup_timer = None
+
+        # shutdown SIPThor interface
+        sipthor_proc = proc.spawn(self._stop_sipthor)
+        sipthor_proc.wait()
+
+        # shutdown middleware components
+        dns_manager = DNSManager()
+        account_manager = AccountManager()
+        session_manager = SessionManager()
+        procs = [proc.spawn(dns_manager.stop), proc.spawn(account_manager.stop), proc.spawn(session_manager.stop)]
+        proc.waitall(procs)
+
+        # shutdown engine
+        engine = Engine()
+        engine.stop()
+        # TODO: timeout should be removed when the Engine is fixed so that it never hangs. -Saul
+        try:
+            with api.timeout(15):
+                while True:
+                    notification = self._channel.wait()
+                    if notification.name == 'SIPEngineDidEnd':
+                        break
+        except api.TimeoutError:
+            pass
+        # stop threads
+        thread_manager = ThreadManager()
+        thread_manager.stop()
+        # stop the reactor
+        reactor.stop()
+
+    def _start_sipthor(self):
+        if ThorNodeConfig.enabled:
+            from sylk.interfaces.sipthor import ConferenceNode
+            ConferenceNode()
+
+    def _stop_sipthor(self):
+        if ThorNodeConfig.enabled:
+            from sylk.interfaces.sipthor import ConferenceNode
+            ConferenceNode().stop()
+
     def _NH_SIPApplicationFailedToStartTLS(self, notification):
         log.fatal("Couldn't set TLS options: %s" % notification.data.error)
 
@@ -159,6 +210,8 @@ class SylkServer(SIPApplication):
                 log.msg("%s:%d (%s)" % (local_ip, getattr(engine, '%s_port' % transport), transport.upper()))
             except TypeError:
                 pass
+        # Start SIPThor interface
+        proc.spawn(self._start_sipthor)
 
     def _NH_SIPApplicationWillEnd(self, notification):
         self.request_handler.stop()
@@ -170,4 +223,6 @@ class SylkServer(SIPApplication):
     def _NH_SIPEngineGotException(self, notification):
         log.error('An exception occured within the SIP core:\n%s\n' % notification.data.traceback)
 
+    def _NH_ThorNetworkGotFatalError(self, notification):
+        self.stop()
 

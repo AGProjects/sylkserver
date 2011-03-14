@@ -8,6 +8,7 @@ from sipsimple.configuration.datatypes import NonNegativeInteger, SRTPEncryption
 
 from sylk import configuration_filename
 from sylk.configuration.datatypes import AudioCodecs, IPAddress, Port, PortRange, SIPProxyAddress
+from sylk.tls import Certificate, PrivateKey
 
 
 class ServerConfig(ConfigSection):
@@ -51,5 +52,17 @@ class RTPConfig(ConfigSection):
     port_range = ConfigSetting(type=PortRange, value=PortRange('50000:50500'))
     srtp_encryption = ConfigSetting(type=SRTPEncryption, value='optional')
     timeout = ConfigSetting(type=NonNegativeInteger, value=30)
+
+
+class ThorNodeConfig(ConfigSection):
+    __cfgfile__ = configuration_filename
+    __section__ = 'ThorNetwork'
+
+    enabled = False
+    domain = "sipthor.net"
+    multiply = 1000
+    certificate = ConfigSetting(type=Certificate, value=None)
+    private_key = ConfigSetting(type=PrivateKey, value=None)
+    ca = ConfigSetting(type=Certificate, value=None)
 
 
