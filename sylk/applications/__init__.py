@@ -114,7 +114,7 @@ class IncomingRequestHandler(object):
         try:
             app = self.get_application(session._invitation.request_uri)
         except ApplicationNotLoadedError:
-            pass
+            session.reject(404)
         else:
             app.incoming_session(session)
 
@@ -123,7 +123,7 @@ class IncomingRequestHandler(object):
         try:
             app = self.get_application(notification.data.request_uri)
         except ApplicationNotLoadedError:
-            pass
+            subscribe_request.reject(404)
         else:
             app.incoming_subscription(subscribe_request, notification.data)
 
@@ -132,7 +132,7 @@ class IncomingRequestHandler(object):
         try:
             app = self.get_application(notification.data.request_uri)
         except ApplicationNotLoadedError:
-            pass
+            refer_request.reject(404)
         else:
             app.incoming_referral(refer_request, notification.data)
 
@@ -144,7 +144,7 @@ class IncomingRequestHandler(object):
         try:
             app = self.get_application(notification.data.request_uri)
         except ApplicationNotLoadedError:
-            pass
+            request.answer(404)
         else:
             app.incoming_sip_message(request, notification.data)
 
