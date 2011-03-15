@@ -44,6 +44,14 @@
 ; If set all outbound SIP requests will be sent through this SIP proxy
 ; outbound_proxy =
 
+; A comma-separated list of hosts or networks to trust.
+; The elements can be an IP address in CIDR format, a
+; hostname or an IP address (in the latter 2 a mask of 32
+; is assumed), or the special keywords 'any' and 'none'
+; (being equivalent to 0.0.0.0/0 and 0.0.0.0/32
+; respectively). It defaults to 'any'.
+; trusted_peers =
+
 
 [MSRP]
 

@@ -2,7 +2,7 @@
 #
 
 from application.configuration import ConfigSection, ConfigSetting
-from application.configuration.datatypes import StringList
+from application.configuration.datatypes import NetworkRangeList, StringList
 from application.system import host
 from sipsimple.configuration.datatypes import NonNegativeInteger, SRTPEncryption
 
@@ -35,6 +35,7 @@ class SIPConfig(ConfigSection):
     local_tcp_port = ConfigSetting(type=Port, value=5060)
     local_tls_port = ConfigSetting(type=Port, value=None)
     outbound_proxy = ConfigSetting(type=SIPProxyAddress, value=None)
+    trusted_peers = ConfigSetting(type=NetworkRangeList, value=NetworkRangeList('any'))
 
 
 class MSRPConfig(ConfigSection):
