@@ -76,6 +76,7 @@ class ConferenceApplication(object):
 
     def incoming_sip_message(self, message_request, data):
         if not ConferenceConfig.enable_sip_message:
+            message_request.answer(405)
             return
         room = Room.get_room(data.request_uri)
         if not room.started:
