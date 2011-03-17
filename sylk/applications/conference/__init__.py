@@ -203,7 +203,7 @@ class IncomingReferralHandler(object):
             original_identity = "%s <%s@%s>" % (original_from_header.display_name, original_from_header.uri.user, original_from_header.uri.host)
         else:
             original_identity = "%s@%s" % (original_from_header.uri.user, original_from_header.uri.host)
-        from_header = FromHeader(SIPURI.new(self.room_uri))
+        from_header = FromHeader(SIPURI.new(self.room_uri), u'Conference Call')
         to_header = ToHeader(self.refer_to_uri)
         transport = notification.data.result[0].transport
         parameters = {} if transport=='udp' else {'transport': transport}
