@@ -211,6 +211,8 @@ class IncomingReferralHandler(object):
         extra_headers = []
         if self._refer_headers.get('Referred-By', None) is not None:
             extra_headers.append(Header.new(self._refer_headers.get('Referred-By')))
+        else:
+            extra_headers.append(Header('Referred-By', str(original_from_header.uri)))
         if ThorNodeConfig.enabled:
             extra_headers.append(Header('Thor-Scope', 'conference-invitation'))
         subject = u'Join conference request from: %s' % original_identity
