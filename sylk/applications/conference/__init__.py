@@ -17,7 +17,7 @@ from zope.interface import implements
 from sylk.applications import ISylkApplication, sylk_application
 from sylk.applications.conference.configuration import ConferenceConfig
 from sylk.applications.conference.room import Room
-from sylk.configuration import SIPConfig
+from sylk.configuration import SIPConfig, ThorNodeConfig
 from sylk.extensions import ChatStream
 from sylk.session import ServerSession
 
@@ -211,6 +211,8 @@ class IncomingReferralHandler(object):
         extra_headers = []
         if self._refer_headers.get('Referred-By', None) is not None:
             extra_headers.append(Header.new(self._refer_headers.get('Referred-By')))
+        if ThorNodeConfig.enabled:
+            extra_headers.append(Header('Thor-Scope', 'conference-invitation'))
         subject = u'Join conference request from: %s' % original_identity
         self.session.connect(from_header, to_header, contact_header, routes=notification.data.result, streams=self.streams, is_focus=True, subject=subject, extra_headers=extra_headers)
 
