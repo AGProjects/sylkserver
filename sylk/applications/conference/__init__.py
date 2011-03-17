@@ -215,6 +215,7 @@ class IncomingReferralHandler(object):
             extra_headers.append(Header('Referred-By', str(original_from_header.uri)))
         if ThorNodeConfig.enabled:
             extra_headers.append(Header('Thor-Scope', 'conference-invitation'))
+        extra_headers.append(Header('X-Referrer-From', str(original_from_header.uri)))
         subject = u'Join conference request from: %s' % original_identity
         self.session.connect(from_header, to_header, contact_header, routes=notification.data.result, streams=self.streams, is_focus=True, subject=subject, extra_headers=extra_headers)
 
