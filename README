@@ -19,12 +19,12 @@ the license is available at http://www.fsf.org/licensing/licenses/agpl-3.0.html
 Description
 -----------
 
-SylkServer is a state of the art, extensible SIP Application Server
+SylkServer is an extensible SIP Application Server.
 
 SylkServer allows creation and delivery of rich multimedia applications
 accessed by SIP User Agents.  The server supports SIP signaling over TLS,
 TCP and UDP transports, RTP and MSRP media planes, has built in capabilities
-for creating ad-hoc SIP multimedia conferences with Wideband Audio, IM and
+for creating ad-hoc SIP multimedia conferences with wideband Audio, IM and
 File Transfer and can be easily extended with other applications by using
 Python programming language.
 
@@ -35,30 +35,31 @@ Features
 SIP Signaling
 
  - TLS, TCP and UDP transports
- - INVITE and MESSAGE for sessions
- - SUBSCRIBE/NOTIFY
+ - INVITE and REFER methods
+ - SUBSCRIBE/NOTIFY mechanism
+ - Protocol tracing to file
+ - Outbound Proxy support
+ - Trusted peers
 
 Audio
 
- - Wideband codecs (G722 and Speex)
- - Narrow-band codecs (G711 and GSM)
+ - Codecs: G722, Speex, G711 and GSM
  - sRTP encryption
  - RTP timeout
- - DTMF handling
  
 Instant Messaging
 
- - MSRP chat and SIP MESSAGE
+ - MSRP chat
  - CPIM envelope
- - Is-composing indicator
- - History buffer
+ - Is-composing
 
 Conferencing
 
- - RTP wideband mixer
- - MSRP Switch with private messgaing
- - Conference event package
+ - Wideband RTP mixer
+ - MSRP switch
  - isfocus support
+ - Conference event package
+ - Add/remove participants
 
 
 Built-in Applications
@@ -74,12 +75,8 @@ methods may contain one or more media types supported by the server.  Each
 conference room mixed audio, instant messages and uploded files are
 dispatched to all participants.
 
-SIP end-points that do not support MSRP chat can join the bridge by using
-audio only, they will receive the chat messages over the SIP signaling using
-SIP MESSAGE method, which is supported by many legacy end-points.  Messages
-sent to the room using SIP MESSAGE will be dispatched by either SIP MESSAGE
-or through established MSRP sessions depending on how the end-points have
-joined the room.
+One can remove or add participants by sending a REFER method to the
+conference URI.
 
 If a participant sends a file to the SIP URI of the room, the server will
 accept it, store it for the duration of the conference and offer it to all
@@ -104,3 +101,4 @@ The server implements relevant features from the following standards:
    5.2  INVITE: Adding a Participant by the Focus - Dial-Out
    5.5  REFER: Requesting a Focus to Add a New Resource to a Conference
    5.11 REFER with BYE: Requesting a Focus to Remove a Participant from a Conference
+
