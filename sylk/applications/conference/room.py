@@ -328,6 +328,8 @@ class Room(object):
                 self._play_file_in_player(player, file, 0.1)
             file = ResourcePath('sounds/co_more_participants.wav').normalized
             self._play_file_in_player(player, file, 0)
+        file = ResourcePath('sounds/connected_tone.wav').normalized
+        self._play_file_in_player(player, file, 0.1)
         audio_stream.bridge.remove(player)
         self.audio_conference.add(audio_stream)
         self.audio_conference.unhold()
