@@ -89,7 +89,7 @@ class ConferenceApplication(object):
             session.accept(streams, is_focus=True)
 
     def add_participant(self, session, room_uri):
-        log.msg('New outgoing session to %s' % session.remote_identity.uri)
+        log.msg('Outgoing session to %s started' % session.remote_identity.uri)
         notification_center = NotificationCenter()
         notification_center.add_observer(self, sender=session)
         room = Room.get_room(room_uri)
@@ -161,6 +161,7 @@ class IncomingReferralHandler(object):
         notification_center = NotificationCenter()
         notification_center.add_observer(self, sender=self._refer_request)
         if self.method == 'invite':
+            log.msg('%s added %s to %s' % (self._refer_headers.get('From').uri, self.refer_to_uri, self.room_uri))
             self._refer_request.accept()
             settings = SIPSimpleSettings()
             account = AccountManager().default_account
@@ -174,6 +175,7 @@ class IncomingReferralHandler(object):
             notification_center.add_observer(self, sender=lookup)
             lookup.lookup_sip_proxy(uri, settings.sip.transport_list)
         elif self.method == 'bye':
+            log.msg('%s removed %s from %s' % (self._refer_headers.get('From').uri, self.refer_to_uri, self.room_uri))
             self._refer_request.accept()
             conference_application = ConferenceApplication()
             conference_application.remove_participant(self.refer_to_uri, self.room_uri)
