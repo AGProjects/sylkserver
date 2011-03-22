@@ -12,6 +12,7 @@ from eventlet.twistedutil import block_on, callInGreenThread
 from gnutls.interfaces.twisted import X509Credentials
 from gnutls.constants import COMP_DEFLATE, COMP_LZO, COMP_NULL
 from sipsimple.util import TimestampedNotificationData
+from twisted.internet import defer
 
 from thor.eventservice import EventServiceClient, ThorEvent
 from thor.entities import ThorEntitiesRoleMap, GenericThorEntity as ThorEntity
@@ -73,8 +74,8 @@ class ConferenceNode(EventServiceClient):
         if self.shutdown_message:
             self._publish(self.shutdown_message)
         requests = [conn.protocol.unsubscribe(*self.topics) for conn in self.connections]
-        for request in requests:
-            block_on(request.deferred)
+        d = defer.DeferredList([request.deferred for request in requests])
+        block_on(d)
         self._disconnect_all()
 
     def handle_event(self, event):
