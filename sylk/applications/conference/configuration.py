@@ -79,7 +79,6 @@ class ConferenceConfig(ConfigSection):
 
     db_uri = ConfigSetting(type=str, value='sqlite:///var/lib/sylkserver/conference.sqlite')
     history_table = ConfigSetting(type=str, value='message_history')
-    enable_sip_message = False
     replay_history = 20
     access_policy = ConfigSetting(type=AccessPolicyValue, value=AccessPolicyValue('allow, deny'))
     allow = ConfigSetting(type=PolicySettingValue, value=PolicySettingValue('all'))

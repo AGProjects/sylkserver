@@ -13,9 +13,6 @@
 ; Playback the last messages after join a room
 ; replay_history = 20
 
-; Use MESSAGE for participants that joined a conference room with audio but without MSRP chat
-; enable_sip_message = False
-
 ; Apache style ACLs, applied to SIP domains or SIP URIs
 ; https://httpd.apache.org/docs/2.2/mod/mod_authz_host.html#order
 

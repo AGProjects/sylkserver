@@ -111,24 +111,7 @@ class ConferenceApplication(object):
         referral_handler.start()
 
     def incoming_sip_message(self, message_request, data):
-        from_header = data.headers.get('From', Null)
-        to_header = data.headers.get('To', Null)
-        if Null in (from_header, to_header):
-            message_request.answer(400)
-            return
-        if not ConferenceConfig.enable_sip_message:
-            message_request.answer(405)
-            return
-        try:
-            self.validate_acl(data.request_uri, from_header.uri)
-        except ACLValidationError:
-            message_request.answer(403)
-            return
-        room = Room.get_room(data.request_uri)
-        if not room.started:
-            message_request.answer(480)
-            return
-        room.handle_incoming_sip_message(message_request, data)
+        message_request.answer(405)
 
     def accept_session(self, session, streams):
         if session in self.pending_sessions:

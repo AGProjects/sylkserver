@@ -17,11 +17,9 @@ from sipsimple.application import SIPApplication
 from sipsimple.audio import WavePlayer, WavePlayerError
 from sipsimple.conference import AudioConference
 from sipsimple.configuration.settings import SIPSimpleSettings
-from sipsimple.core import FromHeader, ToHeader, RouteHeader, SIPURI, Message, SIPCoreError, SIPCoreInvalidStateError
-from sipsimple.lookup import DNSLookup, DNSLookupError
+from sipsimple.core import SIPCoreError, SIPCoreInvalidStateError
 from sipsimple.payloads.conference import Conference, ConferenceDescription, ConferenceState, Endpoint, EndpointStatus, HostInfo, JoiningInfo, Media, User, Users, WebPage
-from sipsimple.payloads.iscomposing import IsComposingMessage, State, LastActive, Refresh, ContentType
-from sipsimple.streams.applications.chat import CPIMIdentity, CPIMMessage, CPIMParserError
+from sipsimple.streams.applications.chat import CPIMIdentity
 from sipsimple.streams.msrp import ChatStreamError
 from sipsimple.threading import run_in_twisted_thread
 from sipsimple.threading.green import run_in_green_thread
@@ -167,9 +165,6 @@ class Room(object):
                     self.dispatch_message(session, data)
                 else:
                     self.dispatch_private_message(session, data)
-            elif message_type == 'sip_message':
-                database.async_save_message(format_identity(session.remote_identity, True), self.uri, data.body, data.content_type, unicode(data.sender), data.recipient, data.timestamp)
-                self.dispatch_message(session, data)
             elif message_type == 'composing_indication':
                 if data.sender.uri != session.remote_identity.uri:
                     return
@@ -185,9 +180,7 @@ class Room(object):
                 identity = CPIMIdentity.parse(format_identity(session.remote_identity, True))
                 chat_stream = (stream for stream in s.streams if stream.type == 'chat').next()
             except StopIteration:
-                # This session doesn't have a chat stream, send him a SIP MESSAGE
-                if ConferenceConfig.enable_sip_message:
-                    self.send_sip_message(session.remote_identity.uri, s.remote_identity.uri, message.content_type, message.body)
+                pass
             else:
                 try:
                     chat_stream.send_message(message.body, message.content_type, local_identity=identity, recipients=[self.identity], timestamp=message.timestamp)
@@ -216,10 +209,7 @@ class Room(object):
                 identity = CPIMIdentity.parse(format_identity(session.remote_identity, True))
                 chat_stream = (stream for stream in s.streams if stream.type == 'chat').next()
             except StopIteration:
-                # This session doesn't have a chat stream, send him a SIP MESSAGE
-                if ConferenceConfig.enable_sip_message:
-                    body = IsComposingMessage(state=State(data.state), refresh=Refresh(data.refresh), last_active=LastActive(data.last_active or datetime.now()), content_type=ContentType('text')).toxml()
-                    self.send_sip_message(session.remote_identity.uri, s.remote_identity.uri, IsComposingMessage.content_type, body)
+                pass
             else:
                 try:
                     chat_stream.send_composing_indication(data.state, data.refresh, local_identity=identity, recipients=[self.identity])
@@ -245,9 +235,7 @@ class Room(object):
             try:
                 chat_stream = (stream for stream in session.streams if stream.type == 'chat').next()
             except StopIteration:
-                # This session doesn't have a chat stream, send him a SIP MESSAGE
-                if ConferenceConfig.enable_sip_message:
-                    self.send_sip_message(self.identity.uri, session.remote_identity.uri, content_type, body)
+                pass
             else:
                 chat_stream.send_message(body, content_type, local_identity=self.identity, recipients=[self.identity])
         self_identity = format_identity(self.identity, cpim_format=True)
@@ -260,25 +248,6 @@ class Room(object):
                 subscription.push_content(Conference.content_type, data)
             except (SIPCoreError, SIPCoreInvalidStateError):
                 pass
-
-    @run_in_green_thread
-    def send_sip_message(self, from_uri, to_uri, content_type, body):
-        lookup = DNSLookup()
-        settings = SIPSimpleSettings()
-        try:
-            routes = lookup.lookup_sip_proxy(to_uri, settings.sip.transport_list).wait()
-        except DNSLookupError:
-            log.warning(u'DNS lookup error while looking for %s proxy' % to_uri)
-        else:
-            route = routes.pop(0)
-            from_header = FromHeader(self.identity.uri)
-            to_header = ToHeader(SIPURI.new(to_uri))
-            route_header = RouteHeader(route.get_uri())
-            sender = CPIMIdentity(from_uri)
-            for chunk in chunks(body, 1000):
-                msg = CPIMMessage(chunk, content_type, sender=sender, recipients=[self.identity])
-                message_request = Message(from_header, to_header, route_header, 'message/cpim', str(msg))
-                message_request.send()
 
     def render_text_welcome(self, session):
         txt = 'Welcome to the conference.'
@@ -413,51 +382,6 @@ class Room(object):
             return
         for session in (session for session in self.sessions if session.remote_identity.uri == uri):
             session.end()
-
-    def handle_incoming_sip_message(self, message_request, data):
-        content_type = data.headers.get('Content-Type', Null)[0]
-        from_header = data.headers.get('From', Null)
-        if content_type is Null or from_header is Null:
-            message_request.answer(400)
-            return
-        try:
-            # Take the first session which doesn't have a chat stream. This is needed because the 
-            # seession picked up here will later be ignored. It doesn't matter if we ignore a session
-            # without a chat stream, because that means we will send SIP MESSAGE, and it will fork, so
-            # everyone will get it.
-            session = (session for session in self.sessions if str(session.remote_identity.uri) == str(from_header.uri) and any(stream for stream in session.streams if stream.type != 'chat')).next()
-        except StopIteration:
-            # MESSAGE from a user which is not in this room
-            message_request.answer(503)
-            return
-        if content_type == 'message/cpim':
-            try:
-                message = CPIMMessage.parse(data.body)
-            except CPIMParserError:
-                message_request.answer(500)
-                return
-            else:
-                body = message.body
-                content_type = message.content_type
-                sender = message.sender or format_identity(from_header, cpim_format=True)
-                if message.timestamp is not None and isinstance(message.timestamp, Timestamp):
-                    timestamp = datetime.fromtimestamp(mktime(message.timestamp.timetuple()))
-                else:
-                    timestamp = datetime.now()
-        else:
-            body = data.body
-            sender = format_identity(from_header, cpim_format=True)
-            timestamp = datetime.now()
-        message_request.answer(200)
-
-        if content_type == IsComposingMessage.content_type:
-            return
-
-        log.msg(u'New incoming MESSAGE from %s' % session.remote_identity.uri)
-        self_identity = format_identity(self.identity, cpim_format=True)
-        message = SIPMessage(sender=sender, recipient=self_identity, content_type=content_type, body=body)
-        message.timestamp = timestamp
-        self.incoming_message_queue.send((session, 'sip_message', message))
 
     def build_conference_info_payload(self):
         if self.conference_info_payload is None:
