@@ -37,6 +37,7 @@ class ConferenceApplication(object):
     def __init__(self):
         self.rooms = set()
         self.pending_sessions = []
+        self.invited_participants_map = {}
 
     def validate_acl(self, room_uri, from_uri):
         room_uri = '%s@%s' % (room_uri.user, room_uri.host)
@@ -81,8 +82,11 @@ class ConferenceApplication(object):
             try:
                 self.validate_acl(to_header.uri, from_header.uri)
             except ACLValidationError:
-                subscribe_request.reject(403)
-                return
+                # Check if we need to skip the ACL because this was an invited participant
+                if not (str(from_header.uri) in self.invited_participants_map.get('%s@%s' % (data.request_uri.user, data.request_uri.host), {}) or
+                        str(from_header.uri) in self.invited_participants_map.get('%s@%s' % (to_header.uri.user, to_header.uri.host), {})):
+                    subscribe_request.reject(403)
+                    return
         room = Room.get_room(data.request_uri)
         if not room.started:
             room = Room.get_room(to_header.uri)
@@ -132,6 +136,11 @@ class ConferenceApplication(object):
 
     def add_participant(self, session, room_uri):
         log.msg('Outgoing session to %s started' % session.remote_identity.uri)
+        # Keep track of the invited participants, we must skip ACL policy
+        # for SUBSCRIBE requests
+        room_uri_str = '%s@%s' % (room_uri.user, room_uri.host)
+        d = self.invited_participants_map.setdefault(room_uri_str, {str(session.remote_identity.uri): 0})
+        d[str(session.remote_identity.uri)] += 1
         notification_center = NotificationCenter()
         notification_center.add_observer(self, sender=session)
         room = Room.get_room(room_uri)
@@ -163,6 +172,12 @@ class ConferenceApplication(object):
         if session.direction == 'incoming':
             room = Room.get_room(session._invitation.request_uri)    # FIXME
         else:
+            # Clear invited participants mapping
+            room_uri_str = '%s@%s' % (session.local_identity.uri.user, session.local_identity.uri.host)
+            d = self.invited_participants_map[room_uri_str]
+            d[str(session.remote_identity.uri)] -= 1
+            if d[str(session.remote_identity.uri)] == 0:
+                del d[str(session.remote_identity.uri)]
             room = Room.get_room(session.local_identity.uri)
         if session in room.sessions:
             # We could get this notifiction even if we didn't get SIPSessionDidStart
