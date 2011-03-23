@@ -15,7 +15,7 @@ from twisted.internet import reactor
 from zope.interface import implements
 
 from sylk.applications import ISylkApplication, sylk_application
-from sylk.applications.conference.configuration import ConferenceConfig
+from sylk.applications.conference.configuration import ConferenceConfig, get_room_config
 from sylk.applications.conference.room import Room
 from sylk.configuration import SIPConfig, ThorNodeConfig
 from sylk.extensions import ChatStream
@@ -24,6 +24,8 @@ from sylk.session import ServerSession
 # Initialize database
 from sylk.applications.conference import database
 
+
+class ACLValidationError(Exception): pass
 
 @sylk_application
 class ConferenceApplication(object):
@@ -36,12 +38,28 @@ class ConferenceApplication(object):
         self.rooms = set()
         self.pending_sessions = []
 
+    def validate_acl(self, room_uri, from_uri):
+        room_uri = '%s@%s' % (room_uri.user, room_uri.host)
+        cfg = get_room_config(room_uri)
+        if cfg.access_policy == 'allow,deny':
+            if cfg.allow.match(from_uri) and not cfg.deny.match(from_uri):
+                return
+            raise ACLValidationError
+        else:
+            if cfg.deny.match(from_uri) and not cfg.allow.match(from_uri):
+                raise ACLValidationError
+
     def incoming_session(self, session):
         log.msg('New incoming session from %s' % session.remote_identity.uri)
         audio_streams = [stream for stream in session.proposed_streams if stream.type=='audio']
         chat_streams = [stream for stream in session.proposed_streams if stream.type=='chat']
         if not audio_streams and not chat_streams:
             session.reject(488)
+            return
+        try:
+            self.validate_acl(session._invitation.request_uri, session.remote_identity.uri)
+        except ACLValidationError:
+            session.reject(403)
             return
         self.pending_sessions.append(session)
         notification_center = NotificationCenter()
@@ -52,10 +70,19 @@ class ConferenceApplication(object):
         reactor.callLater(4 if audio_streams else 0, self.accept_session, session, streams)
 
     def incoming_subscription(self, subscribe_request, data):
+        from_header = data.headers.get('From', Null)
         to_header = data.headers.get('To', Null)
-        if to_header is Null:
+        if Null in (from_header, to_header):
             subscribe_request.reject(400)
             return
+        try:
+            self.validate_acl(data.request_uri, from_header.uri)
+        except ACLValidationError:
+            try:
+                self.validate_acl(to_header.uri, from_header.uri)
+            except ACLValidationError:
+                subscribe_request.reject(403)
+                return
         room = Room.get_room(data.request_uri)
         if not room.started:
             room = Room.get_room(to_header.uri)
@@ -71,12 +98,27 @@ class ConferenceApplication(object):
         if Null in (from_header, to_header, refer_to_header):
             refer_request.reject(400)
             return
+        try:
+            self.validate_acl(data.request_uri, from_header.uri)
+        except ACLValidationError:
+            refer_request.reject(403)
+            return
         referral_handler = IncomingReferralHandler(refer_request, data)
         referral_handler.start()
 
     def incoming_sip_message(self, message_request, data):
+        from_header = data.headers.get('From', Null)
+        to_header = data.headers.get('To', Null)
+        if Null in (from_header, to_header):
+            message_request.answer(400)
+            return
         if not ConferenceConfig.enable_sip_message:
             message_request.answer(405)
+            return
+        try:
+            self.validate_acl(data.request_uri, from_header.uri)
+        except ACLValidationError:
+            message_request.answer(403)
             return
         room = Room.get_room(data.request_uri)
         if not room.started:
@@ -258,4 +300,5 @@ class IncomingReferralHandler(object):
 
     def _NH_SIPIncomingReferralDidEnd(self, notification):
         NotificationCenter().remove_observer(self, sender=notification.sender)
+
 

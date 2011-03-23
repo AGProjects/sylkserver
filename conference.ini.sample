@@ -16,3 +16,17 @@
 ; Use MESSAGE for participants that joined a conference room with audio but without MSRP chat
 ; enable_sip_message = False
 
+; Apache style ACLs, applied to SIP domains or SIP URIs
+; https://httpd.apache.org/docs/2.2/mod/mod_authz_host.html#order
+
+; Default policy
+; access_policy = allow, deny
+; allow = all
+; deny = none
+
+; ACLs may also be applied per room (overrides default policy):
+; [test@domain.com]
+; access_policy = allow, deny
+; allow = sip2sip.info, test@domain.com
+; deny = all
+
