@@ -11,7 +11,7 @@ from eventlet import coros, proc
 from sipsimple.audio import WavePlayer, WavePlayerError
 from sipsimple.conference import AudioConference
 from sipsimple.configuration.settings import SIPSimpleSettings
-from sipsimple.core import SIPURI, SIPCoreInvalidStateError
+from sipsimple.core import SIPURI, SIPCoreError, SIPCoreInvalidStateError
 from sipsimple.payloads.conference import Conference, ConferenceDescription, ConferenceState, Endpoint, EndpointStatus, HostInfo, JoiningInfo, Media, User, Users, WebPage
 from sipsimple.streams.applications.chat import CPIMIdentity
 from sipsimple.streams.msrp import ChatStreamError
@@ -152,31 +152,37 @@ class IRCRoom(object):
             try:
                 identity = CPIMIdentity.parse(format_identity(session.remote_identity, True))
                 chat_stream = (stream for stream in s.streams if stream.type == 'chat').next()
-                chat_stream.send_message(message.body, message.content_type, local_identity=identity, recipients=[self.identity], timestamp=message.timestamp)
-            except ChatStreamError, e:
-                log.error(u'Error dispatching message to %s: %s' % (s.remote_identity.uri, e))
             except StopIteration:
                 pass
+            else:
+                try:
+                    chat_stream.send_message(message.body, message.content_type, local_identity=identity, recipients=[self.identity], timestamp=message.timestamp)
+                except ChatStreamError, e:
+                    log.error(u'Error dispatching message to %s: %s' % (s.remote_identity.uri, e))
 
     def dispatch_irc_message(self, message):
         for session in self.sessions:
             try:
                 chat_stream = (stream for stream in session.streams if stream.type == 'chat').next()
-                chat_stream.send_message(message.body, message.content_type, local_identity=message.sender, recipients=[self.identity])
-            except ChatStreamError, e:
-                log.error(u'Error dispatching message to %s: %s' % (session.remote_identity.uri, e))
             except StopIteration:
                 pass
+            else:
+                try:
+                    chat_stream.send_message(message.body, message.content_type, local_identity=message.sender, recipients=[self.identity])
+                except ChatStreamError, e:
+                    log.error(u'Error dispatching message to %s: %s' % (session.remote_identity.uri, e))
 
     def dispatch_server_message(self, body, content_type='text/plain', exclude=None):
         for session in (session for session in self.sessions if session is not exclude):
             try:
                 chat_stream = (stream for stream in session.streams if stream.type == 'chat').next()
-                chat_stream.send_message(body, content_type, local_identity=self.identity, recipients=[self.identity])
-            except ChatStreamError, e:
-                log.error(u'Error dispatching message to %s: %s' % (session.remote_identity.uri, e))
             except StopIteration:
                 pass
+            else:
+                try:
+                    chat_stream.send_message(body, content_type, local_identity=self.identity, recipients=[self.identity])
+                except ChatStreamError, e:
+                    log.error(u'Error dispatching message to %s: %s' % (session.remote_identity.uri, e))
 
     def get_conference_info(self):
         # Send request to get participants list, we'll get a notification with it
@@ -190,7 +196,7 @@ class IRCRoom(object):
         for subscription in (subscription for subscription in self.subscriptions if subscription.state == 'active'):
            try:
                subscription.push_content(Conference.content_type, data)
-           except SIPCoreInvalidStateError:
+           except (SIPCoreError, SIPCoreInvalidStateError):
                pass
 
     def build_conference_info_payload(self, irc_participants):
@@ -300,11 +306,11 @@ class IRCRoom(object):
             log.warning(u"Error playing file %s: %s" % (file, e))
 
     @run_in_green_thread
-    def play_audio_welcome(self, session, play_welcome=True):
+    def play_audio_welcome(self, session, welcome_prompt=True):
         audio_stream = (stream for stream in session.streams if stream.type == 'audio').next()
         player = WavePlayer(audio_stream.mixer, '', pause_time=1, initial_play=False, volume=50)
         audio_stream.bridge.add(player)
-        if play_welcome:
+        if welcome_prompt:
             file = ResourcePath('sounds/co_welcome_conference.wav').normalized
             self._play_file_in_player(player, file, 1)
         user_count = len(set(str(s.remote_identity.uri) for s in self.sessions if any(stream for stream in s.streams if stream.type == 'audio')) - set([str(session.remote_identity.uri)]))
