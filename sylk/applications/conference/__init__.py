@@ -258,6 +258,4 @@ class IncomingReferralHandler(object):
 
     def _NH_SIPIncomingReferralDidEnd(self, notification):
         NotificationCenter().remove_observer(self, sender=notification.sender)
-        self._refer_request = None
-        self._refer_headers = None
 
