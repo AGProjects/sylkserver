@@ -1,3 +1,24 @@
+sylkserver (1.1.0) unstable; urgency=low
+
+  * Added incoming REFER support
+  * Added outgoing INVITE support
+  * Added SIP outbound proxy support
+  * Added Trusted Peers based on source IP address
+  * Added Access Control Lists support to conference application
+  * Added basic multi-application support
+  * Added IRC conference application
+  * Added SIPThor integration
+  * Fixed initialization of TLS settings
+  * Made session connect method receive the contact header
+  * Catch exception if outgoing NOTIFY could not be sent
+  * Fixed exception when sending private message to a participant without chat
+  * Refactored exception handling when sending chat messages
+  * Refactored application finding mechanism
+  * Reject incoming requests with 404 if application is not found
+  * Removed SIP MESSAGE support in conference application
+
+ -- Saul Ibarra <saul@ag-projects.com>  Fri, 18 Mar 2011 16:43:37 +0100
+
 sylkserver (1.0.1) unstable; urgency=low
 
   * Added unicode support
