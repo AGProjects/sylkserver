@@ -7,23 +7,24 @@
 
 ; db_uri = sqlite:///var/lib/sylkserver/conference.sqlite
 
-; Table for storing messages history
+; Database table name for storing messages history
 ; history_table = message_history
 
-; Playback the last messages after join a room
+; Replay last chat messages after joining a room
 ; replay_history = 20
 
-; Apache style ACLs, applied to SIP domains or SIP URIs
+; Access Lists Default Policy
+; Apache-style access lists for the caller using SIP domains or SIP URIs
 ; https://httpd.apache.org/docs/2.2/mod/mod_authz_host.html#order
-
-; Default policy
+;
 ; access_policy = allow, deny
 ; allow = all
 ; deny = none
 
-; ACLs may also be applied per room (overrides default policy):
+; Access Lists can be applied per room overriding the Default Policy
+;
 ; [test@domain.com]
 ; access_policy = allow, deny
-; allow = sip2sip.info, test@domain.com
+; allow = example.com, test@domain.com
 ; deny = all
 
