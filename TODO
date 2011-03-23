@@ -1,20 +1,11 @@
 TODO
 ----
 
-Next Release
-
- - Play beep to joining party
- - Room ACLs
  - Ability to CANCEL outgoing INVITE
- - Remove SIP MESSAGE support
-
-Future Release
-
  - Participants muting
  - Use ACM for MSRP
  - Room passwords
  - SIP Thor lookup
- - Graceful stop
  - External API (JSON or SOAP/XML)
 
 New Media
