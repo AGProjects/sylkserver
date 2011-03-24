@@ -122,7 +122,8 @@ class ConferenceApplication(object):
         # Keep track of the invited participants, we must skip ACL policy
         # for SUBSCRIBE requests
         room_uri_str = '%s@%s' % (room_uri.user, room_uri.host)
-        d = self.invited_participants_map.setdefault(room_uri_str, {str(session.remote_identity.uri): 0})
+        d = self.invited_participants_map.setdefault(room_uri_str, {})
+        d.setdefault(str(session.remote_identity.uri), 0)
         d[str(session.remote_identity.uri)] += 1
         notification_center = NotificationCenter()
         notification_center.add_observer(self, sender=session)
