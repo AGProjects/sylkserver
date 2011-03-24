@@ -15,7 +15,7 @@ from twisted.internet import reactor
 from zope.interface import implements
 
 from sylk.applications import ISylkApplication, sylk_application
-from sylk.applications.conference.configuration import ConferenceConfig, get_room_config
+from sylk.applications.conference.configuration import get_room_config
 from sylk.applications.conference.room import Room
 from sylk.configuration import SIPConfig, ThorNodeConfig
 from sylk.extensions import ChatStream
