@@ -541,7 +541,7 @@ class IRCBot(irc.IRCClient):
         if channel == self.nickname:
             self.msg(username, "Sorry, I don't support private messages, I'm a bot.")
             return
-        uri = SIPURI.parse('sip:%s@%s' % (username, self.factory.config.server[0]))
+        uri = SIPURI.parse('sip:%s@%s' % (urllib.quote(username), self.factory.config.server[0]))
         irc_message = IRCMessage(username, uri, message.decode('utf-8'))
         data = NotificationData(message=irc_message)
         NotificationCenter().post_notification('IRCBotGotMessage', self.factory, data)
