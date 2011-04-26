@@ -16,6 +16,7 @@ from sipsimple.configuration.settings import SIPSimpleSettings
 from sipsimple.core import AudioMixer, Engine, SIPCoreError
 from sipsimple.lookup import DNSManager
 from sipsimple.session import SessionManager
+from sipsimple.storage import MemoryStorage
 from sipsimple.threading import ThreadManager
 from sipsimple.threading.green import run_in_green_thread
 from sipsimple.util import TimestampedNotificationData
@@ -23,7 +24,6 @@ from twisted.internet import reactor
 
 from sylk.applications import IncomingRequestHandler
 from sylk.configuration import SIPConfig, ThorNodeConfig
-from sylk.configuration.backend import MemoryBackend
 from sylk.configuration.settings import AccountExtension, BonjourAccountExtension, SylkServerSettingsExtension
 from sylk.log import Logger
 
@@ -50,7 +50,7 @@ class SylkServer(SIPApplication):
         SIPSimpleSettings.register_extension(SylkServerSettingsExtension)
 
         try:
-            SIPApplication.start(self, MemoryBackend())
+            SIPApplication.start(self, MemoryStorage())
         except ConfigurationError, e:
             log.fatal("Error loading configuration: ",e)
             sys.exit(1)
@@ -60,6 +60,7 @@ class SylkServer(SIPApplication):
         account = Account("account@example.com")     # an account is required by AccountManager
         account_manager.default_account = account
 
+    @run_in_green_thread
     def _initialize_subsystems(self):
         account_manager = AccountManager()
         engine = Engine()
