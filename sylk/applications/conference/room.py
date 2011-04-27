@@ -10,8 +10,9 @@ from time import mktime
 
 from application import log
 from application.notification import IObserver, NotificationCenter
-from application.python.util import Null, Singleton
+from application.python.util import Null
 from eventlet import coros, proc
+from eventlet.api import GreenletExit
 from itertools import chain
 from sipsimple.application import SIPApplication
 from sipsimple.audio import WavePlayer, WavePlayerError
@@ -22,7 +23,7 @@ from sipsimple.payloads.conference import Conference, ConferenceDescription, Con
 from sipsimple.streams.applications.chat import CPIMIdentity
 from sipsimple.streams.msrp import ChatStreamError
 from sipsimple.threading import run_in_twisted_thread
-from sipsimple.threading.green import run_in_green_thread
+from sipsimple.threading.green import run_in_green_thread, run_in_waitable_green_thread
 from sipsimple.util import Timestamp
 from twisted.internet import reactor
 from zope.interface import implements
@@ -86,7 +87,6 @@ class Room(object):
     Object representing a conference room, it will handle the message dispatching
     among all the participants.
     """
-    __metaclass__ = Singleton
     implements(IObserver)
 
     def __init__(self, uri):
@@ -102,12 +102,6 @@ class Room(object):
         self.moh_player = None
         self.conference_info_payload = None
 
-    @classmethod
-    def get_room(cls, uri):
-        room_uri = '%s@%s' % (uri.user, uri.host)
-        room = cls(room_uri)
-        return room
-
     @property
     def empty(self):
         return len(self.sessions) == 0
@@ -117,11 +111,15 @@ class Room(object):
         return self.state == 'started'
 
     @property
+    def stopping(self):
+        return self.state in ('stopping', 'stopped')
+
+    @property
     def active_media(self):
         return set((stream.type for stream in chain(*(session.streams for session in self.sessions if session.streams))))
 
     def start(self):
-        if self.state != 'stopped':
+        if self.started:
             return
         self.message_dispatcher = proc.spawn(self._message_dispatcher)
         self.audio_conference = AudioConference()
@@ -130,14 +128,21 @@ class Room(object):
         self.moh_player.initialize()
         self.state = 'started'
 
+    @run_in_waitable_green_thread
     def stop(self):
-        if self.state != 'started':
+        if not self.started:
             return
-        self.state = 'stopped'
+        self.state = 'stopping'
+        self.incoming_message_queue.send_exception(GreenletExit)
+        self.incoming_message_queue = None
         self.message_dispatcher.kill(proc.ProcExit)
+        self.message_dispatcher = None
         self.moh_player.stop()
         self.moh_player = None
         self.audio_conference = None
+        self.conference_info_payload.cache = None
+        self.conference_info_payload = None
+        self.state = 'stopped'
 
     def _message_dispatcher(self):
         """Read from self.incoming_message_queue and dispatch the messages to other participants"""
@@ -240,65 +245,6 @@ class Room(object):
             except (SIPCoreError, SIPCoreInvalidStateError):
                 pass
 
-    def render_text_welcome(self, session):
-        txt = 'Welcome to the conference.'
-        user_count = len(set(str(s.remote_identity.uri) for s in self.sessions) - set([str(session.remote_identity.uri)]))
-        if user_count == 0:
-            txt += ' You are the first participant in the room.'
-        else:
-            if user_count == 1:
-                txt += ' There is one more participant in the room.'
-            else:
-                txt += ' There are %s more participants in the room.' % user_count
-        return txt
-
-    def _play_file_in_player(self, player, file, delay):
-        player.filename = file
-        player.pause_time = delay
-        try:
-            player.play().wait()
-        except WavePlayerError, e:
-            log.warning(u"Error playing file %s: %s" % (file, e))
-
-    @run_in_green_thread
-    def play_audio_welcome(self, session, welcome_prompt=True):
-        audio_stream = (stream for stream in session.streams if stream.type == 'audio').next()
-        player = WavePlayer(audio_stream.mixer, '', pause_time=1, initial_play=False, volume=50)
-        audio_stream.bridge.add(player)
-        if welcome_prompt:
-            file = ResourcePath('sounds/co_welcome_conference.wav').normalized
-            self._play_file_in_player(player, file, 1)
-        user_count = len(set(str(s.remote_identity.uri) for s in self.sessions if any(stream for stream in s.streams if stream.type == 'audio')) - set([str(session.remote_identity.uri)]))
-        if user_count == 0:
-            file = ResourcePath('sounds/co_only_one.wav').normalized
-            self._play_file_in_player(player, file, 0.5)
-        elif user_count == 1:
-            file = ResourcePath('sounds/co_there_is.wav').normalized
-            self._play_file_in_player(player, file, 0.5)
-        elif user_count < 100:
-            file = ResourcePath('sounds/co_there_are.wav').normalized
-            self._play_file_in_player(player, file, 0.2)
-            if user_count <= 24:
-                file = ResourcePath('sounds/bi_%d.wav' % user_count).normalized
-                self._play_file_in_player(player, file, 0.1)
-            else:
-                file = ResourcePath('sounds/bi_%d0.wav' % (user_count / 10)).normalized
-                self._play_file_in_player(player, file, 0.1)
-                file = ResourcePath('sounds/bi_%d.wav' % (user_count % 10)).normalized
-                self._play_file_in_player(player, file, 0.1)
-            file = ResourcePath('sounds/co_more_participants.wav').normalized
-            self._play_file_in_player(player, file, 0)
-        file = ResourcePath('sounds/connected_tone.wav').normalized
-        self._play_file_in_player(player, file, 0.1)
-        audio_stream.bridge.remove(player)
-        self.audio_conference.add(audio_stream)
-        self.audio_conference.unhold()
-        if len(self.audio_conference.streams) == 1:
-            # Play MoH
-            self.moh_player.play()
-        else:
-            self.moh_player.pause()
-
     def add_session(self, session):
         notification_center = NotificationCenter()
         notification_center.add_observer(self, sender=session)
@@ -309,13 +255,6 @@ class Room(object):
             pass
         else:
             notification_center.add_observer(self, sender=chat_stream)
-            remote_identity = CPIMIdentity.parse(format_identity(session.remote_identity, cpim_format=True))
-            # getting last messages may take time, so new messages can arrive before messages the last message from history
-            for msg in database.get_last_messages(self.uri, ConferenceConfig.replay_history):
-                recipient = CPIMIdentity.parse(msg.cpim_recipient)
-                sender = CPIMIdentity.parse(msg.cpim_sender)
-                if recipient.uri in (self.identity.uri, remote_identity.uri) or sender.uri == remote_identity.uri:
-                    chat_stream.send_message(msg.cpim_body, msg.cpim_content_type, local_identity=sender, recipients=[recipient], timestamp=msg.cpim_timestamp)
         try:
             audio_stream = (stream for stream in session.streams if stream.type == 'audio').next()
         except StopIteration:
@@ -326,8 +265,11 @@ class Room(object):
                                                                                       'encrypted' if audio_stream.srtp_active else 'unencrypted',
                                                                                       audio_stream.local_rtp_address, audio_stream.local_rtp_port,
                                                                                       audio_stream.remote_rtp_address, audio_stream.remote_rtp_port))
-            self.play_audio_welcome(session)
+
+        welcome_handler = WelcomeHandler(self, session)
+        welcome_handler.start()
         self.dispatch_conference_info()
+
         if len(self.sessions) == 1:
             log.msg(u'%s started conference %s %s' % (format_identity(session.remote_identity), self.uri, format_stream_types(session.streams)))
         else:
@@ -337,6 +279,8 @@ class Room(object):
 
     def remove_session(self, session):
         notification_center = NotificationCenter()
+        notification_center.remove_observer(self, sender=session)
+        self.sessions.remove(session)
         try:
             chat_stream = (stream for stream in session.streams or [] if stream.type == 'chat').next()
         except StopIteration:
@@ -359,8 +303,6 @@ class Room(object):
                 self.audio_conference.hold()
             elif len(self.audio_conference.streams) == 1:
                 self.moh_player.play()
-        notification_center.remove_observer(self, sender=session)
-        self.sessions.remove(session)
         self.dispatch_conference_info()
         log.msg(u'%s left conference %s after %s' % (format_identity(session.remote_identity), self.uri, format_session_duration(session)))
         if not self.sessions:
@@ -475,13 +417,6 @@ class Room(object):
                 pass
             else:
                 notification_center.add_observer(self, sender=chat_stream)
-                remote_identity = CPIMIdentity.parse(format_identity(session.remote_identity, cpim_format=True))
-                # getting last messages may take time, so new messages can arrive before messages the last message from history
-                for msg in database.get_last_messages(self.uri, ConferenceConfig.replay_history):
-                    recipient = CPIMIdentity.parse(msg.cpim_recipient)
-                    sender = CPIMIdentity.parse(msg.cpim_sender)
-                    if recipient.uri in (self.identity.uri, remote_identity.uri) or sender.uri == remote_identity.uri:
-                        chat_stream.send_message(msg.cpim_body, msg.cpim_content_type, local_identity=sender, recipients=[recipient], timestamp=msg.cpim_timestamp)
                 log.msg(u'%s has added chat to %s' % (format_identity(session.remote_identity), self.uri))
                 self.dispatch_server_message('%s has added chat' % format_identity(session.remote_identity), exclude=session)
             try:
@@ -496,7 +431,8 @@ class Room(object):
                                                                                           audio_stream.remote_rtp_address, audio_stream.remote_rtp_port))
                 log.msg(u'%s has added audio to %s' % (format_identity(session.remote_identity), self.uri))
                 self.dispatch_server_message('%s has added audio' % format_identity(session.remote_identity), exclude=session)
-                self.play_audio_welcome(session, False)
+            welcome_handler = WelcomeHandler(self, session)
+            welcome_handler.start(welcome_prompt=False)
         elif notification.data.action == 'remove':
             try:
                 chat_stream = (stream for stream in streams if stream.type == 'chat').next()
@@ -556,10 +492,9 @@ class MoHPlayer(object):
             return
         notification_center = NotificationCenter()
         notification_center.remove_observer(self, sender=self._player)
+        self._player.stop()
         self.conference.bridge.remove(self._player)
         self.conference = None
-        self._player.stop()
-        self._player = None
 
     def play(self):
         if self._player is not None and self.paused:
@@ -589,4 +524,120 @@ class MoHPlayer(object):
     def _NH_WavePlayerDidEnd(self, notification):
         if not self.paused:
             self._play_next_file()
+
+
+class InterruptWelcome(Exception): pass
+
+class WelcomeHandler(object):
+    implements(IObserver)
+
+    def __init__(self, room, session):
+        self.room = room
+        self.session = session
+        self.procs = proc.RunningProcSet()
+
+    @run_in_green_thread
+    def start(self, welcome_prompt=True):
+        notification_center = NotificationCenter()
+        notification_center.add_observer(self, sender=self.session)
+
+        self.procs.spawn(self.play_audio_welcome, welcome_prompt)
+        self.procs.spawn(self.render_chat_welcome, welcome_prompt)
+        self.procs.waitall()
+
+        notification_center.remove_observer(self, sender=self.session)
+        self.session = None
+        self.room = None
+
+    def play_file_in_player(self, player, file, delay):
+        player.filename = file
+        player.pause_time = delay
+        try:
+            player.play().wait()
+        except WavePlayerError, e:
+            log.warning(u"Error playing file %s: %s" % (file, e))
+
+    def play_audio_welcome(self, welcome_prompt):
+        try:
+            audio_stream = (stream for stream in self.session.streams if stream.type == 'audio').next()
+        except StopIteration:
+            return
+        try:
+            player = WavePlayer(audio_stream.mixer, '', pause_time=1, initial_play=False, volume=50)
+            audio_stream.bridge.add(player)
+            if welcome_prompt:
+                file = ResourcePath('sounds/co_welcome_conference.wav').normalized
+                self.play_file_in_player(player, file, 1)
+            user_count = len(set(str(s.remote_identity.uri) for s in self.room.sessions if any(stream for stream in s.streams if stream.type == 'audio')) - set([str(self.session.remote_identity.uri)]))
+            if user_count == 0:
+                file = ResourcePath('sounds/co_only_one.wav').normalized
+                self.play_file_in_player(player, file, 0.5)
+            elif user_count == 1:
+                file = ResourcePath('sounds/co_there_is.wav').normalized
+                self.play_file_in_player(player, file, 0.5)
+            elif user_count < 100:
+                file = ResourcePath('sounds/co_there_are.wav').normalized
+                self.play_file_in_player(player, file, 0.2)
+                if user_count <= 24:
+                    file = ResourcePath('sounds/bi_%d.wav' % user_count).normalized
+                    self.play_file_in_player(player, file, 0.1)
+                else:
+                    file = ResourcePath('sounds/bi_%d0.wav' % (user_count / 10)).normalized
+                    self.play_file_in_player(player, file, 0.1)
+                    file = ResourcePath('sounds/bi_%d.wav' % (user_count % 10)).normalized
+                    self.play_file_in_player(player, file, 0.1)
+                file = ResourcePath('sounds/co_more_participants.wav').normalized
+                self.play_file_in_player(player, file, 0)
+            file = ResourcePath('sounds/connected_tone.wav').normalized
+            self.play_file_in_player(player, file, 0.1)
+            audio_stream.bridge.remove(player)
+        except InterruptWelcome:
+            try:
+                audio_stream.bridge.remove(player)
+            except ValueError:
+                pass
+        else:
+            self.room.audio_conference.add(audio_stream)
+            self.room.audio_conference.unhold()
+            if len(self.room.audio_conference.streams) == 1:
+                self.room.moh_player.play()
+            else:
+                self.room.moh_player.pause()
+
+    def render_chat_welcome_prompt(self):
+        txt = 'Welcome to the conference.'
+        user_count = len(set(str(s.remote_identity.uri) for s in self.room.sessions) - set([str(self.session.remote_identity.uri)]))
+        if user_count == 0:
+            txt += ' You are the first participant in the room.'
+        else:
+            if user_count == 1:
+                txt += ' There is one more participant in the room.'
+            else:
+                txt += ' There are %s more participants in the room.' % user_count
+        return txt
+
+    def render_chat_welcome(self, welcome_prompt):
+        try:
+            chat_stream = (stream for stream in self.session.streams if stream.type == 'chat').next()
+        except StopIteration:
+            return
+        try:
+            #welcome_prompt = self.render_chat_welcome_prompt()
+            #chat_stream.send_message(welcome_prompt, 'text/plain', local_identity=self.room.identity, recipients=[self.room.identity])
+            remote_identity = CPIMIdentity.parse(format_identity(self.session.remote_identity, cpim_format=True))
+            for msg in database.get_last_messages(self.room.uri, ConferenceConfig.replay_history):
+                recipient = CPIMIdentity.parse(msg.cpim_recipient)
+                sender = CPIMIdentity.parse(msg.cpim_sender)
+                if recipient.uri in (self.room.identity.uri, remote_identity.uri) or sender.uri == remote_identity.uri:
+                    chat_stream.send_message(msg.cpim_body, msg.cpim_content_type, local_identity=sender, recipients=[recipient], timestamp=msg.cpim_timestamp)
+        except InterruptWelcome:
+            pass
+
+    def handle_notification(self, notification):
+        handler = getattr(self, '_NH_%s' % notification.name, Null)
+        handler(notification)
+
+    def _NH_SIPSessionWillEnd(self, notification):
+        self.procs.killall(InterruptWelcome)
+
 

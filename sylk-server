@@ -104,7 +104,9 @@ def main():
         sys.exit(1)
 
     if not options.fork and DEBUG:
+        print "---------------------"
         memory_dump()
+        print "---------------------"
 
 
 if __name__ == "__main__":

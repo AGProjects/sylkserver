@@ -11,6 +11,7 @@ from sipsimple.configuration.settings import SIPSimpleSettings
 from sipsimple.core import SIPURI, SIPCoreError, Header, ContactHeader, FromHeader, ToHeader
 from sipsimple.lookup import DNSLookup
 from sipsimple.streams import AudioStream
+from sipsimple.threading.green import run_in_green_thread
 from twisted.internet import reactor
 from zope.interface import implements
 
@@ -27,6 +28,9 @@ from sylk.applications.conference import database
 
 class ACLValidationError(Exception): pass
 
+class RoomNotFoundError(Exception): pass
+
+
 @sylk_application
 class ConferenceApplication(object):
     __metaclass__ = Singleton
@@ -35,9 +39,27 @@ class ConferenceApplication(object):
     __appname__ = 'conference'
 
     def __init__(self):
-        self.rooms = set()
+        self._rooms = {}
         self.pending_sessions = []
         self.invited_participants_map = {}
+
+    def get_room(self, uri, create=False):
+        room_uri = '%s@%s' % (uri.user, uri.host)
+        try:
+            room = self._rooms[room_uri]
+        except KeyError:
+            if create:
+                room = Room(room_uri)
+                self._rooms[room_uri] = room
+                return room
+            else:
+                raise RoomNotFoundError
+        else:
+            return room
+
+    def remove_room(self, uri):
+        room_uri = '%s@%s' % (uri.user, uri.host)
+        self._rooms.pop(room_uri, None)
 
     def validate_acl(self, room_uri, from_uri):
         room_uri = '%s@%s' % (room_uri.user, room_uri.host)
@@ -87,13 +109,18 @@ class ConferenceApplication(object):
                         str(from_header.uri) in self.invited_participants_map.get('%s@%s' % (to_header.uri.user, to_header.uri.host), {})):
                     subscribe_request.reject(403)
                     return
-        room = Room.get_room(data.request_uri)
-        if not room.started:
-            room = Room.get_room(to_header.uri)
-            if not room.started:
+        try:
+            room = self.get_room(data.request_uri)
+        except RoomNotFoundError:
+            try:
+                room = self.get_room(to_header.uri)
+            except RoomNotFoundError:
                 subscribe_request.reject(480)
                 return
-        room.handle_incoming_subscription(subscribe_request, data)
+        if not room.started:
+            subscribe_request.reject(480)
+        else:
+            room.handle_incoming_subscription(subscribe_request, data)
 
     def incoming_referral(self, refer_request, data):
         from_header = data.headers.get('From', Null)
@@ -127,14 +154,17 @@ class ConferenceApplication(object):
         d[str(session.remote_identity.uri)] += 1
         notification_center = NotificationCenter()
         notification_center.add_observer(self, sender=session)
-        room = Room.get_room(room_uri)
+        room = self.get_room(room_uri, True)
         room.start()
         room.add_session(session)
-        self.rooms.add(room)
 
     def remove_participant(self, participant_uri, room_uri):
-        room = Room.get_room(room_uri)
-        room.terminate_sessions(participant_uri)
+        try:
+            room = self.get_room(room_uri)
+        except RoomNotFoundError:
+            pass
+        else:
+            room.terminate_sessions(participant_uri)
 
     def handle_notification(self, notification):
         handler = getattr(self, '_NH_%s' % notification.name, Null)
@@ -143,18 +173,18 @@ class ConferenceApplication(object):
     def _NH_SIPSessionDidStart(self, notification):
         session = notification.sender
         self.pending_sessions.remove(session)
-        room = Room.get_room(session._invitation.request_uri)    # FIXME
+        room = self.get_room(session._invitation.request_uri, True)    # FIXME
         room.start()
         room.add_session(session)
-        self.rooms.add(room)
 
+    @run_in_green_thread
     def _NH_SIPSessionDidEnd(self, notification):
         session = notification.sender
         log.msg('Session from %s ended' % session.remote_identity.uri)
         notification_center = NotificationCenter()
         notification_center.remove_observer(self, sender=session)
         if session.direction == 'incoming':
-            room = Room.get_room(session._invitation.request_uri)    # FIXME
+            room_uri = session._invitation.request_uri               # FIXME
         else:
             # Clear invited participants mapping
             room_uri_str = '%s@%s' % (session.local_identity.uri.user, session.local_identity.uri.host)
@@ -162,16 +192,17 @@ class ConferenceApplication(object):
             d[str(session.remote_identity.uri)] -= 1
             if d[str(session.remote_identity.uri)] == 0:
                 del d[str(session.remote_identity.uri)]
-            room = Room.get_room(session.local_identity.uri)
+            room_uri = session.local_identity.uri
+        # We could get this notifiction even if we didn't get SIPSessionDidStart
+        try:
+            room = self.get_room(room_uri)
+        except RoomNotFoundError:
+            return
         if session in room.sessions:
-            # We could get this notifiction even if we didn't get SIPSessionDidStart
             room.remove_session(session)
-        if room.empty:
-            room.stop()
-            try:
-                self.rooms.remove(room)
-            except KeyError:
-                pass
+        if not room.stopping and room.empty:
+            self.remove_room(room_uri)
+            room.stop().wait()
 
     def _NH_SIPSessionDidFail(self, notification):
         session = notification.sender
@@ -232,7 +263,13 @@ class IncomingReferralHandler(object):
         notification_center = NotificationCenter()
         notification_center.remove_observer(self, sender=notification.sender)
         account = AccountManager().default_account
-        active_media = Room.get_room(self.room_uri).active_media
+        conference_application = ConferenceApplication()
+        try:
+            room = conference_application.get_room(self.room_uri)
+        except RoomNotFoundError:
+            return
+        else:
+            active_media = room.active_media
         if not active_media:
             return
         if 'audio' in active_media:
