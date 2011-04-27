@@ -81,15 +81,6 @@ def chunks(text, size):
         yield text[i:i+size]
 
 
-class SIPMessage(object):
-    def __init__(self, sender, recipient, content_type, body):
-        self.sender = sender
-        self.recipient = recipient
-        self.content_type = content_type
-        self.body = body
-        self.timestamp = None
-
-
 class Room(object):
     """
     Object representing a conference room, it will handle the message dispatching
