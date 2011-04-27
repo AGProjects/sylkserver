@@ -20,7 +20,7 @@ from sipsimple.threading.green import run_in_green_thread
 from sipsimple.util import TimestampedNotificationData
 from twisted.python.failure import Failure
 
-from sylk.configuration import SIPConfig
+from sylk.configuration import SIPConfig, MSRPConfig
 
 
 # We need to match on the only account that will be available
@@ -100,10 +100,8 @@ def _initialize(self, session, direction):
                         port=0,
                         use_tls=self.transport=='tls',
                         credentials=self.account.tls_credentials)
-        from sipsimple.application import SIPApplication
         if outgoing:
-            # TODO: Fix ACM support
-            if SIPApplication.local_nat_type == 'open':
+            if MSRPConfig.use_acm:
                 # We start the transport as passive, because we expect the other end to become active. -Saul
                 self.msrp_connector = get_acceptor(relay=None, use_acm=True, logger=logger)
                 self.local_role = 'actpass'
@@ -111,17 +109,13 @@ def _initialize(self, session, direction):
                 self.msrp_connector = get_connector(relay=None, use_acm=True, logger=logger)
                 self.local_role = 'active'
         else:
-            if self.remote_role == 'actpass':
-                behind_nat = SIPApplication.local_nat_type != 'open'
-                self.msrp_connector = get_connector(relay=None, use_acm=True, logger=logger) if behind_nat else get_acceptor(relay=None, use_acm=True, logger=logger)
-                self.local_role = 'active' if behind_nat else 'passive'
-            elif self.remote_role == 'passive':
-                # Not allowed by the draft but play nice for interoperability. -Saul
-                self.msrp_connector = get_connector(relay=None, use_acm=True, logger=logger)
-                self.local_role = 'active'
-            else:
+            if self.remote_role in ('actpass', 'active'):
                 self.msrp_connector = get_acceptor(relay=None, use_acm=True, logger=logger)
                 self.local_role = 'passive'
+            else:
+                # Remote role is passive. Not allowed by the draft but play nice for interoperability. -Saul
+                self.msrp_connector = get_connector(relay=None, use_acm=True, logger=logger)
+                self.local_role = 'active'
         full_local_path = self.msrp_connector.prepare(local_uri)
         self.local_media = self._create_local_media(full_local_path)
     except api.GreenletExit:

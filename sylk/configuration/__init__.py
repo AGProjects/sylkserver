@@ -42,6 +42,7 @@ class MSRPConfig(ConfigSection):
     __cfgfile__ = configuration_filename
     __section__ = 'MSRP'
 
+    use_acm = True
     use_tls = False
 
 
