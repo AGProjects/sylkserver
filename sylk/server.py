@@ -125,7 +125,7 @@ class SylkServer(SIPApplication):
             notification_center.post_notification('SIPApplicationFailedToStartTLS', sender=self, data=TimestampedNotificationData(error=e))
 
         # initialize audio objects
-        voice_mixer = AudioMixer(None, None, settings.audio.sample_rate, settings.audio.tail_length)
+        voice_mixer = AudioMixer(None, None, settings.audio.sample_rate, settings.audio.tail_length, 9999)
         self.voice_audio_device = AudioDevice(voice_mixer)
         self.voice_audio_bridge = RootAudioBridge(voice_mixer)
         self.voice_audio_bridge.add(self.voice_audio_device)
