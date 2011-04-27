@@ -5,13 +5,22 @@ import random
 
 from datetime import datetime
 
+from application.notification import NotificationCenter
+from eventlet import api
+from msrplib.connect import get_acceptor, get_connector
+from msrplib.protocol import URI
 from msrplib.session import contains_mime_type
 from sipsimple.account import AccountManager
 from sipsimple.core import SDPAttribute
 from sipsimple.payloads.iscomposing import IsComposingMessage, State, LastActive, Refresh, ContentType
 from sipsimple.streams import MediaStreamRegistry
 from sipsimple.streams.applications.chat import CPIMMessage
-from sipsimple.streams.msrp import ChatStream as _ChatStream, ChatStreamError, MSRPStreamBase
+from sipsimple.streams.msrp import ChatStream as _ChatStream, ChatStreamError, MSRPStreamBase, MSRPStreamError, NotificationProxyLogger
+from sipsimple.threading.green import run_in_green_thread
+from sipsimple.util import TimestampedNotificationData
+from twisted.python.failure import Failure
+
+from sylk.configuration import SIPConfig
 
 
 # We need to match on the only account that will be available
@@ -71,4 +80,61 @@ class ChatStream(_ChatStream):
         self._enqueue_message(message_id, str(msg), 'message/cpim', failure_report='partial', success_report='no')
         return message_id
 
+
+# Patch MediaStreamBase initialize method
+#   - There is no need for relay support
+#   - We need to choose the outbound IP address
+@run_in_green_thread
+def _initialize(self, session, direction):
+    self.greenlet = api.getcurrent()
+    notification_center = NotificationCenter()
+    notification_center.add_observer(self, sender=self)
+    try:
+        self.session = session
+        outgoing = direction=='outgoing'
+        self.transport = self.account.msrp.transport
+        if not outgoing and self.transport == 'tls' and None in (self.account.tls_credentials.cert, self.account.tls_credentials.key):
+            raise MSRPStreamError("Cannot accept MSRP connection without a TLS certificate")
+        logger = NotificationProxyLogger()
+        local_uri = URI(host=SIPConfig.local_ip,
+                        port=0,
+                        use_tls=self.transport=='tls',
+                        credentials=self.account.tls_credentials)
+        from sipsimple.application import SIPApplication
+        if outgoing:
+            # TODO: Fix ACM support
+            if SIPApplication.local_nat_type == 'open':
+                # We start the transport as passive, because we expect the other end to become active. -Saul
+                self.msrp_connector = get_acceptor(relay=None, use_acm=True, logger=logger)
+                self.local_role = 'actpass'
+            else:
+                self.msrp_connector = get_connector(relay=None, use_acm=True, logger=logger)
+                self.local_role = 'active'
+        else:
+            if self.remote_role == 'actpass':
+                behind_nat = SIPApplication.local_nat_type != 'open'
+                self.msrp_connector = get_connector(relay=None, use_acm=True, logger=logger) if behind_nat else get_acceptor(relay=None, use_acm=True, logger=logger)
+                self.local_role = 'active' if behind_nat else 'passive'
+            elif self.remote_role == 'passive':
+                # Not allowed by the draft but play nice for interoperability. -Saul
+                self.msrp_connector = get_connector(relay=None, use_acm=True, logger=logger)
+                self.local_role = 'active'
+            else:
+                self.msrp_connector = get_acceptor(relay=None, use_acm=True, logger=logger)
+                self.local_role = 'passive'
+        full_local_path = self.msrp_connector.prepare(local_uri)
+        self.local_media = self._create_local_media(full_local_path)
+    except api.GreenletExit:
+        raise
+    except Exception, ex:
+        ndata = TimestampedNotificationData(context='initialize', failure=Failure(), reason=str(ex))
+        notification_center.post_notification('MediaStreamDidFail', self, ndata)
+    else:
+        notification_center.post_notification('MediaStreamDidInitialize', self, data=TimestampedNotificationData())
+    finally:
+        if self.msrp_session is None and self.msrp is None and self.msrp_connector is None:
+            notification_center.remove_observer(self, sender=self)
+        self.greenlet = None
+
+MSRPStreamBase.initialize = _initialize
 
