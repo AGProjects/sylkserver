@@ -16,7 +16,7 @@
 ; trace_notifications = False
 
 ; TLS can be used for encryption of SIP signaling and MSRP media. TLS is
-; disabled by default.  To enabled TLS, you must have a valid X.509
+; disabled by default.  To enable TLS, you must have a valid X.509
 ; certificate and configure it below, then set the local_tls_port in the SIP
 ; section and use_tls in MSRP section
 
@@ -58,9 +58,11 @@
 ; MSRP transport settings
 
 ; Indicate if ACM should be offered. If set to true (default) the server will offer 'actpass'
-; for outbound sessions
+; for outbound sessions, alowing clients to connect to the server without using a MSRP relay
 ; use_acm = True
 
+; By default MSRP media is using TCP, to enable TLS you must configure a
+; X.509 certificate in the server section and enable it here
 ; use_tls = False
 
 
