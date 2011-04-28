@@ -1,4 +1,4 @@
-; SylkServer  Conference application configuration file
+; SylkServer Conference application configuration file
 
 [Conference]
 
@@ -27,4 +27,3 @@
 ; access_policy = allow, deny
 ; allow = example.com, test@domain.com
 ; deny = all
-
