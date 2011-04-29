@@ -4,7 +4,9 @@
 __all__ = ['async_save_message', 'get_last_messages']
 
 import datetime
+import time
 
+from application import log
 from application.python.util import Null
 from eventlet.twistedutil import block_on
 from sqlobject import SQLObject, DateTimeCol, UnicodeCol
@@ -34,21 +36,33 @@ db.create_table(MessageHistory)
 
 
 def _save_message(sip_from, room_uri, cpim_body, cpim_content_type, cpim_sender, cpim_recipient, cpim_timestamp):
-    return MessageHistory(date              = datetime.datetime.utcnow(),
-                          room_uri          = room_uri,
-                          sip_from          = sip_from,
-                          cpim_body         = cpim_body,
-                          cpim_content_type = cpim_content_type,
-                          cpim_sender       = cpim_sender,
-                          cpim_recipient    = cpim_recipient,
-                          cpim_timestamp    = cpim_timestamp)
+    for x in xrange(0, 3):
+        try:
+            return MessageHistory(date              = datetime.datetime.utcnow(),
+                                room_uri          = room_uri,
+                                sip_from          = sip_from,
+                                cpim_body         = cpim_body,
+                                cpim_content_type = cpim_content_type,
+                                cpim_sender       = cpim_sender,
+                                cpim_recipient    = cpim_recipient,
+                                cpim_timestamp    = cpim_timestamp)
+        except Exception, e:
+            time.sleep(0.2)
+    log.error('Could not save DB records: %s' % e)
+    return
 
 def async_save_message(sip_from, room_uri, cpim_body, cpim_content_type, cpim_sender, cpim_recipient, cpim_timestamp):
     if db.connection is not Null:
         return deferToThread(_save_message, sip_from, room_uri, cpim_body, cpim_content_type, cpim_sender, cpim_recipient, cpim_timestamp)
 
 def _get_last_messages(room_uri, count):
-    return list(MessageHistory.selectBy(room_uri=room_uri)[-count:])
+    for x in xrange(0, 3):
+        try:
+            return list(MessageHistory.selectBy(room_uri=room_uri)[-count:])
+        except Exception, e:
+            time.sleep(0.2)
+    log.error('Could not get DB records: %s' % e)
+    return []
 
 def get_last_messages(room_uri, count):
     if db.connection is not Null and count > 0:
