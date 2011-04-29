@@ -90,6 +90,7 @@ class Room(object):
     implements(IObserver)
 
     def __init__(self, uri):
+        self._channel = coros.queue()
         self.uri = uri
         self.identity = CPIMIdentity.parse('<sip:%s>' % self.uri)
         self.sessions = []
@@ -140,8 +141,16 @@ class Room(object):
         self.moh_player.stop()
         self.moh_player = None
         self.audio_conference = None
-        self.conference_info_payload.cache = None
-        self.conference_info_payload = None
+        [subscription.end() for subscription in self.subscriptions]
+        wait_count = len(self.subscriptions)
+        while wait_count > 0:
+            notification = self._channel.wait()
+            if notification.name == 'SIPIncomingSubscriptionDidEnd':
+                wait_count -= 1
+        self.subscriptions = []
+        if self.conference_info_payload:
+            self.conference_info_payload.cache = None
+            self.conference_info_payload = None
         self.state = 'stopped'
 
     def _message_dispatcher(self):
@@ -380,7 +389,10 @@ class Room(object):
         subscription = notification.sender
         notification_center = NotificationCenter()
         notification_center.remove_observer(self, sender=subscription)
-        self.subscriptions.remove(subscription)
+        if self.state == 'stopping':
+            self._channel.send(notification)
+        else:
+            self.subscriptions.remove(subscription)
 
     def _NH_SIPSessionDidChangeHoldState(self, notification):
         session = notification.sender
