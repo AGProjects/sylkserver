@@ -12,7 +12,7 @@ import os
 from sipsimple.account import MSRPSettings as AccountMSRPSettings, NATTraversalSettings as AccountNATTraversalSettings
 from sipsimple.account import RTPSettings as AccountRTPSettings, SIPSettings as AccountSIPSettings, TLSSettings as AccountTLSSettings
 from sipsimple.configuration import CorrelatedSetting, Setting, SettingsObjectExtension
-from sipsimple.configuration.datatypes import MSRPTransport, NonNegativeInteger, Path, PortRange, SampleRate, SIPTransportList, SRTPEncryption
+from sipsimple.configuration.datatypes import MSRPConnectionModel, MSRPTransport, NonNegativeInteger, Path, PortRange, SampleRate, SIPTransportList, SRTPEncryption
 from sipsimple.configuration.settings import AudioSettings, LogsSettings, RTPSettings, SIPSettings, TLSSettings
 
 from sylk import __version__ as server_version
@@ -25,6 +25,7 @@ from sylk.configuration.datatypes import AudioCodecs, Port, SIPProxyAddress
 msrp_transport = 'tls' if MSRPConfig.use_tls else 'tcp'
 class AccountMSRPSettingsExtension(AccountMSRPSettings):
     transport = Setting(type=MSRPTransport, default=msrp_transport)
+    connection_model = Setting(type=MSRPConnectionModel, default='acm')
 
 class AccountNATTraversalSettingsExtension(AccountNATTraversalSettings):
     use_msrp_relay_for_inbound = Setting(type=bool, default=False)
