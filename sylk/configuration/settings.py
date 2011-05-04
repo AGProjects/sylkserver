@@ -7,43 +7,44 @@ SIP SIMPLE SDK settings extensions.
 
 __all__ = ['AccountExtension', 'BonjourAccountExtension', 'SylkServerSettingsExtension']
 
-import os
-
 from sipsimple.account import MSRPSettings as AccountMSRPSettings, NATTraversalSettings as AccountNATTraversalSettings
 from sipsimple.account import RTPSettings as AccountRTPSettings, SIPSettings as AccountSIPSettings, TLSSettings as AccountTLSSettings
 from sipsimple.configuration import CorrelatedSetting, Setting, SettingsObjectExtension
-from sipsimple.configuration.datatypes import MSRPConnectionModel, MSRPTransport, NonNegativeInteger, Path, PortRange, SampleRate, SIPTransportList, SRTPEncryption
+from sipsimple.configuration.datatypes import MSRPConnectionModel, MSRPTransport, NonNegativeInteger, PortRange, SampleRate, SIPTransportList, SRTPEncryption
 from sipsimple.configuration.settings import AudioSettings, LogsSettings, RTPSettings, SIPSettings, TLSSettings
 
 from sylk import __version__ as server_version
 from sylk.configuration import ServerConfig, SIPConfig, MSRPConfig, RTPConfig
-from sylk.configuration.datatypes import AudioCodecs, Port, SIPProxyAddress
+from sylk.configuration.datatypes import AudioCodecs, Path, Port, SIPProxyAddress
 
 
 # Account settings extensions
 
-msrp_transport = 'tls' if MSRPConfig.use_tls else 'tcp'
 class AccountMSRPSettingsExtension(AccountMSRPSettings):
-    transport = Setting(type=MSRPTransport, default=msrp_transport)
+    transport = Setting(type=MSRPTransport, default='tls' if MSRPConfig.use_tls else 'tcp')
     connection_model = Setting(type=MSRPConnectionModel, default='acm')
+
 
 class AccountNATTraversalSettingsExtension(AccountNATTraversalSettings):
     use_msrp_relay_for_inbound = Setting(type=bool, default=False)
     use_msrp_relay_for_outbound = Setting(type=bool, default=False)
+
 
 class AccountRTPSettingsExtension(AccountRTPSettings):
     audio_codec_list = Setting(type=AudioCodecs, default=RTPConfig.audio_codecs, nillable=True)
     srtp_encryption = Setting(type=SRTPEncryption, default=RTPConfig.srtp_encryption)
     use_srtp_without_tls = Setting(type=bool, default=True)
 
+
 class AccountSIPSettingsExtension(AccountSIPSettings):
     register = Setting(type=bool, default=False)
     outbound_proxy = Setting(type=SIPProxyAddress, default=SIPConfig.outbound_proxy, nillable=True)
 
-tls_certificate = Path(ServerConfig.certificate) if ServerConfig.certificate and os.path.isfile(ServerConfig.certificate) else None
+
 class AccountTLSSettingsExtension(AccountTLSSettings):
-    certificate = Setting(type=Path, default=tls_certificate, nillable=True)
+    certificate = Setting(type=Path, default=ServerConfig.certificate, nillable=True)
     verify_server = Setting(type=bool, default=ServerConfig.verify_server)
+
 
 class AccountExtension(SettingsObjectExtension):
     enabled = Setting(type=bool, default=True)
@@ -59,7 +60,6 @@ class BonjourAccountExtension(SettingsObjectExtension):
     enabled = Setting(type=bool, default=False)
 
 
-
 # General settings extensions
 
 class AudioSettingsExtension(AudioSettings):
@@ -68,9 +68,8 @@ class AudioSettingsExtension(AudioSettings):
     sample_rate = Setting(type=SampleRate, default=16000)
 
 
-log_directory = Path(ServerConfig.trace_dir) if ServerConfig.trace_dir else None
 class LogsSettingsExtension(LogsSettings):
-    directory = Setting(type=Path, default=log_directory)
+    directory = Setting(type=Path, default=ServerConfig.trace_dir)
     trace_sip = Setting(type=bool, default=ServerConfig.trace_sip)
     trace_msrp = Setting(type=bool, default=ServerConfig.trace_msrp)
     trace_pjsip = Setting(type=bool, default=False)
@@ -105,9 +104,8 @@ class SIPSettingsExtension(SIPSettings):
     transport_list = Setting(type=SIPTransportList, default=transport_list)
 
 
-ca_list = Path(ServerConfig.ca_file) if ServerConfig.ca_file and os.path.isfile(ServerConfig.ca_file) else None
 class TLSSettingsExtension(TLSSettings):
-    ca_list = Setting(type=Path, default=ca_list, nillable=True)
+    ca_list = Setting(type=Path, default=ServerConfig.ca_file, nillable=True)
 
 
 class SylkServerSettingsExtension(SettingsObjectExtension):
