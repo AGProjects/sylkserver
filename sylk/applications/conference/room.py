@@ -157,27 +157,24 @@ class Room(object):
         """Read from self.incoming_message_queue and dispatch the messages to other participants"""
         while True:
             session, message_type, data = self.incoming_message_queue.wait()
+            if data.sender.uri != session.remote_identity.uri:
+                return
             if message_type == 'message':
-                if data.timestamp is not None and isinstance(data.timestamp, Timestamp):
-                    timestamp = datetime.fromtimestamp(mktime(data.timestamp.timetuple()))
+                message = data.message
+                if data.timestamp is not None and isinstance(message.timestamp, Timestamp):
+                    timestamp = datetime.fromtimestamp(mktime(message.timestamp.timetuple()))
                 else:
                     timestamp = datetime.now()
-                if data.sender.uri != session.remote_identity.uri:
-                    return
-                recipient = data.recipients[0]
-                database.async_save_message(format_identity(session.remote_identity, True), self.uri, data.body, data.content_type, unicode(data.sender), unicode(recipient), timestamp)
-                if recipient.uri == self.identity.uri:
-                    self.dispatch_message(session, data)
+                database.async_save_message(format_identity(session.remote_identity, True), self.uri, message.body, message.content_type, unicode(message.sender), unicode(message.recipients[0]), timestamp)
+                if data.private:
+                    self.dispatch_private_message(session, message)
                 else:
-                    self.dispatch_private_message(session, data)
+                    self.dispatch_message(session, message)
             elif message_type == 'composing_indication':
-                if data.sender.uri != session.remote_identity.uri:
-                    return
-                recipient = data.recipients[0]
-                if recipient.uri == self.identity.uri:
-                    self.dispatch_iscomposing(session, data)
-                else:
+                if data.private:
                     self.dispatch_private_iscomposing(session, data)
+                else:
+                    self.dispatch_iscomposing(session, data)
 
     def dispatch_message(self, session, message):
         for s in (s for s in self.sessions if s is not session):
@@ -376,7 +373,7 @@ class Room(object):
             session.end()
 
     def _NH_ChatStreamGotMessage(self, notification):
-        data = notification.data.message
+        data = notification.data
         session = notification.sender.session
         self.incoming_message_queue.send((session, 'message', data))
 
