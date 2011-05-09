@@ -19,14 +19,26 @@ the license is available at http://www.fsf.org/licensing/licenses/agpl-3.0.html
 Description
 -----------
 
-SylkServer is an extensible SIP Application Server.
+SylkServer is a SIP application server that can be programmed to perform SIP
+end-point applications.
 
-SylkServer allows creation and delivery of rich multimedia applications
-accessed by SIP User Agents.  The server supports SIP signaling over TLS,
-TCP and UDP transports, RTP and MSRP media planes, has built in capabilities
-for creating ad-hoc SIP multimedia conferences with wideband Audio, IM and
-File Transfer and can be easily extended with other applications by using
-Python programming language.
+The server supports SIP signaling over TLS, TCP and UDP transports, RTP and
+MSRP media planes, has built in capabilities for creating ad-hoc SIP
+multimedia conferences with HD Audio, IM and File Transfer and can be easily
+extended with other applications by using Python language.
+
+
+Deployment
+----------
+
+SylkServer must be typically deployed behind a SIP Proxy for providing such
+functions. SylkServer is not designed to transparently route packets,
+authorization, accounting and handle NAT traversal for signaling or media.
+Performing applications like SIP Proxy, Registrar, or Presence Agent are out
+of its scope.
+
+SylkServer is horizontally scalable with the amount of available hardware by
+using SIP Thor, a P2P based self-organizing network technology.
 
 
 Features
@@ -35,29 +47,44 @@ Features
 SIP Signaling
 
  - TLS, TCP and UDP transports
- - INVITE and REFER methods
- - SUBSCRIBE/NOTIFY mechanism
- - Protocol tracing to file
- - Outbound Proxy support
- - Trusted peers
+ - INVITE and REFER
+ - SUBSCRIBE/NOTIFY
+ - Protocol tracing
+
+NAT Traversal
+
+ - SIP Outbound
+ - ICE and STUN
+ - MSRP Relay
+ - MSRP ACM
 
 Audio
 
- - Codecs: G722, Speex, G711 and GSM
+ - Wideband (G722 and Speex)
+ - Narrowband (G711 and GSM)
  - sRTP encryption
+ - Hold/Unhold
  - RTP timeout
+ - DTMF handling
  
 Instant Messaging
 
- - MSRP chat
+ - MSRP protocol
  - CPIM envelope
  - Is-composing
+ - Delivery reports
+
+File Transfer
+
+ - MSRP protocol
+ - Progress reports
+ - Conference-info extension
+ - Conference room persistent
 
 Conferencing
 
  - Wideband RTP mixer
  - MSRP switch
- - isfocus support
  - Conference event package
  - Add/remove participants
 
@@ -80,8 +107,8 @@ conference URI.
 
 If a participant sends a file to the SIP URI of the room, the server will
 accept it, store it for the duration of the conference and offer it to all
-participants either present at that moment, or later to those that have
-joined the conference at a later moment.
+participants either present at that moment, or offer it on demand to those
+that have joined the conference at a later moment.
 
 
 Standards
@@ -89,18 +116,22 @@ Standards
 
 The server implements relevant features from the following standards:
 
- * MSRP and its relay extension RFC4975, RFC4976
- * MSRP switch draft-ietf-simple-chat-08
- * File Transfer over MSRP RFC5547
- * Indication of Message Composition RFC3994
- * CPIM Message Format RFC3862
- * Conference event package RFC4575
- * A Framework for Conferencing with SIP RFC4353
+ - MSRP protocol RFC4975
+ - MSRP relay extension RFC4976
+ - MSRP File Transfer RFC5547
+ - MSRP switch draft-ietf-simple-chat-08
+ - MSRP ACM draft-ietf-simple-msrp-acm-10
+ - Indication of Message Composition RFC3994
+ - CPIM Message Format RFC3862
+ - Conference event package RFC4575
+ - A Framework for Conferencing with SIP RFC4353
+ - Conferencing for User Agents RFC4579
  * Conferencing for User Agents RFC4579
    5.1  INVITE: Joining a Conference Using the Conference URI - Dial-In
    5.2  INVITE: Adding a Participant by the Focus - Dial-Out
    5.5  REFER: Requesting a Focus to Add a New Resource to a Conference
    5.11 REFER with BYE: Requesting a Focus to Remove a Participant from a Conference
+
 
 
 Support
