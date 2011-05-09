@@ -31,11 +31,8 @@ extended with other applications by using Python language.
 Deployment
 ----------
 
-SylkServer must be typically deployed behind a SIP Proxy for providing such
-functions. SylkServer is not designed to transparently route packets,
-authorization, accounting and handle NAT traversal for signaling or media.
-Performing applications like SIP Proxy, Registrar, or Presence Agent are out
-of its scope.
+SylkServer must be typically deployed behind a SIP Proxy as it is not
+designed to route packets, handle authorization or accounting.
 
 SylkServer is horizontally scalable with the amount of available hardware by
 using SIP Thor, a P2P based self-organizing network technology.
@@ -89,10 +86,10 @@ Conferencing
  - Add/remove participants
 
 
-Built-in Applications
----------------------
+Applications
+------------
 
-1. Conference
+Conference
 
 SylkServer allows SIP end-points to create ad-hoc conference rooms by
 sending INVITE to a random username at the hostname or domain where the
@@ -133,7 +130,6 @@ The server implements relevant features from the following standards:
    5.11 REFER with BYE: Requesting a Focus to Remove a Participant from a Conference
 
 
-
 Support
 -------
 
@@ -142,7 +138,7 @@ provided on a best-effort basis. "best-effort" means that we try to solve
 the bugs you report or help fix your problems as soon as we can, subject to 
 available resources.
 
-To request support you must use the mailing list available at
+To request support you must the use SIP Beyond VoIP mailing list:
 
 http://lists.ag-projects.com/mailman/listinfo/sipbeyondvoip
 
