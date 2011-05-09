@@ -102,3 +102,17 @@ The server implements relevant features from the following standards:
    5.5  REFER: Requesting a Focus to Add a New Resource to a Conference
    5.11 REFER with BYE: Requesting a Focus to Remove a Participant from a Conference
 
+
+Support
+-------
+
+The project is developed and supported by AG Projects. The support is
+provided on a best-effort basis. "best-effort" means that we try to solve
+the bugs you report or help fix your problems as soon as we can, subject to 
+available resources.
+
+To request support you must use the mailing list available at
+
+http://lists.ag-projects.com/mailman/listinfo/sipbeyondvoip
+
+For commercial support contact AG Projects http://ag-projects.com
