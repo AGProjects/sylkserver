@@ -23,7 +23,7 @@ setup(name         = "sylkserver",
       classifiers  = [
             "Development Status :: 5 - Production/Stable",
             "Intended Audience :: Service Providers",
-            "License :: GNU Lesser General Public License 3",
+            "License :: GNU General Public License 3",
             "Operating System :: OS Independent",
             "Programming Language :: Python"
                      ],
