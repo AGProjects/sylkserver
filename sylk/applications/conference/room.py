@@ -143,10 +143,10 @@ class Room(object):
         """Read from self.incoming_message_queue and dispatch the messages to other participants"""
         while True:
             session, message_type, data = self.incoming_message_queue.wait()
-            if data.sender.uri != session.remote_identity.uri:
-                return
             if message_type == 'message':
                 message = data.message
+                if message.sender.uri != session.remote_identity.uri:
+                    return
                 if data.timestamp is not None and isinstance(message.timestamp, Timestamp):
                     timestamp = datetime.fromtimestamp(mktime(message.timestamp.timetuple()))
                 else:
@@ -157,6 +157,8 @@ class Room(object):
                 else:
                     self.dispatch_message(session, message)
             elif message_type == 'composing_indication':
+                if data.sender.uri != session.remote_identity.uri:
+                    return
                 if data.private:
                     self.dispatch_private_iscomposing(session, data)
                 else:
