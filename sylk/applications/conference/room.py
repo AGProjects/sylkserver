@@ -56,57 +56,6 @@ def format_identity(identity, cpim_format=False):
     else:
         return u'sip:%s@%s' % (uri.user, uri.host)
 
-def format_stream_types(streams):
-    if not streams:
-        return ''
-    if len(streams) == 1:
-        txt = 'with %s' % streams[0].type
-    else:
-        txt = 'with %s' % ','.join(stream.type for stream in streams[:-1])
-        txt += ' and %s' % streams[-1:][0].type
-    return txt
-
-def format_conference_stream_type(stream):
-    if stream.type == 'chat':
-        return 'message'
-    return stream.type
-
-def format_identity_with_stream_types(identity, streams):
-    return '%s %s' % (format_identity(identity), format_stream_types(streams))
-
-def format_session_duration(session):
-    if session.start_time:
-        duration = session.end_time - session.start_time
-        seconds = duration.seconds if duration.microseconds < 500000 else duration.seconds+1
-        minutes, seconds = seconds / 60, seconds % 60
-        hours, minutes = minutes / 60, minutes % 60
-        hours += duration.days*24
-        if not minutes and not hours:
-            duration_text = '%d seconds' % seconds
-        elif not hours:
-            duration_text = '%02d:%02d' % (minutes, seconds)
-        else:
-            duration_text = '%02d:%02d:%02d' % (hours, minutes, seconds)
-    else:
-        duration_text = '0s'
-    return duration_text
-
-def format_file_size(size):
-    infinite = float('infinity')
-    boundaries = [(             1024, '%d bytes',               1),
-                    (          10*1024, '%.2f KB',           1024.0),  (     1024*1024, '%.1f KB',           1024.0),
-                    (     10*1024*1024, '%.2f MB',      1024*1024.0),  (1024*1024*1024, '%.1f MB',      1024*1024.0),
-                    (10*1024*1024*1024, '%.2f GB', 1024*1024*1024.0),  (      infinite, '%.1f GB', 1024*1024*1024.0)]
-    for boundary, format, divisor in boundaries:
-        if size < boundary:
-            return format % (size/divisor,)
-    else:
-        return "%d bytes" % size
-
-def chunks(text, size):
-    for i in xrange(0, len(text), size):
-        yield text[i:i+size]
-
 
 class Room(object):
     """
@@ -289,7 +238,7 @@ class Room(object):
                 pass
 
     def dispatch_file(self, file):
-        self.dispatch_server_message('%s has uploaded file %s (%s)' % (file.sender, os.path.basename(file.name), format_file_size(file.size)))
+        self.dispatch_server_message('%s has uploaded file %s (%s)' % (file.sender, os.path.basename(file.name), self.format_file_size(file.size)))
         for uri in set(session.remote_identity.uri for session in self.sessions if str(session.remote_identity.uri) != file.sender):
             handler = OutgoingFileTransferHandler(self, uri, file)
             self.transfer_handlers.add(handler)
@@ -333,11 +282,11 @@ class Room(object):
         self.dispatch_conference_info()
 
         if len(self.sessions) == 1:
-            log.msg(u'%s started conference %s %s' % (format_identity(session.remote_identity), self.uri, format_stream_types(session.streams)))
+            log.msg(u'%s started conference %s %s' % (format_identity(session.remote_identity), self.uri, self.format_stream_types(session.streams)))
         else:
-            log.msg(u'%s joined conference %s %s' % (format_identity(session.remote_identity), self.uri, format_stream_types(session.streams)))
+            log.msg(u'%s joined conference %s %s' % (format_identity(session.remote_identity), self.uri, self.format_stream_types(session.streams)))
         if str(session.remote_identity.uri) not in set(str(s.remote_identity.uri) for s in self.sessions if s is not session):
-            self.dispatch_server_message('%s has joined the room %s' % (format_identity(session.remote_identity), format_stream_types(session.streams)), exclude=session)
+            self.dispatch_server_message('%s has joined the room %s' % (format_identity(session.remote_identity), self.format_stream_types(session.streams)), exclude=session)
 
     def remove_session(self, session):
         notification_center = NotificationCenter()
@@ -374,11 +323,11 @@ class Room(object):
                 return
 
         self.dispatch_conference_info()
-        log.msg(u'%s left conference %s after %s' % (format_identity(session.remote_identity), self.uri, format_session_duration(session)))
+        log.msg(u'%s left conference %s after %s' % (format_identity(session.remote_identity), self.uri, self.format_session_duration(session)))
         if not self.sessions:
             log.msg(u'Last participant left conference %s' % self.uri)
         if str(session.remote_identity.uri) not in set(str(s.remote_identity.uri) for s in self.sessions if s is not session):
-            self.dispatch_server_message('%s has left the room after %s' % (format_identity(session.remote_identity), format_session_duration(session)))
+            self.dispatch_server_message('%s has left the room after %s' % (format_identity(session.remote_identity), self.format_session_duration(session)))
 
     def terminate_sessions(self, uri):
         if not self.started:
@@ -409,7 +358,7 @@ class Room(object):
             for stream in session.streams:
                 if stream.type == 'file-transfer':
                     continue
-                endpoint.append(conference.Media(id(stream), media_type=format_conference_stream_type(stream)))
+                endpoint.append(conference.Media(id(stream), media_type=self.format_conference_stream_type(stream)))
             user.append(endpoint)
         self.conference_info_payload.users = users
         if self.files:
@@ -549,6 +498,54 @@ class Room(object):
                 log.msg(u'%s has removed all streams from %s, session will be terminated' % (format_identity(session.remote_identity), self.uri))
                 session.end()
         self.dispatch_conference_info()
+
+    @staticmethod
+    def format_stream_types(streams):
+        if not streams:
+            return ''
+        if len(streams) == 1:
+            txt = 'with %s' % streams[0].type
+        else:
+            txt = 'with %s' % ','.join(stream.type for stream in streams[:-1])
+            txt += ' and %s' % streams[-1:][0].type
+        return txt
+
+    @staticmethod
+    def format_conference_stream_type(stream):
+        if stream.type == 'chat':
+            return 'message'
+        return stream.type
+
+    @staticmethod
+    def format_session_duration(session):
+        if session.start_time:
+            duration = session.end_time - session.start_time
+            seconds = duration.seconds if duration.microseconds < 500000 else duration.seconds+1
+            minutes, seconds = seconds / 60, seconds % 60
+            hours, minutes = minutes / 60, minutes % 60
+            hours += duration.days*24
+            if not minutes and not hours:
+                duration_text = '%d seconds' % seconds
+            elif not hours:
+                duration_text = '%02d:%02d' % (minutes, seconds)
+            else:
+                duration_text = '%02d:%02d:%02d' % (hours, minutes, seconds)
+        else:
+            duration_text = '0s'
+        return duration_text
+
+    @staticmethod
+    def format_file_size(size):
+        infinite = float('infinity')
+        boundaries = [(             1024, '%d bytes',               1),
+                        (          10*1024, '%.2f KB',           1024.0),  (     1024*1024, '%.1f KB',           1024.0),
+                        (     10*1024*1024, '%.2f MB',      1024*1024.0),  (1024*1024*1024, '%.1f MB',      1024*1024.0),
+                        (10*1024*1024*1024, '%.2f GB', 1024*1024*1024.0),  (      infinite, '%.1f GB', 1024*1024*1024.0)]
+        for boundary, format, divisor in boundaries:
+            if size < boundary:
+                return format % (size/divisor,)
+        else:
+            return "%d bytes" % size
 
 
 class MoHPlayer(object):
