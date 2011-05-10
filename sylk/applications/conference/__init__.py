@@ -76,7 +76,8 @@ class ConferenceApplication(object):
         log.msg('New incoming session from %s' % session.remote_identity.uri)
         audio_streams = [stream for stream in session.proposed_streams if stream.type=='audio']
         chat_streams = [stream for stream in session.proposed_streams if stream.type=='chat']
-        if not audio_streams and not chat_streams:
+        transfer_streams = [stream for stream in session.proposed_streams if stream.type=='file-transfer']
+        if not audio_streams and not chat_streams and not transfer_streams:
             session.reject(488)
             return
         try:
@@ -89,7 +90,7 @@ class ConferenceApplication(object):
         notification_center.add_observer(self, sender=session)
         if audio_streams:
             session.send_ring_indication()
-        streams = [streams[0] for streams in (audio_streams, chat_streams) if streams]
+        streams = [streams[0] for streams in (audio_streams, chat_streams, transfer_streams) if streams]
         reactor.callLater(4 if audio_streams else 0, self.accept_session, session, streams)
 
     def incoming_subscription(self, subscribe_request, data):
@@ -295,7 +296,7 @@ class IncomingReferralHandler(object):
             extra_headers.append(Header('Referred-By', str(original_from_header.uri)))
         if ThorNodeConfig.enabled:
             extra_headers.append(Header('Thor-Scope', 'conference-invitation'))
-        extra_headers.append(Header('X-Referrer-From', str(original_from_header.uri)))
+        extra_headers.append(Header('X-Originator-From', str(original_from_header.uri)))
         subject = u'Join conference request from %s' % original_identity
         self.session.connect(from_header, to_header, contact_header, routes=notification.data.result, streams=self.streams, is_focus=True, subject=subject, extra_headers=extra_headers)
 

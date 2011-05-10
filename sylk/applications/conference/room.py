@@ -1,36 +1,50 @@
 # Copyright (C) 2010-2011 AG Projects. See LICENSE for details.
 #
 
+import hashlib
+import os
 import random
+import re
+import shutil
 
 from datetime import datetime
 from glob import glob
 from itertools import cycle
 from time import mktime
 
+try:
+    from weakref import WeakSet
+except ImportError:
+    from sylk.thirdparty.weakrefset import WeakSet
+
 from application import log
 from application.notification import IObserver, NotificationCenter
 from application.python.util import Null
-from eventlet import coros, proc
-from eventlet.api import GreenletExit
+from eventlet import api, coros, proc
 from itertools import chain
+from sipsimple.account import AccountManager
 from sipsimple.application import SIPApplication
 from sipsimple.audio import WavePlayer, WavePlayerError
 from sipsimple.conference import AudioConference
 from sipsimple.configuration.settings import SIPSimpleSettings
-from sipsimple.core import SIPCoreError, SIPCoreInvalidStateError
-from sipsimple.payloads.conference import Conference, ConferenceDescription, ConferenceState, Endpoint, EndpointStatus, HostInfo, JoiningInfo, Media, User, Users, WebPage
+from sipsimple.core import SIPCoreError, SIPCoreInvalidStateError, SIPURI
+from sipsimple.core import Header, ContactHeader, FromHeader, ToHeader
+from sipsimple.lookup import DNSLookup, DNSLookupError
+from sipsimple.payloads import conference
+from sipsimple.streams import FileTransferStream
 from sipsimple.streams.applications.chat import CPIMIdentity
-from sipsimple.streams.msrp import ChatStreamError
-from sipsimple.threading import run_in_twisted_thread
+from sipsimple.streams.msrp import ChatStreamError, FileSelector
+from sipsimple.threading import run_in_thread, run_in_twisted_thread
 from sipsimple.threading.green import run_in_green_thread, run_in_waitable_green_thread
-from sipsimple.util import Timestamp
+from sipsimple.util import Timestamp, TimestampedNotificationData, makedirs
 from twisted.internet import reactor
 from zope.interface import implements
 
 from sylk.applications.conference import database
 from sylk.applications.conference.configuration import ConferenceConfig
+from sylk.configuration import SIPConfig, ThorNodeConfig
 from sylk.configuration.datatypes import ResourcePath
+from sylk.session import ServerSession
 
 
 def format_identity(identity, cpim_format=False):
@@ -77,6 +91,18 @@ def format_session_duration(session):
         duration_text = '0s'
     return duration_text
 
+def format_file_size(size):
+    infinite = float('infinity')
+    boundaries = [(             1024, '%d bytes',               1),
+                    (          10*1024, '%.2f KB',           1024.0),  (     1024*1024, '%.1f KB',           1024.0),
+                    (     10*1024*1024, '%.2f MB',      1024*1024.0),  (1024*1024*1024, '%.1f MB',      1024*1024.0),
+                    (10*1024*1024*1024, '%.2f GB', 1024*1024*1024.0),  (      infinite, '%.1f GB', 1024*1024*1024.0)]
+    for boundary, format, divisor in boundaries:
+        if size < boundary:
+            return format % (size/divisor,)
+    else:
+        return "%d bytes" % size
+
 def chunks(text, size):
     for i in xrange(0, len(text), size):
         yield text[i:i+size]
@@ -93,9 +119,11 @@ class Room(object):
         self._channel = coros.queue()
         self.uri = uri
         self.identity = CPIMIdentity.parse('<sip:%s>' % self.uri)
+        self.files = []
         self.sessions = []
         self.sessions_with_proposals = []
         self.subscriptions = []
+        self.transfer_handlers = WeakSet()
         self.state = 'stopped'
         self.incoming_message_queue = coros.queue()
         self.message_dispatcher = None
@@ -134,13 +162,15 @@ class Room(object):
         if not self.started:
             return
         self.state = 'stopping'
-        self.incoming_message_queue.send_exception(GreenletExit)
+        self.incoming_message_queue.send_exception(api.GreenletExit)
         self.incoming_message_queue = None
         self.message_dispatcher.kill(proc.ProcExit)
         self.message_dispatcher = None
         self.moh_player.stop()
         self.moh_player = None
         self.audio_conference = None
+        procs = [proc.spawn(handler.stop) for handler in self.transfer_handlers]
+        proc.waitall(procs)
         [subscription.end() for subscription in self.subscriptions]
         wait_count = len(self.subscriptions)
         while wait_count > 0:
@@ -148,10 +178,17 @@ class Room(object):
             if notification.name == 'SIPIncomingSubscriptionDidEnd':
                 wait_count -= 1
         self.subscriptions = []
-        if self.conference_info_payload:
-            self.conference_info_payload.cache = None
-            self.conference_info_payload = None
+        self.cleanup_files()
+        self.conference_info_payload = None
         self.state = 'stopped'
+
+    @run_in_thread('file-io')
+    def cleanup_files(self):
+        path = os.path.join(ConferenceConfig.file_transfer_dir, self.uri)
+        try:
+            shutil.rmtree(path)
+        except EnvironmentError:
+            pass
 
     def _message_dispatcher(self):
         """Read from self.incoming_message_queue and dispatch the messages to other participants"""
@@ -247,9 +284,16 @@ class Room(object):
         data = self.build_conference_info_payload()
         for subscription in (subscription for subscription in self.subscriptions if subscription.state == 'active'):
             try:
-                subscription.push_content(Conference.content_type, data)
+                subscription.push_content(conference.Conference.content_type, data)
             except (SIPCoreError, SIPCoreInvalidStateError):
                 pass
+
+    def dispatch_file(self, file):
+        self.dispatch_server_message('%s has uploaded file %s (%s)' % (file.sender, os.path.basename(file.name), format_file_size(file.size)))
+        for uri in set(session.remote_identity.uri for session in self.sessions if str(session.remote_identity.uri) != file.sender):
+            handler = OutgoingFileTransferHandler(self, uri, file)
+            self.transfer_handlers.add(handler)
+            handler.start()
 
     def add_session(self, session):
         notification_center = NotificationCenter()
@@ -271,6 +315,18 @@ class Room(object):
                                                                                       'encrypted' if audio_stream.srtp_active else 'unencrypted',
                                                                                       audio_stream.local_rtp_address, audio_stream.local_rtp_port,
                                                                                       audio_stream.remote_rtp_address, audio_stream.remote_rtp_port))
+        try:
+            transfer_stream = (stream for stream in session.streams if stream.type == 'file-transfer').next()
+        except StopIteration:
+            pass
+        else:
+            txt = u'%s is uploading file %s' % (format_identity(session.remote_identity), transfer_stream.file_selector.name.decode('utf-8'))
+            log.msg(txt)
+            self.dispatch_server_message(txt)
+            transfer_handler = IncomingFileTransferHandler(self, session)
+            transfer_handler.start()
+            if len(session.streams) == 1:
+                return
 
         welcome_handler = WelcomeHandler(self, session)
         welcome_handler.start()
@@ -309,6 +365,14 @@ class Room(object):
                 self.audio_conference.hold()
             elif len(self.audio_conference.streams) == 1:
                 self.moh_player.play()
+        try:
+            transfer_stream = (stream for stream in session.streams if stream.type == 'file-transfer').next()
+        except StopIteration:
+            pass
+        else:
+            if len(session.streams) == 1:
+                return
+
         self.dispatch_conference_info()
         log.msg(u'%s left conference %s after %s' % (format_identity(session.remote_identity), self.uri, format_session_duration(session)))
         if not self.sessions:
@@ -325,40 +389,52 @@ class Room(object):
     def build_conference_info_payload(self):
         if self.conference_info_payload is None:
             settings = SIPSimpleSettings()
-            conference_description = ConferenceDescription(display_text='Ad-hoc conference', free_text='Hosted by %s' % settings.user_agent)
-            host_info = HostInfo(web_page=WebPage('http://sylkserver.com'))
-            self.conference_info_payload = Conference(self.identity.uri, conference_description=conference_description, host_info=host_info, users=Users())
+            conference_description = conference.ConferenceDescription(display_text='Ad-hoc conference', free_text='Hosted by %s' % settings.user_agent)
+            host_info = conference.HostInfo(web_page=conference.WebPage('http://sylkserver.com'))
+            self.conference_info_payload = conference.Conference(self.identity.uri, conference_description=conference_description, host_info=host_info, users=conference.Users())
         user_count = len(set(str(s.remote_identity.uri) for s in self.sessions))
-        self.conference_info_payload.conference_state = ConferenceState(user_count=user_count, active=True)
-        users = Users()
-        for session in self.sessions:
+        self.conference_info_payload.conference_state = conference.ConferenceState(user_count=user_count, active=True)
+        users = conference.Users()
+        for session in (session for session in self.sessions if not (len(session.streams) == 1 and session.streams[0].type == 'file-transfer')):
             try:
                 user = (user for user in users if user.entity == str(session.remote_identity.uri)).next()
             except StopIteration:
-                user = User(str(session.remote_identity.uri), display_text=session.remote_identity.display_name)
+                user = conference.User(str(session.remote_identity.uri), display_text=session.remote_identity.display_name)
                 users.append(user)
-            joining_info = JoiningInfo(when=session.start_time)
+            joining_info = conference.JoiningInfo(when=session.start_time)
             holdable_streams = [stream for stream in session.streams if stream.hold_supported]
             session_on_hold = holdable_streams and all(stream.on_hold_by_remote for stream in holdable_streams)
-            hold_status = EndpointStatus('on-hold' if session_on_hold else 'connected')
-            endpoint = Endpoint(str(session._invitation.remote_contact_header.uri), display_text=session.remote_identity.display_name, joining_info=joining_info, status=hold_status)
+            hold_status = conference.EndpointStatus('on-hold' if session_on_hold else 'connected')
+            endpoint = conference.Endpoint(str(session._invitation.remote_contact_header.uri), display_text=session.remote_identity.display_name, joining_info=joining_info, status=hold_status)
             for stream in session.streams:
-                endpoint.append(Media(id(stream), media_type=format_conference_stream_type(stream)))
+                if stream.type == 'file-transfer':
+                    continue
+                endpoint.append(conference.Media(id(stream), media_type=format_conference_stream_type(stream)))
             user.append(endpoint)
         self.conference_info_payload.users = users
+        if self.files:
+            conference_description = self.conference_info_payload.conference_description
+            conference_description.resources = conference.Resources(conference.FileResources())
+            for file in self.files:
+                conference_description.resources.files.append(conference.FileResource(os.path.basename(file.name), file.hash, file.size, file.sender, file.status))
         return self.conference_info_payload.toxml()
 
     def handle_incoming_subscription(self, subscribe_request, data):
-        content = self.build_conference_info_payload()
         notification_center = NotificationCenter()
         notification_center.add_observer(self, sender=subscribe_request)
-        subscribe_request.accept(Conference.content_type, content)
+        data = self.build_conference_info_payload()
+        subscribe_request.accept(conference.Conference.content_type, data)
         self.subscriptions.append(subscribe_request)
 
     def accept_proposal(self, session, streams):
         if session in self.sessions_with_proposals:
             session.accept_proposal(streams)
             self.sessions_with_proposals.remove(session)
+
+    def add_file(self, file):
+        self.files.append(file)
+        self.dispatch_conference_info()
+        self.dispatch_file(file)
 
     @run_in_twisted_thread
     def handle_notification(self, notification):
@@ -649,4 +725,256 @@ class WelcomeHandler(object):
     def _NH_SIPSessionWillEnd(self, notification):
         self.procs.killall(InterruptWelcome)
 
+
+class RoomFile(object):
+
+    def __init__(self, name, hash, size, sender, status):
+        self.name = name
+        self.hash = hash
+        self.size = size
+        self.sender = sender
+        self.status = status
+
+    @property
+    def file_selector(self):
+        return FileSelector.for_file(self.name.encode('utf-8'), hash=self.hash)
+
+
+class IncomingFileTransferHandler(object):
+    implements(IObserver)
+
+    def __init__(self, room, session):
+        self.room = room
+        self.session = session
+        self.error = False
+        self.ended = False
+        self.file = None
+        self.file_selector = None
+        self.filename = None
+        self.hash = None
+        self.status = None
+        self.timer = None
+        self.transfer_finished = False
+
+    def start(self):
+        stream = (stream for stream in self.session.streams if stream.type == 'file-transfer').next()
+
+        self.file_selector = stream.file_selector
+        path = os.path.join(ConferenceConfig.file_transfer_dir, self.room.uri)
+        makedirs(path)
+        self.filename = filename = os.path.join(path, self.file_selector.name.decode('utf-8'))
+        basename, ext = os.path.splitext(filename)
+        i = 1
+        while os.path.exists(filename):
+            filename = '%s_%d%s' % (self.filename, i, ext)
+            i += 1
+        self.filename = filename
+        try:
+            self.file = open(self.filename, 'wb')
+        except EnvironmentError:
+            log.msg('Cannot write destination filename: %s' % self.filename)
+            self.session.end()
+            return
+        notification_center = NotificationCenter()
+        notification_center.add_observer(self, sender=self)
+        notification_center.add_observer(self, sender=self.session)
+        notification_center.add_observer(self, sender=stream)
+        self.hash = hashlib.sha1()
+
+    @run_in_thread('file-transfer')
+    def write_chunk(self, data):
+        notification_center = NotificationCenter()
+        if data is not None:
+            try:
+                self.file.write(data)
+            except EnvironmentError, e:
+                notification_center.post_notification('IncomingFileTransferHandlerGotError', sender=self, data=TimestampedNotificationData(error=str(e)))
+            else:
+                self.hash.update(data)
+        else:
+            self.file.close()
+            if self.error:
+                notification_center.post_notification('IncomingFileTransferHandlerDidFail', sender=self, data=TimestampedNotificationData())
+            else:
+                notification_center.post_notification('IncomingFileTransferHandlerDidEnd', sender=self, data=TimestampedNotificationData())
+
+    @run_in_thread('file-io')
+    def remove_bogus_file(self, filename):
+        try:
+            os.unlink(filename)
+        except OSError:
+            pass
+
+    @run_in_twisted_thread
+    def handle_notification(self, notification):
+        handler = getattr(self, '_NH_%s' % notification.name, Null)
+        handler(notification)
+
+    def _NH_SIPSessionDidEnd(self, notification):
+        self.ended = True
+        if self.timer is not None and self.timer.active():
+            self.timer.cancel()
+        self.timer = None
+
+        notification_center = NotificationCenter()
+        stream = (stream for stream in self.session.streams if stream.type == 'file-transfer').next()
+        notification_center.remove_observer(self, sender=stream)
+        notification_center.remove_observer(self, sender=self.session)
+
+        # Mark end of write operation
+        self.write_chunk(None)
+
+    def _NH_FileTransferStreamGotChunk(self, notification):
+        self.write_chunk(notification.data.content)
+
+    def _NH_FileTransferStreamDidFinish(self, notification):
+        self.transfer_finished = True
+        if self.timer is None:
+            self.timer = reactor.callLater(5, self.session.end)
+
+    def _NH_IncomingFileTransferHandlerGotError(self, notification):
+        log.error('Error while handling incoming file transfer: %s' % notification.data.error)
+        self.error = True
+        self.status = notification.data.error
+        if not self.ended and self.timer is None:
+            self.timer = reactor.callLater(5, self.session.end)
+
+    def _NH_IncomingFileTransferHandlerDidEnd(self, notification):
+        notification_center = NotificationCenter()
+        notification_center.remove_observer(self, sender=self)
+
+        if not self.transfer_finished:
+            log.msg('File transfer of %s cancelled' % os.path.basename(self.filename))
+            self.remove_bogus_file(self.filename)
+        else:
+            local_hash = 'sha1:' + ':'.join(re.findall(r'..', self.hash.hexdigest().upper()))
+            remote_hash = self.file_selector.hash
+            if local_hash != remote_hash:
+                log.warning('Hash of transferred file does not match the remote hash (file may have changed).')
+                self.status = 'Hash missmatch'
+                self.remove_bogus_file(self.filename)
+            else:
+                self.status = 'OK'
+
+            file = RoomFile(self.filename, remote_hash, self.file_selector.size, str(self.session.remote_identity.uri), self.status)
+            self.room.add_file(file)
+
+        self.session = None
+        self.room = None
+
+    def _NH_IncomingFileTransferHandlerDidFail(self, notification):
+        notification_center = NotificationCenter()
+        notification_center.remove_observer(self, sender=self)
+
+        file = RoomFile(self.filename, self.file_selector.hash, self.file_selector.size, str(self.session.remote_identity.uri), self.status)
+        self.room.add_file(file)
+
+        self.session = None
+        self.room = None
+
+
+class InterruptFileTransfer(Exception): pass
+
+class OutgoingFileTransferHandler(object):
+    implements(IObserver)
+
+    def __init__(self, room, destination, file):
+        self._channel = coros.queue()
+        self.greenlet = None
+        self.room = room
+        self.destination = destination
+        self.file = file
+        self.session = None
+        self.stream = None
+        self.timer = None
+
+    @run_in_green_thread
+    def start(self):
+        self.greenlet = api.getcurrent()
+        settings = SIPSimpleSettings()
+        account = AccountManager().default_account
+        if account.sip.outbound_proxy is not None:
+            uri = SIPURI(host=account.sip.outbound_proxy.host,
+                            port=account.sip.outbound_proxy.port,
+                            parameters={'transport': account.sip.outbound_proxy.transport})
+        else:
+            uri = SIPURI.new(self.destination)
+        lookup = DNSLookup()
+        try:
+            routes = lookup.lookup_sip_proxy(uri, settings.sip.transport_list).wait()
+        except (DNSLookupError, InterruptFileTransfer):
+            self.greenlet = None
+            self.room = None
+        else:
+            notification_center = NotificationCenter()
+            self.session = ServerSession(account)
+            self.stream = FileTransferStream(account, self.file.file_selector)
+            notification_center.add_observer(self, sender=self.session)
+            notification_center.add_observer(self, sender=self.stream)
+            subject = u'File uploaded by %s' % self.file.sender
+            from_header = FromHeader(SIPURI.new(self.room.identity.uri), u'Conference File Transfer')
+            to_header = ToHeader(SIPURI.new(self.destination))
+            transport = routes[0].transport
+            parameters = {} if transport=='udp' else {'transport': transport}
+            contact_header = ContactHeader(SIPURI(user=self.room.identity.uri.user, host=SIPConfig.local_ip, port=getattr(SIPConfig, 'local_%s_port' % transport), parameters=parameters))
+            extra_headers = []
+            if ThorNodeConfig.enabled:
+                extra_headers.append(Header('Thor-Scope', 'conference-invitation'))
+            extra_headers.append(Header('X-Originator-From', self.file.sender))
+            self.session.connect(from_header, to_header, contact_header, routes=routes, streams=[self.stream], is_focus=True, subject=subject, extra_headers=extra_headers)
+            try:
+                while True:
+                    notification = self._channel.wait()
+                    if notification.name in ('SIPSessionDidFail', 'SIPSessionDidEnd'):
+                        break
+            except InterruptFileTransfer:
+                self.session.end()
+            else:
+                if self.timer is not None and self.timer.active():
+                    self.timer.cancel()
+                self.timer = None
+                self.greenlet = None
+                notification_center.remove_observer(self, sender=self.stream)
+                notification_center.remove_observer(self, sender=self.session)
+                self.session = None
+                self.stream = None
+                self.room = None
+
+    def stop(self):
+        # Needs to be called from a green thread
+        if self.greenlet is None:
+            return
+        api.kill(self.greenlet, InterruptFileTransfer)
+        self.greenlet = api.getcurrent()
+        while True:
+            notification = self._channel.wait()
+            if notification.name in ('SIPSessionDidFail', 'SIPSessionDidEnd'):
+                break
+        if self.timer is not None and self.timer.active():
+            self.timer.cancel()
+        self.timer = None
+        self.greenlet = None
+        notification_center = NotificationCenter()
+        notification_center.remove_observer(self, sender=self.stream)
+        notification_center.remove_observer(self, sender=self.session)
+        self.session = None
+        self.stream = None
+        self.room = None
+
+    def handle_notification(self, notification):
+        handler = getattr(self, '_NH_%s' % notification.name, Null)
+        handler(notification)
+
+    def _NH_FileTransferStreamDidFinish(self, notification):
+        if self.timer is None:
+            self.timer = reactor.callLater(2, self.session.end)
+
+    def _NH_SIPSessionDidStart(self, notification):
+        self._channel.send(notification)
+
+    def _NH_SIPSessionDidFail(self, notification):
+        self._channel.send(notification)
+
+    def _NH_SIPSessionDidEnd(self, notification):
+        self._channel.send(notification)
 
