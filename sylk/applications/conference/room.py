@@ -271,11 +271,16 @@ class Room(object):
         except StopIteration:
             pass
         else:
-            txt = u'%s is uploading file %s' % (format_identity(session.remote_identity), transfer_stream.file_selector.name.decode('utf-8'))
+            if transfer_stream.direction == 'recvonly':
+                transfer_handler = IncomingFileTransferHandler(self, session)
+                transfer_handler.start()
+                txt = u'%s is uploading file %s' % (format_identity(session.remote_identity), transfer_stream.file_selector.name.decode('utf-8'))
+            else:
+                transfer_handler = OutgoingFileTransferRequestHandler(self, session)
+                transfer_handler.start()
+                txt = u'%s requested file %s' % (format_identity(session.remote_identity), transfer_stream.file_selector.name.decode('utf-8'))
             log.msg(txt)
             self.dispatch_server_message(txt)
-            transfer_handler = IncomingFileTransferHandler(self, session)
-            transfer_handler.start()
             if len(session.streams) == 1:
                 return
 
@@ -870,6 +875,52 @@ class IncomingFileTransferHandler(object):
         self.room = None
 
 
+class OutgoingFileTransferRequestHandler(object):
+    implements(IObserver)
+
+    def __init__(self, room, session):
+        self._channel = coros.queue()
+        self.room = room
+        self.session = session
+        self.stream = (stream for stream in self.session.streams if stream.type == 'file-transfer').next()
+        self.timer = None
+
+    @run_in_green_thread
+    def start(self):
+        notification_center = NotificationCenter()
+        notification_center.add_observer(self, sender=self.session)
+        notification_center.add_observer(self, sender=self.stream)
+
+        while True:
+            notification = self._channel.wait()
+            if notification.name in ('SIPSessionDidFail', 'SIPSessionDidEnd'):
+                break
+
+        if self.timer is not None and self.timer.active():
+            self.timer.cancel()
+        self.timer = None
+        notification_center.remove_observer(self, sender=self.stream)
+        notification_center.remove_observer(self, sender=self.session)
+        self.session = None
+        self.stream = None
+        self.room = None
+
+    @run_in_twisted_thread
+    def handle_notification(self, notification):
+        handler = getattr(self, '_NH_%s' % notification.name, Null)
+        handler(notification)
+
+    def _NH_FileTransferStreamDidFinish(self, notification):
+        if self.timer is None:
+            self.timer = reactor.callLater(2, self.session.end)
+
+    def _NH_SIPSessionDidFail(self, notification):
+        self._channel.send(notification)
+
+    def _NH_SIPSessionDidEnd(self, notification):
+        self._channel.send(notification)
+
+
 class InterruptFileTransfer(Exception): pass
 
 class OutgoingFileTransferHandler(object):
@@ -905,7 +956,7 @@ class OutgoingFileTransferHandler(object):
         else:
             notification_center = NotificationCenter()
             self.session = ServerSession(account)
-            self.stream = FileTransferStream(account, self.file.file_selector)
+            self.stream = FileTransferStream(account, self.file.file_selector, 'sendonly')
             notification_center.add_observer(self, sender=self.session)
             notification_center.add_observer(self, sender=self.stream)
             subject = u'File uploaded by %s' % self.file.sender

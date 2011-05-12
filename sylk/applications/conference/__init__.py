@@ -1,6 +1,8 @@
 # Copyright (C) 2010-2011 AG Projects. See LICENSE for details
 #
 
+import mimetypes
+import os
 import re
 
 from application import log
@@ -16,7 +18,7 @@ from twisted.internet import reactor
 from zope.interface import implements
 
 from sylk.applications import ISylkApplication, sylk_application
-from sylk.applications.conference.configuration import get_room_config
+from sylk.applications.conference.configuration import get_room_config, ConferenceConfig
 from sylk.applications.conference.room import Room
 from sylk.configuration import SIPConfig, ThorNodeConfig
 from sylk.extensions import ChatStream
@@ -85,6 +87,39 @@ class ConferenceApplication(object):
         except ACLValidationError:
             session.reject(403)
             return
+        # Check if requested files belong to this room
+        for stream in (stream for stream in transfer_streams if stream.direction == 'sendonly'):
+            try:
+                room = self.get_room(session._invitation.request_uri)
+            except RoomNotFoundError:
+                session.reject(404)
+                return
+            try:
+                file = (file for file in room.files if file.hash == stream.file_selector.hash).next()
+            except StopIteration:
+                session.reject(404)
+                return
+            filename = os.path.basename(file.name)
+            for dirpath, dirnames, filenames in os.walk(os.path.join(ConferenceConfig.file_transfer_dir, room.uri)):
+                if filename in filenames:
+                    path = os.path.join(dirpath, filename)
+                    stream.file_selector.fd = open(path, 'r')
+                    if stream.file_selector.size is None:
+                        stream.file_selector.size = os.fstat(stream.file_selector.fd.fileno()).st_size
+                    if stream.file_selector.type is None:
+                        mime_type, encoding = mimetypes.guess_type(filename)
+                        if encoding is not None:
+                            type = 'application/x-%s' % encoding
+                        elif mime_type is not None:
+                            type = mime_type
+                        else:
+                            type = 'application/octet-stream'
+                        stream.file_selector.type = type
+                    break
+            else:
+                # File got removed from the filesystem
+                session.reject(404)
+                return
         self.pending_sessions.append(session)
         notification_center = NotificationCenter()
         notification_center.add_observer(self, sender=session)
