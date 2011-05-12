@@ -241,7 +241,8 @@ class Room(object):
 
     def dispatch_file(self, file):
         self.dispatch_server_message('%s has uploaded file %s (%s)' % (file.sender, os.path.basename(file.name), self.format_file_size(file.size)))
-        for uri in set(session.remote_identity.uri for session in self.sessions if str(session.remote_identity.uri) != file.sender):
+        sender_uri = CPIMIdentity.parse(file.sender).uri
+        for uri in set(session.remote_identity.uri for session in self.sessions if str(session.remote_identity.uri) != str(sender_uri)):
             handler = OutgoingFileTransferHandler(self, uri, file)
             self.transfer_handlers.add(handler)
             handler.start()
@@ -274,11 +275,11 @@ class Room(object):
             if transfer_stream.direction == 'recvonly':
                 transfer_handler = IncomingFileTransferHandler(self, session)
                 transfer_handler.start()
-                txt = u'%s is uploading file %s' % (format_identity(session.remote_identity), transfer_stream.file_selector.name.decode('utf-8'))
+                txt = u'%s is uploading file %s' % (format_identity(session.remote_identity, cpim_format=True), transfer_stream.file_selector.name.decode('utf-8'))
             else:
                 transfer_handler = OutgoingFileTransferRequestHandler(self, session)
                 transfer_handler.start()
-                txt = u'%s requested file %s' % (format_identity(session.remote_identity), transfer_stream.file_selector.name.decode('utf-8'))
+                txt = u'%s requested file %s' % (format_identity(session.remote_identity, cpim_format=True), transfer_stream.file_selector.name.decode('utf-8'))
             log.msg(txt)
             self.dispatch_server_message(txt)
             if len(session.streams) == 1:
@@ -858,7 +859,7 @@ class IncomingFileTransferHandler(object):
             else:
                 self.status = 'OK'
 
-            file = RoomFile(self.filename, remote_hash, self.file_selector.size, str(self.session.remote_identity.uri), self.status)
+            file = RoomFile(self.filename, remote_hash, self.file_selector.size, format_identity(self.session.remote_identity, cpim_format=True), self.status)
             self.room.add_file(file)
 
         self.session = None
@@ -868,7 +869,7 @@ class IncomingFileTransferHandler(object):
         notification_center = NotificationCenter()
         notification_center.remove_observer(self, sender=self)
 
-        file = RoomFile(self.filename, self.file_selector.hash, self.file_selector.size, str(self.session.remote_identity.uri), self.status)
+        file = RoomFile(self.filename, self.file_selector.hash, self.file_selector.size, format_identity(self.session.remote_identity, cpim_format=True), self.status)
         self.room.add_file(file)
 
         self.session = None
@@ -968,7 +969,8 @@ class OutgoingFileTransferHandler(object):
             extra_headers = []
             if ThorNodeConfig.enabled:
                 extra_headers.append(Header('Thor-Scope', 'conference-invitation'))
-            extra_headers.append(Header('X-Originator-From', self.file.sender))
+            originator_uri = CPIMIdentity.parse(self.file.sender).uri
+            extra_headers.append(Header('X-Originator-From', str(originator_uri)))
             self.session.connect(from_header, to_header, contact_header, routes=routes, streams=[self.stream], is_focus=True, subject=subject, extra_headers=extra_headers)
             try:
                 while True:
