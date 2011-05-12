@@ -745,6 +745,7 @@ class IncomingFileTransferHandler(object):
     def __init__(self, room, session):
         self.room = room
         self.session = session
+        self.stream = (stream for stream in self.session.streams if stream.type == 'file-transfer').next()
         self.error = False
         self.ended = False
         self.file = None
@@ -756,9 +757,7 @@ class IncomingFileTransferHandler(object):
         self.transfer_finished = False
 
     def start(self):
-        stream = (stream for stream in self.session.streams if stream.type == 'file-transfer').next()
-
-        self.file_selector = stream.file_selector
+        self.file_selector = self.stream.file_selector
         path = os.path.join(ConferenceConfig.file_transfer_dir, self.room.uri)
         makedirs(path)
         self.filename = filename = os.path.join(path, self.file_selector.name.decode('utf-8'))
@@ -777,7 +776,7 @@ class IncomingFileTransferHandler(object):
         notification_center = NotificationCenter()
         notification_center.add_observer(self, sender=self)
         notification_center.add_observer(self, sender=self.session)
-        notification_center.add_observer(self, sender=stream)
+        notification_center.add_observer(self, sender=self.stream)
         self.hash = hashlib.sha1()
 
     @run_in_thread('file-transfer')
@@ -816,8 +815,7 @@ class IncomingFileTransferHandler(object):
         self.timer = None
 
         notification_center = NotificationCenter()
-        stream = (stream for stream in self.session.streams if stream.type == 'file-transfer').next()
-        notification_center.remove_observer(self, sender=stream)
+        notification_center.remove_observer(self, sender=self.stream)
         notification_center.remove_observer(self, sender=self.session)
 
         # Mark end of write operation
