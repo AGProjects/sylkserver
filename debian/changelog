@@ -1,3 +1,13 @@
+sylkserver (1.2.0) unstable; urgency=low
+
+  * Added file transfer support
+  * Added support for MSRP ACM
+  * Terminate all pending subscriptions when stopping a room
+  * Fixed outbound IP address on MSRP streams
+  * Fixed memory leaks
+
+ -- Saul Ibarra <saul@ag-projects.com>  Thu, 19 May 2011 15:51:46 +0200
+
 sylkserver (1.1.0) unstable; urgency=low
 
   * Added incoming REFER support
