@@ -751,7 +751,7 @@ class IncomingFileTransferHandler(object):
     def __init__(self, room, session):
         self.room = room
         self.session = session
-        self.stream = (stream for stream in self.session.streams if stream.type == 'file-transfer').next()
+        self.stream = (stream for stream in self.session.streams if stream.type == 'file-transfer' and stream.direction == 'recvonly').next()
         self.error = False
         self.ended = False
         self.file = None
