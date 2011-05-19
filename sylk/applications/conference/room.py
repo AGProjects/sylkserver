@@ -240,7 +240,6 @@ class Room(object):
                 pass
 
     def dispatch_file(self, file):
-        self.dispatch_server_message('%s has uploaded file %s (%s)' % (file.sender, os.path.basename(file.name), self.format_file_size(file.size)))
         sender_uri = CPIMIdentity.parse(file.sender).uri
         for uri in set(session.remote_identity.uri for session in self.sessions if str(session.remote_identity.uri) != str(sender_uri)):
             handler = OutgoingFileTransferHandler(self, uri, file)
@@ -389,9 +388,13 @@ class Room(object):
             self.sessions_with_proposals.remove(session)
 
     def add_file(self, file):
-        self.files.append(file)
-        self.dispatch_conference_info()
-        self.dispatch_file(file)
+        if file.status == 'INCOMPLETE':
+            self.dispatch_server_message('%s has cancelled upload of file %s (%s)' % (file.sender, os.path.basename(file.name), self.format_file_size(file.size)))
+        else:
+            self.dispatch_server_message('%s has uploaded file %s (%s)' % (file.sender, os.path.basename(file.name), self.format_file_size(file.size)))
+            self.files.append(file)
+            self.dispatch_conference_info()
+            self.dispatch_file(file)
 
     @run_in_twisted_thread
     def handle_notification(self, notification):
@@ -846,12 +849,13 @@ class IncomingFileTransferHandler(object):
         notification_center = NotificationCenter()
         notification_center.remove_observer(self, sender=self)
 
+        remote_hash = self.file_selector.hash
         if not self.transfer_finished:
             log.msg('File transfer of %s cancelled' % os.path.basename(self.filename))
             self.remove_bogus_file(self.filename)
+            self.status = 'INCOMPLETE'
         else:
             local_hash = 'sha1:' + ':'.join(re.findall(r'..', self.hash.hexdigest().upper()))
-            remote_hash = self.file_selector.hash
             if local_hash != remote_hash:
                 log.warning('Hash of transferred file does not match the remote hash (file may have changed).')
                 self.status = 'Hash missmatch'
@@ -859,8 +863,8 @@ class IncomingFileTransferHandler(object):
             else:
                 self.status = 'OK'
 
-            file = RoomFile(self.filename, remote_hash, self.file_selector.size, format_identity(self.session.remote_identity, cpim_format=True), self.status)
-            self.room.add_file(file)
+        file = RoomFile(self.filename, remote_hash, self.file_selector.size, format_identity(self.session.remote_identity, cpim_format=True), self.status)
+        self.room.add_file(file)
 
         self.session = None
         self.stream = None
