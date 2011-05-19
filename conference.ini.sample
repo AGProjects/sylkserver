@@ -13,6 +13,10 @@
 ; Replay last chat messages after joining a room
 ; replay_history = 20
 
+; File transfer push support. If enabled files will be pushed to all active
+; participants after receiving the file
+; push_file_transfer = False
+
 ; Access Lists Default Policy
 ; Apache-style access lists for the caller using SIP domains or SIP URIs
 ; https://httpd.apache.org/docs/2.2/mod/mod_authz_host.html#order

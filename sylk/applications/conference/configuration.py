@@ -84,6 +84,7 @@ class ConferenceConfig(ConfigSection):
     allow = ConfigSetting(type=PolicySettingValue, value=PolicySettingValue('all'))
     deny = ConfigSetting(type=PolicySettingValue, value=PolicySettingValue('none'))
     file_transfer_dir = ConfigSetting(type=str, value='/var/spool/sylkserver')
+    push_file_transfer = False
 
 
 class RoomConfig(ConfigSection):

@@ -394,7 +394,8 @@ class Room(object):
             self.dispatch_server_message('%s has uploaded file %s (%s)' % (file.sender, os.path.basename(file.name), self.format_file_size(file.size)))
             self.files.append(file)
             self.dispatch_conference_info()
-            self.dispatch_file(file)
+            if ConferenceConfig.push_file_transfer:
+                self.dispatch_file(file)
 
     @run_in_twisted_thread
     def handle_notification(self, notification):
