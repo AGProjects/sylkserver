@@ -863,6 +863,7 @@ class IncomingFileTransferHandler(object):
             self.room.add_file(file)
 
         self.session = None
+        self.stream = None
         self.room = None
 
     def _NH_IncomingFileTransferHandlerDidFail(self, notification):
@@ -873,6 +874,7 @@ class IncomingFileTransferHandler(object):
         self.room.add_file(file)
 
         self.session = None
+        self.stream = None
         self.room = None
 
 
