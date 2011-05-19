@@ -13,6 +13,9 @@
 ; Replay last chat messages after joining a room
 ; replay_history = 20
 
+; Directory for storing files transferred to rooms (a subdirectory for each room will be created)
+; file_transfer_dir = /var/spool/sylkserver
+
 ; File transfer push support. If enabled files will be pushed to all active
 ; participants after receiving the file
 ; push_file_transfer = False
