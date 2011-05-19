@@ -83,7 +83,7 @@ class ConferenceConfig(ConfigSection):
     access_policy = ConfigSetting(type=AccessPolicyValue, value=AccessPolicyValue('allow, deny'))
     allow = ConfigSetting(type=PolicySettingValue, value=PolicySettingValue('all'))
     deny = ConfigSetting(type=PolicySettingValue, value=PolicySettingValue('none'))
-    file_transfer_dir = ConfigSetting(type=str, value='/var/lib/sylkserver')
+    file_transfer_dir = ConfigSetting(type=str, value='/var/spool/sylkserver')
 
 
 class RoomConfig(ConfigSection):
