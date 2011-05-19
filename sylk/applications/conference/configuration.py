@@ -6,6 +6,7 @@ __all__ = ['ConferenceConfig', 'get_room_config']
 import re
 
 from application.configuration import ConfigFile, ConfigSection, ConfigSetting
+from sylk.configuration.datatypes import Path
 
 
 # Datatypes
@@ -83,7 +84,7 @@ class ConferenceConfig(ConfigSection):
     access_policy = ConfigSetting(type=AccessPolicyValue, value=AccessPolicyValue('allow, deny'))
     allow = ConfigSetting(type=PolicySettingValue, value=PolicySettingValue('all'))
     deny = ConfigSetting(type=PolicySettingValue, value=PolicySettingValue('none'))
-    file_transfer_dir = ConfigSetting(type=str, value='/var/spool/sylkserver')
+    file_transfer_dir = ConfigSetting(type=Path, value=Path('/var/spool/sylkserver'))
     push_file_transfer = False
 
 

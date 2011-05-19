@@ -15,7 +15,7 @@ from sipsimple.configuration.settings import AudioSettings, LogsSettings, RTPSet
 
 from sylk import __version__ as server_version
 from sylk.configuration import ServerConfig, SIPConfig, MSRPConfig, RTPConfig
-from sylk.configuration.datatypes import AudioCodecs, Path, Port, SIPProxyAddress
+from sylk.configuration.datatypes import AudioCodecs, NillablePath, Path, Port, SIPProxyAddress
 
 
 # Account settings extensions
@@ -42,7 +42,7 @@ class AccountSIPSettingsExtension(AccountSIPSettings):
 
 
 class AccountTLSSettingsExtension(AccountTLSSettings):
-    certificate = Setting(type=Path, default=ServerConfig.certificate, nillable=True)
+    certificate = Setting(type=NillablePath, default=ServerConfig.certificate, nillable=True)
     verify_server = Setting(type=bool, default=ServerConfig.verify_server)
 
 
@@ -105,7 +105,7 @@ class SIPSettingsExtension(SIPSettings):
 
 
 class TLSSettingsExtension(TLSSettings):
-    ca_list = Setting(type=Path, default=ServerConfig.ca_file, nillable=True)
+    ca_list = Setting(type=NillablePath, default=ServerConfig.ca_file, nillable=True)
 
 
 class SylkServerSettingsExtension(SettingsObjectExtension):

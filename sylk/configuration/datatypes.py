@@ -141,11 +141,20 @@ class SIPProxyAddress(object):
     def __unicode__(self):
         return u'%s:%d;transport=%s' % (self.host, self.port, self.transport)
 
-class Path(unicode):
+class NillablePath(unicode):
     def __new__(cls, path):
         path = os.path.normpath(path)
         if not os.path.exists(path):
             return None
+        return unicode.__new__(cls, path)
+
+    @property
+    def normalized(self):
+        return os.path.expanduser(self)
+
+class Path(unicode):
+    def __new__(cls, path):
+        path = os.path.normpath(path)
         return unicode.__new__(cls, path)
 
     @property
