@@ -14,4 +14,7 @@ override_dh_install:
 	install -m 0644 conference.ini.sample debian/sylkserver/etc/sylkserver/conference.ini
 	dh_install
 
-.PHONY: override_dh_clean override_dh_install
+override_dh_installinit:
+	dh_installinit --no-start
+
+.PHONY: override_dh_clean override_dh_install override_dh_installinit
