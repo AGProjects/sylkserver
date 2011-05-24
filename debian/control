@@ -3,7 +3,7 @@ Section: net
 Priority: optional
 Maintainer: Saul Ibarra <saul@ag-projects.com>
 Uploaders: Dan Pascu <dan@ag-projects.com>, Adrian Georgescu <ag@ag-projects.com>
-Build-Depends: cdbs (>= 0.4.53), debhelper (>= 7), python-all (>= 2.6), python-support
+Build-Depends: debhelper (>= 7.3.5), python-all (>= 2.6), python-support
 Standards-Version: 3.9.2
 
 Package: sylkserver
