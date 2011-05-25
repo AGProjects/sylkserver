@@ -70,7 +70,7 @@ class Room(object):
         self.identity = CPIMIdentity.parse('<sip:%s>' % self.uri)
         self.files = []
         self.sessions = []
-        self.sessions_with_proposals = []
+        self.sessions_with_proposals = {}
         self.subscriptions = []
         self.transfer_handlers = WeakSet()
         self.state = 'stopped'
@@ -300,6 +300,13 @@ class Room(object):
         notification_center.remove_observer(self, sender=session)
         self.sessions.remove(session)
         try:
+            timer = self.sessions_with_proposals.pop(session)
+        except KeyError:
+            pass
+        else:
+            if timer.active():
+                timer.cancel()
+        try:
             chat_stream = (stream for stream in session.streams or [] if stream.type == 'chat').next()
         except StopIteration:
             pass
@@ -383,9 +390,8 @@ class Room(object):
         self.subscriptions.append(subscribe_request)
 
     def accept_proposal(self, session, streams):
-        if session in self.sessions_with_proposals:
-            session.accept_proposal(streams)
-            self.sessions_with_proposals.remove(session)
+        self.sessions_with_proposals.pop(session)
+        session.accept_proposal(streams)
 
     def add_file(self, file):
         if file.status == 'INCOMPLETE':
@@ -445,12 +451,14 @@ class Room(object):
             session.reject_proposal()
             return
         streams = [streams[0] for streams in (audio_streams, chat_streams) if streams]
-        self.sessions_with_proposals.append(session)
-        reactor.callLater(4, self.accept_proposal, session, streams)
+        timer = reactor.callLater(4, self.accept_proposal, session, streams)
+        self.sessions_with_proposals[session] = timer
 
     def _NH_SIPSessionGotRejectProposal(self, notification):
         session = notification.sender
-        self.sessions_with_proposals.remove(session)
+        timer = self.sessions_with_proposals.pop(session)
+        if timer.active():
+            timer.cancel()
 
     def _NH_SIPSessionDidRenegotiateStreams(self, notification):
         notification_center = NotificationCenter()
