@@ -17,7 +17,7 @@ from sipsimple.threading.green import run_in_green_thread
 from twisted.internet import reactor
 from zope.interface import implements
 
-from sylk.applications import ISylkApplication, sylk_application
+from sylk.applications import ISylkApplication, SylkApplication
 from sylk.applications.conference.configuration import get_room_config, ConferenceConfig
 from sylk.applications.conference.room import Room
 from sylk.configuration import SIPConfig, ThorNodeConfig
@@ -33,9 +33,8 @@ class ACLValidationError(Exception): pass
 class RoomNotFoundError(Exception): pass
 
 
-@sylk_application
 class ConferenceApplication(object):
-    __metaclass__ = Singleton
+    __metaclass__ = SylkApplication
     implements(ISylkApplication, IObserver)
 
     __appname__ = 'conference'

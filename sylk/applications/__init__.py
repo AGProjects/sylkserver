@@ -1,7 +1,7 @@
 # Copyright (C) 2010-2011 AG Projects. See LICENSE for details
 #
 
-__all__ = ['ISylkApplication', 'ApplicationRegistry', 'sylk_application', 'IncomingRequestHandler']
+__all__ = ['ISylkApplication', 'ApplicationRegistry', 'SylkApplication', 'IncomingRequestHandler']
 
 import os
 import socket
@@ -24,8 +24,7 @@ class ISylkApplication(Interface):
     Interface defining attributes and methods any application must 
     implement.
 
-    Each application must be a Singleton and has to be decorated with
-    the @sylk_application decorator.
+    Each application must use the SylkApplication metaclass.
     """
 
     __appname__ = Attribute("Application name")
@@ -57,10 +56,11 @@ class ApplicationRegistry(object):
             self.applications.append(app)
 
 
-def sylk_application(cls):
-    """Class decorator for adding applications to the ApplicationRegistry"""
-    ApplicationRegistry().add(cls())
-    return cls
+class SylkApplication(Singleton):
+    """Metaclass for defining SylkServer applications: a Singleton that also adds them to the application registry"""
+    def __init__(cls, name, bases, dic):
+        super(SylkApplication, cls).__init__(name, bases, dic)
+        ApplicationRegistry().add(cls())
 
 
 def load_applications():
