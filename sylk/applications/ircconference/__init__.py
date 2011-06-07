@@ -3,7 +3,7 @@
 
 from application import log
 from application.notification import IObserver, NotificationCenter
-from application.python.util import Null, Singleton
+from application.python import Null
 from twisted.internet import reactor
 from zope.interface import implements
 

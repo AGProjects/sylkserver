@@ -10,7 +10,8 @@ import struct
 from application import log
 from application.configuration.datatypes import NetworkRange
 from application.notification import IObserver, NotificationCenter
-from application.python.util import Null, Singleton
+from application.python import Null
+from application.python.types import Singleton
 from itertools import chain
 from sipsimple.threading import run_in_twisted_thread
 from zope.interface import Attribute, Interface, implements

@@ -6,7 +6,8 @@ import urllib
 
 from application import log
 from application.notification import IObserver, NotificationCenter, NotificationData
-from application.python.util import Null, Singleton
+from application.python import Null
+from application.python.types import Singleton
 from eventlet import coros, proc
 from sipsimple.audio import WavePlayer, WavePlayerError
 from sipsimple.conference import AudioConference

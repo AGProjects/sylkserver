@@ -14,7 +14,8 @@ A usage example can be found in the conference application database module.
 __all__ = ['Database']
 
 from application import log
-from application.python.util import Null, Singleton
+from application.python import Null
+from application.python.types import Singleton
 from sqlobject import connectionForURI
 
 

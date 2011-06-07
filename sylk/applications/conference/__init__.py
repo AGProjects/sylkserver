@@ -7,7 +7,7 @@ import re
 
 from application import log
 from application.notification import IObserver, NotificationCenter
-from application.python.util import Null, Singleton
+from application.python import Null
 from sipsimple.account import AccountManager
 from sipsimple.configuration.settings import SIPSimpleSettings
 from sipsimple.core import SIPURI, SIPCoreError, Header, ContactHeader, FromHeader, ToHeader

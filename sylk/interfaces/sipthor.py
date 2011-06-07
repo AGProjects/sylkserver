@@ -7,7 +7,7 @@ __all__ = ['ConferenceNode']
 
 from application import log
 from application.notification import NotificationCenter
-from application.python.util import Singleton
+from application.python.types import Singleton
 from eventlet.twistedutil import block_on, callInGreenThread
 from gnutls.interfaces.twisted import X509Credentials
 from gnutls.constants import COMP_DEFLATE, COMP_LZO, COMP_NULL
