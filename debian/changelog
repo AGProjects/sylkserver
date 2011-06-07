@@ -1,3 +1,11 @@
+sylkserver (1.2.1) unstable; urgency=low
+
+  * Handle case when session is ended while a proposal is pending
+  * Allow SylkServer to be built with Python 2.5
+  * Reworked Debian packaging
+
+ -- Saul Ibarra <saul@ag-projects.com>  Tue, 07 Jun 2011 14:20:13 +0200
+
 sylkserver (1.2.0) unstable; urgency=low
 
   * Added file transfer support
