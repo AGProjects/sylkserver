@@ -15,7 +15,7 @@ from time import mktime
 try:
     from weakref import WeakSet
 except ImportError:
-    from sylk.thirdparty.weakrefset import WeakSet
+    from backports.weakref import WeakSet
 
 from application import log
 from application.notification import IObserver, NotificationCenter
