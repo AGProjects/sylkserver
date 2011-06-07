@@ -7,7 +7,7 @@ __version__ = '1.2.0'
 configuration_filename = "config.ini"
 
 
-package_requirements = {'python-application': '1.2.6',
+package_requirements = {'python-application': '1.2.8',
                         'python-sipsimple': '0.18.1'}
 
 try:
