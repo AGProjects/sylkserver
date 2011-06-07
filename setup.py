@@ -5,17 +5,19 @@
 
 import glob
 import os
+import re
 
 from distutils.core import setup
 
-from sylk import __version__
 
+def get_version():
+    return re.search(r"""__version__\s+=\s+(?P<quote>['"])(?P<version>.+?)(?P=quote)""", open('sylk/__init__.py').read()).group('version')
 
 def find_packages(toplevel):
     return [directory.replace(os.path.sep, '.') for directory, subdirs, files in os.walk(toplevel) if '__init__.py' in files]
 
 setup(name         = "sylkserver",
-      version      = __version__,
+      version      = get_version(),
       author       = "AG Projects",
       author_email = "support@ag-projects.com",
       url          = "http://sylkserver.com",
