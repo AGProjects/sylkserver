@@ -19,7 +19,8 @@ except ImportError:
 
 from application import log
 from application.notification import IObserver, NotificationCenter
-from application.python.util import Null
+from application.python import Null
+from application.system import makedirs
 from eventlet import api, coros, proc
 from itertools import chain
 from sipsimple.account import AccountManager
@@ -36,7 +37,7 @@ from sipsimple.streams.applications.chat import CPIMIdentity
 from sipsimple.streams.msrp import ChatStreamError, FileSelector
 from sipsimple.threading import run_in_thread, run_in_twisted_thread
 from sipsimple.threading.green import run_in_green_thread, run_in_waitable_green_thread
-from sipsimple.util import Timestamp, TimestampedNotificationData, makedirs
+from sipsimple.util import Timestamp, TimestampedNotificationData
 from twisted.internet import reactor
 from zope.interface import implements
 

@@ -6,8 +6,8 @@ import re
 import socket
 import sys
 
+from application.python.descriptor import classproperty
 from sipsimple.configuration.datatypes import AudioCodecList, Hostname, SIPTransport
-from sipsimple.util import classproperty
 
 
 class AudioCodecs(list):

@@ -7,7 +7,7 @@ import datetime
 import time
 
 from application import log
-from application.python.util import Null
+from application.python import Null
 from eventlet.twistedutil import block_on
 from sqlobject import SQLObject, DateTimeCol, UnicodeCol
 from twisted.internet.threads import deferToThread

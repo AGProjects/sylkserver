@@ -4,7 +4,7 @@
 from datetime import datetime
 
 from application.notification import NotificationCenter
-from application.python.util import Null
+from application.python import Null
 from eventlet import api
 from sipsimple.configuration.settings import SIPSimpleSettings
 from sipsimple.core import Invitation, SIPCoreError, sip_status_messages
