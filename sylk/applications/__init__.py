@@ -60,7 +60,7 @@ class SylkApplication(Singleton):
     """Metaclass for defining SylkServer applications: a Singleton that also adds them to the application registry"""
     def __init__(cls, name, bases, dic):
         super(SylkApplication, cls).__init__(name, bases, dic)
-        ApplicationRegistry().add(cls())
+        ApplicationRegistry().add(cls)
 
 
 def load_applications():
@@ -109,7 +109,7 @@ class IncomingRequestHandler(object):
             log.error('Application %s is not loaded' % application)
             raise ApplicationNotLoadedError
         else:
-            return app
+            return app()
 
     @run_in_twisted_thread
     def handle_notification(self, notification):
