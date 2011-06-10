@@ -1,6 +1,8 @@
 # Copyright (C) 2011 AG Projects. See LICENSE for details.
 #
 
+from __future__ import with_statement
+
 from datetime import datetime
 
 from application.notification import NotificationCenter

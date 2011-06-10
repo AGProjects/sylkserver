@@ -1,6 +1,8 @@
 # Copyright (C) 2010-2011 AG Projects. See LICENSE for details.
 #
 
+from __future__ import with_statement
+
 import sys
 
 from threading import Event
