@@ -152,15 +152,19 @@ class Room(object):
                     timestamp = datetime.fromtimestamp(mktime(message.timestamp.timetuple()))
                 else:
                     timestamp = datetime.now()
-                database.async_save_message(format_identity(session.remote_identity, True), self.uri, message.body, message.content_type, unicode(message.sender), unicode(message.recipients[0]), timestamp)
-                if data.private:
+                recipient = message.recipients[0]
+                database.async_save_message(format_identity(session.remote_identity, True), self.uri, message.body, message.content_type, unicode(message.sender), unicode(recipient), timestamp)
+                private = len(message.recipients) == 1 and recipient.uri != self.identity.uri
+                if private:
                     self.dispatch_private_message(session, message)
                 else:
                     self.dispatch_message(session, message)
             elif message_type == 'composing_indication':
                 if data.sender.uri != session.remote_identity.uri:
                     return
-                if data.private:
+                recipient = data.recipients[0]
+                private = len(data.recipients) == 1 and recipient.uri != self.identity.uri
+                if private:
                     self.dispatch_private_iscomposing(session, data)
                 else:
                     self.dispatch_iscomposing(session, data)
