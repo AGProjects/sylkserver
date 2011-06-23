@@ -39,7 +39,7 @@
 ; Ports used for SIP transports, if not set to any value the transport will be disabled
 ; local_udp_port = 5060
 ; local_tcp_port = 5060
-; local_tls_port =
+; local_tls_port = 5061
 
 ; If set all outbound SIP requests will be sent through this SIP proxy
 ; outbound_proxy =
