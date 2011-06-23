@@ -1,0 +1,64 @@
+
+SylkServer Installation
+-----------------------
+
+Copyright (c) 2010-2011 AG Projects
+http://ag-projects.com
+
+Home page: http://sylkserver.com
+
+
+Configure Repository
+--------------------
+
+Install the AG Projects debian software signing key: 
+
+wget http://download.ag-projects.com/agp-debian-gpg.key
+sudo apt-key add agp-debian-gpg.key
+
+Add these lines to /etc/apt/sources.list:
+
+
+Ubuntu Natty (11.04)
+--------------------
+
+deb	http://ag-projects.com/ubuntu natty main
+deb-src http://ag-projects.com/ubuntu natty main
+
+
+Ubuntu Maverick (10.10)
+-----------------------
+
+deb	http://ag-projects.com/ubuntu maverick main
+deb-src http://ag-projects.com/ubuntu maverick main
+
+
+Ubuntu Lucid (10.04)
+--------------------
+
+deb	http://ag-projects.com/ubuntu lucid main
+deb-src http://ag-projects.com/ubuntu lucid main
+
+
+Update the list of available packages:
+
+sudo apt-get update
+
+Install SylkServer:
+
+sudo apt-get install sylkserver
+
+Enable SylkServer:
+
+Edit /etc/default/sylkserver and set RUN_SYLKSERVER=yes
+
+Configure SylkServer:
+
+Edit /etc/sylkserver/config.ini
+
+Run SylkServer:
+
+/etc/init.d/sylkserver start
+
+The software logs its messages to /var/log/syslog
+
