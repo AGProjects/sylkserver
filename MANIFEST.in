@@ -4,6 +4,7 @@ recursive-include debian  *.init *.dirs *.default
 recursive-include debian/source format
 recursive-include resources/sounds *.wav
 recursive-include resources/sounds/moh *.wav
+recursive-include tls *.crt
 prune debian/tmp
 prune debian/sylkserver-*
 include INSTALL LICENSE MANIFEST.in *.ini.sample

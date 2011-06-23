@@ -16,7 +16,7 @@ class ServerConfig(ConfigSection):
     __section__ = 'Server'
 
     ca_file = ConfigSetting(type=NillablePath, value=NillablePath('/etc/sylkserver/tls/ca.crt'))
-    certificate = ConfigSetting(type=NillablePath, value=NillablePath('/etc/sylkserver/tls/sylkserver.crt'))
+    certificate = ConfigSetting(type=NillablePath, value=NillablePath('/etc/sylkserver/tls/default.crt'))
     verify_server = False
     default_application = 'conference'
     application_map = ConfigSetting(type=StringList, value='')
@@ -42,7 +42,7 @@ class MSRPConfig(ConfigSection):
     __cfgfile__ = configuration_filename
     __section__ = 'MSRP'
 
-    use_tls = False
+    use_tls = True
 
 
 class RTPConfig(ConfigSection):

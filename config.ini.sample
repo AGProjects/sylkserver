@@ -23,8 +23,8 @@
 ; The X.509 Certificate Authorities file
 ; ca_file = /etc/sylkserver/tls/ca.crt
 
-; The file containing X.509 certificate and private key in unencrypted format 
-; certificate = /etc/sylkserver/tls/sylkserver.crt
+; The file containing X.509 certificate and private key in unencrypted format
+; certificate = /etc/sylkserver/tls/default.crt
 
 ; verify_server = False
 
@@ -57,9 +57,9 @@
 
 ; MSRP transport settings
 
-; By default MSRP media is using TCP, to enable TLS you must configure a
-; X.509 certificate in the server section and enable it here
-; use_tls = False
+; A valid X.509 certificate is required for MSRP to work over TLS.
+; TLS is enabled by default, a default TLS certificate is provided with SylkServer.
+; use_tls = True
 
 
 [RTP]
