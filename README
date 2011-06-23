@@ -123,7 +123,7 @@ The server implements relevant features from the following standards:
  - Conference event package RFC4575
  - A Framework for Conferencing with SIP RFC4353
  - Conferencing for User Agents RFC4579
- * Conferencing for User Agents RFC4579
+ - Conferencing for User Agents RFC4579
    5.1  INVITE: Joining a Conference Using the Conference URI - Dial-In
    5.2  INVITE: Adding a Participant by the Focus - Dial-Out
    5.5  REFER: Requesting a Focus to Add a New Resource to a Conference
@@ -135,7 +135,7 @@ Support
 
 The project is developed and supported by AG Projects. The support is
 provided on a best-effort basis. "best-effort" means that we try to solve
-the bugs you report or help fix your problems as soon as we can, subject to 
+the bugs you report or help fix your problems as soon as we can, subject to
 available resources.
 
 To request support you must the use SIP Beyond VoIP mailing list:
@@ -143,3 +143,4 @@ To request support you must the use SIP Beyond VoIP mailing list:
 http://lists.ag-projects.com/mailman/listinfo/sipbeyondvoip
 
 For commercial support contact AG Projects http://ag-projects.com
+
