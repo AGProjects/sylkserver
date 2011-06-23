@@ -787,7 +787,7 @@ class IncomingFileTransferHandler(object):
         basename, ext = os.path.splitext(filename)
         i = 1
         while os.path.exists(filename):
-            filename = '%s_%d%s' % (self.filename, i, ext)
+            filename = '%s_%d%s' % (basename, i, ext)
             i += 1
         self.filename = filename
         try:
