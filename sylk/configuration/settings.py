@@ -81,7 +81,7 @@ class RTPSettingsExtension(RTPSettings):
     timeout = Setting(type=NonNegativeInteger, default=RTPConfig.timeout)
 
 
-def sip_port_validator(port, sibling_port):                                                                                                                                                  
+def sip_port_validator(port, sibling_port):
     if port == sibling_port != 0:
         raise ValueError("the TCP and TLS ports must be different")
 
