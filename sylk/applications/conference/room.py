@@ -461,9 +461,14 @@ class Room(object):
 
     def _NH_SIPSessionGotRejectProposal(self, notification):
         session = notification.sender
-        timer = self.sessions_with_proposals.pop(session)
-        if timer.active():
-            timer.cancel()
+        try:
+            timer = self.sessions_with_proposals.pop(session)
+        except KeyError:
+            # If the proposal couldn't be accepted by us we will not add a timer
+            pass
+        else:
+            if timer.active():
+                timer.cancel()
 
     def _NH_SIPSessionDidRenegotiateStreams(self, notification):
         notification_center = NotificationCenter()
