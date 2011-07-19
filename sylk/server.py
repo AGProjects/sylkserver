@@ -60,6 +60,7 @@ class SylkServer(SIPApplication):
     def _load_configuration(self):
         account_manager = AccountManager()
         account = Account("account@example.com")     # an account is required by AccountManager
+        account.save()
         account_manager.default_account = account
 
     @run_in_green_thread
