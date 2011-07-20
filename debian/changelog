@@ -1,3 +1,15 @@
+sylkserver (1.2.2) unstable; urgency=low
+
+  * Enabled TLS by default
+  * Fixed compatibility with Python 2.5
+  * Fixed regression when sending private messages
+  * Fixed renaming file when it already exists
+  * Listen by default on port 5061 for SIP TLS transport
+  * Fixed exception when proposal is rejected but no timer was added
+  * Adapted to accounts handling changes in the middleware
+
+ -- Saul Ibarra <saul@ag-projects.com>  Wed, 20 Jul 2011 17:07:24 +0200
+
 sylkserver (1.2.1) unstable; urgency=low
 
   * Handle case when session is ended while a proposal is pending
