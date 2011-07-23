@@ -1,13 +1,7 @@
 TODO
 ----
 
- - Call Transfer
- - Multipart SDP
+ - CANCEL server outgoing INVITE
+ - Call Transfer for SIP Thor
  - Add participants using resource-list
- - CANCEL outgoing INVITE
- - Room passwords
-
-Media
-
- - Video
- - XMPP gateway
+ - Jingle gateway
