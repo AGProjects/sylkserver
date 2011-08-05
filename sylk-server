@@ -53,6 +53,7 @@ def main():
 
     process.system_config_directory = system_config_directory
     sylk.configuration_filename = process.config_file(configuration_filename)
+    pid_file = options.pid_file or default_pid
 
     # when run in foreground, do not require root access because of /var/run/sylkserver
     if not options.fork:
@@ -60,14 +61,6 @@ def main():
     else:
         try:
             process.runtime_directory = runtime_directory
-        except ProcessError, e:
-            log.fatal("Cannot start %s: %s" % (fullname, e))
-            sys.exit(1)
-
-    pid_file = options.pid_file or default_pid
-
-    if options.fork:
-        try:
             process.daemonize(pid_file)
         except ProcessError, e:
             log.fatal("Cannot start %s: %s" % (fullname, e))
