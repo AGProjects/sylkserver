@@ -74,7 +74,7 @@ def main():
         sys.exit(1)
 
     try:
-	if not options.fork and DEBUG:
+        if not options.fork and DEBUG:
             from application.debug.memory import memory_dump
         from sylk.server import SylkServer
         server = SylkServer()
