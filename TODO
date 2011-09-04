@@ -2,6 +2,8 @@ TODO
 ----
 
  - CANCEL server outgoing INVITE
- - Call Transfer for SIP Thor
+ - Bonjour support
+ - Call Transfer support
+ - Automatic Call Transfer on topology change
  - Add participants using resource-list
  - Jingle gateway
