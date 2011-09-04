@@ -12,7 +12,7 @@ from sipsimple.configuration.settings import SIPSimpleSettings
 from sipsimple.core import Invitation, SIPCoreError, sip_status_messages
 from sipsimple.core import RouteHeader, SubjectHeader
 from sipsimple.core import SDPConnection, SDPSession
-from sipsimple.session import Session, InvitationDidFailError, MediaStreamDidFailError, transition_state
+from sipsimple.session import Session, InvitationDisconnectedError, MediaStreamDidFailError, transition_state
 from sipsimple.threading.green import run_in_green_thread
 from sipsimple.util import TimestampedNotificationData
 
@@ -101,7 +101,7 @@ class ServerSession(Session):
                                 else:
                                     unhandled_notifications.append(notification)
                             elif notification.data.state == 'disconnected':
-                                raise InvitationDidFailError(notification.sender, notification.data)
+                                raise InvitationDisconnectedError(notification.sender, notification.data)
             except api.TimeoutError:
                 self.greenlet = None
                 self.end()
@@ -155,7 +155,7 @@ class ServerSession(Session):
                         else:
                             unhandled_notifications.append(notification)
                     elif notification.data.state == 'disconnected':
-                        raise InvitationDidFailError(notification.sender, notification.data)
+                        raise InvitationDisconnectedError(notification.sender, notification.data)
         except (MediaStreamDidFailError, api.TimeoutError), e:
             for stream in self.proposed_streams:
                 notification_center.remove_observer(self, sender=stream)
@@ -166,7 +166,7 @@ class ServerSession(Session):
             else:
                 error = 'media stream failed: %s' % e.data.reason
             self._fail(originator='local', code=received_code, reason=received_reason, error=error)
-        except InvitationDidFailError, e:
+        except InvitationDisconnectedError, e:
             notification_center.remove_observer(self, sender=self._invitation)
             for stream in self.proposed_streams:
                 notification_center.remove_observer(self, sender=stream)
