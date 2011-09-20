@@ -1,3 +1,9 @@
+sylkserver (1.2.3) unstable; urgency=low
+
+  * Adapted to API changes in SIPSIMPLE SDK
+
+ -- Saul Ibarra <saul@ag-projects.com>  Tue, 20 Sep 2011 10:19:48 +0200
+
 sylkserver (1.2.2) unstable; urgency=low
 
   * Enabled TLS by default
