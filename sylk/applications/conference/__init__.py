@@ -252,13 +252,13 @@ class IncomingReferralHandler(object):
         self._refer_request = refer_request
         self._refer_headers = data.headers
         self.room_uri = data.headers.get('To').uri
-        self.refer_to_uri = data.headers.get('Refer-To').uri
+        self.refer_to_uri = re.sub('<|>', '', data.headers.get('Refer-To').uri)
         self.method = data.headers.get('Refer-To').parameters.get('method', 'invite').lower()
         self.session = None
         self.streams = []
 
     def start(self):
-        if not re.match('^(sip:|sips:).*', self.refer_to_uri):
+        if not self.refer_to_uri.startswith(('sip:', 'sips:')):
             self.refer_to_uri = 'sip:%s' % self.refer_to_uri
         try:
             self.refer_to_uri = SIPURI.parse(self.refer_to_uri)
