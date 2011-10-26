@@ -37,7 +37,7 @@ class SylkServer(SIPApplication):
 
     def __init__(self):
         self.logger = None
-        self.request_handler = IncomingRequestHandler()
+        self.request_handler = None
         self.stop_event = Event()
 
     def start(self):
@@ -193,7 +193,6 @@ class SylkServer(SIPApplication):
 
     def _NH_SIPApplicationWillStart(self, notification):
         self.logger.start()
-        self.request_handler.start()
         settings = SIPSimpleSettings()
         if settings.logs.trace_sip and self.logger._siptrace_filename is not None:
             log.msg('Logging SIP trace to file "%s"' % self.logger._siptrace_filename)
@@ -214,6 +213,9 @@ class SylkServer(SIPApplication):
                 log.msg("%s:%d (%s)" % (local_ip, getattr(engine, '%s_port' % transport), transport.upper()))
             except TypeError:
                 pass
+        # Start request handler
+        self.request_handler = IncomingRequestHandler()
+        self.request_handler.start()
         # Start SIPThor interface
         proc.spawn(self._start_sipthor)
 

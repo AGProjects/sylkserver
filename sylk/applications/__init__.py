@@ -67,6 +67,7 @@ def load_applications():
     toplevel = os.path.dirname(__file__)
     app_list = ['sylk.applications.%s' % item for item in os.listdir(toplevel) if os.path.isdir(os.path.join(toplevel, item)) and '__init__.py' in os.listdir(os.path.join(toplevel, item))]
     map(__import__, app_list)
+    [app() for app in ApplicationRegistry()]
 
 
 class ApplicationNotLoadedError(Exception):
