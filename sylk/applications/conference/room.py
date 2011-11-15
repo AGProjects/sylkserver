@@ -178,7 +178,7 @@ class Room(object):
                 pass
             else:
                 try:
-                    chat_stream.send_message(message.body, message.content_type, local_identity=identity, recipients=[self.identity], timestamp=message.timestamp)
+                    chat_stream.send_message(message.body, message.content_type, local_identity=identity, recipients=[self.identity], timestamp=message.timestamp, additional_headers=message.additional_headers)
                 except ChatStreamError, e:
                     log.error(u'Error dispatching message to %s: %s' % (s.remote_identity.uri, e))
 
@@ -194,7 +194,7 @@ class Room(object):
                 continue
             else:
                 try:
-                    chat_stream.send_message(message.body, message.content_type, local_identity=identity, recipients=[recipient], timestamp=message.timestamp)
+                    chat_stream.send_message(message.body, message.content_type, local_identity=identity, recipients=[recipient], timestamp=message.timestamp, additional_headers=message.additional_headers)
                 except ChatStreamError, e:
                     log.error(u'Error dispatching private message to %s: %s' % (s.remote_identity.uri, e))
 
