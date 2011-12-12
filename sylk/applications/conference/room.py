@@ -240,7 +240,7 @@ class Room(object):
         data = self.build_conference_info_payload()
         for subscription in (subscription for subscription in self.subscriptions if subscription.state == 'active'):
             try:
-                subscription.push_content(conference.Conference.content_type, data)
+                subscription.push_content(conference.ConferenceDocument.content_type, data)
             except (SIPCoreError, SIPCoreInvalidStateError):
                 pass
 
@@ -368,7 +368,7 @@ class Room(object):
                 user = (user for user in users if user.entity == str(session.remote_identity.uri)).next()
             except StopIteration:
                 user = conference.User(str(session.remote_identity.uri), display_text=session.remote_identity.display_name)
-                users.append(user)
+                users.add(user)
             joining_info = conference.JoiningInfo(when=session.start_time)
             holdable_streams = [stream for stream in session.streams if stream.hold_supported]
             session_on_hold = holdable_streams and all(stream.on_hold_by_remote for stream in holdable_streams)
@@ -377,21 +377,19 @@ class Room(object):
             for stream in session.streams:
                 if stream.type == 'file-transfer':
                     continue
-                endpoint.append(conference.Media(id(stream), media_type=self.format_conference_stream_type(stream)))
-            user.append(endpoint)
+                endpoint.add(conference.Media(id(stream), media_type=self.format_conference_stream_type(stream)))
+            user.add(endpoint)
         self.conference_info_payload.users = users
         if self.files:
-            conference_description = self.conference_info_payload.conference_description
-            conference_description.resources = conference.Resources(conference.FileResources())
-            for file in self.files:
-                conference_description.resources.files.append(conference.FileResource(os.path.basename(file.name), file.hash, file.size, file.sender, file.status))
+            files = conference.FileResources(conference.FileResource(os.path.basename(file.name), file.hash, file.size, file.sender, file.status) for file in self.files)
+            self.conference_info_payload.conference_description.resources = conference.Resources(files=files)
         return self.conference_info_payload.toxml()
 
     def handle_incoming_subscription(self, subscribe_request, data):
         notification_center = NotificationCenter()
         notification_center.add_observer(self, sender=subscribe_request)
         data = self.build_conference_info_payload()
-        subscribe_request.accept(conference.Conference.content_type, data)
+        subscribe_request.accept(conference.ConferenceDocument.content_type, data)
         self.subscriptions.append(subscribe_request)
 
     def accept_proposal(self, session, streams):
