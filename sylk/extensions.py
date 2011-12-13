@@ -36,7 +36,7 @@ del registry
 class ChatStream(_ChatStream):
     accept_types = ['message/cpim']
     accept_wrapped_types = ['*']
-    chatroom_capabilities = ['private-messages']
+    chatroom_capabilities = ['private-messages', 'screen-sharing']
 
     @property
     def local_uri(self):

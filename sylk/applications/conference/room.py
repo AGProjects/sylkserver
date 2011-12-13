@@ -6,6 +6,8 @@ import os
 import random
 import re
 import shutil
+import string
+import weakref
 
 from datetime import datetime
 from glob import glob
@@ -42,7 +44,7 @@ from twisted.internet import reactor
 from zope.interface import implements
 
 from sylk.applications.conference import database
-from sylk.applications.conference.configuration import ConferenceConfig
+from sylk.applications.conference.configuration import ConferenceConfig, URL
 from sylk.configuration import SIPConfig, ThorNodeConfig
 from sylk.configuration.datatypes import ResourcePath
 from sylk.session import ServerSession
@@ -58,6 +60,63 @@ def format_identity(identity, cpim_format=False):
         return u'sip:%s@%s' % (uri.user, uri.host)
 
 
+class ScreenImage(object):
+    def __init__(self, room, sender):
+        self.room = weakref.proxy(room)
+        self.sender = sender
+        self.filename = os.path.join(ConferenceConfig.screen_sharing_dir, room.uri, '%s@%s_%s.jpg' % (sender.uri.user, sender.uri.host, ''.join(random.sample(string.letters+string.digits, 10))))
+        self.url = URL(ConferenceConfig.screen_sharing_url)
+        self.url.query_items['image'] = os.path.join(room.uri, os.path.basename(self.filename))
+        self.state = None
+        self.timer = None
+
+    @property
+    def active(self):
+        return self.state == 'active'
+
+    @property
+    def idle(self):
+        return self.state == 'idle'
+
+    @run_in_thread('file-io')
+    def save(self, image):
+        makedirs(os.path.dirname(self.filename))
+        tmp_filename = self.filename + '.tmp'
+        try:
+            with open(tmp_filename, 'wb') as file:
+                file.write(image)
+        except EnvironmentError, e:
+            log.msg('Cannot write screen sharing image: %s: %s' % (self.filename, e))
+        else:
+            try:
+                os.rename(tmp_filename, self.filename)
+            except EnvironmentError:
+                pass
+            self.advertise()
+
+    @run_in_twisted_thread
+    def advertise(self):
+        if self.state == 'active':
+            self.timer.reset(5)
+        else:
+            if self.timer is not None and self.timer.active():
+                self.timer.cancel()
+            self.state = 'active'
+            self.timer = reactor.callLater(5, self.stop_advertising)
+            self.room.dispatch_conference_info()
+            self.room.dispatch_server_message('%s is sharing her screen at %s' % (format_identity(self.sender, cpim_format=True), self.url))
+
+    @run_in_twisted_thread
+    def stop_advertising(self):
+        if self.state != 'idle':
+            if self.timer is not None and self.timer.active():
+                self.timer.cancel()
+            self.state = 'idle'
+            self.timer = None
+            self.room.dispatch_conference_info()
+            self.room.dispatch_server_message('%s stopped sharing her screen' % format_identity(self.sender, cpim_format=True))
+
+
 class Room(object):
     """
     Object representing a conference room, it will handle the message dispatching
@@ -70,6 +129,7 @@ class Room(object):
         self.uri = uri
         self.identity = CPIMIdentity.parse('<sip:%s>' % self.uri)
         self.files = []
+        self.screen_images = {}
         self.sessions = []
         self.sessions_with_proposals = {}
         self.subscriptions = []
@@ -135,6 +195,11 @@ class Room(object):
     @run_in_thread('file-io')
     def cleanup_files(self):
         path = os.path.join(ConferenceConfig.file_transfer_dir, self.uri)
+        try:
+            shutil.rmtree(path)
+        except EnvironmentError:
+            pass
+        path = os.path.join(ConferenceConfig.screen_sharing_dir, self.uri)
         try:
             shutil.rmtree(path)
         except EnvironmentError:
@@ -368,6 +433,10 @@ class Room(object):
                 user = (user for user in users if user.entity == str(session.remote_identity.uri)).next()
             except StopIteration:
                 user = conference.User(str(session.remote_identity.uri), display_text=session.remote_identity.display_name)
+                user_uri = '%s@%s' % (session.remote_identity.uri.user, session.remote_identity.uri.host)
+                screen_image = self.screen_images.get(user_uri, None)
+                if screen_image is not None and screen_image.active:
+                    user.screen_image_url = screen_image.url
                 users.add(user)
             joining_info = conference.JoiningInfo(when=session.start_time)
             holdable_streams = [stream for stream in session.streams if stream.hold_supported]
@@ -406,6 +475,11 @@ class Room(object):
             if ConferenceConfig.push_file_transfer:
                 self.dispatch_file(file)
 
+    def add_screen_image(self, sender, image):
+        sender_uri = '%s@%s' % (sender.uri.user, sender.uri.host)
+        screen_image = self.screen_images.setdefault(sender_uri, ScreenImage(self, sender))
+        screen_image.save(image)
+
     @run_in_twisted_thread
     def handle_notification(self, notification):
         handler = getattr(self, '_NH_%s' % notification.name, Null)
@@ -421,7 +495,12 @@ class Room(object):
     def _NH_ChatStreamGotMessage(self, notification):
         data = notification.data
         session = notification.sender.session
-        self.incoming_message_queue.send((session, 'message', data))
+        message = data.message
+        content_type = message.content_type.lower()
+        if content_type.startswith('text/'):
+            self.incoming_message_queue.send((session, 'message', data))
+        elif content_type == 'application/blink-screensharing':
+            self.add_screen_image(message.sender, message.body)
 
     def _NH_ChatStreamGotComposingIndication(self, notification):
         data = notification.data
