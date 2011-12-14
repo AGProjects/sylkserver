@@ -9,7 +9,7 @@ from msrplib.protocol import URI
 from msrplib.session import contains_mime_type
 from sipsimple.account import AccountManager
 from sipsimple.core import SDPAttribute
-from sipsimple.payloads.iscomposing import IsComposingMessage, State, LastActive, Refresh, ContentType
+from sipsimple.payloads.iscomposing import IsComposingDocument, IsComposingMessage, State, LastActive, Refresh, ContentType
 from sipsimple.streams import MediaStreamRegistry
 from sipsimple.streams.applications.chat import CPIMMessage
 from sipsimple.streams.msrp import ChatStream as _ChatStream, ChatStreamError, MSRPStreamBase
@@ -74,7 +74,7 @@ class ChatStream(_ChatStream):
         if recipients is None:
             recipients = [self.remote_identity]
         # Only use CPIM, it's the only type we accept
-        msg = CPIMMessage(content, IsComposingMessage.content_type, sender=local_identity or self.local_identity, recipients=recipients, timestamp=datetime.now())
+        msg = CPIMMessage(content, IsComposingDocument.content_type, sender=local_identity or self.local_identity, recipients=recipients, timestamp=datetime.now())
         self._enqueue_message(message_id, str(msg), 'message/cpim', failure_report='partial', success_report='no')
         return message_id
 
