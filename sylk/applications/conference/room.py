@@ -62,7 +62,7 @@ def format_identity(identity, cpim_format=False):
 
 class ScreenImage(object):
     def __init__(self, room, sender):
-        self.room = weakref.proxy(room)
+        self.room = weakref.ref(room)
         self.sender = sender
         self.filename = os.path.join(ConferenceConfig.screen_sharing_dir, room.uri, '%s@%s_%s.jpg' % (sender.uri.user, sender.uri.host, ''.join(random.sample(string.letters+string.digits, 10))))
         self.url = URL(ConferenceConfig.screen_sharing_url)
@@ -103,8 +103,9 @@ class ScreenImage(object):
                 self.timer.cancel()
             self.state = 'active'
             self.timer = reactor.callLater(5, self.stop_advertising)
-            self.room.dispatch_conference_info()
-            self.room.dispatch_server_message('%s is sharing her screen at %s' % (format_identity(self.sender, cpim_format=True), self.url))
+            room = self.room() or Null
+            room.dispatch_conference_info()
+            room.dispatch_server_message('%s is sharing her screen at %s' % (format_identity(self.sender, cpim_format=True), self.url))
 
     @run_in_twisted_thread
     def stop_advertising(self):
@@ -113,8 +114,9 @@ class ScreenImage(object):
                 self.timer.cancel()
             self.state = 'idle'
             self.timer = None
-            self.room.dispatch_conference_info()
-            self.room.dispatch_server_message('%s stopped sharing her screen' % format_identity(self.sender, cpim_format=True))
+            room = self.room() or Null
+            room.dispatch_conference_info()
+            room.dispatch_server_message('%s stopped sharing her screen' % format_identity(self.sender, cpim_format=True))
 
 
 class Room(object):
