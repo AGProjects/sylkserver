@@ -29,7 +29,7 @@ def main():
     runtime_directory = '/var/run/sylkserver'
     system_config_directory = '/etc/sylkserver'
     default_pid = os.path.join(runtime_directory, 'server.pid')
-    default_config = os.path.join(system_config_directory , sylk.configuration_filename)
+    default_config = sylk.configuration_filename if os.path.isfile(sylk.configuration_filename) else os.path.join(system_config_directory, sylk.configuration_filename)
 
     parser = OptionParser(version='%%prog %s' % sylk.__version__)
     parser.add_option('--no-fork', action='store_false', dest='fork', default=1,
