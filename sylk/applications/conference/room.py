@@ -608,6 +608,9 @@ class Room(object):
                 session.end()
         self.dispatch_conference_info()
 
+    def _NH_SIPSessionTransferNewIncoming(self, notification):
+        notification.sender.reject_transfer(403)
+
     @staticmethod
     def format_stream_types(streams):
         if not streams:
