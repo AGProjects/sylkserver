@@ -105,7 +105,7 @@ class ScreenImage(object):
             self.timer = reactor.callLater(5, self.stop_advertising)
             room = self.room() or Null
             room.dispatch_conference_info()
-            room.dispatch_server_message('%s is sharing her screen at %s' % (format_identity(self.sender, cpim_format=True), self.url))
+            room.dispatch_server_message('%s is sharing the screen at %s' % (format_identity(self.sender, cpim_format=True), self.url))
 
     @run_in_twisted_thread
     def stop_advertising(self):
@@ -116,7 +116,7 @@ class ScreenImage(object):
             self.timer = None
             room = self.room() or Null
             room.dispatch_conference_info()
-            room.dispatch_server_message('%s stopped sharing her screen' % format_identity(self.sender, cpim_format=True))
+            room.dispatch_server_message('%s stopped sharing the screen' % format_identity(self.sender, cpim_format=True))
 
 
 class Room(object):
