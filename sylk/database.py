@@ -13,9 +13,12 @@ A usage example can be found in the conference application database module.
 
 __all__ = ['Database']
 
+import os
+
 from application import log
 from application.python import Null
 from application.python.types import Singleton
+from application.system import makedirs
 from sqlobject import connectionForURI
 
 
@@ -26,6 +29,9 @@ class Database(object):
         if uri == 'sqlite:/:memory:':
             log.warn("SQLite memory backend can't be used because it's not thread-safe")
             uri = None
+        elif uri.startswith('sqlite://'):
+            path = uri[9:]
+            makedirs(os.path.split(path)[0])
         self.uri = uri
         if uri is not None:
             self.connection = connectionForURI(uri)
