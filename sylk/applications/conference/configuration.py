@@ -3,6 +3,7 @@
 
 __all__ = ['ConferenceConfig', 'get_room_config']
 
+import os
 import re
 
 from application.configuration import ConfigFile, ConfigSection, ConfigSetting
@@ -86,15 +87,15 @@ class ConferenceConfig(ConfigSection):
     __cfgfile__ = 'conference.ini'
     __section__ = 'Conference'
 
-    db_uri = ConfigSetting(type=str, value='sqlite:///var/lib/sylkserver/conference.sqlite')
+    db_uri = ConfigSetting(type=str, value='sqlite://'+os.getcwd()+'/var/lib/sylkserver/conference.sqlite')
     history_table = ConfigSetting(type=str, value='message_history')
     replay_history = 20
     access_policy = ConfigSetting(type=AccessPolicyValue, value=AccessPolicyValue('allow, deny'))
     allow = ConfigSetting(type=PolicySettingValue, value=PolicySettingValue('all'))
     deny = ConfigSetting(type=PolicySettingValue, value=PolicySettingValue('none'))
-    file_transfer_dir = ConfigSetting(type=Path, value=Path('/var/spool/sylkserver'))
+    file_transfer_dir = ConfigSetting(type=Path, value=Path('var/spool/sylkserver'))
     screen_sharing_url = ConfigSetting(type=WebURL, value=Path('http://localhost/sylkserver/screensharing/'))
-    screen_sharing_dir = ConfigSetting(type=Path, value=Path('/var/www/sylkserver/screensharing'))
+    screen_sharing_dir = ConfigSetting(type=Path, value=Path('var/www/sylkserver/screensharing'))
     push_file_transfer = False
 
 

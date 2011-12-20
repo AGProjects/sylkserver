@@ -15,12 +15,12 @@ class ServerConfig(ConfigSection):
     __cfgfile__ = configuration_filename
     __section__ = 'Server'
 
-    ca_file = ConfigSetting(type=NillablePath, value=NillablePath('/etc/sylkserver/tls/ca.crt'))
-    certificate = ConfigSetting(type=NillablePath, value=NillablePath('/etc/sylkserver/tls/default.crt'))
+    ca_file = ConfigSetting(type=NillablePath, value=NillablePath('tls/ca.crt'))
+    certificate = ConfigSetting(type=NillablePath, value=NillablePath('tls/default.crt'))
     verify_server = False
     default_application = 'conference'
     application_map = ConfigSetting(type=StringList, value='')
-    trace_dir = ConfigSetting(type=Path, value=Path('/var/log/sylkserver'))
+    trace_dir = ConfigSetting(type=Path, value=Path('var/log/sylkserver'))
     trace_sip = False
     trace_msrp = False
     trace_notifications = False
