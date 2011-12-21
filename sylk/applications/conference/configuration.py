@@ -96,7 +96,7 @@ class ConferenceConfig(ConfigSection):
     allow = ConfigSetting(type=PolicySettingValue, value=PolicySettingValue('all'))
     deny = ConfigSetting(type=PolicySettingValue, value=PolicySettingValue('none'))
     file_transfer_dir = ConfigSetting(type=Path, value=Path('var/spool/sylkserver'))
-    screen_sharing_dir = ConfigSetting(type=Path, value=Path('var/www/sylkserver/screensharing'))
+    screen_sharing_dir = ConfigSetting(type=Path, value=Path('var/spool/sylkserver/screensharing'))
     screen_sharing_ip = ConfigSetting(type=IPAddress, value=host.default_ip)
     screen_sharing_port = ConfigSetting(type=Port, value=8080)
     push_file_transfer = False
