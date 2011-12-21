@@ -98,7 +98,7 @@ class ConferenceConfig(ConfigSection):
     file_transfer_dir = ConfigSetting(type=Path, value=Path('var/spool/sylkserver'))
     screen_sharing_dir = ConfigSetting(type=Path, value=Path('var/spool/sylkserver/screensharing'))
     screen_sharing_ip = ConfigSetting(type=IPAddress, value=host.default_ip)
-    screen_sharing_port = ConfigSetting(type=Port, value=8080)
+    screen_sharing_port = ConfigSetting(type=Port, value=0)
     push_file_transfer = False
 
 

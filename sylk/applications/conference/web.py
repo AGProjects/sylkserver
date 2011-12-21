@@ -72,7 +72,14 @@ class ScreenSharingWebServer(object):
         root.putChild('img', img_resource)
 
         self.site = server.Site(root)
+        self.listener = None
+
+    @property
+    def port(self):
+        if self.listener is None:
+            return 0
+        return self.listener.getHost().port
 
     def run(self, interface, port):
-        reactor.listenTCP(port, self.site, interface=interface)
+        self.listener = reactor.listenTCP(port, self.site, interface=interface)
 
