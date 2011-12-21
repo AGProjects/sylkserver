@@ -97,12 +97,12 @@ class ScreenImage(object):
     @run_in_twisted_thread
     def advertise(self):
         if self.state == 'active':
-            self.timer.reset(5)
+            self.timer.reset(10)
         else:
             if self.timer is not None and self.timer.active():
                 self.timer.cancel()
             self.state = 'active'
-            self.timer = reactor.callLater(5, self.stop_advertising)
+            self.timer = reactor.callLater(10, self.stop_advertising)
             room = self.room() or Null
             room.dispatch_conference_info()
             room.dispatch_server_message('%s is sharing the screen at %s' % (format_identity(self.sender, cpim_format=True), self.url))
