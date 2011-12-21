@@ -1,13 +1,11 @@
 TODO
 ----
 
- - Work without config file
- - Create directories on the fly
  - Re-invite will all media
- - Multiparty screen sharing
  - CANCEL server outgoing INVITE
  - Bonjour support
  - Automatic Call Transfer on topology change
  - Add participants using resource-list
  - XMPP/Jingle gateway
  - Integrate mobwrite or etherpad collboration editor
+
