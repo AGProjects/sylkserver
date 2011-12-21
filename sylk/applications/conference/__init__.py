@@ -20,6 +20,7 @@ from zope.interface import implements
 from sylk.applications import ISylkApplication, SylkApplication
 from sylk.applications.conference.configuration import get_room_config, ConferenceConfig
 from sylk.applications.conference.room import Room
+from sylk.applications.conference.web import ScreenSharingWebServer
 from sylk.configuration import SIPConfig, ThorNodeConfig
 from sylk.extensions import ChatStream
 from sylk.session import ServerSession
@@ -43,6 +44,8 @@ class ConferenceApplication(object):
         self._rooms = {}
         self.pending_sessions = []
         self.invited_participants_map = {}
+        self.screen_sharing_web_server = ScreenSharingWebServer(ConferenceConfig.screen_sharing_dir)
+        self.screen_sharing_web_server.run(ConferenceConfig.screen_sharing_ip, ConferenceConfig.screen_sharing_port)
 
     def get_room(self, uri, create=False):
         room_uri = '%s@%s' % (uri.user, uri.host)
