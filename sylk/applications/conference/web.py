@@ -48,13 +48,15 @@ class ScreenSharingWebsite(resource.Resource):
     isLeaf = True
 
     def __init__(self, path):
-        self.base_path = path
+        self.base_path = os.path.realpath(path)
         resource.Resource.__init__(self)
 
     def render_GET(self, request):
         if 'image' not in request.args or not request.args.get('image', [''])[0].endswith('jpg'):
             return "<html><body>Screenshot image not provided</body></html>"
         image_path = urllib.unquote(request.args['image'][0])
+        if os.path.commonprefix([os.path.realpath(os.path.join(self.base_path, image_path)), self.base_path]) != self.base_path:
+            return "<html><body>Screenshot image is not readable</body></html>"
         if not os.path.isfile(os.path.join(self.base_path, image_path)):
             return "<html><body>Screenshot image is not readable</body></html>"
         image = os.path.join('/img', image_path)
