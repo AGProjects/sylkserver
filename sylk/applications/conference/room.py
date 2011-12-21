@@ -67,7 +67,8 @@ class ScreenImage(object):
         self.filename = os.path.join(ConferenceConfig.screen_sharing_dir, room.uri, '%s@%s_%s.jpg' % (sender.uri.user, sender.uri.host, ''.join(random.sample(string.letters+string.digits, 10))))
         from sylk.applications.conference import ConferenceApplication
         port = ConferenceApplication().screen_sharing_web_server.port
-        self.url = URL('http://%s:%s/' % (ConferenceConfig.screen_sharing_ip, port))
+        scheme = 'https' if ConferenceConfig.screen_sharing_use_https else 'http'
+        self.url = URL('%s://%s:%s/' % (scheme, ConferenceConfig.screen_sharing_ip, port))
         self.url.query_items['image'] = os.path.join(room.uri, os.path.basename(self.filename))
         self.state = None
         self.timer = None

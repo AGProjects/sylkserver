@@ -8,6 +8,7 @@ import re
 from application import log
 from application.notification import IObserver, NotificationCenter
 from application.python import Null
+from gnutls.interfaces.twisted import X509Credentials
 from sipsimple.account import AccountManager
 from sipsimple.configuration.settings import SIPSimpleSettings
 from sipsimple.core import SIPURI, SIPCoreError, Header, ContactHeader, FromHeader, ToHeader
@@ -24,6 +25,7 @@ from sylk.applications.conference.web import ScreenSharingWebServer
 from sylk.configuration import SIPConfig, ThorNodeConfig
 from sylk.extensions import ChatStream
 from sylk.session import ServerSession
+from sylk.tls import Certificate, PrivateKey
 
 # Initialize database
 from sylk.applications.conference import database
@@ -45,7 +47,13 @@ class ConferenceApplication(object):
         self.pending_sessions = []
         self.invited_participants_map = {}
         self.screen_sharing_web_server = ScreenSharingWebServer(ConferenceConfig.screen_sharing_dir)
-        self.screen_sharing_web_server.run(ConferenceConfig.screen_sharing_ip, ConferenceConfig.screen_sharing_port)
+        if ConferenceConfig.screen_sharing_use_https and ConferenceConfig.screen_sharing_certificate is not None:
+            cert = Certificate(ConferenceConfig.screen_sharing_certificate.normalized)
+            key = PrivateKey(ConferenceConfig.screen_sharing_certificate.normalized)
+            credentials = X509Credentials(cert, key)
+        else:
+            credentials = None
+        self.screen_sharing_web_server.run(ConferenceConfig.screen_sharing_ip, ConferenceConfig.screen_sharing_port, credentials)
 
     def get_room(self, uri, create=False):
         room_uri = '%s@%s' % (uri.user, uri.host)

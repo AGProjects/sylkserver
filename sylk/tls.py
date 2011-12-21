@@ -29,7 +29,7 @@ class Certificate(object):
     """Configuration data type. Used to create a gnutls.crypto.X509Certificate object
        from a file given in the configuration file."""
     def __new__(typ, value):
-        if isinstance(value, str):
+        if isinstance(value, basestring):
             try:
                 return X509Certificate(file_content(value))
             except Exception, e:
@@ -42,7 +42,7 @@ class PrivateKey(object):
     """Configuration data type. Used to create a gnutls.crypto.X509PrivateKey object
        from a file given in the configuration file."""
     def __new__(typ, value):
-        if isinstance(value, str):
+        if isinstance(value, basestring):
             try:
                 return X509PrivateKey(file_content(value))
             except Exception, e:

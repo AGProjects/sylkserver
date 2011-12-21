@@ -9,7 +9,7 @@ import re
 from application.configuration import ConfigFile, ConfigSection, ConfigSetting
 from application.system import host
 
-from sylk.configuration.datatypes import IPAddress, Path, Port, URL
+from sylk.configuration.datatypes import IPAddress, NillablePath, Path, Port, URL
 
 
 # Datatypes
@@ -96,10 +96,12 @@ class ConferenceConfig(ConfigSection):
     allow = ConfigSetting(type=PolicySettingValue, value=PolicySettingValue('all'))
     deny = ConfigSetting(type=PolicySettingValue, value=PolicySettingValue('none'))
     file_transfer_dir = ConfigSetting(type=Path, value=Path('var/spool/sylkserver'))
+    push_file_transfer = False
     screen_sharing_dir = ConfigSetting(type=Path, value=Path('var/spool/sylkserver/screensharing'))
     screen_sharing_ip = ConfigSetting(type=IPAddress, value=host.default_ip)
     screen_sharing_port = ConfigSetting(type=Port, value=0)
-    push_file_transfer = False
+    screen_sharing_use_https = True
+    screen_sharing_certificate = ConfigSetting(type=NillablePath, value=NillablePath('tls/default.crt'))
 
 
 class RoomConfig(ConfigSection):
