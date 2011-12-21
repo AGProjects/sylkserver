@@ -71,7 +71,7 @@ class ScreenSharingWebServer(object):
         root.putChild('', home)
         root.putChild('img', img_resource)
 
-        self.site = server.Site(root)
+        self.site = server.Site(root, logPath=os.devnull)
         self.listener = None
 
     @property
