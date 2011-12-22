@@ -1,15 +1,20 @@
 sylkserver (1.3.0) unstable; urgency=low
 
-  * Added screen sharing through streamed images capability
-  * Made configuration file optional (zero configuration)
+  * Added multiparty comference screen sharing capability
+    by accepting jpeg images over an established MSRP chat stream
+  * Added web-server to serve shared screens
+  * Made configuration file optional by using defaults settings
   * Initialize applications after loading them
   * Fixed parsing Refer-To URI
-  * Passthrough additional headers when dispatching chat messages
-  * Adjusted to latest changes in XML payloads from sipsimple
-  * Reject incoming call transfer requests to conference room
+  * Pass-through additional headers when dispatching chat
+    messages
+  * Adjusted to the latest changes in XML payloads from
+    sipsimple
+  * Reject incoming call transfer requests to conference
+    rooms
   * Dropped support for Python 2.5
 
- -- Saul Ibarra <saul@ag-projects.com>  Wed, 21 Dec 2011 17:33:20 +0100
+ -- Saul Ibarra <saul@ag-projects.com>  Thu, 22 Dec 2011 10:08:02 +0100
 
 sylkserver (1.2.3) unstable; urgency=low
 
