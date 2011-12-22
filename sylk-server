@@ -70,7 +70,7 @@ def main():
     if sylk.configuration_filename:
         log.msg("Starting %s %s, config=%s" % (fullname, sylk.__version__, sylk.configuration_filename))
     else:
-        log.msg("Starting %s %s, whith no configuration file" % (fullname, sylk.__version__))
+        log.msg("Starting %s %s, with no configuration file" % (fullname, sylk.__version__))
 
     try:
         if not options.fork and DEBUG:
