@@ -118,7 +118,7 @@ The server implements relevant features from the following standards:
  - MSRP protocol RFC4975
  - MSRP relay extension RFC4976
  - MSRP File Transfer RFC5547
- - MSRP switch draft-ietf-simple-chat-08
+ - MSRP switch draft-ietf-simple-chat-12
  - MSRP Alternative Connection Model RFC6135
  - Indication of Message Composition RFC3994
  - CPIM Message Format RFC3862
