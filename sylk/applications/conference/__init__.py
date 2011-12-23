@@ -354,7 +354,7 @@ class IncomingReferralHandler(object):
 
     def _NH_SIPSessionGotProvisionalResponse(self, notification):
         if self._refer_request is not None:
-            self._refer_request.send_notify(notification.data.code)
+            self._refer_request.send_notify(notification.data.code, notification.data.reason)
 
     def _NH_SIPSessionDidStart(self, notification):
         NotificationCenter().remove_observer(self, sender=notification.sender)
@@ -368,7 +368,7 @@ class IncomingReferralHandler(object):
     def _NH_SIPSessionDidFail(self, notification):
         NotificationCenter().remove_observer(self, sender=notification.sender)
         if self._refer_request is not None:
-            self._refer_request.end(notification.data.code or 500)
+            self._refer_request.end(notification.data.code or 500, notification.data.reason)
         self.session = None
         self.streams = []
 
