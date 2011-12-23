@@ -13,7 +13,7 @@ from sipsimple.audio import WavePlayer, WavePlayerError
 from sipsimple.conference import AudioConference
 from sipsimple.configuration.settings import SIPSimpleSettings
 from sipsimple.core import SIPURI, SIPCoreError, SIPCoreInvalidStateError
-from sipsimple.payloads.conference import Conference, ConferenceDescription, ConferenceState, Endpoint, EndpointStatus, HostInfo, JoiningInfo, Media, User, Users, WebPage
+from sipsimple.payloads.conference import Conference, ConferenceDocument, ConferenceDescription, ConferenceState, Endpoint, EndpointStatus, HostInfo, JoiningInfo, Media, User, Users, WebPage
 from sipsimple.streams.applications.chat import CPIMIdentity
 from sipsimple.streams.msrp import ChatStreamError
 from sipsimple.threading import run_in_twisted_thread
@@ -196,7 +196,7 @@ class IRCRoom(object):
         data = self.build_conference_info_payload(irc_participants)
         for subscription in (subscription for subscription in self.subscriptions if subscription.state == 'active'):
            try:
-               subscription.push_content(Conference.content_type, data)
+               subscription.push_content(ConferenceDocument.content_type, data)
            except (SIPCoreError, SIPCoreInvalidStateError):
                pass
 
@@ -215,22 +215,22 @@ class IRCRoom(object):
                 user = (user for user in users if user.entity == str(session.remote_identity.uri)).next()
             except StopIteration:
                 user = User(str(session.remote_identity.uri), display_text=session.remote_identity.display_name)
-                users.append(user)
+                users.add(user)
             joining_info = JoiningInfo(when=session.start_time)
             holdable_streams = [stream for stream in session.streams if stream.hold_supported]
             session_on_hold = holdable_streams and all(stream.on_hold_by_remote for stream in holdable_streams)
             hold_status = EndpointStatus('on-hold' if session_on_hold else 'connected')
             endpoint = Endpoint(str(session._invitation.remote_contact_header.uri), display_text=session.remote_identity.display_name, joining_info=joining_info, status=hold_status)
             for stream in session.streams:
-                endpoint.append(Media(id(stream), media_type=format_conference_stream_type(stream)))
-            user.append(endpoint)
+                endpoint.add(Media(id(stream), media_type=format_conference_stream_type(stream)))
+            user.add(endpoint)
         for nick in irc_participants:
             irc_uri = '%s@%s' % (urllib.quote(nick), irc_configuration.server[0])
             user = User(irc_uri, display_text=nick)
-            users.append(user)
+            users.add(user)
             endpoint = Endpoint(irc_uri, display_text=nick)
-            endpoint.append(Media(random.randint(100000000, 999999999), media_type='message'))
-            user.append(endpoint)
+            endpoint.add(Media(random.randint(100000000, 999999999), media_type='message'))
+            user.add(endpoint)
         self.conference_info_payload.users = users
         return self.conference_info_payload.toxml()
 
