@@ -13,7 +13,6 @@ from twisted.internet import reactor
 html_template = """
 <html>
 <head>
-    <META HTTP-EQUIV=Refresh CONTENT="10">
     <title>SylkServer Screen Sharing</title>
 </head>
 
