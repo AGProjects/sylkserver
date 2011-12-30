@@ -11,7 +11,7 @@ from twisted.internet import reactor
 
 
 html_template = """
-<html>                                                                                                                       
+<html>
 <head>
     <META HTTP-EQUIV=Refresh CONTENT="10">
     <title>SylkServer Screen Sharing</title>
@@ -20,13 +20,13 @@ html_template = """
 <script type="text/javascript">
     var today = new Date();
     var c = today.getTime();
-        
+
     function reloadScreen()
     {
         document.screenImage.src = "%(image)s" + "?" + c;
         c = c + 1;
     }
-        
+
     function startTimer()
     {
         setTimeout('reloadScreen()', 1000);
@@ -39,7 +39,7 @@ html_template = """
     </div>
 </body>
 
-</html>                    
+</html>
 
 """
 
