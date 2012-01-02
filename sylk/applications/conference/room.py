@@ -353,7 +353,7 @@ class Room(object):
             if transfer_stream.direction == 'recvonly':
                 transfer_handler = IncomingFileTransferHandler(self, session)
                 transfer_handler.start()
-                txt = u'%s is uploading file %s' % (format_identity(session.remote_identity, cpim_format=True), transfer_stream.file_selector.name.decode('utf-8'))
+                txt = u'%s is uploading file %s (%s)' % (format_identity(session.remote_identity, cpim_format=True), transfer_stream.file_selector.name.decode('utf-8'), self.format_file_size(transfer_stream.file_selector.size))
             else:
                 transfer_handler = OutgoingFileTransferRequestHandler(self, session)
                 transfer_handler.start()
