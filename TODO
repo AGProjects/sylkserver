@@ -1,11 +1,13 @@
 TODO
 ----
 
+ + XMPP/Jingle gateway
+ + Bonjour support
+
  - Re-invite will all media
  - CANCEL server outgoing INVITE
- - Bonjour support
+
  - Automatic Call Transfer on topology change
  - Add participants using resource-list
- - XMPP/Jingle gateway
  - Integrate mobwrite or etherpad collboration editor
 
