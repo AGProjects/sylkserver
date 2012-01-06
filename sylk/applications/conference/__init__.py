@@ -22,7 +22,6 @@ from sylk.applications import ISylkApplication, SylkApplication
 from sylk.applications.conference.configuration import get_room_config, ConferenceConfig
 from sylk.applications.conference.room import Room
 from sylk.applications.conference.web import ScreenSharingWebServer
-from sylk.bonjour import BonjourServices
 from sylk.configuration import SIPConfig, ThorNodeConfig
 from sylk.extensions import ChatStream
 from sylk.session import ServerSession
@@ -47,9 +46,6 @@ class ConferenceApplication(object):
         self._rooms = {}
         self.pending_sessions = []
         self.invited_participants_map = {}
-        self.bonjour_services = BonjourServices()
-        self.bonjour_services.start()
-        self.bonjour_services.activate()
         self.screen_sharing_web_server = ScreenSharingWebServer(ConferenceConfig.screen_sharing_dir)
         if ConferenceConfig.screen_sharing_use_https and ConferenceConfig.screen_sharing_certificate is not None:
             cert = Certificate(ConferenceConfig.screen_sharing_certificate.normalized)
