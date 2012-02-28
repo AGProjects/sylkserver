@@ -21,6 +21,12 @@ class IRCConferenceApplication(object):
         self.rooms = set()
         self.pending_sessions = []
 
+    def start(self):
+        pass
+
+    def stop(self):
+        pass
+
     def incoming_session(self, session):
         log.msg('New incoming session from %s' % session.remote_identity.uri)
         audio_streams = [stream for stream in session.proposed_streams if stream.type=='audio']

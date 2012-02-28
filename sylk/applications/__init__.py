@@ -29,6 +29,12 @@ class ISylkApplication(Interface):
 
     __appname__ = Attribute("Application name")
 
+    def start(self):
+        pass
+
+    def stop(self):
+        pass
+
     def incoming_session(self, session):
         pass
 
@@ -87,6 +93,7 @@ class IncomingRequestHandler(object):
         self.authorization_handler = AuthorizationHandler()
 
     def start(self):
+        [app().start() for app in ApplicationRegistry()]
         self.authorization_handler.start()
         notification_center = NotificationCenter()
         notification_center.add_observer(self, name='SIPSessionNewIncoming')
@@ -101,6 +108,7 @@ class IncomingRequestHandler(object):
         notification_center.remove_observer(self, name='SIPIncomingSubscriptionGotSubscribe')
         notification_center.remove_observer(self, name='SIPIncomingReferralGotRefer')
         notification_center.remove_observer(self, name='SIPIncomingRequestGotRequest')
+        [app().stop() for app in ApplicationRegistry()]
 
     def get_application(self, uri):
         application = self.application_map.get(uri.user, ServerConfig.default_application)

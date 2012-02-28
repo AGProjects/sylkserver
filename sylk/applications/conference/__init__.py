@@ -55,6 +55,12 @@ class ConferenceApplication(object):
             credentials = None
         self.screen_sharing_web_server.run(ConferenceConfig.screen_sharing_ip, ConferenceConfig.screen_sharing_port, credentials)
 
+    def start(self):
+        pass
+
+    def stop(self):
+        pass
+
     def get_room(self, uri, create=False):
         room_uri = '%s@%s' % (uri.user, uri.host)
         try:
