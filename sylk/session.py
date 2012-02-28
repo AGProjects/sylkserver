@@ -10,7 +10,7 @@ from application.python import Null
 from eventlet import api
 from sipsimple.configuration.settings import SIPSimpleSettings
 from sipsimple.core import Invitation, SIPCoreError, sip_status_messages
-from sipsimple.core import RouteHeader, SubjectHeader
+from sipsimple.core import ContactHeader, RouteHeader, SubjectHeader
 from sipsimple.core import SDPConnection, SDPSession
 from sipsimple.session import Session, InvitationDisconnectedError, MediaStreamDidFailError, transition_state
 from sipsimple.threading.green import run_in_green_thread
@@ -21,7 +21,7 @@ class ServerSession(Session):
 
     @transition_state(None, 'connecting')
     @run_in_green_thread
-    def connect(self, from_header, to_header, contact_header, routes, streams, is_focus=False, subject=None, extra_headers=[]):
+    def connect(self, from_header, to_header, routes, streams, contact_header=None, is_focus=False, subject=None, extra_headers=[]):
         self.greenlet = api.getcurrent()
         notification_center = NotificationCenter()
         settings = SIPSimpleSettings()
@@ -53,6 +53,18 @@ class ServerSession(Session):
                 notification = self._channel.wait()
                 if notification.name == 'MediaStreamDidInitialize':
                     wait_count -= 1
+            if contact_header is None:
+                try:
+                    contact_uri = self.account.contact[self.route]
+                except KeyError, e:
+                    for stream in self.proposed_streams:
+                        notification_center.remove_observer(self, sender=stream)
+                        stream.deactivate()
+                        stream.end()
+                    self._fail(originator='local', code=480, reason=sip_status_messages[480], error=str(e))
+                    return
+                else:
+                    contact_header = ContactHeader(contact_uri)
             local_ip = contact_header.uri.host
             local_sdp = SDPSession(local_ip, connection=SDPConnection(local_ip), name=settings.user_agent)
             stun_addresses = []

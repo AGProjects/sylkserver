@@ -1085,7 +1085,7 @@ class OutgoingFileTransferHandler(object):
                 extra_headers.append(Header('Thor-Scope', 'conference-invitation'))
             originator_uri = CPIMIdentity.parse(self.file.sender).uri
             extra_headers.append(Header('X-Originator-From', str(originator_uri)))
-            self.session.connect(from_header, to_header, contact_header, routes=routes, streams=[self.stream], is_focus=True, subject=subject, extra_headers=extra_headers)
+            self.session.connect(from_header, to_header, contact_header=contact_header, routes=routes, streams=[self.stream], is_focus=True, subject=subject, extra_headers=extra_headers)
             try:
                 while True:
                     notification = self._channel.wait()

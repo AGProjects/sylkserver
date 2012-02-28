@@ -349,7 +349,7 @@ class IncomingReferralHandler(object):
             extra_headers.append(Header('Thor-Scope', 'conference-invitation'))
         extra_headers.append(Header('X-Originator-From', str(original_from_header.uri)))
         subject = u'Join conference request from %s' % original_identity
-        self.session.connect(from_header, to_header, contact_header, routes=notification.data.result, streams=self.streams, is_focus=True, subject=subject, extra_headers=extra_headers)
+        self.session.connect(from_header, to_header, contact_header=contact_header, routes=notification.data.result, streams=self.streams, is_focus=True, subject=subject, extra_headers=extra_headers)
 
     def _NH_DNSLookupDidFail(self, notification):
         NotificationCenter().remove_observer(self, sender=notification.sender)
