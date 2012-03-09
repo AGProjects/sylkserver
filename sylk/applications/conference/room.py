@@ -502,6 +502,8 @@ class Room(object):
             session.end()
 
     def _NH_ChatStreamGotMessage(self, notification):
+        stream = notification.sender
+        stream.msrp_session.send_report(notification.data.chunk, 200, 'OK')
         data = notification.data
         session = notification.sender.session
         message = data.message
@@ -512,6 +514,8 @@ class Room(object):
             self.add_screen_image(message.sender, message.body)
 
     def _NH_ChatStreamGotComposingIndication(self, notification):
+        stream = notification.sender
+        stream.msrp_session.send_report(notification.data.chunk, 200, 'OK')
         data = notification.data
         session = notification.sender.session
         self.incoming_message_queue.send((session, 'composing_indication', data))

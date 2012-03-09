@@ -5,14 +5,16 @@ import random
 
 from datetime import datetime
 
+from application.notification import NotificationCenter
 from msrplib.protocol import URI
 from msrplib.session import contains_mime_type
 from sipsimple.account import AccountManager
 from sipsimple.core import SDPAttribute
 from sipsimple.payloads.iscomposing import IsComposingDocument, IsComposingMessage, State, LastActive, Refresh, ContentType
 from sipsimple.streams import MediaStreamRegistry
-from sipsimple.streams.applications.chat import CPIMMessage
+from sipsimple.streams.applications.chat import CPIMMessage, CPIMParserError
 from sipsimple.streams.msrp import ChatStream as _ChatStream, ChatStreamError, MSRPStreamBase
+from sipsimple.util import TimestampedNotificationData
 
 from sylk.configuration import SIPConfig
 
@@ -47,6 +49,49 @@ class ChatStream(_ChatStream):
         if self.session.local_focus and self.chatroom_capabilities:
             local_media.attributes.append(SDPAttribute('chatroom', ' '.join(self.chatroom_capabilities)))
         return local_media
+
+    def _handle_SEND(self, chunk):
+        # This ChatStream doesn't send MSRP REPORT chunks automatically, the developer needs to manually send them
+        if self.direction=='sendonly':
+            self.msrp_session.send_report(chunk, 413, 'Unwanted Message')
+            return
+        if not chunk.data:
+            self.msrp_session.send_report(chunk, 200, 'OK')
+            return
+        if chunk.segment is not None:
+            self.incoming_queue.setdefault(chunk.message_id, []).append(chunk.data)
+            if chunk.final:
+                chunk.data = ''.join(self.incoming_queue.pop(chunk.message_id))
+            else:
+                self.msrp_session.send_report(chunk, 200, 'OK')
+                return
+        if chunk.content_type.lower() == 'message/cpim':
+            try:
+                message = CPIMMessage.parse(chunk.data)
+            except CPIMParserError:
+                self.msrp_session.send_report(chunk, 400, 'CPIM Parser Error')
+                return
+            else:
+                if message.timestamp is None:
+                    message.timestamp = datetime.now(tzlocal())
+                if message.sender is None:
+                    message.sender = self.remote_identity
+                private = self.session.remote_focus and len(message.recipients) == 1 and message.recipients[0] != self.remote_identity
+        else:
+            self.msrp_session.send_report(chunk, 415, 'Invalid Content-Type')
+            return
+        # TODO: check wrapped content-type and issue a report if it's invalid
+        notification_center = NotificationCenter()
+        if message.content_type.lower() == IsComposingDocument.content_type:
+            data = IsComposingDocument.parse(message.body)
+            ndata = TimestampedNotificationData(state=data.state.value,
+                                                refresh=data.refresh.value if data.refresh is not None else None,
+                                                content_type=data.content_type.value if data.content_type is not None else None,
+                                                last_active=data.last_active.value if data.last_active is not None else None,
+                                                sender=message.sender, recipients=message.recipients, private=private, chunk=chunk)
+            notification_center.post_notification('ChatStreamGotComposingIndication', self, ndata)
+        else:
+            notification_center.post_notification('ChatStreamGotMessage', self, TimestampedNotificationData(message=message, private=private, chunk=chunk))
 
     def send_message(self, content, content_type='text/plain', local_identity=None, recipients=None, courtesy_recipients=None, subject=None, timestamp=None, required=None, additional_headers=None, message_id=None, notify_progress=True, success_report='yes', failure_report='yes'):
         if self.direction=='recvonly':

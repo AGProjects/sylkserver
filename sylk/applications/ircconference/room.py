@@ -444,6 +444,8 @@ class IRCRoom(object):
             session.end()
 
     def _NH_ChatStreamGotMessage(self, notification):
+        stream = notification.sender
+        stream.msrp_session.send_report(notification.data.chunk, 200, 'OK')
         # Send MSRP chat message to other participants
         message = notification.data.message
         session = notification.sender.session
