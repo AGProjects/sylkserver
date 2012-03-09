@@ -48,10 +48,11 @@ class ChatStream(_ChatStream):
             local_media.attributes.append(SDPAttribute('chatroom', ' '.join(self.chatroom_capabilities)))
         return local_media
 
-    def send_message(self, content, content_type='text/plain', local_identity=None, recipients=None, courtesy_recipients=None, subject=None, timestamp=None, required=None, additional_headers=None):
+    def send_message(self, content, content_type='text/plain', local_identity=None, recipients=None, courtesy_recipients=None, subject=None, timestamp=None, required=None, additional_headers=None, message_id=None, notify_progress=True, success_report='yes', failure_report='yes'):
         if self.direction=='recvonly':
             raise ChatStreamError('Cannot send message on recvonly stream')
-        message_id = '%x' % random.getrandbits(64)
+        if message_id is None:
+            message_id = '%x' % random.getrandbits(64)
         if not contains_mime_type(self.accept_wrapped_types, content_type):
             raise ChatStreamError('Invalid content_type for outgoing message: %r' % content_type)
         if not recipients:
@@ -61,15 +62,16 @@ class ChatStream(_ChatStream):
         # Only use CPIM, it's the only type we accept
         msg = CPIMMessage(content, content_type, sender=local_identity or self.local_identity, recipients=recipients, courtesy_recipients=courtesy_recipients,
                             subject=subject, timestamp=timestamp, required=required, additional_headers=additional_headers)
-        self._enqueue_message(message_id, str(msg), 'message/cpim', failure_report='yes', success_report='yes', notify_progress=True)
+        self._enqueue_message(message_id, str(msg), 'message/cpim', failure_report=failure_report, success_report=success_report, notify_progress=notify_progress)
         return message_id
 
-    def send_composing_indication(self, state, refresh, last_active=None, recipients=None, local_identity=None):
+    def send_composing_indication(self, state, refresh, last_active=None, recipients=None, local_identity=None, message_id=None, notify_progress=False, success_report='no', failure_report='partial'):
         if self.direction == 'recvonly':
             raise ChatStreamError('Cannot send message on recvonly stream')
         if state not in ('active', 'idle'):
             raise ValueError('Invalid value for composing indication state')
-        message_id = '%x' % random.getrandbits(64)
+        if message_id is None:
+            message_id = '%x' % random.getrandbits(64)
         content = IsComposingMessage(state=State(state), refresh=Refresh(refresh), last_active=LastActive(last_active or datetime.now()), content_type=ContentType('text')).toxml()
         if recipients is None:
             recipients = [self.remote_identity]
