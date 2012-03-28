@@ -107,7 +107,7 @@ class ChatStream(_ChatStream):
         # Only use CPIM, it's the only type we accept
         msg = CPIMMessage(content, content_type, sender=local_identity or self.local_identity, recipients=recipients, courtesy_recipients=courtesy_recipients,
                             subject=subject, timestamp=timestamp, required=required, additional_headers=additional_headers)
-        self._enqueue_message(message_id, str(msg), 'message/cpim', failure_report=failure_report, success_report=success_report, notify_progress=notify_progress)
+        self._enqueue_message(str(message_id), str(msg), 'message/cpim', failure_report=failure_report, success_report=success_report, notify_progress=notify_progress)
         return message_id
 
     def send_composing_indication(self, state, refresh, last_active=None, recipients=None, local_identity=None, message_id=None, notify_progress=False, success_report='no', failure_report='partial'):
@@ -122,7 +122,7 @@ class ChatStream(_ChatStream):
             recipients = [self.remote_identity]
         # Only use CPIM, it's the only type we accept
         msg = CPIMMessage(content, IsComposingDocument.content_type, sender=local_identity or self.local_identity, recipients=recipients, timestamp=datetime.now())
-        self._enqueue_message(message_id, str(msg), 'message/cpim', failure_report='partial', success_report='no')
+        self._enqueue_message(str(message_id), str(msg), 'message/cpim', failure_report='partial', success_report='no')
         return message_id
 
 
