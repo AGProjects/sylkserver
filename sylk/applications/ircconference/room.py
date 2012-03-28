@@ -339,6 +339,9 @@ class IRCRoom(object):
         self.audio_conference.unhold()
 
     def handle_incoming_subscription(self, subscribe_request, data):
+        if subscribe_request.event != 'conference':
+            subscribe_request.reject(489)
+            return
         NotificationCenter().add_observer(self, sender=subscribe_request)
         subscribe_request.accept()
         self.subscriptions.append(subscribe_request)

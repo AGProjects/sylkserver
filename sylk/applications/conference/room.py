@@ -464,6 +464,9 @@ class Room(object):
         return self.conference_info_payload.toxml()
 
     def handle_incoming_subscription(self, subscribe_request, data):
+        if subscribe_request.event != 'conference':
+            subscribe_request.reject(489)
+            return
         notification_center = NotificationCenter()
         notification_center.add_observer(self, sender=subscribe_request)
         data = self.build_conference_info_payload()
