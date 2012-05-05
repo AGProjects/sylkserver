@@ -2,10 +2,13 @@
 SylkServer
 ----------
 
-Copyright (c) 2010-2011 AG Projects
+Copyright (c) 2010-2012 AG Projects
 http://ag-projects.com
 
-Authors: Adrian Georgescu, Denis Bilenko, Saul Ibarra
+Main author: Saul Ibarra
+Mentorship: Adrian Georgescu
+Contributors: Denis Bilenko, Dan Pascu
+
 Home page: http://sylkserver.com
 
 
@@ -22,20 +25,18 @@ Description
 SylkServer is a SIP application server that can be programmed to perform SIP
 end-point applications.
 
-The server supports SIP signaling over TLS, TCP and UDP transports, RTP and
-MSRP media planes, has built in capabilities for creating ad-hoc SIP
-multimedia conferences with HD Audio, IM and File Transfer and can be easily
-extended with other applications by using Python language.
+The server has support for SIP signaling over TLS, TCP and UDP transports,
+RTP and MSRP media planes, capability for creating ad-hoc SIP multimedia
+conferences with HD Audio, IM and File Transfer and can be easily extended
+with other applications.
 
 
 Deployment
 ----------
 
-SylkServer must be typically deployed behind a SIP Proxy as it is not
-designed to route packets, handle authorization or accounting.
-
-SylkServer is horizontally scalable with the amount of available hardware by
-using SIP Thor, a P2P based self-organizing network technology.
+SylkServer is typically deployed behind a SIP Proxy that is designed to
+route the inbound and outbound traffic, handle the authentication,
+authorization and accounting.
 
 
 Features
@@ -145,3 +146,9 @@ http://lists.ag-projects.com/mailman/listinfo/sipbeyondvoip
 
 For commercial support contact AG Projects http://ag-projects.com
 
+
+Credits
+-------
+
+Special thanks to NLNET http://nlnet.nl for sponsoring most of the efforts
+behind this project.

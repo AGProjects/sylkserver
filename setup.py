@@ -21,7 +21,7 @@ setup(name         = "sylkserver",
       author       = "AG Projects",
       author_email = "support@ag-projects.com",
       url          = "http://sylkserver.com",
-      description  = "SylkServer - A state of the art, extensible SIP Application Server",
+      description  = "SylkServer - An Extensible SIP Application Server",
       classifiers  = [
             "Development Status :: 5 - Production/Stable",
             "Intended Audience :: Service Providers",
