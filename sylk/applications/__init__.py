@@ -116,7 +116,13 @@ class IncomingRequestHandler(object):
         if SYLK_APP_HEADER in headers:
             application = headers[SYLK_APP_HEADER].body.strip()
         else:
-            application = self.application_map.get(ruri.user, ServerConfig.default_application)
+            application = ServerConfig.default_application
+            if self.application_map:
+                prefixes = ("%s@%s" % (ruri.user, ruri.host), ruri.host, ruri.user)
+                for prefix in prefixes:
+                    if prefix in self.application_map:
+                        application = self.application_map[prefix]
+                        break
         try:
             app = (app for app in ApplicationRegistry() if app.__appname__ == application).next()
         except StopIteration:
