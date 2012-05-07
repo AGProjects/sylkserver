@@ -18,12 +18,18 @@ from sipsimple.streams.msrp import ChatStream as _ChatStream, ChatStreamError, M
 from sipsimple.util import TimestampedNotificationData
 
 from sylk.configuration import SIPConfig
+from sylk.session import ServerSession
 
 
 # We need to match on the only account that will be available
 def _always_find_default_account(self, contact_uri):
     return self.default_account
 AccountManager.find_account = _always_find_default_account
+
+
+# Patch sipsimple.session to use ServerSession instead
+import sipsimple.session
+sipsimple.session.Session = ServerSession
 
 
 # We need to be able to set the local identity in the message CPIM envelope

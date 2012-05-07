@@ -12,12 +12,66 @@ from sipsimple.configuration.settings import SIPSimpleSettings
 from sipsimple.core import Invitation, SIPCoreError, sip_status_messages
 from sipsimple.core import ContactHeader, RouteHeader, SubjectHeader
 from sipsimple.core import SDPConnection, SDPSession
-from sipsimple.session import Session, InvitationDisconnectedError, MediaStreamDidFailError, transition_state
+from sipsimple.session import Session, SessionManager, ConferenceHandler, SessionReplaceHandler, TransferHandler, DialogID, TransferInfo, InvitationDisconnectedError, MediaStreamDidFailError, transition_state
+from sipsimple.streams import MediaStreamRegistry, InvalidStreamError, UnknownStreamError
 from sipsimple.threading.green import run_in_green_thread
 from sipsimple.util import TimestampedNotificationData
 
 
 class ServerSession(Session):
+
+    def init_incoming(self, invitation, data):
+        notification_center = NotificationCenter()
+        remote_sdp = invitation.sdp.proposed_remote
+        self.proposed_streams = []
+        if remote_sdp:
+            for index, media_stream in enumerate(remote_sdp.media):
+                if media_stream.port != 0:
+                    for stream_type in MediaStreamRegistry():
+                        try:
+                            stream = stream_type.new_from_sdp(self.account, remote_sdp, index)
+                        except InvalidStreamError:
+                            break
+                        except UnknownStreamError:
+                            continue
+                        else:
+                            stream.index = index
+                            self.proposed_streams.append(stream)
+                            break
+        if self.proposed_streams:
+            self.direction = 'incoming'
+            self.state = 'incoming'
+            self.transport = invitation.transport
+            self._invitation = invitation
+            self.conference = ConferenceHandler(self)
+            self.transfer_handler = TransferHandler(self)
+            if 'isfocus' in invitation.remote_contact_header.parameters:
+                self.remote_focus = True
+            try:
+                self.__dict__['subject'] = data.headers['Subject'].subject
+            except KeyError:
+                pass
+            if 'Referred-By' in data.headers or 'Replaces' in data.headers:
+                self.transfer_info = TransferInfo()
+                if 'Referred-By' in data.headers:
+                    self.transfer_info.referred_by = data.headers['Referred-By'].body
+                if 'Replaces' in data.headers:
+                    replaces_header = data.headers.get('Replaces')
+                    replaced_dialog_id = DialogID(replaces_header.call_id, local_tag=replaces_header.to_tag, remote_tag=replaces_header.from_tag)
+                    session_manager = SessionManager()
+                    try:
+                        self.replaced_session = (session for session in session_manager.sessions if session._invitation is not None and session._invitation.dialog_id == replaced_dialog_id).next()
+                    except StopIteration:
+                        invitation.send_response(481)
+                        return
+                    else:
+                        self.transfer_info.replaced_dialog_id = replaced_dialog_id
+                        replace_handler = SessionReplaceHandler(self)
+                        replace_handler.start()
+            notification_center.add_observer(self, sender=invitation)
+            notification_center.post_notification('SIPSessionNewIncoming', self, TimestampedNotificationData(streams=self.proposed_streams, headers=data.headers))
+        else:
+            invitation.send_response(488)
 
     @transition_state(None, 'connecting')
     @run_in_green_thread
