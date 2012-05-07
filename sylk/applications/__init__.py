@@ -19,6 +19,8 @@ from zope.interface import Attribute, Interface, implements
 from sylk.configuration import ServerConfig, SIPConfig, ThorNodeConfig
 
 
+SYLK_APP_HEADER = 'X-Sylk-App'
+
 class ISylkApplication(Interface):
     """
     Interface defining attributes and methods any application must 
@@ -110,8 +112,11 @@ class IncomingRequestHandler(object):
         notification_center.remove_observer(self, name='SIPIncomingRequestGotRequest')
         [app().stop() for app in ApplicationRegistry()]
 
-    def get_application(self, uri):
-        application = self.application_map.get(uri.user, ServerConfig.default_application)
+    def get_application(self, ruri, headers):
+        if SYLK_APP_HEADER in headers:
+            application = headers[SYLK_APP_HEADER].body.strip()
+        else:
+            application = self.application_map.get(ruri.user, ServerConfig.default_application)
         try:
             app = (app for app in ApplicationRegistry() if app.__appname__ == application).next()
         except StopIteration:
@@ -133,7 +138,7 @@ class IncomingRequestHandler(object):
             session.reject(403)
             return
         try:
-            app = self.get_application(session._invitation.request_uri)
+            app = self.get_application(session._invitation.request_uri, notification.data.headers)
         except ApplicationNotLoadedError:
             session.reject(404)
         else:
@@ -147,7 +152,7 @@ class IncomingRequestHandler(object):
             subscribe_request.reject(403)
             return
         try:
-            app = self.get_application(notification.data.request_uri)
+            app = self.get_application(notification.data.request_uri, notification.data.headers)
         except ApplicationNotLoadedError:
             subscribe_request.reject(404)
         else:
@@ -161,7 +166,7 @@ class IncomingRequestHandler(object):
             refer_request.reject(403)
             return
         try:
-            app = self.get_application(notification.data.request_uri)
+            app = self.get_application(notification.data.request_uri, notification.data.headers)
         except ApplicationNotLoadedError:
             refer_request.reject(404)
         else:
@@ -178,7 +183,7 @@ class IncomingRequestHandler(object):
             request.answer(403)
             return
         try:
-            app = self.get_application(notification.data.request_uri)
+            app = self.get_application(notification.data.request_uri, notification.data.headers)
         except ApplicationNotLoadedError:
             request.answer(404)
         else:
