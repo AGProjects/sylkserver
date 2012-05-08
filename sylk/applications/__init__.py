@@ -1,7 +1,7 @@
 # Copyright (C) 2010-2011 AG Projects. See LICENSE for details
 #
 
-__all__ = ['ISylkApplication', 'ApplicationRegistry', 'SylkApplication', 'IncomingRequestHandler']
+__all__ = ['ISylkApplication', 'ApplicationRegistry', 'SylkApplication', 'IncomingRequestHandler', 'ApplicationLogger']
 
 import os
 import socket
@@ -241,5 +241,38 @@ class AuthorizationHandler(object):
         for node in chain(*(n.nodes for n in notification.data.networks.values())):
             thor_nodes.append(NetworkRange(node))
         self.thor_nodes = thor_nodes
+
+
+class ApplicationLogger(object):
+    __metaclass__ = Singleton
+
+    def __init__(self, prefix):
+        self.prefix = '[%s] ' % prefix
+
+    def info(self, message, **context):
+        log.info(self.prefix+message, **context)
+
+    def warning(self, message, **context):
+        log.warning(self.prefix+message, **context)
+
+    def debug(self, message, **context):
+        log.debug(self.prefix+message, **context)
+
+    def error(self, message, **context):
+        log.error(self.prefix+message, **context)
+
+    def critical(self, message, **context):
+        log.critical(self.prefix+message, **context)
+
+    def exception(self, message=None, **context):
+        if message is not None:
+            message = self.prefix+message
+        log.exception(message, **context)
+
+    # Some aliases that are commonly used
+    msg = info
+    warn = warning
+    fatal = critical
+    err = exception
 
 

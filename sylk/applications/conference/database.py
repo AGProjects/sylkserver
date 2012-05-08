@@ -3,21 +3,22 @@
 
 __all__ = ['async_save_message', 'get_last_messages']
 
+import os
 import datetime
 import time
 
-from application import log
 from application.python import Null
 from eventlet.twistedutil import block_on
 from sqlobject import SQLObject, DateTimeCol, UnicodeCol
 from twisted.internet.threads import deferToThread
 
+from sylk.applications import ApplicationLogger
 from sylk.applications.conference.configuration import ConferenceConfig
 from sylk.database import Database
 
 
 db = Database(ConferenceConfig.db_uri)
-
+log = ApplicationLogger(os.path.dirname(__file__).split(os.path.sep)[-1])
 
 class MessageHistory(SQLObject):
     class sqlmeta:

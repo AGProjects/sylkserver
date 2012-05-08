@@ -19,7 +19,6 @@ try:
 except ImportError:
     from backports.weakref import WeakSet
 
-from application import log
 from application.notification import IObserver, NotificationCenter
 from application.python import Null
 from application.system import makedirs
@@ -43,11 +42,14 @@ from sipsimple.util import Timestamp, TimestampedNotificationData
 from twisted.internet import reactor
 from zope.interface import implements
 
+from sylk.applications import ApplicationLogger
 from sylk.applications.conference import database
 from sylk.applications.conference.configuration import ConferenceConfig, URL
 from sylk.configuration import SIPConfig, ThorNodeConfig
 from sylk.configuration.datatypes import ResourcePath
 from sylk.session import ServerSession
+
+log = ApplicationLogger(os.path.dirname(__file__).split(os.path.sep)[-1])
 
 
 def format_identity(identity, cpim_format=False):

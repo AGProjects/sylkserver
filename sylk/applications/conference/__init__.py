@@ -5,7 +5,6 @@ import mimetypes
 import os
 import re
 
-from application import log
 from application.notification import IObserver, NotificationCenter
 from application.python import Null
 from gnutls.interfaces.twisted import X509Credentials
@@ -18,7 +17,7 @@ from sipsimple.threading.green import run_in_green_thread
 from twisted.internet import reactor
 from zope.interface import implements
 
-from sylk.applications import ISylkApplication, SylkApplication
+from sylk.applications import ISylkApplication, SylkApplication, ApplicationLogger
 from sylk.applications.conference.configuration import get_room_config, ConferenceConfig
 from sylk.applications.conference.room import Room
 from sylk.applications.conference.web import ScreenSharingWebServer
@@ -29,6 +28,8 @@ from sylk.tls import Certificate, PrivateKey
 
 # Initialize database
 from sylk.applications.conference import database
+
+log = ApplicationLogger(os.path.dirname(__file__).split(os.path.sep)[-1])
 
 
 class ACLValidationError(Exception): pass
