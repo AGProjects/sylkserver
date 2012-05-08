@@ -1,6 +1,8 @@
 # Copyright (C) 2012 AG Projects. See LICENSE for details
 #
 
+import os
+
 from application.notification import IObserver, NotificationCenter
 from application.python import Null
 from application.python.descriptor import WriteOnceAttribute
@@ -16,9 +18,12 @@ from wokkel.server import ServerService, XMPPS2SServerFactory as _XMPPS2SServerF
 from wokkel.xmppim import MessageProtocol as _MessageProtocol, PresenceProtocol as _PresenceProtocol
 from zope.interface import implements
 
+from sylk.applications import ApplicationLogger
 from sylk.applications.xmppgateway.configuration import XMPPGatewayConfig
 from sylk.applications.xmppgateway.datatypes import Identity, FrozenURI
 from sylk.applications.xmppgateway.logger import Logger
+
+log = ApplicationLogger(os.path.dirname(__file__).split(os.path.sep)[-1])
 
 
 CHATSTATES_NS = 'http://jabber.org/protocol/chatstates'
@@ -734,6 +739,8 @@ class XMPPManager(object):
         xmpp_logger.start()
         config = XMPPGatewayConfig
         self._s2s_listener = reactor.listenTCP(config.local_port, self._s2s_factory, interface=config.local_ip)
+        listen_address = self._s2s_listener.getHost()
+        log.msg("XMPP listener started on %s:%d" % (listen_address.host, listen_address.port))
         self.chat_session_manager.start()
         self.subscription_manager.start()
         notification_center = NotificationCenter()
