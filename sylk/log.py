@@ -15,10 +15,10 @@ from pprint import pformat
 
 from application import log
 from application.notification import IObserver, NotificationCenter
-from application.python.queue import EventQueue
 from application.python import Null
 from application.system import makedirs
 from sipsimple.configuration.settings import SIPSimpleSettings
+from sipsimple.threading import run_in_thread
 from zope.interface import implements
 
 
@@ -28,8 +28,9 @@ class Logger(object):
     # public methods
     #
 
-    def __init__(self, msrp_level=log.level.ERROR):
-        self.msrp_level = msrp_level
+    def __init__(self):
+        self.stopped = False
+        self.msrp_level = log.level.ERROR
 
         self._siptrace_filename = None
         self._siptrace_file = None
@@ -49,7 +50,6 @@ class Logger(object):
         self._notifications_file = None
         self._notifications_error = False
 
-        self._event_queue = EventQueue(handler=self._process_notification, name='Log handling')
         self._log_directory_error = False
 
     def start(self):
@@ -62,15 +62,16 @@ class Logger(object):
         # register to receive log notifications
         notification_center = NotificationCenter()
         notification_center.add_observer(self)
-
-        # start the thread processing the notifications
-        self._event_queue.start()
+        self.stopped = False
 
     def stop(self):
-        # stop the thread processing the notifications
-        self._event_queue.stop()
-        self._event_queue.join()
+        notification_center = NotificationCenter()
+        notification_center.remove_observer(self)
+        self.stopped = False
+        self._close_files()
 
+    @run_in_thread('log-io')
+    def _close_files(self):
         # close sip trace file
         if self._siptrace_file is not None:
             self._siptrace_file.close()
@@ -91,13 +92,12 @@ class Logger(object):
             self._notifications_file.close()
             self._notifications_file = None
 
-        # unregister from receiving notifications
-        notification_center = NotificationCenter()
-        notification_center.remove_observer(self)
-
     def handle_notification(self, notification):
-        self._event_queue.put(notification)
+        if self.stopped:
+            return
+        self._process_notification(notification)
 
+    @run_in_thread('log-io')
     def _process_notification(self, notification):
         settings = SIPSimpleSettings()
         handler = getattr(self, '_NH_%s' % notification.name, Null)
