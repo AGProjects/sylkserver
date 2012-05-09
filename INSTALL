@@ -60,5 +60,16 @@ Run SylkServer:
 
 /etc/init.d/sylkserver start
 
-The software logs its messages to /var/log/syslog
+High level application logs are logged to syslog. 
+
+Detail protocol traces are logged in /var/log/sylkserver/
+
+You can also run the software for debugging purpose from its local
+directory:
+
+./sylk-server --no-fork
+
+The high level application logs are logged  to the console and the detail
+protocol traces are logged in files located in ./var/log/sylkserver folder
+relative to the sylkserver source code tree.
 
