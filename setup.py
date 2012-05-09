@@ -1,6 +1,6 @@
 #!/usr/bin/python
 
-# Copyright (C) 2010-2011 AG Projects. See LICENSE for details
+# Copyright (C) 2010-2012 AG Projects. See LICENSE for details
 #
 
 import glob
