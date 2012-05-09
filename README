@@ -87,6 +87,12 @@ Conferencing
  - Conference event package
  - Add/remove participants
 
+XMPP Gateway
+
+ - Server to Server mode
+ - IM (Chat sessions and Message instances)
+ - Presence translation
+
 
 Applications
 ------------
@@ -99,10 +105,8 @@ server runs.  Other participants can then join by sending an INVITE to the
 same SIP URI used to create the room.  The INVITE and subsequent re-INVITE
 methods may contain one or more media types supported by the server.  Each
 conference room mixed audio, instant messages and uploded files are
-dispatched to all participants.
-
-One can remove or add participants by sending a REFER method to the
-conference URI.
+dispatched to all participants.  One can remove or add participants by
+sending a REFER method to the conference URI.
 
 If a participant sends a file to the SIP URI of the room, the server will
 accept it, store it for the duration of the conference and offer it to all
@@ -110,11 +114,27 @@ participants either present at that moment, or offer it on demand to those
 that have joined the conference at a later moment.
 
 
+XMPP Gateway
+
+SylkServer can act like a transparent gateway between SIP and XMPP protocol. 
+This can be used by a SIP service provider to bridge out to XMPP domains or
+to receive incoming requests from XMPP domains to the SIP users it serves. 
+In a similar fashion, a XMPP service provider can use tehn gateway to bridge
+out to SIP domains and handle incoming requestes from SIP domains to the
+XMPP users it serves.
+
+A media session or a presence session initiated by an incoming connection on
+the XMPP side is translated into an outgoing request on the SIP side and the
+other way around.  To make this work, just add proper SIP or XMPP records
+into the DNS zone for the domain that needs the gateway service.
+
+
 Standards
 ---------
 
 The server implements relevant features from the following standards:
 
+ - SIP (RFC3261) and related RFCs for DNS, ICE and RTP
  - MSRP protocol RFC4975
  - MSRP relay extension RFC4976
  - MSRP File Transfer RFC5547
@@ -130,6 +150,18 @@ The server implements relevant features from the following standards:
    5.2  INVITE: Adding a Participant by the Focus - Dial-Out
    5.5  REFER: Requesting a Focus to Add a New Resource to a Conference
    5.11 REFER with BYE: Requesting a Focus to Remove a Participant from a Conference
+ - XMPP core (RFC 6120) http://xmpp.org/rfcs/rfc6120.html
+ - XMPP extensions http://xmpp.org/xmpp-protocols/xmpp-extensions
+ - Instant Messaging and Presence http://xmpp.org/rfcs/rfc6121.html
+ - Interworking between the Session Initiation Protocol (SIP) and the
+   Extensible Messaging and Presence Protocol (XMPP):
+   http://xmpp.org/internet-drafts/draft-saintandre-sip-xmpp-presence-02.html
+ - Interworking between the Session Initiation Protocol (SIP) and the
+   Extensible Messaging and Presence Protocol (XMPP):
+   http://xmpp.org/internet-drafts/draft-saintandre-sip-xmpp-im-01.html
+ - Interworking between the Session Initiation Protocol (SIP) and the
+   Extensible Messaging and Presence Protocol (XMPP):
+   http://xmpp.org/internet-drafts/draft-saintandre-sip-xmpp-chat-03.html
 
 
 Support
