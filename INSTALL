@@ -7,9 +7,12 @@ http://ag-projects.com
 
 Home page: http://sylkserver.com
 
+Ths software can be installed manually from it source tree or as a Debian
+package on Debian and Ubuntu systems.
 
-Configure Repository
---------------------
+
+Configure Repositories
+----------------------
 
 Install the AG Projects debian software signing key: 
 
@@ -64,12 +67,31 @@ High level application logs are logged to syslog.
 
 Detail protocol traces are logged in /var/log/sylkserver/
 
-You can also run the software for debugging purpose from its local
-directory:
+
+Manual installation
+-------------------
+
+The source code is managed using darcs version control tool. The darcs
+repository can be fetched with:
+
+darcs get http://devel.ag-projects.com/repositories/sylkserver
+
+To obtain the incremental changes after the initial get run:
+
+darcs pull -a
+
+Install the required dependencies:
+
+ * python-sipsimple (>= 0.20.0) http://sipsimpleclient.com
+ * python-sqlobject (>= 0.12.4)
+ * python-twisted-words
+ * python-wokkel
+
+To run SylkServer in the foreground:
 
 ./sylk-server --no-fork
 
-The high level application logs are logged  to the console and the detail
-protocol traces are logged in files located in ./var/log/sylkserver folder
-relative to the sylkserver source code tree.
+To install SylkServer manually system wide:
+
+sudo python setup.py install
 
