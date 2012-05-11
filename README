@@ -116,17 +116,17 @@ that have joined the conference at a later moment.
 
 XMPP Gateway
 
-SylkServer can act like a transparent gateway between SIP and XMPP protocol. 
+SylkServer can act as a transparent gateway between SIP and XMPP protocols. 
 This can be used by a SIP service provider to bridge out to XMPP domains or
-to receive incoming requests from XMPP domains to the SIP users it serves. 
-In a similar fashion, a XMPP service provider can use tehn gateway to bridge
-out to SIP domains and handle incoming requestes from SIP domains to the
-XMPP users it serves.
+to receive incoming requests from XMPP domains to its local SIP users.  In a
+similar fashion, a XMPP service provider can use the gateway to bridge out
+to SIP domains and handle incoming requestes from SIP domains to the XMPP
+users it serves.
 
 A media session or a presence session initiated by an incoming connection on
 the XMPP side is translated into an outgoing request on the SIP side and the
-other way around.  To make this work, just add proper SIP or XMPP records
-into the DNS zone for the domain that needs the gateway service.
+other way around.  To make this possible, proper SIP or XMPP records must
+exists into the DNS zone for the domain that needs the gateway service.
 
 
 Standards
@@ -184,3 +184,4 @@ Credits
 
 Special thanks to NLNET http://nlnet.nl for sponsoring most of the efforts
 behind this project.
+
