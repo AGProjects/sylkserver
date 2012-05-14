@@ -1,8 +1,9 @@
 TODO
 ----
 
- + Jingle gateway
  + Bonjour support
+ + XMPP Jingle gateway
+ + XMPP File Transfer gateway
 
  - Re-invite will all media
  - CANCEL server outgoing INVITE
