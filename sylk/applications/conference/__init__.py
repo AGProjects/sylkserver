@@ -47,6 +47,9 @@ class ConferenceApplication(object):
         self._rooms = {}
         self.pending_sessions = []
         self.invited_participants_map = {}
+        self.screen_sharing_web_server = None
+
+    def start(self):
         self.screen_sharing_web_server = ScreenSharingWebServer(ConferenceConfig.screen_sharing_dir)
         if ConferenceConfig.screen_sharing_use_https and ConferenceConfig.screen_sharing_certificate is not None:
             cert = Certificate(ConferenceConfig.screen_sharing_certificate.normalized)
@@ -54,13 +57,12 @@ class ConferenceApplication(object):
             credentials = X509Credentials(cert, key)
         else:
             credentials = None
-        self.screen_sharing_web_server.run(ConferenceConfig.screen_sharing_ip, ConferenceConfig.screen_sharing_port, credentials)
-
-    def start(self):
-        pass
+        self.screen_sharing_web_server.start(ConferenceConfig.screen_sharing_ip, ConferenceConfig.screen_sharing_port, credentials)
+        listen_address = self.screen_sharing_web_server.listener.getHost()
+        log.msg("ScreenSharing listener started on %s:%d" % (listen_address.host, listen_address.port))
 
     def stop(self):
-        pass
+        self.screen_sharing_web_server.stop()
 
     def get_room(self, uri, create=False):
         room_uri = '%s@%s' % (uri.user, uri.host)

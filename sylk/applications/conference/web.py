@@ -81,9 +81,12 @@ class ScreenSharingWebServer(object):
             return 0
         return self.listener.getHost().port
 
-    def run(self, interface, port, credentials):
+    def start(self, interface, port, credentials):
         if credentials is None:
             self.listener = reactor.listenTCP(port, self.site, interface=interface)
         else:
             self.listener = reactor.listenTLS(port, self.site, credentials, interface=interface)
+
+    def stop(self):
+        self.listener.stopListening()
 
