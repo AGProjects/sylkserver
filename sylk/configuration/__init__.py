@@ -21,6 +21,7 @@ class ServerConfig(ConfigSection):
     default_application = 'conference'
     application_map = ConfigSetting(type=StringList, value='')
     trace_dir = ConfigSetting(type=Path, value=Path('var/log/sylkserver'))
+    trace_core = False
     trace_sip = False
     trace_msrp = False
     trace_notifications = False

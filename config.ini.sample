@@ -11,6 +11,7 @@
 ; application_map = 123:conference,test:irc-conference
 
 ; trace_dir = /var/log/sylkserver
+; trace_core = False
 ; trace_sip = False
 ; trace_msrp = False
 ; trace_notifications = False

@@ -280,7 +280,7 @@ class Logger(object):
 
             # pjsip trace
             if self._pjsiptrace_filename is None:
-                self._pjsiptrace_filename = os.path.join(log_directory, 'pjsip_trace.txt')
+                self._pjsiptrace_filename = os.path.join(log_directory, 'core_trace.txt')
                 self._pjsiptrace_error = False
 
             # notifications trace
