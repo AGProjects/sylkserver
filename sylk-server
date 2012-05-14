@@ -17,12 +17,6 @@ import sylk
 
 DEBUG = False
 
-def stop_server(*args):
-    from sylk.server import SylkServer
-    log.msg('Stopping SylkServer...')
-    server = SylkServer()
-    server.stop()
-
 def main():
     name = 'sylk-server'
     fullname = 'SylkServer'
@@ -81,6 +75,10 @@ def main():
         log.fatal("failed to create %s: %s" % (fullname, e))
         log.err()
         sys.exit(1)
+
+    def stop_server(*args):
+        log.msg('Stopping SylkServer...')
+        server.stop()
 
     process.signals.add_handler(signal.SIGTERM, stop_server)
     process.signals.add_handler(signal.SIGINT, stop_server)
