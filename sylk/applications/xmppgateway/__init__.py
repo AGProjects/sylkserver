@@ -51,7 +51,7 @@ class XMPPGatewayApplication(object):
         try:
             msrp_stream = (stream for stream in session.proposed_streams if stream.type=='chat').next()
         except StopIteration:
-            session.reject(488)
+            session.reject(488, 'Only MSRP media is supported')
             return
 
         # Get URI representing the SIP side
