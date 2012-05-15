@@ -1,13 +1,11 @@
 TODO
 ----
 
- + Bonjour support
  + XMPP Jingle gateway
- + XMPP File Transfer gateway
-
+ - XMPP File Transfer gateway
+ - Management interface
  - Re-invite will all media
  - CANCEL server outgoing INVITE
-
  - Automatic Call Transfer on topology change
  - Add participants using resource-list
  - Integrate mobwrite or etherpad collboration editor
