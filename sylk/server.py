@@ -58,8 +58,13 @@ class SylkServer(SIPApplication):
             sys.exit(1)
 
     def _load_configuration(self):
+        # Command line options
+        settings = SIPSimpleSettings()
+        settings.bonjour.enabled = '--use-bonjour' in sys.argv    # Horrible hack, I know
         account_manager = AccountManager()
         account = Account("account@example.com")     # an account is required by AccountManager
+        # Disable MSRP ACM if we are using Bonjour
+        account.msrp.connection_model = 'relay' if settings.bonjour.enabled else 'acm'
         account.save()
         account_manager.default_account = account
 
@@ -203,8 +208,6 @@ class SylkServer(SIPApplication):
             log.msg('Logging PJSIP trace to file "%s"' % self.logger._pjsiptrace_filename)
         if settings.logs.trace_notifications and self.logger._notifications_filename is not None:
             log.msg('Logging notifications trace to file "%s"' % self.logger._notifications_filename)
-        # Command line options
-        settings.bonjour.enabled = '--use-bonjour' in sys.argv    # Horrible hack, I know
 
     def _NH_SIPApplicationDidStart(self, notification):
         engine = Engine()

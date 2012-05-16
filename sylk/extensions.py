@@ -7,15 +7,20 @@ from datetime import datetime
 from dateutil.tz import tzlocal
 
 from application.notification import NotificationCenter
+from eventlet import api
 from msrplib.protocol import URI
 from msrplib.session import contains_mime_type
+from msrplib.connect import DirectConnector, DirectAcceptor, RelayConnection, MSRPRelaySettings
 from sipsimple.account import AccountManager
 from sipsimple.core import SDPAttribute
 from sipsimple.payloads.iscomposing import IsComposingDocument, IsComposingMessage, State, LastActive, Refresh, ContentType
 from sipsimple.streams import MediaStreamRegistry
 from sipsimple.streams.applications.chat import CPIMMessage, CPIMParserError
-from sipsimple.streams.msrp import ChatStream as _ChatStream, ChatStreamError, MSRPStreamBase
+from sipsimple.streams.msrp import ChatStreamError, MSRPStreamError, NotificationProxyLogger
+from sipsimple.streams.msrp import ChatStream as _ChatStream, MSRPStreamBase as _MSRPStreamBase
+from sipsimple.threading.green import run_in_green_thread
 from sipsimple.util import TimestampedNotificationData
+from twisted.python.failure import Failure
 
 from sylk.configuration import SIPConfig
 from sylk.session import ServerSession
@@ -42,7 +47,71 @@ for stream_type in registry.stream_types[:]:
         break
 del registry
 
-class ChatStream(_ChatStream):
+class MSRPStreamBase(_MSRPStreamBase):
+    @run_in_green_thread
+    def initialize(self, session, direction):
+        self.greenlet = api.getcurrent()
+        notification_center = NotificationCenter()
+        notification_center.add_observer(self, sender=self)
+        try:
+            self.session = session
+            self.transport = self.account.msrp.transport
+            outgoing = direction=='outgoing'
+            logger = NotificationProxyLogger()
+            if self.account.msrp.connection_model == 'relay':
+                if not outgoing and self.remote_role in ('actpass', 'passive'):
+                    # 'passive' not allowed by the RFC but play nice for interoperability. -Saul
+                    self.msrp_connector = DirectConnector(logger=logger, use_sessmatch=True)
+                    self.local_role = 'active'
+                elif not outgoing and not self.account.nat_traversal.use_msrp_relay_for_inbound:
+                    if self.transport=='tls' and None in (self.account.tls_credentials.cert, self.account.tls_credentials.key):
+                        raise MSRPStreamError("Cannot accept MSRP connection without a TLS certificate")
+                    self.msrp_connector = DirectAcceptor(logger=logger)
+                    self.local_role = 'passive'
+                elif outgoing and not self.account.nat_traversal.use_msrp_relay_for_outbound:
+                    self.msrp_connector = DirectConnector(logger=logger, use_sessmatch=True)
+                    self.local_role = 'active'
+                else:
+                    if self.account.nat_traversal.msrp_relay is None:
+                        relay_host = relay_port = None
+                    else:
+                        if self.transport != self.account.nat_traversal.msrp_relay.transport:
+                            raise MSRPStreamError("MSRP relay transport conflicts with MSRP transport setting")
+                        relay_host = self.account.nat_traversal.msrp_relay.host
+                        relay_port = self.account.nat_traversal.msrp_relay.port
+                    relay = MSRPRelaySettings(domain=self.account.uri.host,
+                                              username=self.account.uri.user,
+                                              password=self.account.credentials.password,
+                                              host=relay_host,
+                                              port=relay_port,
+                                              use_tls=self.transport=='tls')
+                    self.msrp_connector = RelayConnection(relay, 'passive', logger=logger, use_sessmatch=True)
+                    self.local_role = 'actpass' if outgoing else 'passive'
+            else:
+                if not outgoing and self.remote_role in ('actpass', 'passive'):
+                    # 'passive' not allowed by the RFC but play nice for interoperability. -Saul
+                    self.msrp_connector = DirectConnector(logger=logger, use_sessmatch=True)
+                    self.local_role = 'active'
+                else:
+                    if not outgoing and self.transport=='tls' and None in (self.account.tls_credentials.cert, self.account.tls_credentials.key):
+                        raise MSRPStreamError("Cannot accept MSRP connection without a TLS certificate")
+                    self.msrp_connector = DirectAcceptor(logger=logger, use_sessmatch=True)
+                    self.local_role = 'actpass' if outgoing else 'passive'
+            full_local_path = self.msrp_connector.prepare(self.local_uri)
+            self.local_media = self._create_local_media(full_local_path)
+        except api.GreenletExit:
+            raise
+        except Exception, ex:
+            ndata = TimestampedNotificationData(context='initialize', failure=Failure(), reason=str(ex))
+            notification_center.post_notification('MediaStreamDidFail', self, ndata)
+        else:
+            notification_center.post_notification('MediaStreamDidInitialize', self, data=TimestampedNotificationData())
+        finally:
+            if self.msrp_session is None and self.msrp is None and self.msrp_connector is None:
+                notification_center.remove_observer(self, sender=self)
+            self.greenlet = None
+
+class ChatStream(_ChatStream, MSRPStreamBase):
     accept_types = ['message/cpim']
     accept_wrapped_types = ['*']
     chatroom_capabilities = ['private-messages', 'com.ag-projects.screen-sharing']
