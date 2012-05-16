@@ -91,6 +91,10 @@ To run SylkServer in the foreground:
 
 ./sylk-server --no-fork
 
+To run SylkServer in the foreground in bonjour mode:
+
+./sylk-server --no-fork --use-bonjour
+
 To install SylkServer manually system wide:
 
 sudo python setup.py install
