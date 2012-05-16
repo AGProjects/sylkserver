@@ -31,12 +31,17 @@ conferences with HD Audio, IM and File Transfer and can be easily extended
 with other applications.
 
 
-Deployment
-----------
+Deployment Scenarios
+--------------------
 
 SylkServer is typically deployed behind a SIP Proxy that is designed to
 route the inbound and outbound traffic, handle the authentication,
 authorization and accounting.
+
+SylkServer can also be deployed as multimedia SIP conference server on a
+private network to serve SIP clients on the same LAN by using bonjour mode. 
+Blink Pro for MacOSX can be used for automatic discovery of SylkServer
+instances in the neighborhood.
 
 
 Features
@@ -47,7 +52,7 @@ SIP Signaling
  - TLS, TCP and UDP transports
  - INVITE and REFER
  - SUBSCRIBE/NOTIFY
- - Protocol tracing
+ - Bonjour mode
 
 NAT Traversal
 
@@ -90,7 +95,7 @@ Conferencing
 XMPP Gateway
 
  - Server to Server mode
- - IM (Chat sessions and Message instances)
+ - IM (MSRP sessions and SIP Messages)
  - Presence translation
 
 
