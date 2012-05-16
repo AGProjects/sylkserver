@@ -1,8 +1,11 @@
 TODO
 ----
 
- + XMPP Jingle gateway
- - XMPP File Transfer gateway
+ - XMPP multi-party Chat
+ - XMPP Discovery
+ - XMPP Jingle
+ - XMPP File Transfer
+ - Registrat application
  - Management interface
  - Re-invite will all media
  - CANCEL server outgoing INVITE
