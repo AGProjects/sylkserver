@@ -203,6 +203,8 @@ class SylkServer(SIPApplication):
             log.msg('Logging PJSIP trace to file "%s"' % self.logger._pjsiptrace_filename)
         if settings.logs.trace_notifications and self.logger._notifications_filename is not None:
             log.msg('Logging notifications trace to file "%s"' % self.logger._notifications_filename)
+        # Command line options
+        settings.bonjour.enabled = '--use-bonjour' in sys.argv    # Horrible hack, I know
 
     def _NH_SIPApplicationDidStart(self, notification):
         engine = Engine()

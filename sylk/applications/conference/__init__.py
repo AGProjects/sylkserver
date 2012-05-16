@@ -21,6 +21,7 @@ from sylk.applications import ISylkApplication, SylkApplication, ApplicationLogg
 from sylk.applications.conference.configuration import get_room_config, ConferenceConfig
 from sylk.applications.conference.room import Room
 from sylk.applications.conference.web import ScreenSharingWebServer
+from sylk.bonjour import BonjourServices
 from sylk.configuration import SIPConfig, ThorNodeConfig
 from sylk.extensions import ChatStream
 from sylk.session import ServerSession
@@ -47,9 +48,15 @@ class ConferenceApplication(object):
         self._rooms = {}
         self.pending_sessions = []
         self.invited_participants_map = {}
+        self.bonjour_services = Null()
         self.screen_sharing_web_server = None
 
     def start(self):
+        settings = SIPSimpleSettings()
+        if settings.bonjour.enabled or ConferenceConfig.use_bonjour:
+            self.bonjour_services = BonjourServices('sipfocus')
+            self.bonjour_services.start()
+            log.msg("Bonjour publication started for service 'sipfocus'")
         self.screen_sharing_web_server = ScreenSharingWebServer(ConferenceConfig.screen_sharing_dir)
         if ConferenceConfig.screen_sharing_use_https and ConferenceConfig.screen_sharing_certificate is not None:
             cert = Certificate(ConferenceConfig.screen_sharing_certificate.normalized)
@@ -62,6 +69,7 @@ class ConferenceApplication(object):
         log.msg("ScreenSharing listener started on %s:%d" % (listen_address.host, listen_address.port))
 
     def stop(self):
+        self.bonjour_services.stop()
         self.screen_sharing_web_server.stop()
 
     def get_room(self, uri, create=False):

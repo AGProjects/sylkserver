@@ -45,6 +45,7 @@ from zope.interface import implements
 from sylk.applications import ApplicationLogger
 from sylk.applications.conference import database
 from sylk.applications.conference.configuration import ConferenceConfig, URL
+from sylk.bonjour import BonjourServices
 from sylk.configuration import SIPConfig, ThorNodeConfig
 from sylk.configuration.datatypes import ResourcePath
 from sylk.session import ServerSession
@@ -151,6 +152,7 @@ class Room(object):
         self.audio_conference = None
         self.moh_player = None
         self.conference_info_payload = None
+        self.bonjour_services = Null()
 
     @property
     def empty(self):
@@ -171,6 +173,11 @@ class Room(object):
     def start(self):
         if self.started:
             return
+        from sylk.applications.conference import ConferenceApplication
+        if ConferenceApplication().bonjour_services is not Null:
+            room_user = self.identity.uri.user
+            self.bonjour_services = BonjourServices(service='sipuri', name='Conference Room %s' % room_user, uri_user=room_user)
+            self.bonjour_services.start()
         self.message_dispatcher = proc.spawn(self._message_dispatcher)
         self.audio_conference = AudioConference()
         self.audio_conference.hold()
@@ -183,6 +190,8 @@ class Room(object):
         if not self.started:
             return
         self.state = 'stopping'
+        self.bonjour_services.stop()
+        self.bonjour_services = None
         self.incoming_message_queue.send_exception(api.GreenletExit)
         self.incoming_message_queue = None
         self.message_dispatcher.kill(proc.ProcExit)
@@ -443,7 +452,10 @@ class Room(object):
             try:
                 user = (user for user in users if user.entity == str(session.remote_identity.uri)).next()
             except StopIteration:
-                user = conference.User(str(session.remote_identity.uri), display_text=session.remote_identity.display_name)
+                if self.bonjour_services is Null:
+                    user = conference.User(str(session.remote_identity.uri), display_text=session.remote_identity.display_name)
+                else:
+                    user = conference.User(str(session._invitation.remote_contact_header.uri), display_text=session.remote_identity.display_name)
                 user_uri = '%s@%s' % (session.remote_identity.uri.user, session.remote_identity.uri.host)
                 screen_image = self.screen_images.get(user_uri, None)
                 if screen_image is not None and screen_image.active:

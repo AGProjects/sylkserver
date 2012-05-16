@@ -9,7 +9,7 @@ __all__ = ['AccountExtension', 'BonjourAccountExtension', 'SylkServerSettingsExt
 
 from sipsimple.account import MSRPSettings as AccountMSRPSettings, NATTraversalSettings as AccountNATTraversalSettings
 from sipsimple.account import RTPSettings as AccountRTPSettings, SIPSettings as AccountSIPSettings, TLSSettings as AccountTLSSettings
-from sipsimple.configuration import CorrelatedSetting, Setting, SettingsObjectExtension
+from sipsimple.configuration import CorrelatedSetting, Setting, SettingsGroup, SettingsObjectExtension
 from sipsimple.configuration.datatypes import MSRPConnectionModel, MSRPTransport, NonNegativeInteger, PortRange, SampleRate, SIPTransportList, SRTPEncryption
 from sipsimple.configuration.settings import AudioSettings, LogsSettings, RTPSettings, SIPSettings, TLSSettings
 
@@ -68,6 +68,10 @@ class AudioSettingsExtension(AudioSettings):
     sample_rate = Setting(type=SampleRate, default=16000)
 
 
+class BonjourServices(SettingsGroup):
+    enabled = Setting(type=bool, default=False)
+
+
 class LogsSettingsExtension(LogsSettings):
     directory = Setting(type=Path, default=ServerConfig.trace_dir)
     trace_sip = Setting(type=bool, default=ServerConfig.trace_sip)
@@ -112,6 +116,7 @@ class SylkServerSettingsExtension(SettingsObjectExtension):
     user_agent = Setting(type=str, default='SylkServer-%s' % server_version)
 
     audio = AudioSettingsExtension
+    bonjour = BonjourServices
     logs = LogsSettingsExtension
     rtp = RTPSettingsExtension
     sip = SIPSettingsExtension

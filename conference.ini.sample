@@ -36,6 +36,9 @@
 ; Server certificate for HTTPS connections
 ; screen_sharing_certificate = /etc/sylkserver/tls/default.crt
 
+; Advertise the conference server and each room in Bonjour
+; use_bonjour = False
+
 ; Access Lists Default Policy
 ; Apache-style access lists for the caller using SIP domains or SIP URIs
 ; https://httpd.apache.org/docs/2.2/mod/mod_authz_host.html#order
