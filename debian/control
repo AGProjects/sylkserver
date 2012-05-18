@@ -10,6 +10,7 @@ Package: sylkserver
 Architecture: all
 Depends: ${python:Depends}, ${misc:Depends}, python-application (>= 1.2.9), python-backports, python-eventlet-0.8, python-sipsimple (>= 0.20.0), python-sqlobject (>= 0.12.4), python-twisted-web, python-twisted-words, python-wokkel
 Suggests: python-mysqldb
+Recommends: sylkserver-sounds
 Description: A state of the art, extensible SIP Application Server
  SylkServer allows creation and delivery of rich multimedia applications
  accessed by SIP User Agents.  The server supports SIP signaling over TLS,
@@ -17,3 +18,17 @@ Description: A state of the art, extensible SIP Application Server
  capabilities for creating ad-hoc SIP multimedia conferences with HD Audio,
  IM and File Transfer and can be easily extended with other applications by
  using Python programming language.
+
+Package: sylkserver-sounds
+Architecture: all
+Depends: ${misc:Depends}, sylkserver
+Description: A state of the art, extensible SIP Application Server
+ SylkServer allows creation and delivery of rich multimedia applications
+ accessed by SIP User Agents.  The server supports SIP signaling over TLS,
+ TCP and UDP transports, RTP and MSRP media planes, has built in
+ capabilities for creating ad-hoc SIP multimedia conferences with HD Audio,
+ IM and File Transfer and can be easily extended with other applications by
+ using Python programming language.
+ .
+ This package contains sounds used by SylkServer.
+

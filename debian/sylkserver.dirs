@@ -1,5 +1,4 @@
 etc/sylkserver
 etc/sylkserver/tls
 usr/bin
-usr/share/sylkserver
 var/lib/sylkserver
