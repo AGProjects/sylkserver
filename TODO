@@ -6,10 +6,10 @@ TODO
  - Offline storage
  - XMPP Jingle
  - XMPP File Transfer
- - Registrant application to map rooms to public accounts
+ - Registrat application
  - Management interface
  - Re-invite will all media
  - CANCEL server outgoing INVITE
  - Add participants using resource-list
- - Integrate mobwrite or etherpad collboration editor
+ - Integrate mobwrite collboration editor
 
