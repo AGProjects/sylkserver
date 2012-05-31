@@ -1,9 +1,14 @@
+; SylkServer XMPP gateway application configuration file
 
 [general]
+
+; Comma-separated list of domains for which this server is responsible
+; Add the xmmp-server records into the DNS server responsable for these domains
+; At least one domain is required!
+; domains =
+
 ; The following settings are the default used by the software, uncomment
 ; them only if you want to make changes
-
-; trace_xmpp = False
 
 ; IP address used for listening to XMPP connections; empty string or any means listen on interface used
 ; by the default route
@@ -11,13 +16,13 @@
 
 ; local_port = 5269
 
-; Comma-separated list of domains for which this server is responsible
-; domains =
-
 ; If set to True (default) MSRP will be used to translate XMPP Instant Messaging, else SIP MESSAGE will be used
 ; Note: XMPP 'normal' messages (not chat messages) are always translated to SIP MESSAGE requests
 ; use_msrp_for_chat = True
 
 ; Timeout to terminate a SIP session if no chat traffic was received
 ; sip_session_timeout = 600
+
+; Enable verbose logging of XMPP stantzas
+; trace_xmpp = False
 
