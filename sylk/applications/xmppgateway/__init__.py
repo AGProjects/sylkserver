@@ -54,6 +54,11 @@ class XMPPGatewayApplication(object):
             session.reject(488, 'Only MSRP media is supported')
             return
 
+        # Check domain
+        if session.remote_identity.uri.host not in XMPPGatewayConfig.domains:
+            session.reject(606, 'Not Acceptable')
+            return
+
         # Get URI representing the SIP side
         contact_uri = session._invitation.remote_contact_header.uri
         if contact_uri.parameters.get('gr') is not None:
@@ -98,8 +103,14 @@ class XMPPGatewayApplication(object):
         if subscribe_request.event != 'presence':
             subscribe_request.reject(489)
             return
-        # Get URI representing the SIP side
+
+        # Check domain
         remote_identity_uri = data.headers['From'].uri
+        if remote_identity_uri.host not in XMPPGatewayConfig.domains:
+            subscribe_request.reject(606)
+            return
+
+        # Get URI representing the SIP side
         sip_leg_uri = FrozenURI(remote_identity_uri.user, remote_identity_uri.host)
 
         # Get URI representing the XMPP side
@@ -128,6 +139,12 @@ class XMPPGatewayApplication(object):
             message_request.answer(400)
             return
         log.msg('New incoming SIP MESSAGE from %s' % from_header.uri)
+
+        # Check domain
+        if from_header.uri.host not in XMPPGatewayConfig.domains:
+            message_request.answer(606)
+            return
+
         if content_type == 'message/cpim':
             try:
                 cpim_message = CPIMMessage.parse(data.body)
