@@ -216,8 +216,9 @@ class ChatSessionHandler(object):
             if self.xmpp_session is not None:
                 # Session is now established on both ends
                 self.started = True
-                # Send an 'active' message stanza to wakeup XMPP clients
+                # Try to wakeup XMPP clients
                 self.xmpp_session.send_composing_indication('active')
+                self.xmpp_session.send_message(' ', 'text/plain')
             else:
                 # Send queued messages
                 self._send_queued_messages()
