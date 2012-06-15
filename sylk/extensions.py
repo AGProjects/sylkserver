@@ -8,9 +8,10 @@ from dateutil.tz import tzlocal
 
 from application.notification import NotificationCenter
 from eventlet import api
+from msrplib.connect import DirectConnector, DirectAcceptor, RelayConnection, MSRPRelaySettings
 from msrplib.protocol import URI
 from msrplib.session import contains_mime_type
-from msrplib.connect import DirectConnector, DirectAcceptor, RelayConnection, MSRPRelaySettings
+from msrplib.transport import make_response
 from sipsimple.account import AccountManager
 from sipsimple.core import SDPAttribute
 from sipsimple.payloads.iscomposing import IsComposingDocument, IsComposingMessage, State, LastActive, Refresh, ContentType
@@ -114,7 +115,7 @@ class MSRPStreamBase(_MSRPStreamBase):
 class ChatStream(_ChatStream, MSRPStreamBase):
     accept_types = ['message/cpim']
     accept_wrapped_types = ['*']
-    chatroom_capabilities = ['private-messages', 'com.ag-projects.screen-sharing']
+    chatroom_capabilities = ['nickname', 'private-messages', 'com.ag-projects.screen-sharing']
 
     @property
     def local_uri(self):
@@ -168,6 +169,30 @@ class ChatStream(_ChatStream, MSRPStreamBase):
             notification_center.post_notification('ChatStreamGotComposingIndication', self, ndata)
         else:
             notification_center.post_notification('ChatStreamGotMessage', self, TimestampedNotificationData(message=message, private=private, chunk=chunk))
+
+    def _handle_NICKNAME(self, chunk):
+        nickname = chunk.headers['Use-Nickname'].decoded
+        notification_center = NotificationCenter()
+        notification_center.post_notification('ChatStreamGotNicknameRequest', self, TimestampedNotificationData(nickname=nickname, chunk=chunk))
+
+    @run_in_green_thread
+    def _send_response(self, response):
+        try:
+            self.msrp.write_chunk(response)
+        except Exception:
+            pass
+
+    def accept_nickname(self, chunk):
+        if chunk.method != 'NICKNAME':
+            raise ValueError('Incorrect chunk method for accept_nickname: %s' % chunk.method)
+        response = make_response(chunk, 200, 'OK')
+        self._send_response(response)
+
+    def reject_nickname(self, chunk, code, reason):
+        if chunk.method != 'NICKNAME':
+            raise ValueError('Incorrect chunk method for accept_nickname: %s' % chunk.method)
+        response = make_response(chunk, code, reason)
+        self._send_response(response)
 
     def send_message(self, content, content_type='text/plain', local_identity=None, recipients=None, courtesy_recipients=None, subject=None, timestamp=None, required=None, additional_headers=None, message_id=None, notify_progress=True, success_report='yes', failure_report='yes'):
         if self.direction=='recvonly':

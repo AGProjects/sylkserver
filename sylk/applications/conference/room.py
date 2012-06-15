@@ -9,9 +9,10 @@ import shutil
 import string
 import weakref
 
+from collections import defaultdict
 from datetime import datetime
 from glob import glob
-from itertools import cycle
+from itertools import chain, cycle
 from time import mktime
 
 try:
@@ -23,7 +24,6 @@ from application.notification import IObserver, NotificationCenter
 from application.python import Null
 from application.system import makedirs
 from eventlet import api, coros, proc
-from itertools import chain
 from sipsimple.account import AccountManager
 from sipsimple.application import SIPApplication
 from sipsimple.audio import WavePlayer, WavePlayerError
@@ -153,6 +153,9 @@ class Room(object):
         self.moh_player = None
         self.conference_info_payload = None
         self.bonjour_services = Null()
+        self.session_nickname_map = {}
+        self.last_nicknames_map = {}
+        self.participants_counter = defaultdict(lambda: 0)
 
     @property
     def empty(self):
@@ -340,6 +343,8 @@ class Room(object):
         notification_center = NotificationCenter()
         notification_center.add_observer(self, sender=session)
         self.sessions.append(session)
+        remote_uri = str(session.remote_identity.uri)
+        self.participants_counter[remote_uri] += 1
         try:
             chat_stream = (stream for stream in session.streams if stream.type == 'chat').next()
         except StopIteration:
@@ -389,6 +394,12 @@ class Room(object):
         notification_center = NotificationCenter()
         notification_center.remove_observer(self, sender=session)
         self.sessions.remove(session)
+        self.session_nickname_map.pop(session, None)
+        remote_uri = str(session.remote_identity.uri)
+        self.participants_counter[remote_uri] -= 1
+        if self.participants_counter[remote_uri] <= 0:
+            del self.participants_counter[remote_uri]
+            self.last_nicknames_map.pop(remote_uri, None)
         try:
             timer = self.sessions_with_proposals.pop(session)
         except KeyError:
@@ -445,17 +456,18 @@ class Room(object):
             conference_description = conference.ConferenceDescription(display_text='Ad-hoc conference', free_text='Hosted by %s' % settings.user_agent)
             host_info = conference.HostInfo(web_page=conference.WebPage('http://sylkserver.com'))
             self.conference_info_payload = conference.Conference(self.identity.uri, conference_description=conference_description, host_info=host_info, users=conference.Users())
-        user_count = len(set(str(s.remote_identity.uri) for s in self.sessions))
+        user_count = len(self.participants_counter.keys())
         self.conference_info_payload.conference_state = conference.ConferenceState(user_count=user_count, active=True)
         users = conference.Users()
         for session in (session for session in self.sessions if not (len(session.streams) == 1 and session.streams[0].type == 'file-transfer')):
             try:
                 user = (user for user in users if user.entity == str(session.remote_identity.uri)).next()
             except StopIteration:
+                display_text = self.last_nicknames_map.get(str(session.remote_identity.uri), session.remote_identity.display_name)
                 if self.bonjour_services is Null:
-                    user = conference.User(str(session.remote_identity.uri), display_text=session.remote_identity.display_name)
+                    user = conference.User(str(session.remote_identity.uri), display_text=display_text)
                 else:
-                    user = conference.User(str(session._invitation.remote_contact_header.uri), display_text=session.remote_identity.display_name)
+                    user = conference.User(str(session._invitation.remote_contact_header.uri), display_text=display_text)
                 user_uri = '%s@%s' % (session.remote_identity.uri.user, session.remote_identity.uri.host)
                 screen_image = self.screen_images.get(user_uri, None)
                 if screen_image is not None and screen_image.active:
@@ -465,7 +477,8 @@ class Room(object):
             holdable_streams = [stream for stream in session.streams if stream.hold_supported]
             session_on_hold = holdable_streams and all(stream.on_hold_by_remote for stream in holdable_streams)
             hold_status = conference.EndpointStatus('on-hold' if session_on_hold else 'connected')
-            endpoint = conference.Endpoint(str(session._invitation.remote_contact_header.uri), display_text=session.remote_identity.display_name, joining_info=joining_info, status=hold_status)
+            display_text = self.session_nickname_map.get(session, session.remote_identity.display_name)
+            endpoint = conference.Endpoint(str(session._invitation.remote_contact_header.uri), display_text=display_text, joining_info=joining_info, status=hold_status)
             for stream in session.streams:
                 if stream.type == 'file-transfer':
                     continue
@@ -536,6 +549,21 @@ class Room(object):
         data = notification.data
         session = notification.sender.session
         self.incoming_message_queue.send((session, 'composing_indication', data))
+
+    def _NH_ChatStreamGotNicknameRequest(self, notification):
+        nickname = notification.data.nickname
+        session = notification.sender.session
+        if nickname:
+            if nickname in self.session_nickname_map.values():
+                notification.sender.reject_nickname(425, 'Nickname reserved or already in use')
+                return
+            self.session_nickname_map[session] = nickname
+            self.last_nicknames_map[str(session.remote_identity.uri)] = nickname
+        else:
+            self.session_nickname_map.pop(session, None)
+            self.last_nicknames_map.pop(str(session.remote_identity.uri), None)
+        notification.sender.accept_nickname(notification.data.chunk)
+        self.dispatch_conference_info()
 
     def _NH_SIPIncomingSubscriptionDidEnd(self, notification):
         subscription = notification.sender
