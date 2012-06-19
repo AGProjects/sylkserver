@@ -11,7 +11,7 @@ from sipsimple.util import Timestamp, TimestampedNotificationData
 from twisted.internet import reactor
 from twisted.words.protocols.jabber.jid import internJID as JID
 from wokkel.component import InternalComponent, Router as _Router
-from wokkel.server import ServerService, XMPPS2SServerFactory as _XMPPS2SServerFactory, DeferredS2SClientFactory as _DeferredS2SClientFactory
+from wokkel.server import ServerService, XMPPS2SServerFactory, DeferredS2SClientFactory
 from zope.interface import implements
 
 from sylk.applications import ApplicationLogger
@@ -46,9 +46,9 @@ class Router(_Router):
             self.routes[None].send(stanza)
 
 
-class XMPPS2SServerFactory(_XMPPS2SServerFactory):
+class XMPPS2SServerFactory(XMPPS2SServerFactory):
     def onConnectionMade(self, xs):
-        super(XMPPS2SServerFactory, self).onConnectionMade(xs)
+        super(self.__class__, self).onConnectionMade(xs)
 
         def logDataIn(buf):
             buf = buf.strip()
@@ -65,9 +65,9 @@ class XMPPS2SServerFactory(_XMPPS2SServerFactory):
             xs.rawDataOutFn = logDataOut
 
 
-class DeferredS2SClientFactory(_DeferredS2SClientFactory):
+class DeferredS2SClientFactory(DeferredS2SClientFactory):
     def onConnectionMade(self, xs):
-        super(DeferredS2SClientFactory, self).onConnectionMade(xs)
+        super(self.__class__, self).onConnectionMade(xs)
 
         def logDataIn(buf):
             if buf:

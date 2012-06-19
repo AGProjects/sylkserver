@@ -3,7 +3,7 @@
 
 from application.notification import NotificationCenter
 from sipsimple.util import TimestampedNotificationData
-from wokkel.xmppim import MessageProtocol as _MessageProtocol, PresenceProtocol as _PresenceProtocol
+from wokkel.xmppim import MessageProtocol, PresenceProtocol
 
 from sylk.applications.xmppgateway.datatypes import Identity, FrozenURI
 from sylk.applications.xmppgateway.xmpp.stanzas import NormalMessage, MessageReceipt, ChatMessage, \
@@ -11,7 +11,8 @@ from sylk.applications.xmppgateway.xmpp.stanzas import NormalMessage, MessageRec
 from sylk.applications.xmppgateway.xmpp.stanzas import RECEIPTS_NS, CHATSTATES_NS
 
 
-class MessageProtocol(_MessageProtocol):
+
+class MessageProtocol(MessageProtocol):
     messageTypes = None, 'normal', 'chat', 'headline', 'groupchat', 'error'
 
     def _onMessage(self, message):
@@ -76,7 +77,7 @@ class MessageProtocol(_MessageProtocol):
                 notification_center.post_notification('XMPPGotReceipt', sender=self.parent, data=TimestampedNotificationData(receipt=receipt))
 
 
-class PresenceProtocol(_PresenceProtocol):
+class PresenceProtocol(PresenceProtocol):
 
     def availableReceived(self, stanza):
         sender_uri = FrozenURI.parse('xmpp:'+stanza.element['from'])
