@@ -16,7 +16,7 @@ class XMPPGatewayConfig(ConfigSection):
     local_ip = ConfigSetting(type=IPAddress, value=host.default_ip)
     local_port = ConfigSetting(type=Port, value=5269)
     trace_xmpp = False
-    domains = ConfigSetting(type=StringList, value='')
+    domains = ConfigSetting(type=StringList, value=[])
     sip_session_timeout = ConfigSetting(type=NonNegativeInteger, value=600)
     use_msrp_for_chat = True
 
