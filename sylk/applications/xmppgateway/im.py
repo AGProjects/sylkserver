@@ -24,8 +24,9 @@ from zope.interface import implements
 from sylk.applications import ApplicationLogger
 from sylk.applications.xmppgateway.configuration import XMPPGatewayConfig
 from sylk.applications.xmppgateway.datatypes import Identity, FrozenURI, generate_sylk_resource, encode_resource
-from sylk.applications.xmppgateway.xmpp import ChatMessage, XMPPChatSession
 from sylk.applications.xmppgateway.xmpp import XMPPManager
+from sylk.applications.xmppgateway.xmpp.session import XMPPChatSession
+from sylk.applications.xmppgateway.xmpp.stanzas import ChatMessage
 from sylk.extensions import ChatStream
 from sylk.session import ServerSession
 

@@ -17,8 +17,9 @@ from sylk.applications.xmppgateway.configuration import XMPPGatewayConfig
 from sylk.applications.xmppgateway.datatypes import Identity, FrozenURI, generate_sylk_resource, decode_resource
 from sylk.applications.xmppgateway.im import SIPMessageSender, SIPMessageError, ChatSessionHandler
 from sylk.applications.xmppgateway.presence import S2XPresenceHandler, X2SPresenceHandler
-from sylk.applications.xmppgateway.xmpp import ChatMessage, ChatComposingIndication, NormalMessage, XMPPChatSession
 from sylk.applications.xmppgateway.xmpp import XMPPManager
+from sylk.applications.xmppgateway.xmpp.session import XMPPChatSession
+from sylk.applications.xmppgateway.xmpp.stanzas import ChatMessage, ChatComposingIndication, NormalMessage
 
 log = ApplicationLogger(os.path.dirname(__file__).split(os.path.sep)[-1])
 

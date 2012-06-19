@@ -1,0 +1,141 @@
+# Copyright (C) 2012 AG Projects. See LICENSE for details
+#
+
+from application.notification import IObserver, NotificationCenter
+from application.python import Null
+from application.python.descriptor import WriteOnceAttribute
+from application.python.types import Singleton
+from eventlet import coros, proc
+from sipsimple.util import TimestampedNotificationData
+from twisted.internet import reactor
+from zope.interface import implements
+
+from sylk.applications.xmppgateway.xmpp.stanzas import ChatMessage, ChatComposingIndication, MessageReceipt, ErrorStanza
+
+__all__ = ['XMPPChatSession', 'XMPPChatSessionManager']
+
+
+class XMPPChatSession(object):
+    local_identity = WriteOnceAttribute()
+    remote_identity = WriteOnceAttribute()
+
+    def __init__(self, local_identity, remote_identity):
+        self.local_identity = local_identity
+        self.remote_identity = remote_identity
+        self.state = None
+        self.pending_receipts = {}
+        self.channel = coros.queue()
+        self._proc = None
+        from sylk.applications.xmppgateway.xmpp import XMPPManager
+        self.xmpp_manager = XMPPManager()
+
+    def start(self):
+        notification_center = NotificationCenter()
+        notification_center.post_notification('XMPPChatSessionDidStart', sender=self, data=TimestampedNotificationData())
+        self._proc = proc.spawn(self._run)
+        self.state = 'started'
+
+    def end(self):
+        self.send_composing_indication('gone')
+        self._clear_pending_receipts()
+        self._proc.kill()
+        self._proc = None
+        notification_center = NotificationCenter()
+        notification_center.post_notification('XMPPChatSessionDidEnd', sender=self, data=TimestampedNotificationData(originator='local'))
+        self.state = 'terminated'
+
+    def send_message(self, body, content_type='text/plain', message_id=None, use_receipt=True):
+        message = ChatMessage(self.local_identity, self.remote_identity, body, content_type, id=message_id, use_receipt=use_receipt)
+        self.xmpp_manager.send_stanza(message)
+        if message_id is not None:
+            timer = reactor.callLater(30, self._receipt_timer_expired, message_id)
+            self.pending_receipts[message_id] = timer
+            notification_center = NotificationCenter()
+            notification_center.post_notification('XMPPChatSessionDidSendMessage', sender=self, data=TimestampedNotificationData(message=message))
+
+    def send_composing_indication(self, state, message_id=None, use_receipt=False):
+        message = ChatComposingIndication(self.local_identity, self.remote_identity, state, id=message_id, use_receipt=use_receipt)
+        self.xmpp_manager.send_stanza(message)
+        if message_id is not None:
+            timer = reactor.callLater(30, self._receipt_timer_expired, message_id)
+            self.pending_receipts[message_id] = timer
+            notification_center = NotificationCenter()
+            notification_center.post_notification('XMPPChatSessionDidSendMessage', sender=self, data=TimestampedNotificationData(message=message))
+
+    def send_receipt_acknowledgement(self, receipt_id):
+        message = MessageReceipt(self.local_identity, self.remote_identity, receipt_id)
+        self.xmpp_manager.send_stanza(message)
+
+    def send_error(self, stanza, error_type, conditions):
+        message = ErrorStanza.from_stanza(stanza, error_type, conditions)
+        self.xmpp_manager.send_stanza(message)
+
+    def _run(self):
+        notification_center = NotificationCenter()
+        while True:
+            item = self.channel.wait()
+            if isinstance(item, ChatMessage):
+                notification_center.post_notification('XMPPChatSessionGotMessage', sender=self, data=TimestampedNotificationData(message=item))
+            elif isinstance(item, ChatComposingIndication):
+                if item.state == 'gone':
+                    self._clear_pending_receipts()
+                    notification_center.post_notification('XMPPChatSessionDidEnd', sender=self, data=TimestampedNotificationData(originator='remote'))
+                    self.state = 'terminated'
+                    break
+                else:
+                    notification_center.post_notification('XMPPChatSessionGotComposingIndication', sender=self, data=TimestampedNotificationData(message=item))
+            elif isinstance(item, MessageReceipt):
+                if item.receipt_id in self.pending_receipts:
+                    timer = self.pending_receipts.pop(item.receipt_id)
+                    timer.cancel()
+                    notification_center.post_notification('XMPPChatSessionDidDeliverMessage', sender=self, data=TimestampedNotificationData(message_id=item.receipt_id))
+            elif isinstance(item, ErrorStanza):
+                if item.id in self.pending_receipts:
+                    timer = self.pending_receipts.pop(item.id)
+                    timer.cancel()
+                    # TODO: translate cause
+                    notification_center.post_notification('XMPPChatSessionDidNotDeliverMessage', sender=self, data=TimestampedNotificationData(message_id=item.id, code=503, reason='Service Unavailable'))
+        self._proc = None
+
+    def _receipt_timer_expired(self, message_id):
+        self.pending_receipts.pop(message_id)
+        notification_center = NotificationCenter()
+        notification_center.post_notification('XMPPChatSessionDidNotDeliverMessage', sender=self, data=TimestampedNotificationData(message_id=message_id, code=408, reason='Timeout'))
+
+    def _clear_pending_receipts(self):
+        notification_center = NotificationCenter()
+        while self.pending_receipts:
+            message_id, timer = self.pending_receipts.popitem()
+            timer.cancel()
+            notification_center.post_notification('XMPPChatSessionDidNotDeliverMessage', sender=self, data=TimestampedNotificationData(message_id=message_id, code=408, reason='Timeout'))
+
+
+class XMPPChatSessionManager(object):
+    __metaclass__ = Singleton
+    implements(IObserver)
+
+    def __init__(self):
+        self.sessions = {}
+
+    def start(self):
+        notification_center = NotificationCenter()
+        notification_center.add_observer(self, name='XMPPChatSessionDidStart')
+        notification_center.add_observer(self, name='XMPPChatSessionDidEnd')
+
+    def stop(self):
+        notification_center = NotificationCenter()
+        notification_center.remove_observer(self, name='XMPPChatSessionDidStart')
+        notification_center.remove_observer(self, name='XMPPChatSessionDidEnd')
+
+    def handle_notification(self, notification):
+        handler = getattr(self, '_NH_%s' % notification.name, Null)
+        handler(notification)
+
+    def _NH_XMPPChatSessionDidStart(self, notification):
+        session = notification.sender
+        self.sessions[(session.local_identity.uri, session.remote_identity.uri)] = session
+
+    def _NH_XMPPChatSessionDidEnd(self, notification):
+        session = notification.sender
+        del self.sessions[(session.local_identity.uri, session.remote_identity.uri)]
+

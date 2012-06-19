@@ -27,7 +27,8 @@ from zope.interface import implements
 
 from sylk.applications import ApplicationLogger
 from sylk.applications.xmppgateway.datatypes import Identity, FrozenURI, encode_resource
-from sylk.applications.xmppgateway.xmpp import AvailabilityPresence, XMPPSubscription, XMPPIncomingSubscription
+from sylk.applications.xmppgateway.xmpp.stanzas import AvailabilityPresence
+from sylk.applications.xmppgateway.xmpp.subscription import XMPPSubscription, XMPPIncomingSubscription
 
 log = ApplicationLogger(os.path.dirname(__file__).split(os.path.sep)[-1])
 
