@@ -70,10 +70,12 @@ class DeferredS2SClientFactory(DeferredS2SClientFactory):
         super(self.__class__, self).onConnectionMade(xs)
 
         def logDataIn(buf):
+            buf = buf.strip()
             if buf:
                 xmpp_logger.msg("RECEIVED", Timestamp(datetime.now()), buf)
 
         def logDataOut(buf):
+            buf = buf.strip()
             if buf:
                 xmpp_logger.msg("SENDING", Timestamp(datetime.now()), buf)
 
