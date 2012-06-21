@@ -2,14 +2,14 @@ TODO
 ----
 
  - XMPP multi-party Chat
- - XMPP Discovery
+ - XMPP Discovery for chat
+ - Offline storage
  - XMPP Jingle
  - XMPP File Transfer
- - Registrat application
+ - Registrant application to map rooms to public accounts
  - Management interface
  - Re-invite will all media
  - CANCEL server outgoing INVITE
- - Automatic Call Transfer on topology change
  - Add participants using resource-list
  - Integrate mobwrite or etherpad collboration editor
 
