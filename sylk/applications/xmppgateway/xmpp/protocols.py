@@ -13,16 +13,6 @@ from sylk.applications.xmppgateway.xmpp.stanzas import RECEIPTS_NS, CHATSTATES_N
 
 
 class MessageProtocol(MessageProtocol):
-    messageTypes = None, 'normal', 'chat', 'headline', 'groupchat', 'error'
-
-    def _onMessage(self, message):
-        if message.handled:
-            return
-        messageType = message.getAttribute("type")
-        if messageType not in self.messageTypes:
-            message["type"] = 'normal'
-        self.onMessage(message)
-
     def onMessage(self, msg):
         notification_center = NotificationCenter()
 
