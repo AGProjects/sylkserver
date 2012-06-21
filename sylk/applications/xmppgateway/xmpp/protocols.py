@@ -47,17 +47,12 @@ class MessageProtocol(MessageProtocol):
 
         if type == 'chat' and msg.body is None:
             # Check if it's a composing indication
-            for attr in ('active', 'inactive', 'composing', 'paused', 'gone'):
-                attr_obj = getattr(msg, attr, None)
-                if attr_obj is not None and attr_obj.defaultUri == CHATSTATES_NS:
-                    state = attr
-                    break
-            else:
-                state = None
-            if state is not None:
-                composing_indication = ChatComposingIndication(sender, recipient, state, id=msg.getAttribute('id', None))
-                notification_center.post_notification('XMPPGotComposingIndication', sender=self.parent, data=TimestampedNotificationData(composing_indication=composing_indication))
-                return
+            for state in ('active', 'inactive', 'composing', 'paused', 'gone'):
+                state_obj = getattr(msg, state, None)
+                if state_obj is not None and state_obj.defaultUri == CHATSTATES_NS:
+                    composing_indication = ChatComposingIndication(sender, recipient, state, id=msg.getAttribute('id', None))
+                    notification_center.post_notification('XMPPGotComposingIndication', sender=self.parent, data=TimestampedNotificationData(composing_indication=composing_indication))
+                    return
 
         # Check if it's a receipt acknowledgement
         if msg.body is None and msg.received is not None and msg.received.defaultUri == RECEIPTS_NS:
