@@ -11,16 +11,16 @@ XML_NS        = 'http://www.w3.org/XML/1998/namespace'
 
 
 class BaseStanza(object):
-    _stanza_type = None     # to be defined by subclasses
+    stanza_type = None     # to be defined by subclasses
+    type = None
 
-    def __init__(self, sender, recipient, id=None, type=None):
+    def __init__(self, sender, recipient, id=None):
         self.sender = sender
         self.recipient = recipient
         self.id = id
-        self.type = type
 
     def to_xml_element(self):
-        xml_element = domish.Element((None, self._stanza_type))
+        xml_element = domish.Element((None, self.stanza_type))
         xml_element['from'] = self.sender.uri.as_string('xmpp')
         xml_element['to'] = self.recipient.uri.as_string('xmpp')
         if self.type:
@@ -30,23 +30,23 @@ class BaseStanza(object):
         return xml_element
 
 
-class MessageStanza(BaseStanza):
-    _stanza_type = 'message'
+class BaseMessageStanza(BaseStanza):
+    stanza_type = 'message'
 
-    def __init__(self, sender, recipient, type='', id=None, use_receipt=False):
-        super(MessageStanza, self).__init__(sender, recipient, id=id, type=type)
+    def __init__(self, sender, recipient, id=None, use_receipt=False):
+        super(BaseMessageStanza, self).__init__(sender, recipient, id=id)
         self.use_receipt = use_receipt
 
     def to_xml_element(self):
-        xml_element = super(MessageStanza, self).to_xml_element()
+        xml_element = super(BaseMessageStanza, self).to_xml_element()
         if self.id is not None and self.recipient.uri.resource is not None and self.use_receipt:
             xml_element.addElement('request', defaultUri=RECEIPTS_NS)
         return xml_element
 
 
-class NormalMessage(MessageStanza):
+class NormalMessage(BaseMessageStanza):
     def __init__(self, sender, recipient, body, content_type='text/plain', id=None, use_receipt=False):
-        super(NormalMessage, self).__init__(sender, recipient, type='', id=id, use_receipt=use_receipt)
+        super(NormalMessage, self).__init__(sender, recipient, id=id, use_receipt=use_receipt)
         self.body = body
         self.content_type = content_type
 
@@ -56,9 +56,11 @@ class NormalMessage(MessageStanza):
         return xml_element
 
 
-class ChatMessage(MessageStanza):
+class ChatMessage(BaseMessageStanza):
+    type = 'chat'
+
     def __init__(self, sender, recipient, body, content_type='text/plain', id=None, use_receipt=True):
-        super(ChatMessage, self).__init__(sender, recipient, type='chat', id=id, use_receipt=use_receipt)
+        super(ChatMessage, self).__init__(sender, recipient, id=id, use_receipt=use_receipt)
         self.body = body
         self.content_type = content_type
 
@@ -69,9 +71,11 @@ class ChatMessage(MessageStanza):
         return xml_element
 
 
-class ChatComposingIndication(MessageStanza):
+class ChatComposingIndication(BaseMessageStanza):
+    type = 'chat'
+
     def __init__(self, sender, recipient, state, id=None, use_receipt=False):
-        super(ChatComposingIndication, self).__init__(sender, recipient, type='chat', id=id, use_receipt=use_receipt)
+        super(ChatComposingIndication, self).__init__(sender, recipient, id=id, use_receipt=use_receipt)
         self.state = state
 
     def to_xml_element(self):
@@ -80,9 +84,9 @@ class ChatComposingIndication(MessageStanza):
         return xml_element
 
 
-class MessageReceipt(MessageStanza):
+class MessageReceipt(BaseMessageStanza):
     def __init__(self, sender, recipient, receipt_id, id=None):
-        super(MessageReceipt, self).__init__(sender, recipient, type='', id=id, use_receipt=False)
+        super(MessageReceipt, self).__init__(sender, recipient, id=id, use_receipt=False)
         self.receipt_id = receipt_id
 
     def to_xml_element(self):
@@ -93,14 +97,12 @@ class MessageReceipt(MessageStanza):
         return xml_element
 
 
-class PresenceStanza(BaseStanza):
-    _stanza_type = 'presence'
 
-    def __init__(self, sender, recipient, type=None, id=None):
-        super(PresenceStanza, self).__init__(sender, recipient, type=type, id=id)
+class BasePresenceStanza(BaseStanza):
+    stanza_type = 'presence'
 
 
-class AvailabilityPresence(PresenceStanza):
+class AvailabilityPresence(BasePresenceStanza):
     def __init__(self, sender, recipient, available=True, show=None, statuses=None, priority=0, id=None):
         super(AvailabilityPresence, self).__init__(sender, recipient, id=id)
         self.available = available
@@ -130,7 +132,7 @@ class AvailabilityPresence(PresenceStanza):
         return status
 
     def to_xml_element(self):
-        xml_element = super(PresenceStanza, self).to_xml_element()
+        xml_element = super(BasePresenceStanza, self).to_xml_element()
         if self.available:
             if self.show is not None:
                 xml_element.addElement('show', content=self.show)
@@ -143,14 +145,14 @@ class AvailabilityPresence(PresenceStanza):
         return xml_element
 
 
-class SubscriptionPresence(PresenceStanza):
+class SubscriptionPresence(BasePresenceStanza):
     def __init__(self, sender, recipient, type, id=None):
         super(SubscriptionPresence, self).__init__(sender, recipient, type=type, id=id)
+        self.type = type
 
 
-class ProbePresence(PresenceStanza):
-    def __init__(self, sender, recipient, id=None):
-        super(ProbePresence, self).__init__(sender, recipient, type='probe', id=id)
+class ProbePresence(BasePresenceStanza):
+    type = 'probe'
 
 
 class ErrorStanza(object):
@@ -169,7 +171,7 @@ class ErrorStanza(object):
     @classmethod
     def from_stanza(cls, stanza, error_type, conditions):
         # In error stanzas sender and recipient are swapped
-        return cls(stanza._stanza_type, stanza.recipient, stanza.sender, error_type, conditions, id=stanza.id)
+        return cls(stanza.stanza_type, stanza.recipient, stanza.sender, error_type, conditions, id=stanza.id)
 
     def to_xml_element(self):
         xml_element = domish.Element((None, self.stanza_type))
