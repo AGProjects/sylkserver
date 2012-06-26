@@ -3,19 +3,307 @@
 
 from __future__ import with_statement
 
-from datetime import datetime
+import random
 
-from application.notification import NotificationCenter
-from application.python import Null
-from eventlet import api
+from datetime import datetime
+from time import time
+
+from application.notification import IObserver, NotificationCenter
+from application.python import Null, limit
+from eventlet import api, coros, proc
 from sipsimple.configuration.settings import SIPSimpleSettings
-from sipsimple.core import Invitation, SIPCoreError, sip_status_messages
-from sipsimple.core import ContactHeader, RouteHeader, SubjectHeader
-from sipsimple.core import SDPConnection, SDPSession
-from sipsimple.session import Session, SessionManager, ConferenceHandler, SessionReplaceHandler, TransferHandler, DialogID, TransferInfo, InvitationDisconnectedError, MediaStreamDidFailError, transition_state
+from sipsimple.core import Invitation, Subscription, SIPCoreError, sip_status_messages
+from sipsimple.core import ContactHeader, RouteHeader, SubjectHeader, FromHeader, ToHeader
+from sipsimple.core import SIPURI, SDPConnection, SDPSession
+from sipsimple.lookup import DNSLookup, DNSLookupError
+from sipsimple.payloads import ParserError
+from sipsimple.payloads.conference import ConferenceDocument
+from sipsimple.session import Session, SessionManager
+from sipsimple.session import SessionReplaceHandler, TransferHandler, DialogID, TransferInfo
+from sipsimple.session import InvitationDisconnectedError, MediaStreamDidFailError, InterruptSubscription, TerminateSubscription, SubscriptionError, SIPSubscriptionDidFail
+from sipsimple.session import transition_state
 from sipsimple.streams import MediaStreamRegistry, InvalidStreamError, UnknownStreamError
-from sipsimple.threading.green import run_in_green_thread
+from sipsimple.threading import run_in_twisted_thread
+from sipsimple.threading.green import Command, run_in_green_thread
 from sipsimple.util import TimestampedNotificationData
+from twisted.internet import reactor
+from zope.interface import implements
+
+from sylk.configuration import SIPConfig
+
+
+class ConferenceHandler(object):
+    implements(IObserver)
+
+    def __init__(self, session):
+        self.session = session
+        self.active = False
+        self.subscribed = False
+        self._command_proc = None
+        self._command_channel = coros.queue()
+        self._data_channel = coros.queue()
+        self._subscription = None
+        self._subscription_proc = None
+        self._subscription_timer = None
+        self._wakeup_timer = None
+        notification_center = NotificationCenter()
+        notification_center.add_observer(self, sender=self.session)
+        notification_center.add_observer(self, name='DNSNameserversDidChange')
+        notification_center.add_observer(self, name='SystemIPAddressDidChange')
+        notification_center.add_observer(self, name='SystemDidWakeUpFromSleep')
+        self._command_proc = proc.spawn(self._run)
+
+    def _run(self):
+        while True:
+            command = self._command_channel.wait()
+            handler = getattr(self, '_CH_%s' % command.name)
+            handler(command)
+
+    def _activate(self):
+        self.active = True
+        command = Command('subscribe')
+        self._command_channel.send(command)
+        return command
+
+    def _deactivate(self):
+        self.active = False
+        command = Command('unsubscribe')
+        self._command_channel.send(command)
+        return command
+
+    def _resubscribe(self):
+        command = Command('subscribe')
+        self._command_channel.send(command)
+        return command
+
+    def _terminate(self):
+        notification_center = NotificationCenter()
+        notification_center.remove_observer(self, sender=self.session)
+        notification_center.remove_observer(self, name='DNSNameserversDidChange')
+        notification_center.remove_observer(self, name='SystemIPAddressDidChange')
+        notification_center.remove_observer(self, name='SystemDidWakeUpFromSleep')
+        self._deactivate()
+        command = Command('terminate')
+        self._command_channel.send(command)
+        command.wait()
+        self.session = None
+
+    def _CH_subscribe(self, command):
+        if self._subscription_timer is not None and self._subscription_timer.active():
+            self._subscription_timer.cancel()
+        self._subscription_timer = None
+        if self._subscription_proc is not None:
+            subscription_proc = self._subscription_proc
+            subscription_proc.kill(InterruptSubscription)
+            subscription_proc.wait()
+        self._subscription_proc = proc.spawn(self._subscription_handler, command)
+
+    def _CH_unsubscribe(self, command):
+        # Cancel any timer which would restart the subscription process
+        if self._subscription_timer is not None and self._subscription_timer.active():
+            self._subscription_timer.cancel()
+        self._subscription_timer = None
+        if self._wakeup_timer is not None and self._wakeup_timer.active():
+            self._wakeup_timer.cancel()
+        self._wakeup_timer = None
+        if self._subscription_proc is not None:
+            subscription_proc = self._subscription_proc
+            subscription_proc.kill(TerminateSubscription)
+            subscription_proc.wait()
+            self._subscription_proc = None
+        command.signal()
+
+    def _CH_terminate(self, command):
+        command.signal()
+        raise proc.ProcExit()
+
+    def _subscription_handler(self, command):
+        notification_center = NotificationCenter()
+        settings = SIPSimpleSettings()
+
+        try:
+            # Lookup routes
+            account = self.session.account
+            if account.sip.outbound_proxy is not None:
+                uri = SIPURI(host=account.sip.outbound_proxy.host,
+                             port=account.sip.outbound_proxy.port,
+                             parameters={'transport': account.sip.outbound_proxy.transport})
+            elif account.sip.always_use_my_proxy:
+                uri = SIPURI(host=account.id.domain)
+            else:
+                uri = SIPURI.new(self.session.remote_identity.uri)
+            lookup = DNSLookup()
+            try:
+                routes = lookup.lookup_sip_proxy(uri, settings.sip.transport_list).wait()
+            except DNSLookupError, e:
+                timeout = random.uniform(15, 30)
+                raise SubscriptionError(error='DNS lookup failed: %s' % e, timeout=timeout)
+
+            target_uri = SIPURI.new(self.session.remote_identity.uri)
+            refresh_interval =  getattr(command, 'refresh_interval', account.sip.subscribe_interval)
+
+            timeout = time() + 30
+            for route in routes:
+                remaining_time = timeout - time()
+                if remaining_time > 0:
+                    transport = route.transport
+                    parameters = {} if transport=='udp' else {'transport': transport}
+                    contact_uri = SIPURI(user=account.contact.username, host=SIPConfig.local_ip, port=getattr(SIPConfig, 'local_%s_port' % transport), parameters=parameters)
+                    subscription = Subscription(target_uri, FromHeader(SIPURI.new(self.session.local_identity.uri)),
+                                                ToHeader(target_uri),
+                                                ContactHeader(contact_uri),
+                                                'conference',
+                                                RouteHeader(route.get_uri()),
+                                                credentials=account.credentials,
+                                                refresh=refresh_interval)
+                    notification_center.add_observer(self, sender=subscription)
+                    try:
+                        subscription.subscribe(timeout=limit(remaining_time, min=1, max=5))
+                    except SIPCoreError:
+                        notification_center.remove_observer(self, sender=subscription)
+                        timeout = 5
+                        raise SubscriptionError(error='Internal error', timeout=timeout)
+                    self._subscription = subscription
+                    try:
+                        while True:
+                            notification = self._data_channel.wait()
+                            if notification.sender is subscription and notification.name == 'SIPSubscriptionDidStart':
+                                break
+                    except SIPSubscriptionDidFail, e:
+                        notification_center.remove_observer(self, sender=subscription)
+                        self._subscription = None
+                        if e.data.code == 407:
+                            # Authentication failed, so retry the subscription in some time
+                            timeout = random.uniform(60, 120)
+                            raise SubscriptionError(error='Authentication failed', timeout=timeout)
+                        elif e.data.code == 423:
+                            # Get the value of the Min-Expires header
+                            timeout = random.uniform(60, 120)
+                            if e.data.min_expires is not None and e.data.min_expires > refresh_interval:
+                                raise SubscriptionError(error='Interval too short', timeout=timeout, min_expires=e.data.min_expires)
+                            else:
+                                raise SubscriptionError(error='Interval too short', timeout=timeout)
+                        elif e.data.code in (405, 406, 489, 1400):
+                            command.signal(e)
+                            return
+                        else:
+                            # Otherwise just try the next route
+                            continue
+                    else:
+                        self.subscribed = True
+                        command.signal()
+                        break
+            else:
+                # There are no more routes to try, reschedule the subscription
+                timeout = random.uniform(60, 180)
+                raise SubscriptionError(error='No more routes to try', timeout=timeout)
+            # At this point it is subscribed. Handle notifications and ending/failures.
+            try:
+                while True:
+                    notification = self._data_channel.wait()
+                    if notification.sender is not self._subscription:
+                        continue
+                    if notification.name == 'SIPSubscriptionGotNotify':
+                        if notification.data.event == 'conference' and notification.data.body:
+                            try:
+                                conference_info = ConferenceDocument.parse(notification.data.body)
+                            except ParserError:
+                                pass
+                            else:
+                                notification_center.post_notification('SIPSessionGotConferenceInfo', sender=self.session, data=TimestampedNotificationData(conference_info=conference_info))
+                    elif notification.name == 'SIPSubscriptionDidEnd':
+                        break
+            except SIPSubscriptionDidFail:
+                self._command_channel.send(Command('subscribe'))
+            notification_center.remove_observer(self, sender=self._subscription)
+        except InterruptSubscription, e:
+            if not self.subscribed:
+                command.signal(e)
+            if self._subscription is not None:
+                notification_center.remove_observer(self, sender=self._subscription)
+                try:
+                    self._subscription.end(timeout=2)
+                except SIPCoreError:
+                    pass
+        except TerminateSubscription, e:
+            if not self.subscribed:
+                command.signal(e)
+            if self._subscription is not None:
+                try:
+                    self._subscription.end(timeout=2)
+                except SIPCoreError:
+                    pass
+                else:
+                    try:
+                        while True:
+                            notification = self._data_channel.wait()
+                            if notification.sender is self._subscription and notification.name == 'SIPSubscriptionDidEnd':
+                                break
+                    except SIPSubscriptionDidFail:
+                        pass
+                finally:
+                    notification_center.remove_observer(self, sender=self._subscription)
+        except SubscriptionError, e:
+            if 'min_expires' in e.attributes:
+                command = Command('subscribe', command.event, refresh_interval=e.attributes['min_expires'])
+            else:
+                command = Command('subscribe', command.event)
+            self._subscription_timer = reactor.callLater(e.timeout, self._command_channel.send, command)
+        finally:
+            self.subscribed = False
+            self._subscription = None
+            self._subscription_proc = None
+
+    @run_in_twisted_thread
+    def handle_notification(self, notification):
+        handler = getattr(self, '_NH_%s' % notification.name, Null)
+        handler(notification)
+
+    def _NH_SIPSubscriptionDidStart(self, notification):
+        self._data_channel.send(notification)
+
+    def _NH_SIPSubscriptionDidEnd(self, notification):
+        self._data_channel.send(notification)
+
+    def _NH_SIPSubscriptionDidFail(self, notification):
+        self._data_channel.send_exception(SIPSubscriptionDidFail(notification.data))
+
+    def _NH_SIPSubscriptionGotNotify(self, notification):
+        self._data_channel.send(notification)
+
+    def _NH_SIPSessionDidStart(self, notification):
+        if self.session.remote_focus:
+            self._activate()
+
+    @run_in_green_thread
+    def _NH_SIPSessionDidFail(self, notification):
+        self._terminate()
+
+    @run_in_green_thread
+    def _NH_SIPSessionDidEnd(self, notification):
+        self._terminate()
+
+    def _NH_SIPSessionDidRenegotiateStreams(self, notification):
+        if self.session.remote_focus and not self.active:
+            self._activate()
+        elif not self.session.remote_focus and self.active:
+            self._deactivate()
+
+    def _NH_DNSNameserversDidChange(self, notification):
+        if self.active:
+            self._resubscribe()
+
+    def _NH_SystemIPAddressDidChange(self, notification):
+        if self.active:
+            self._resubscribe()
+
+    def _NH_SystemDidWakeUpFromSleep(self, notification):
+        if self._wakeup_timer is None:
+            def wakeup_action():
+                if self.active:
+                    self._resubscribe()
+                self._wakeup_timer = None
+            self._wakeup_timer = reactor.callLater(5, wakeup_action) # wait for system to stabilize
 
 
 class ServerSession(Session):
@@ -93,8 +381,9 @@ class ServerSession(Session):
         self._invitation = Invitation()
         self._local_identity = from_header
         self._remote_identity = to_header
+        self.conference = ConferenceHandler(self)
+        self.transfer_handler = Null
         self.__dict__['subject'] = subject
-        self.conference = Null
         notification_center.add_observer(self, sender=self._invitation)
         notification_center.post_notification('SIPSessionNewOutgoing', self, TimestampedNotificationData(streams=streams))
         for stream in self.proposed_streams:
