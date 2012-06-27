@@ -260,11 +260,11 @@ class Room(object):
     def dispatch_message(self, session, message):
         for s in (s for s in self.sessions if s is not session):
             try:
-                identity = CPIMIdentity.parse(format_identity(session.remote_identity, True))
                 chat_stream = (stream for stream in s.streams if stream.type == 'chat').next()
             except StopIteration:
                 pass
             else:
+                identity = message.sender
                 try:
                     chat_stream.send_message(message.body, message.content_type, local_identity=identity, recipients=[self.identity], timestamp=message.timestamp, additional_headers=message.additional_headers)
                 except ChatStreamError, e:
@@ -276,11 +276,11 @@ class Room(object):
         recipient = message.recipients[0]
         for s in (s for s in self.sessions if s is not session and s.remote_identity.uri in (recipient.uri, session.remote_identity.uri)):
             try:
-                identity = CPIMIdentity.parse(format_identity(session.remote_identity, True))
                 chat_stream = (stream for stream in s.streams if stream.type == 'chat').next()
             except StopIteration:
                 continue
             else:
+                identity = message.sender
                 try:
                     chat_stream.send_message(message.body, message.content_type, local_identity=identity, recipients=[recipient], timestamp=message.timestamp, additional_headers=message.additional_headers)
                 except ChatStreamError, e:
@@ -289,11 +289,11 @@ class Room(object):
     def dispatch_iscomposing(self, session, data):
         for s in (s for s in self.sessions if s is not session):
             try:
-                identity = CPIMIdentity.parse(format_identity(session.remote_identity, True))
                 chat_stream = (stream for stream in s.streams if stream.type == 'chat').next()
             except StopIteration:
                 pass
             else:
+                identity = CPIMIdentity.parse(format_identity(session.remote_identity, True))
                 try:
                     chat_stream.send_composing_indication(data.state, data.refresh, local_identity=identity, recipients=[self.identity])
                 except ChatStreamError, e:
@@ -303,11 +303,11 @@ class Room(object):
         recipient_uri = data.recipients[0].uri
         for s in (s for s in self.sessions if s is not session and s.remote_identity.uri == recipient_uri):
             try:
-                identity = CPIMIdentity.parse(format_identity(session.remote_identity, True))
                 chat_stream = (stream for stream in s.streams if stream.type == 'chat').next()
             except StopIteration:
                 continue
             else:
+                identity = CPIMIdentity.parse(format_identity(session.remote_identity, True))
                 try:
                     chat_stream.send_composing_indication(data.state, data.refresh, local_identity=identity)
                 except ChatStreamError, e:
