@@ -241,6 +241,9 @@ class Room(object):
                 else:
                     timestamp = datetime.now()
                 recipient = message.recipients[0]
+                sender = message.sender
+                sender.display_name = self.last_nicknames_map.get(str(session.remote_identity.uri), sender.display_name)
+                message.sender = sender
                 database.async_save_message(format_identity(session.remote_identity, True), self.uri, message.body, message.content_type, unicode(message.sender), unicode(recipient), timestamp)
                 private = len(message.recipients) == 1 and recipient.uri != self.identity.uri
                 if private:
@@ -264,9 +267,8 @@ class Room(object):
             except StopIteration:
                 pass
             else:
-                identity = message.sender
                 try:
-                    chat_stream.send_message(message.body, message.content_type, local_identity=identity, recipients=[self.identity], timestamp=message.timestamp, additional_headers=message.additional_headers)
+                    chat_stream.send_message(message.body, message.content_type, local_identity=message.sender, recipients=[self.identity], timestamp=message.timestamp, additional_headers=message.additional_headers)
                 except ChatStreamError, e:
                     log.error(u'Error dispatching message to %s: %s' % (s.remote_identity.uri, e))
 
@@ -280,9 +282,8 @@ class Room(object):
             except StopIteration:
                 continue
             else:
-                identity = message.sender
                 try:
-                    chat_stream.send_message(message.body, message.content_type, local_identity=identity, recipients=[recipient], timestamp=message.timestamp, additional_headers=message.additional_headers)
+                    chat_stream.send_message(message.body, message.content_type, local_identity=message.sender, recipients=[recipient], timestamp=message.timestamp, additional_headers=message.additional_headers)
                 except ChatStreamError, e:
                     log.error(u'Error dispatching private message to %s: %s' % (s.remote_identity.uri, e))
 
