@@ -128,8 +128,8 @@ class ChatComposingIndication(BaseMessageStanza):
 class GroupChatMessage(BaseMessageStanza):
     type = 'groupchat'
 
-    def __init__(self, sender, recipient, body, content_type='text/plain', id=None, use_receipt=True):
-        super(GroupChatMessage, self).__init__(sender, recipient, id=id, use_receipt=use_receipt)
+    def __init__(self, sender, recipient, body, content_type='text/plain', id=None):
+        super(GroupChatMessage, self).__init__(sender, recipient, id=id, use_receipt=False)
         self.body = body
         self.content_type = content_type
 
