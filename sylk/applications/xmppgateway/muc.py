@@ -211,6 +211,8 @@ class X2SMucHandler(object):
         self.end()
 
     def _NH_XMPPIncomingMucSessionGotMessage(self, notification):
+        if not self._sip_session:
+            return
         message = notification.data.message
         sender_uri = message.sender.uri.as_sip_uri()
         del sender_uri.parameters['gr']    # no GRUU in CPIM From header
@@ -220,6 +222,8 @@ class X2SMucHandler(object):
         # Message will be echoed back to the sender on ChatStreamDidDeliverMessage
 
     def _NH_XMPPIncomingMucSessionChangedNickname(self, notification):
+        if not self._sip_session:
+            return
         nickname = notification.data.nickname
         message_id = self._msrp_stream.set_local_nickname(nickname)
         self._pending_nicknames_map[message_id] = (nickname, notification.data.stanza)
