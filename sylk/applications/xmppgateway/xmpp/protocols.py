@@ -161,12 +161,9 @@ class MUCProtocol(BasePresenceProtocol):
         sender = Identity(sender_uri)
         recipient_uri = FrozenURI.parse('xmpp:'+msg['to'])
         recipient = Identity(recipient_uri)
-        if msg.html is not None:
-            content_type = 'text/html'
-            body = msg.html.toXml()
-        else:
-            content_type = 'text/plain'
-            body = unicode(msg.body)
+        content_type = 'text/plain'
+        body = unicode(msg.body)
+        # TODO: support HTML
         message = GroupChatMessage(sender, recipient, body, content_type, id=msg.getAttribute('id', None), use_receipt=False)
         notification_center = NotificationCenter()
         notification_center.post_notification('XMPPMucGotGroupChat', sender=self.parent, data=TimestampedNotificationData(message=message))
