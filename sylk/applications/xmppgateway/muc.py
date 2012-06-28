@@ -151,16 +151,18 @@ class X2SMucHandler(object):
             user_uri = FrozenURI.parse(user.entity if user.entity.startswith(('sip:', 'sips:')) else 'sip:'+user.entity)
             nickname = user.display_text.value if user.display_text else user.entity
             new_participants.add((user_uri, nickname))
-            if user_uri == own_uri:
-                continue
-            sender = Identity(FrozenURI(self.sip_identity.uri.user, self.sip_identity.uri.host, nickname))
-            stanza = MUCAvailabilityPresence(sender, self.xmpp_identity, available=True)
-            stanza.jid = Identity(user_uri)
-            xmpp_manager.send_muc_stanza(stanza)
         # Remove participants that are no longer in the room
         for uri, nickname in self._participants - new_participants:
             sender = Identity(FrozenURI(self.sip_identity.uri.user, self.sip_identity.uri.host, nickname))
             stanza = MUCAvailabilityPresence(sender, self.xmpp_identity, available=False)
+            xmpp_manager.send_muc_stanza(stanza)
+        # Send presence for current participants
+        for uri, nickname in new_participants:
+            if uri == own_uri:
+                continue
+            sender = Identity(FrozenURI(self.sip_identity.uri.user, self.sip_identity.uri.host, nickname))
+            stanza = MUCAvailabilityPresence(sender, self.xmpp_identity, available=True)
+            stanza.jid = Identity(uri)
             xmpp_manager.send_muc_stanza(stanza)
         self._participants = new_participants
         # Send own status last
