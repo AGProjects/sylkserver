@@ -175,6 +175,8 @@ class X2SMucHandler(object):
 
     def _NH_ChatStreamGotMessage(self, notification):
         # Notification is sent by the MSRP stream
+        if not self._xmpp_muc_session:
+            return
         message = notification.data.message
         content_type = message.content_type.lower()
         if content_type in ('text/plain', 'text/html'):
