@@ -17,7 +17,7 @@ from zope.interface import implements
 from sylk.applications import ApplicationLogger
 from sylk.applications.xmppgateway.configuration import XMPPGatewayConfig
 from sylk.applications.xmppgateway.datatypes import FrozenURI
-from sylk.applications.xmppgateway.logger import Logger
+from sylk.applications.xmppgateway.xmpp.logger import Logger as XMPPLogger
 from sylk.applications.xmppgateway.xmpp.protocols import MessageProtocol, MUCProtocol, PresenceProtocol
 from sylk.applications.xmppgateway.xmpp.session import XMPPChatSessionManager, XMPPMucSessionManager
 from sylk.applications.xmppgateway.xmpp.subscription import XMPPSubscriptionManager
@@ -25,7 +25,7 @@ from sylk.applications.xmppgateway.xmpp.subscription import XMPPSubscriptionMana
 log = ApplicationLogger(os.path.dirname(__file__).split(os.path.sep)[-1])
 
 
-xmpp_logger = Logger()
+xmpp_logger = XMPPLogger()
 
 
 # Utility classes
