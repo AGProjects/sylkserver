@@ -10,10 +10,12 @@ from sipsimple.util import TimestampedNotificationData
 from twisted.internet import reactor
 from zope.interface import implements
 
-from sylk.applications.xmppgateway.xmpp.stanzas import ChatMessage, ChatComposingIndication, MessageReceipt, ErrorStanza
+from sylk.applications.xmppgateway.xmpp.stanzas import ChatMessage, ChatComposingIndication, MessageReceipt, ErrorStanza, GroupChatMessage, MUCAvailabilityPresence
 
-__all__ = ['XMPPChatSession', 'XMPPChatSessionManager']
+__all__ = ['XMPPChatSession', 'XMPPChatSessionManager', 'XMPPIncomingMucSession', 'XMPPMucSessionManager']
 
+
+# Chat sessions
 
 class XMPPChatSession(object):
     local_identity = WriteOnceAttribute()
@@ -138,4 +140,85 @@ class XMPPChatSessionManager(object):
     def _NH_XMPPChatSessionDidEnd(self, notification):
         session = notification.sender
         del self.sessions[(session.local_identity.uri, session.remote_identity.uri)]
+
+
+# MUC sessions
+
+class XMPPIncomingMucSession(object):
+    local_identity = WriteOnceAttribute()
+    remote_identity = WriteOnceAttribute()
+
+    def __init__(self, local_identity, remote_identity):
+        self.local_identity = local_identity
+        self.remote_identity = remote_identity
+        self.state = None
+        self.channel = coros.queue()
+        self._proc = None
+        from sylk.applications.xmppgateway.xmpp import XMPPManager
+        self.xmpp_manager = XMPPManager()
+
+    def start(self):
+        notification_center = NotificationCenter()
+        notification_center.post_notification('XMPPIncomingMucSessionDidStart', sender=self, data=TimestampedNotificationData())
+        self._proc = proc.spawn(self._run)
+        self.state = 'started'
+
+    def end(self):
+        self._proc.kill()
+        self._proc = None
+        notification_center = NotificationCenter()
+        notification_center.post_notification('XMPPIncomingMucSessionDidEnd', sender=self, data=TimestampedNotificationData(originator='local'))
+        self.state = 'terminated'
+
+    def send_message(self, sender, body, content_type='text/plain', message_id=None):
+        # TODO: timestamp?
+        message = GroupChatMessage(sender, self.remote_identity, body, content_type, id=message_id)
+        self.xmpp_manager.send_muc_stanza(message)
+
+    def _run(self):
+        notification_center = NotificationCenter()
+        while True:
+            item = self.channel.wait()
+            if isinstance(item, GroupChatMessage):
+                notification_center.post_notification('XMPPIncomingMucSessionGotMessage', sender=self, data=TimestampedNotificationData(message=item))
+            elif isinstance(item, MUCAvailabilityPresence):
+                if item.available:
+                    nickname = item.recipient.uri.resource
+                    notification_center.post_notification('XMPPIncomingMucSessionChangedNickname', sender=self, data=TimestampedNotificationData(stanza=item, nickname=nickname))
+                else:
+                    notification_center.post_notification('XMPPIncomingMucSessionDidEnd', sender=self, data=TimestampedNotificationData(originator='local'))
+                    self.state = 'terminated'
+                    break
+        self._proc = None
+
+
+class XMPPMucSessionManager(object):
+    __metaclass__ = Singleton
+    implements(IObserver)
+
+    def __init__(self):
+        self.incoming = {}
+        self.outgoing = {}
+
+    def start(self):
+        notification_center = NotificationCenter()
+        notification_center.add_observer(self, name='XMPPIncomingMucSessionDidStart')
+        notification_center.add_observer(self, name='XMPPIncomingMucSessionDidEnd')
+
+    def stop(self):
+        notification_center = NotificationCenter()
+        notification_center.remove_observer(self, name='XMPPIncomingMucSessionDidStart')
+        notification_center.remove_observer(self, name='XMPPIncomingMucSessionDidEnd')
+
+    def handle_notification(self, notification):
+        handler = getattr(self, '_NH_%s' % notification.name, Null)
+        handler(notification)
+
+    def _NH_XMPPIncomingMucSessionDidStart(self, notification):
+        muc = notification.sender
+        self.incoming[(muc.local_identity.uri, muc.remote_identity.uri)] = muc
+
+    def _NH_XMPPIncomingMucSessionDidEnd(self, notification):
+        muc = notification.sender
+        del self.incoming[(muc.local_identity.uri, muc.remote_identity.uri)]
 

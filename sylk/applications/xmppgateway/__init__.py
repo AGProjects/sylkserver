@@ -17,6 +17,7 @@ from sylk.applications.xmppgateway.configuration import XMPPGatewayConfig
 from sylk.applications.xmppgateway.datatypes import Identity, FrozenURI, generate_sylk_resource, decode_resource
 from sylk.applications.xmppgateway.im import SIPMessageSender, SIPMessageError, ChatSessionHandler
 from sylk.applications.xmppgateway.presence import S2XPresenceHandler, X2SPresenceHandler
+from sylk.applications.xmppgateway.muc import X2SMucHandler
 from sylk.applications.xmppgateway.xmpp import XMPPManager
 from sylk.applications.xmppgateway.xmpp.session import XMPPChatSession
 from sylk.applications.xmppgateway.xmpp.stanzas import ChatMessage, ChatComposingIndication, NormalMessage
@@ -34,6 +35,8 @@ class XMPPGatewayApplication(object):
         self.xmpp_manager = XMPPManager()
         self.pending_sessions = {}
         self.chat_sessions = set()
+        self.s2x_muc_sessions = {}
+        self.x2s_muc_sessions = {}
         self.s2x_presence_subscriptions = {}
         self.x2s_presence_subscriptions = {}
 
@@ -292,6 +295,26 @@ class XMPPGatewayApplication(object):
             notification_center.add_observer(self, sender=handler)
             handler.start()
 
+    def _NH_XMPPGotMucJoinRequest(self, notification):
+        stanza = notification.data.stanza
+        muc_uri = FrozenURI(stanza.recipient.uri.user, stanza.recipient.uri.host)
+        nickname = stanza.recipient.uri.resource
+        try:
+            handler = self.x2s_muc_sessions[(stanza.sender.uri, muc_uri)]
+        except KeyError:
+            xmpp_identity = stanza.sender
+            sip_identity = stanza.recipient
+            sip_identity.uri = muc_uri
+            handler = X2SMucHandler(sip_identity, xmpp_identity, nickname)
+            handler._first_stanza = stanza
+            notification_center = NotificationCenter()
+            notification_center.add_observer(self, sender=handler)
+            handler.start()
+
+    def _NH_XMPPGotMucLeaveRequest(self, notification):
+        # TODO: give error?
+        pass
+
     # Chat session handling
 
     def _NH_ChatSessionDidStart(self, notification):
@@ -349,4 +372,17 @@ class XMPPGatewayApplication(object):
         notification_center = NotificationCenter()
         notification_center.remove_observer(self, sender=handler)
 
+    # MUC handling
+
+    def _NH_X2SMucHandlerDidStart(self, notification):
+        handler = notification.sender
+        log.msg('MUC session established xmpp:%s --> sip:%s' % (handler.xmpp_identity.uri, handler.sip_identity.uri))
+        self.x2s_muc_sessions[(handler.xmpp_identity.uri, handler.sip_identity.uri)] = handler
+
+    def _NH_X2SMucHandlerDidEnd(self, notification):
+        handler = notification.sender
+        log.msg('MUC session ended xmpp:%s --> sip:%s' % (handler.xmpp_identity.uri, handler.sip_identity.uri))
+        self.x2s_muc_sessions.pop((handler.xmpp_identity.uri, handler.sip_identity.uri), None)
+        notification_center = NotificationCenter()
+        notification_center.remove_observer(self, sender=handler)
 

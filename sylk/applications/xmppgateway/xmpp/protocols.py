@@ -3,13 +3,16 @@
 
 from application.notification import NotificationCenter
 from sipsimple.util import TimestampedNotificationData
-from wokkel.xmppim import MessageProtocol, PresenceProtocol
+from wokkel.muc import UserPresence
+from wokkel.xmppim import BasePresenceProtocol, MessageProtocol, PresenceProtocol
 
 from sylk.applications.xmppgateway.datatypes import Identity, FrozenURI
-from sylk.applications.xmppgateway.xmpp.stanzas import NormalMessage, MessageReceipt, ChatMessage, \
-        ChatComposingIndication, ErrorStanza, AvailabilityPresence, SubscriptionPresence, ProbePresence
-from sylk.applications.xmppgateway.xmpp.stanzas import RECEIPTS_NS, CHATSTATES_NS
+from sylk.applications.xmppgateway.xmpp.stanzas import RECEIPTS_NS, CHATSTATES_NS, ErrorStanza, \
+        NormalMessage, MessageReceipt, ChatMessage, ChatComposingIndication,                    \
+        AvailabilityPresence, SubscriptionPresence, ProbePresence,                              \
+        MUCAvailabilityPresence, GroupChatMessage                                               \
 
+__all__ = ['MessageProtocol', 'MUCProtocol', 'PresenceProtocol']
 
 
 class MessageProtocol(MessageProtocol):
@@ -73,7 +76,6 @@ class MessageProtocol(MessageProtocol):
 
 
 class PresenceProtocol(PresenceProtocol):
-
     def availableReceived(self, stanza):
         sender_uri = FrozenURI.parse('xmpp:'+stanza.element['from'])
         sender = Identity(sender_uri)
@@ -130,4 +132,62 @@ class PresenceProtocol(PresenceProtocol):
         notification_center.post_notification('XMPPGotPresenceProbe', sender=self.parent, data=TimestampedNotificationData(presence_stanza=presence_stanza))
 
 
+class MUCProtocol(BasePresenceProtocol):
+    messageTypes = None, 'normal', 'chat', 'groupchat'
+
+    presenceTypeParserMap = {'available': UserPresence,
+                             'unavailable': UserPresence}
+
+    def connectionInitialized(self):
+        BasePresenceProtocol.connectionInitialized(self)
+        self.xmlstream.addObserver('/message', self._onMessage)
+
+    def _onMessage(self, message):
+        if message.handled:
+            return
+        messageType = message.getAttribute("type")
+        if messageType == 'error':
+            return
+        if messageType not in self.messageTypes:
+            message['type'] = 'normal'
+        if messageType == 'groupchat':
+            self.onGroupChat(message)
+        else:
+            # TODO: give error, private messages not supported
+            pass
+
+    def onGroupChat(self, msg):
+        sender_uri = FrozenURI.parse('xmpp:'+msg['from'])
+        sender = Identity(sender_uri)
+        recipient_uri = FrozenURI.parse('xmpp:'+msg['to'])
+        recipient = Identity(recipient_uri)
+        if msg.html is not None:
+            content_type = 'text/html'
+            body = msg.html.toXml()
+        else:
+            content_type = 'text/plain'
+            body = unicode(msg.body)
+        message = GroupChatMessage(sender, recipient, body, content_type, id=msg.getAttribute('id', None), use_receipt=False)
+        notification_center = NotificationCenter()
+        notification_center.post_notification('XMPPMucGotGroupChat', sender=self.parent, data=TimestampedNotificationData(message=message))
+
+    def availableReceived(self, stanza):
+        sender_uri = FrozenURI.parse('xmpp:'+stanza.element['from'])
+        sender = Identity(sender_uri)
+        recipient_uri = FrozenURI.parse('xmpp:'+stanza.element['to'])
+        recipient = Identity(recipient_uri)
+        id = stanza.element.getAttribute('id')
+        presence_stanza = MUCAvailabilityPresence(sender, recipient, available=True, id=id)
+        notification_center = NotificationCenter()
+        notification_center.post_notification('XMPPMucGotPresenceAvailability', sender=self.parent, data=TimestampedNotificationData(presence_stanza=presence_stanza))
+
+    def unavailableReceived(self, stanza):
+        sender_uri = FrozenURI.parse('xmpp:'+stanza.element['from'])
+        sender = Identity(sender_uri)
+        recipient_uri = FrozenURI.parse('xmpp:'+stanza.element['to'])
+        recipient = Identity(recipient_uri)
+        id = stanza.element.getAttribute('id')
+        presence_stanza = MUCAvailabilityPresence(sender, recipient, available=False, id=id)
+        notification_center = NotificationCenter()
+        notification_center.post_notification('XMPPMucGotPresenceAvailability', sender=self.parent, data=TimestampedNotificationData(presence_stanza=presence_stanza))
 

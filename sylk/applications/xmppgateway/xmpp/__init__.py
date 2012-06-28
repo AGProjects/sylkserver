@@ -18,8 +18,8 @@ from sylk.applications import ApplicationLogger
 from sylk.applications.xmppgateway.configuration import XMPPGatewayConfig
 from sylk.applications.xmppgateway.datatypes import FrozenURI
 from sylk.applications.xmppgateway.logger import Logger
-from sylk.applications.xmppgateway.xmpp.protocols import MessageProtocol, PresenceProtocol
-from sylk.applications.xmppgateway.xmpp.session import XMPPChatSessionManager
+from sylk.applications.xmppgateway.xmpp.protocols import MessageProtocol, MUCProtocol, PresenceProtocol
+from sylk.applications.xmppgateway.xmpp.session import XMPPChatSessionManager, XMPPMucSessionManager
 from sylk.applications.xmppgateway.xmpp.subscription import XMPPSubscriptionManager
 
 log = ApplicationLogger(os.path.dirname(__file__).split(os.path.sep)[-1])
@@ -99,16 +99,19 @@ class XMPPManager(object):
 
         self.stopped = False
 
+        self.domains = config.domains
+        self.muc_domains = ['%s.%s' % (config.muc_prefix, domain) for domain in self.domains]
+
         router = Router()
         self._server_service = ServerService(router)
-        self._server_service.domains = set(config.domains)
+        self._server_service.domains = set(self.domains+self.muc_domains)
         self._server_service.logTraffic = False    # done manually
 
         self._s2s_factory = XMPPS2SServerFactory(self._server_service)
         self._s2s_factory.logTraffic = False    # done manually
 
         self._internal_component = InternalComponent(router)
-        self._internal_component.domains = set(config.domains)
+        self._internal_component.domains = set(self.domains)
 
         self._message_protocol = MessageProtocol()
         self._message_protocol.setHandlerParent(self._internal_component)
@@ -116,9 +119,16 @@ class XMPPManager(object):
         self._presence_protocol = PresenceProtocol()
         self._presence_protocol.setHandlerParent(self._internal_component)
 
+        self._muc_component = InternalComponent(router)
+        self._muc_component.domains = set(self.muc_domains)
+
+        self._muc_protocol = MUCProtocol()
+        self._muc_protocol.setHandlerParent(self._muc_component)
+
         self._s2s_listener = None
 
         self.chat_session_manager = XMPPChatSessionManager()
+        self.muc_session_manager = XMPPMucSessionManager()
         self.subscription_manager = XMPPSubscriptionManager()
 
     def start(self):
@@ -129,25 +139,36 @@ class XMPPManager(object):
         listen_address = self._s2s_listener.getHost()
         log.msg("XMPP listener started on %s:%d" % (listen_address.host, listen_address.port))
         self.chat_session_manager.start()
+        self.muc_session_manager.start()
         self.subscription_manager.start()
         notification_center = NotificationCenter()
         notification_center.add_observer(self, sender=self._internal_component)
+        notification_center.add_observer(self, sender=self._muc_component)
         self._internal_component.startService()
+        self._muc_component.startService()
 
     def stop(self):
         self.stopped = True
         self._s2s_listener.stopListening()
         self.subscription_manager.stop()
+        self.muc_session_manager.stop()
         self.chat_session_manager.stop()
         self._internal_component.stopService()
+        self._muc_component.stopService()
         notification_center = NotificationCenter()
         notification_center.remove_observer(self, sender=self._internal_component)
+        notification_center.remove_observer(self, sender=self._muc_component)
         xmpp_logger.stop()
 
     def send_stanza(self, stanza):
         if self.stopped:
             return
         self._internal_component.send(stanza.to_xml_element())
+
+    def send_muc_stanza(self, stanza):
+        if self.stopped:
+            return
+        self._muc_component.send(stanza.to_xml_element())
 
     def handle_notification(self, notification):
         handler = getattr(self, '_NH_%s' % notification.name, Null)
@@ -251,4 +272,33 @@ class XMPPManager(object):
             notification_center.post_notification('XMPPGotPresenceSubscriptionRequest', sender=self, data=TimestampedNotificationData(stanza=stanza))
         else:
             subscription.channel.send(stanza)
+
+    # Process muc stanzas
+
+    def _NH_XMPPMucGotGroupChat(self, notification):
+        message = notification.data.message
+        muc_uri = FrozenURI(message.recipient.uri.user, message.recipient.uri.host)
+        try:
+            session = self.muc_session_manager.incoming[(muc_uri, message.sender.uri)]
+        except KeyError:
+            # Ignore groupchat messages if there was no session created
+            pass
+        else:
+            session.channel.send(message)
+
+    def _NH_XMPPMucGotPresenceAvailability(self, notification):
+        stanza = notification.data.presence_stanza
+        if not stanza.sender.uri.resource:
+            return
+        muc_uri = FrozenURI(stanza.recipient.uri.user, stanza.recipient.uri.host)
+        try:
+            session = self.muc_session_manager.incoming[(muc_uri, stanza.sender.uri)]
+        except KeyError:
+            notification_center = NotificationCenter()
+            if stanza.available:
+                notification_center.post_notification('XMPPGotMucJoinRequest', sender=self, data=TimestampedNotificationData(stanza=stanza))
+            else:
+                notification_center.post_notification('XMPPGotMucLeaveRequest', sender=self, data=TimestampedNotificationData(stanza=stanza))
+        else:
+            session.channel.send(stanza)
 
