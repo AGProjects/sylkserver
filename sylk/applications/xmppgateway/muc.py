@@ -188,7 +188,7 @@ class X2SMucHandler(object):
     def _NH_ChatStreamDidNotSetNickname(self, notification):
         # Notification is sent by the MSRP stream
         nickname, stanza = self._pending_nicknames_map.pop(notification.data.message_id)
-        error_stanza = MUCErrorPresence.from_stanza(stanza, 'cancel', ['conflict', STANZAS_NS])
+        error_stanza = MUCErrorPresence.from_stanza(stanza, 'cancel', [('conflict', STANZAS_NS)])
         xmpp_manager = XMPPManager()
         xmpp_manager.send_muc_stanza(error_stanza)
         self.end()
