@@ -140,6 +140,7 @@ class Room(object):
         self._channel = coros.queue()
         self.uri = uri
         self.identity = CPIMIdentity.parse('<sip:%s>' % self.uri)
+        self.identity.display_name = 'Conference Room'
         self.files = []
         self.screen_images = {}
         self.sessions = []
