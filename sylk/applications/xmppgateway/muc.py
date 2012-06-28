@@ -12,6 +12,7 @@ from sipsimple.configuration.settings import SIPSimpleSettings
 from sipsimple.core import SIPURI
 from sipsimple.core import ContactHeader, FromHeader, ToHeader
 from sipsimple.lookup import DNSLookup, DNSLookupError
+from sipsimple.streams.msrp import ChatStreamError
 from sipsimple.streams.applications.chat import CPIMIdentity
 from sipsimple.threading.green import run_in_green_thread
 from sipsimple.util import TimestampedNotificationData
@@ -227,6 +228,9 @@ class X2SMucHandler(object):
         if not self._sip_session:
             return
         nickname = notification.data.nickname
-        message_id = self._msrp_stream.set_local_nickname(nickname)
+        try:
+            message_id = self._msrp_stream.set_local_nickname(nickname)
+        except ChatStreamError:
+            return
         self._pending_nicknames_map[message_id] = (nickname, notification.data.stanza)
 
