@@ -201,7 +201,7 @@ class AvailabilityPresence(BasePresenceStanza):
 
 class SubscriptionPresence(BasePresenceStanza):
     def __init__(self, sender, recipient, type, id=None):
-        super(SubscriptionPresence, self).__init__(sender, recipient, type=type, id=id)
+        super(SubscriptionPresence, self).__init__(sender, recipient, id=id)
         self.type = type
 
 
