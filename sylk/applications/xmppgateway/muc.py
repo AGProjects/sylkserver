@@ -230,6 +230,8 @@ class X2SMucHandler(object):
         if not self._sip_session:
             return
         nickname = notification.data.nickname
+        if self.nickname == nickname:
+            return
         try:
             message_id = self._msrp_stream.set_local_nickname(nickname)
         except ChatStreamError:
