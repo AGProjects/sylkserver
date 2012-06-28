@@ -554,16 +554,17 @@ class Room(object):
     def _NH_ChatStreamGotNicknameRequest(self, notification):
         nickname = notification.data.nickname
         session = notification.sender.session
+        chunk = notification.data.chunk
         if nickname:
             if nickname in self.session_nickname_map.values():
-                notification.sender.reject_nickname(425, 'Nickname reserved or already in use')
+                notification.sender.reject_nickname(chunk, 425, 'Nickname reserved or already in use')
                 return
             self.session_nickname_map[session] = nickname
             self.last_nicknames_map[str(session.remote_identity.uri)] = nickname
         else:
             self.session_nickname_map.pop(session, None)
             self.last_nicknames_map.pop(str(session.remote_identity.uri), None)
-        notification.sender.accept_nickname(notification.data.chunk)
+        notification.sender.accept_nickname(chunk)
         self.dispatch_conference_info()
 
     def _NH_SIPIncomingSubscriptionDidEnd(self, notification):
