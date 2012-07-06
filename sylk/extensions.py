@@ -178,7 +178,7 @@ class ChatStream(_ChatStream, MSRPStreamBase):
     @run_in_green_thread
     def _send_response(self, response):
         try:
-            self.msrp.write_chunk(response)
+            self.msrp_session.send_chunk(response)
         except Exception:
             pass
 
