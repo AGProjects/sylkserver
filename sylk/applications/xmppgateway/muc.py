@@ -203,7 +203,6 @@ class X2SMucHandler(object):
         error_stanza = MUCErrorPresence.from_stanza(stanza, 'cancel', [('conflict', STANZAS_NS)])
         xmpp_manager = XMPPManager()
         xmpp_manager.send_muc_stanza(error_stanza)
-        self.end()
 
     def _NH_ChatStreamDidDeliverMessage(self, notification):
         # Echo back the message to the sender
