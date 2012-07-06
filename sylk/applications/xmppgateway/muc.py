@@ -179,11 +179,18 @@ class X2SMucHandler(object):
             return
         message = notification.data.message
         content_type = message.content_type.lower()
-        if content_type in ('text/plain', 'text/html'):
-            resource = message.sender.display_name or str(message.sender.uri)
-            sender = Identity(FrozenURI(self.sip_identity.uri.user, self.sip_identity.uri.host, resource))
-            self._xmpp_muc_session.send_message(sender, message.body, message.content_type, message_id=str(uuid.uuid4()))
-            self._msrp_stream.msrp_session.send_report(notification.data.chunk, 200, 'OK')
+        if content_type not in ('text/plain', 'text/html'):
+            return
+        if content_type == 'text/plain':
+            html_body = None
+            body = message.body
+        else:
+            html_body = message.body
+            body = None
+        resource = message.sender.display_name or str(message.sender.uri)
+        sender = Identity(FrozenURI(self.sip_identity.uri.user, self.sip_identity.uri.host, resource))
+        self._xmpp_muc_session.send_message(sender, body, html_body, message_id=str(uuid.uuid4()))
+        self._msrp_stream.msrp_session.send_report(notification.data.chunk, 200, 'OK')
 
     def _NH_ChatStreamDidSetNickname(self, notification):
         # Notification is sent by the MSRP stream
@@ -222,7 +229,7 @@ class X2SMucHandler(object):
         sender_uri = message.sender.uri.as_sip_uri()
         del sender_uri.parameters['gr']    # no GRUU in CPIM From header
         sender = CPIMIdentity(sender_uri, display_name=self.nickname)
-        message_id = self._msrp_stream.send_message(message.body, message.content_type, local_identity=sender)
+        message_id = self._msrp_stream.send_message(message.body, 'text/plain', local_identity=sender)
         self._pending_messages_map[message_id] = message
         # Message will be echoed back to the sender on ChatStreamDidDeliverMessage
 

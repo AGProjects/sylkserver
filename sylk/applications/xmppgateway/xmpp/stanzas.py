@@ -3,6 +3,8 @@
 
 from twisted.words.xish import domish
 
+from sylk.applications.xmppgateway.util import html2text
+
 
 CHATSTATES_NS = 'http://jabber.org/protocol/chatstates'
 RECEIPTS_NS   = 'urn:xmpp:receipts'
@@ -74,41 +76,48 @@ class ErrorStanza(object):
 class BaseMessageStanza(BaseStanza):
     stanza_type = 'message'
 
-    def __init__(self, sender, recipient, id=None, use_receipt=False):
+    def __init__(self, sender, recipient, body=None, html_body=None, id=None, use_receipt=False):
         super(BaseMessageStanza, self).__init__(sender, recipient, id=id)
         self.use_receipt = use_receipt
+        if body is not None and html_body is None:
+            self.body = body
+            self.html_body = None
+        elif body is None and html_body is not None:
+            self.body = html2text(html_body)
+            self.html_body = html_body
+        else:
+            self.body = body
+            self.html_body = html_body
 
     def to_xml_element(self):
         xml_element = super(BaseMessageStanza, self).to_xml_element()
         if self.id is not None and self.recipient.uri.resource is not None and self.use_receipt:
             xml_element.addElement('request', defaultUri=RECEIPTS_NS)
+        if self.body is not None:
+            xml_element.addElement('body', content=self.body)
+            if self.html_body is not None:
+                xml_element.addElement('html', content=self.html_body)
         return xml_element
 
 
 class NormalMessage(BaseMessageStanza):
-    def __init__(self, sender, recipient, body, content_type='text/plain', id=None, use_receipt=False):
-        super(NormalMessage, self).__init__(sender, recipient, id=id, use_receipt=use_receipt)
-        self.body = body
-        self.content_type = content_type
-
-    def to_xml_element(self):
-        xml_element = super(NormalMessage, self).to_xml_element()
-        xml_element.addElement('body', content=self.body)    # TODO: what if content type is text/html ?
-        return xml_element
+    def __init__(self, sender, recipient, body=None, html_body=None, id=None, use_receipt=False):
+        if body is None and html_body is None:
+            raise ValueError('either body or html_body need to be set')
+        super(NormalMessage, self).__init__(sender, recipient, body, html_body, id, use_receipt)
 
 
 class ChatMessage(BaseMessageStanza):
     type = 'chat'
 
-    def __init__(self, sender, recipient, body, content_type='text/plain', id=None, use_receipt=True):
-        super(ChatMessage, self).__init__(sender, recipient, id=id, use_receipt=use_receipt)
-        self.body = body
-        self.content_type = content_type
+    def __init__(self, sender, recipient, body=None, html_body=None, id=None, use_receipt=True):
+        if body is None and html_body is None:
+            raise ValueError('either body or html_body need to be set')
+        super(ChatMessage, self).__init__(sender, recipient, body, html_body, id, use_receipt)
 
     def to_xml_element(self):
         xml_element = super(ChatMessage, self).to_xml_element()
         xml_element.addElement('active', defaultUri=CHATSTATES_NS)
-        xml_element.addElement('body', content=self.body)    # TODO: what if content type is text/html ?
         return xml_element
 
 
@@ -128,15 +137,11 @@ class ChatComposingIndication(BaseMessageStanza):
 class GroupChatMessage(BaseMessageStanza):
     type = 'groupchat'
 
-    def __init__(self, sender, recipient, body, content_type='text/plain', id=None):
-        super(GroupChatMessage, self).__init__(sender, recipient, id=id, use_receipt=False)
-        self.body = body
-        self.content_type = content_type
-
-    def to_xml_element(self):
-        xml_element = super(GroupChatMessage, self).to_xml_element()
-        xml_element.addElement('body', content=self.body)    # TODO: what if content type is text/html ?
-        return xml_element
+    def __init__(self, sender, recipient, body=None, html_body=None, id=None):
+        # TODO: add timestamp
+        if body is None and html_body is None:
+            raise ValueError('either body or html_body need to be set')
+        super(GroupChatMessage, self).__init__(sender, recipient, body, html_body, id, False)
 
 
 class MessageReceipt(BaseMessageStanza):

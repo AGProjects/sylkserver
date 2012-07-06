@@ -42,23 +42,23 @@ class MessageProtocol(MessageProtocol):
             notification_center.post_notification('XMPPGotErrorMessage', sender=self.parent, data=TimestampedNotificationData(error_message=error_message))
             return
 
-        if type in (None, 'normal', 'chat') and msg.body is not None:
+        if type in (None, 'normal', 'chat') and msg.body is not None or msg.html is not None:
+            body = None
+            html_body = None
             if msg.html is not None:
-                content_type = 'text/html'
-                body = msg.html.toXml()
-            else:
-                content_type = 'text/plain'
+                html_body = msg.html.toXml()
+            if msg.body is not None:
                 body = unicode(msg.body)
             use_receipt = msg.request is not None and msg.request.defaultUri == RECEIPTS_NS
             if type == 'chat':
-                message = ChatMessage(sender, recipient, body, content_type, id=msg.getAttribute('id', None), use_receipt=use_receipt)
+                message = ChatMessage(sender, recipient, body, html_body, id=msg.getAttribute('id', None), use_receipt=use_receipt)
                 notification_center.post_notification('XMPPGotChatMessage', sender=self.parent, data=TimestampedNotificationData(message=message))
             else:
-                message = NormalMessage(sender, recipient, body, content_type, id=msg.getAttribute('id', None), use_receipt=use_receipt)
+                message = NormalMessage(sender, recipient, body, html_body, id=msg.getAttribute('id', None), use_receipt=use_receipt)
                 notification_center.post_notification('XMPPGotNormalMessage', sender=self.parent, data=TimestampedNotificationData(message=message))
             return
 
-        if type == 'chat' and msg.body is None:
+        if type == 'chat' and msg.body is None and msg.html is None:
             # Check if it's a composing indication
             for state in ('active', 'inactive', 'composing', 'paused', 'gone'):
                 state_obj = getattr(msg, state, None)
@@ -68,7 +68,7 @@ class MessageProtocol(MessageProtocol):
                     return
 
         # Check if it's a receipt acknowledgement
-        if msg.body is None and msg.received is not None and msg.received.defaultUri == RECEIPTS_NS:
+        if msg.body is None and msg.html is None and msg.received is not None and msg.received.defaultUri == RECEIPTS_NS:
             receipt_id = msg.getAttribute('id', None)
             if receipt_id is not None:
                 receipt = MessageReceipt(sender, recipient, receipt_id)
@@ -161,10 +161,13 @@ class MUCProtocol(BasePresenceProtocol):
         sender = Identity(sender_uri)
         recipient_uri = FrozenURI.parse('xmpp:'+msg['to'])
         recipient = Identity(recipient_uri)
-        content_type = 'text/plain'
-        body = unicode(msg.body)
-        # TODO: support HTML
-        message = GroupChatMessage(sender, recipient, body, content_type, id=msg.getAttribute('id', None), use_receipt=False)
+        body = None
+        html_body = None
+        if msg.html is not None:
+            html_body = msg.html.toXml()
+        if msg.body is not None:
+            body = unicode(msg.body)
+        message = GroupChatMessage(sender, recipient, body, html_body, id=msg.getAttribute('id', None))
         notification_center = NotificationCenter()
         notification_center.post_notification('XMPPMucGotGroupChat', sender=self.parent, data=TimestampedNotificationData(message=message))
 

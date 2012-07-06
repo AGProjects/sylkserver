@@ -46,8 +46,8 @@ class XMPPChatSession(object):
         notification_center.post_notification('XMPPChatSessionDidEnd', sender=self, data=TimestampedNotificationData(originator='local'))
         self.state = 'terminated'
 
-    def send_message(self, body, content_type='text/plain', message_id=None, use_receipt=True):
-        message = ChatMessage(self.local_identity, self.remote_identity, body, content_type, id=message_id, use_receipt=use_receipt)
+    def send_message(self, body, html_body, message_id=None, use_receipt=True):
+        message = ChatMessage(self.local_identity, self.remote_identity, body, html_body, id=message_id, use_receipt=use_receipt)
         self.xmpp_manager.send_stanza(message)
         if message_id is not None:
             timer = reactor.callLater(30, self._receipt_timer_expired, message_id)
@@ -170,9 +170,9 @@ class XMPPIncomingMucSession(object):
         notification_center.post_notification('XMPPIncomingMucSessionDidEnd', sender=self, data=TimestampedNotificationData(originator='local'))
         self.state = 'terminated'
 
-    def send_message(self, sender, body, content_type='text/plain', message_id=None):
+    def send_message(self, sender, body, html_body, message_id=None):
         # TODO: timestamp?
-        message = GroupChatMessage(sender, self.remote_identity, body, content_type, id=message_id)
+        message = GroupChatMessage(sender, self.remote_identity, body, html_body, id=message_id)
         self.xmpp_manager.send_muc_stanza(message)
 
     def _run(self):

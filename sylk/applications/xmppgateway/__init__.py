@@ -171,11 +171,16 @@ class XMPPGatewayApplication(object):
         sender = Identity(FrozenURI.parse(from_uri))
         recipient = Identity(FrozenURI.parse(to_uri))
         if content_type in ('text/plain', 'text/html'):
+            if content_type == 'text/plain':
+                html_body = None
+            else:
+                html_body = body
+                body = None
             if XMPPGatewayConfig.use_msrp_for_chat:
-                message = NormalMessage(sender, recipient, body, content_type, use_receipt=False)
+                message = NormalMessage(sender, recipient, body, html_body, use_receipt=False)
                 self.xmpp_manager.send_stanza(message)
             else:
-                message = ChatMessage(sender, recipient, body, content_type, use_receipt=False)
+                message = ChatMessage(sender, recipient, body, html_body, use_receipt=False)
                 self.xmpp_manager.send_stanza(message)
         elif content_type == IsComposingDocument.content_type:
             if not XMPPGatewayConfig.use_msrp_for_chat:

@@ -172,7 +172,7 @@ class ChatSessionHandler(object):
         if self.xmpp_message_queue:
             while self.xmpp_message_queue:
                 message = self.xmpp_message_queue.popleft()
-                if message.content_type not in ('text/plain', 'text/html'):
+                if message.body is None:
                     continue
                 if not message.use_receipt:
                     success_report = 'no'
@@ -183,7 +183,7 @@ class ChatSessionHandler(object):
                 sender_uri = message.sender.uri.as_sip_uri()
                 sender_uri.parameters['gr'] = encode_resource(sender_uri.parameters['gr'].decode('utf-8'))
                 sender = CPIMIdentity(sender_uri)
-                self.msrp_stream.send_message(message.body, message.content_type, local_identity=sender, message_id=message.id, notify_progress=True, success_report=success_report, failure_report=failure_report)
+                self.msrp_stream.send_message(message.body, 'text/plain', local_identity=sender, message_id=message.id, notify_progress=True, success_report=success_report, failure_report=failure_report)
             self.msrp_stream.send_composing_indication('idle', 30, local_identity=sender)
 
     def _inactivity_timeout(self):
@@ -260,23 +260,30 @@ class ChatSessionHandler(object):
         # Notification is sent by the MSRP stream
         message = notification.data.message
         content_type = message.content_type.lower()
-        if content_type in ('text/plain', 'text/html'):
-            if self._sip_session_timer is not None and self._sip_session_timer.active():
-                self._sip_session_timer.reset(SESSION_TIMEOUT)
-            chunk = notification.data.chunk
-            if self.started:
-                self.xmpp_session.send_message(message.body, message.content_type, message_id=chunk.message_id)
-                if self.use_receipts:
-                    self._pending_msrp_chunks[chunk.message_id] = chunk
-                else:
-                    self.msrp_stream.msrp_session.send_report(chunk, 200, 'OK')
+        if content_type not in ('text/plain', 'text/html'):
+            return
+        if content_type == 'text/plain':
+            html_body = None
+            body = message.body
+        else:
+            html_body = message.body
+            body = None
+        if self._sip_session_timer is not None and self._sip_session_timer.active():
+            self._sip_session_timer.reset(SESSION_TIMEOUT)
+        chunk = notification.data.chunk
+        if self.started:
+            self.xmpp_session.send_message(body, html_body, message_id=chunk.message_id)
+            if self.use_receipts:
+                self._pending_msrp_chunks[chunk.message_id] = chunk
             else:
-                sender = self.sip_identity
-                recipient_uri = FrozenURI.parse(message.recipients[0].uri)
-                recipient = Identity(recipient_uri, message.recipients[0].display_name)
-                xmpp_manager = XMPPManager()
-                xmpp_manager.send_stanza(ChatMessage(sender, recipient, message.body, message.content_type))
                 self.msrp_stream.msrp_session.send_report(chunk, 200, 'OK')
+        else:
+            sender = self.sip_identity
+            recipient_uri = FrozenURI.parse(message.recipients[0].uri)
+            recipient = Identity(recipient_uri, message.recipients[0].display_name)
+            xmpp_manager = XMPPManager()
+            xmpp_manager.send_stanza(ChatMessage(sender, recipient, body, html_body))
+            self.msrp_stream.msrp_session.send_report(chunk, 200, 'OK')
 
     def _NH_ChatStreamGotComposingIndication(self, notification):
         # Notification is sent by the MSRP stream
@@ -333,7 +340,8 @@ class ChatSessionHandler(object):
             success_report = 'yes'
             failure_report = 'yes'
             self._pending_xmpp_stanzas[message.id] = message
-        self.msrp_stream.send_message(message.body, message.content_type, local_identity=sender, message_id=message.id, notify_progress=True, success_report=success_report, failure_report=failure_report)
+        # Prefer plaintext
+        self.msrp_stream.send_message(message.body, 'text/plain', local_identity=sender, message_id=message.id, notify_progress=True, success_report=success_report, failure_report=failure_report)
         self.msrp_stream.send_composing_indication('idle', 30, local_identity=sender)
 
     def _NH_XMPPChatSessionGotComposingIndication(self, notification):
@@ -385,7 +393,7 @@ class SIPMessageSender(object):
         self.to_uri = message.recipient.uri.as_sip_uri()
         self.to_uri.parameters.pop('gr', None)      # Don't send it to the GRUU
         self.body = message.body
-        self.content_type = message.content_type
+        self.content_type = 'text/plain'
         self._requests = set()
         self._channel = coros.queue()
 
