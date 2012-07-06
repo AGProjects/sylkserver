@@ -54,7 +54,7 @@ class ChatSessionHandler(object):
 
         self.use_receipts = False
         self.xmpp_session = None
-        self.xmpp_message_queue = deque()
+        self._xmpp_message_queue = deque()
 
         self._pending_msrp_chunks = {}
         self._pending_xmpp_stanzas = {}
@@ -168,10 +168,15 @@ class ChatSessionHandler(object):
         else:
             notification_center.post_notification('ChatSessionDidFail', sender=self, data=TimestampedNotificationData())
 
+    def enqueue_xmpp_message(self, message):
+        if self.started:
+            raise RuntimeError('session is already started')
+        self._xmpp_message_queue.append(message)
+
     def _send_queued_messages(self):
-        if self.xmpp_message_queue:
-            while self.xmpp_message_queue:
-                message = self.xmpp_message_queue.popleft()
+        if self._xmpp_message_queue:
+            while self._xmpp_message_queue:
+                message = self._xmpp_message_queue.popleft()
                 if message.body is None:
                     continue
                 if not message.use_receipt:

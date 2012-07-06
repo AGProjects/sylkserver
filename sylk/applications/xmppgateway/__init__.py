@@ -222,7 +222,7 @@ class XMPPGatewayApplication(object):
                     self.pending_sessions[key] = handler
                     notification_center = NotificationCenter()
                     notification_center.add_observer(self, sender=handler)
-                handler.xmpp_message_queue.append(message)
+                handler.enqueue_xmpp_message(message)
             else:
                 # Find handler pending XMPP confirmation
                 sip_leg_uri = FrozenURI.new(recipient.uri)
@@ -243,11 +243,11 @@ class XMPPGatewayApplication(object):
                         self.pending_sessions[key] = handler
                         notification_center = NotificationCenter()
                         notification_center.add_observer(self, sender=handler)
-                    handler.xmpp_message_queue.append(message)
+                    handler.enqueue_xmpp_message(message)
                 else:
                     # Found handle, create XMPP session and establish session
                     session = XMPPChatSession(local_identity=recipient, remote_identity=sender)
-                    handler.xmpp_message_queue.append(message)
+                    handler.enqueue_xmpp_message(message)
                     handler.xmpp_identity = session.remote_identity
                     handler.xmpp_session = session
         else:
