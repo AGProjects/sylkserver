@@ -62,6 +62,13 @@ class X2SMucHandler(object):
         notification_center = NotificationCenter()
         if self._xmpp_muc_session is not None:
             notification_center.remove_observer(self, sender=self._xmpp_muc_session)
+            # Send indication that the user has been kicked from the room
+            sender = Identity(FrozenURI(self.sip_identity.uri.user, self.sip_identity.uri.host, self.nickname))
+            stanza = MUCAvailabilityPresence(sender, self.xmpp_identity, available=False)
+            stanza.jid = self.xmpp_identity
+            stanza.muc_statuses.append('307')
+            xmpp_manager = XMPPManager()
+            xmpp_manager.send_muc_stanza(stanza)
             self._xmpp_muc_session.end()
             self._xmpp_muc_session = None
         if self._sip_session is not None:
