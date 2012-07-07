@@ -1,15 +1,18 @@
 TODO
 ----
 
- - XMPP multi-party Chat
- - XMPP Discovery for chat
- - Offline storage
- - XMPP Jingle
+ + OSX support
+ + XMPP Jingle
+
+Roadmap
+
+ - Registrant application to map rooms to public accounts
+ - Chat offline storage application
  - XMPP File Transfer
- - Registrat application
+ - Update conference info with the display name from 200 OK for outgoing
+   invites
  - Management interface
  - Re-invite will all media
  - CANCEL server outgoing INVITE
  - Add participants using resource-list
  - Integrate mobwrite collboration editor
-
