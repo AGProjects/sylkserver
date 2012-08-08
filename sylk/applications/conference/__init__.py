@@ -265,7 +265,7 @@ class ConferenceApplication(object):
             room.remove_session(session)
         if not room.stopping and room.empty:
             self.remove_room(room_uri)
-            room.stop().wait()
+            room.stop()
 
     def _NH_SIPSessionDidFail(self, notification):
         session = notification.sender

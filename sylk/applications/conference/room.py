@@ -136,7 +136,6 @@ class Room(object):
     implements(IObserver)
 
     def __init__(self, uri):
-        self._channel = coros.queue()
         self.uri = uri
         self.identity = CPIMIdentity.parse('<sip:%s>' % self.uri)
         self.identity.display_name = 'Conference Room'
@@ -188,7 +187,6 @@ class Room(object):
         self.moh_player.start()
         self.state = 'started'
 
-    @run_in_waitable_green_thread
     def stop(self):
         if not self.started:
             return
@@ -202,14 +200,11 @@ class Room(object):
         self.moh_player.stop()
         self.moh_player = None
         self.audio_conference = None
-        procs = [proc.spawn(handler.stop) for handler in self.transfer_handlers]
-        proc.waitall(procs)
-        [subscription.end() for subscription in self.subscriptions]
-        wait_count = len(self.subscriptions)
-        while wait_count > 0:
-            notification = self._channel.wait()
-            if notification.name == 'SIPIncomingSubscriptionDidEnd':
-                wait_count -= 1
+        [handler.stop() for handler in self.transfer_handlers]
+        notification_center = NotificationCenter()
+        for subscription in self.subscriptions:
+            notification_center.remove_observer(self, sender=subscription)
+            subscription.end()
         self.subscriptions = []
         self.cleanup_files()
         self.conference_info_payload = None
@@ -572,10 +567,10 @@ class Room(object):
         subscription = notification.sender
         notification_center = NotificationCenter()
         notification_center.remove_observer(self, sender=subscription)
-        if self.state == 'stopping':
-            self._channel.send(notification)
-        else:
+        try:
             self.subscriptions.remove(subscription)
+        except ValueError:
+            pass
 
     def _NH_SIPSessionDidChangeHoldState(self, notification):
         session = notification.sender
@@ -912,7 +907,8 @@ class IncomingFileTransferHandler(object):
     implements(IObserver)
 
     def __init__(self, room, session):
-        self.room = room
+        self.room = weakref.ref(room)
+        self.room_uri = room.uri
         self.session = session
         self.stream = (stream for stream in self.session.streams if stream.type == 'file-transfer' and stream.direction == 'recvonly').next()
         self.error = False
@@ -927,7 +923,7 @@ class IncomingFileTransferHandler(object):
 
     def start(self):
         self.file_selector = self.stream.file_selector
-        path = os.path.join(ConferenceConfig.file_transfer_dir, self.room.uri)
+        path = os.path.join(ConferenceConfig.file_transfer_dir, self.room_uri)
         makedirs(path)
         self.filename = filename = os.path.join(path, self.file_selector.name.decode('utf-8'))
         basename, ext = os.path.splitext(filename)
@@ -1024,53 +1020,37 @@ class IncomingFileTransferHandler(object):
                 self.status = 'OK'
 
         file = RoomFile(self.filename, remote_hash, self.file_selector.size, format_identity(self.session.remote_identity, cpim_format=True), self.status)
-        self.room.add_file(file)
+        room = self.room() or Null
+        room.add_file(file)
 
         self.session = None
         self.stream = None
-        self.room = None
 
     def _NH_IncomingFileTransferHandlerDidFail(self, notification):
         notification_center = NotificationCenter()
         notification_center.remove_observer(self, sender=self)
 
         file = RoomFile(self.filename, self.file_selector.hash, self.file_selector.size, format_identity(self.session.remote_identity, cpim_format=True), self.status)
-        self.room.add_file(file)
+        room = self.room() or Null
+        room.add_file(file)
 
         self.session = None
         self.stream = None
-        self.room = None
 
 
 class OutgoingFileTransferRequestHandler(object):
     implements(IObserver)
 
     def __init__(self, room, session):
-        self._channel = coros.queue()
-        self.room = room
+        self.room = weakref.ref(room)
         self.session = session
         self.stream = (stream for stream in self.session.streams if stream.type == 'file-transfer').next()
         self.timer = None
 
-    @run_in_green_thread
     def start(self):
         notification_center = NotificationCenter()
         notification_center.add_observer(self, sender=self.session)
         notification_center.add_observer(self, sender=self.stream)
-
-        while True:
-            notification = self._channel.wait()
-            if notification.name in ('SIPSessionDidFail', 'SIPSessionDidEnd'):
-                break
-
-        if self.timer is not None and self.timer.active():
-            self.timer.cancel()
-        self.timer = None
-        notification_center.remove_observer(self, sender=self.stream)
-        notification_center.remove_observer(self, sender=self.session)
-        self.session = None
-        self.stream = None
-        self.room = None
 
     @run_in_twisted_thread
     def handle_notification(self, notification):
@@ -1081,11 +1061,16 @@ class OutgoingFileTransferRequestHandler(object):
         if self.timer is None:
             self.timer = reactor.callLater(2, self.session.end)
 
-    def _NH_SIPSessionDidFail(self, notification):
-        self._channel.send(notification)
-
     def _NH_SIPSessionDidEnd(self, notification):
-        self._channel.send(notification)
+        if self.timer is not None and self.timer.active():
+            self.timer.cancel()
+        self.timer = None
+        notification_center.remove_observer(self, sender=self.stream)
+        notification_center.remove_observer(self, sender=self.session)
+        self.session = None
+        self.stream = None
+
+    _NH_SIPSessionDidFail = _NH_SIPSessionDidEnd
 
 
 class InterruptFileTransfer(Exception): pass
@@ -1094,9 +1079,7 @@ class OutgoingFileTransferHandler(object):
     implements(IObserver)
 
     def __init__(self, room, destination, file):
-        self._channel = coros.queue()
-        self.greenlet = None
-        self.room = room
+        self.room_uri = room.identity.uri
         self.destination = destination
         self.file = file
         self.session = None
@@ -1117,66 +1100,32 @@ class OutgoingFileTransferHandler(object):
         lookup = DNSLookup()
         try:
             routes = lookup.lookup_sip_proxy(uri, settings.sip.transport_list).wait()
-        except (DNSLookupError, InterruptFileTransfer):
-            self.greenlet = None
-            self.room = None
-        else:
-            notification_center = NotificationCenter()
-            self.session = ServerSession(account)
-            self.stream = FileTransferStream(account, self.file.file_selector, 'sendonly')
-            notification_center.add_observer(self, sender=self.session)
-            notification_center.add_observer(self, sender=self.stream)
-            subject = u'File uploaded by %s' % self.file.sender
-            from_header = FromHeader(SIPURI.new(self.room.identity.uri), u'Conference File Transfer')
-            to_header = ToHeader(SIPURI.new(self.destination))
-            transport = routes[0].transport
-            parameters = {} if transport=='udp' else {'transport': transport}
-            contact_header = ContactHeader(SIPURI(user=self.room.identity.uri.user, host=SIPConfig.local_ip, port=getattr(SIPConfig, 'local_%s_port' % transport), parameters=parameters))
-            extra_headers = []
-            if ThorNodeConfig.enabled:
-                extra_headers.append(Header('Thor-Scope', 'conference-invitation'))
-            originator_uri = CPIMIdentity.parse(self.file.sender).uri
-            extra_headers.append(Header('X-Originator-From', str(originator_uri)))
-            self.session.connect(from_header, to_header, contact_header=contact_header, routes=routes, streams=[self.stream], is_focus=True, subject=subject, extra_headers=extra_headers)
-            try:
-                while True:
-                    notification = self._channel.wait()
-                    if notification.name in ('SIPSessionDidFail', 'SIPSessionDidEnd'):
-                        break
-            except InterruptFileTransfer:
-                self.session.end()
-            else:
-                if self.timer is not None and self.timer.active():
-                    self.timer.cancel()
-                self.timer = None
-                self.greenlet = None
-                notification_center.remove_observer(self, sender=self.stream)
-                notification_center.remove_observer(self, sender=self.session)
-                self.session = None
-                self.stream = None
-                self.room = None
+        except DNSLookupError:
+            return
+
+        notification_center = NotificationCenter()
+        self.session = ServerSession(account)
+        self.stream = FileTransferStream(account, self.file.file_selector, 'sendonly')
+        notification_center.add_observer(self, sender=self.session)
+        notification_center.add_observer(self, sender=self.stream)
+        subject = u'File uploaded by %s' % self.file.sender
+        from_header = FromHeader(SIPURI.new(self.room_uri), u'Conference File Transfer')
+        to_header = ToHeader(SIPURI.new(self.destination))
+        transport = routes[0].transport
+        parameters = {} if transport=='udp' else {'transport': transport}
+        contact_header = ContactHeader(SIPURI(user=self.room_uri.user, host=SIPConfig.local_ip, port=getattr(SIPConfig, 'local_%s_port' % transport), parameters=parameters))
+        extra_headers = []
+        if ThorNodeConfig.enabled:
+            extra_headers.append(Header('Thor-Scope', 'conference-invitation'))
+        originator_uri = CPIMIdentity.parse(self.file.sender).uri
+        extra_headers.append(Header('X-Originator-From', str(originator_uri)))
+        self.session.connect(from_header, to_header, contact_header=contact_header, routes=routes, streams=[self.stream], is_focus=True, subject=subject, extra_headers=extra_headers)
 
     def stop(self):
-        # Needs to be called from a green thread
-        if self.greenlet is None:
-            return
-        api.kill(self.greenlet, InterruptFileTransfer)
-        self.greenlet = api.getcurrent()
-        while True:
-            notification = self._channel.wait()
-            if notification.name in ('SIPSessionDidFail', 'SIPSessionDidEnd'):
-                break
-        if self.timer is not None and self.timer.active():
-            self.timer.cancel()
-        self.timer = None
-        self.greenlet = None
-        notification_center = NotificationCenter()
-        notification_center.remove_observer(self, sender=self.stream)
-        notification_center.remove_observer(self, sender=self.session)
-        self.session = None
-        self.stream = None
-        self.room = None
+        if self.session is not None:
+            self.session.end()
 
+    @run_in_twisted_thread
     def handle_notification(self, notification):
         handler = getattr(self, '_NH_%s' % notification.name, Null)
         handler(notification)
@@ -1185,12 +1134,15 @@ class OutgoingFileTransferHandler(object):
         if self.timer is None:
             self.timer = reactor.callLater(2, self.session.end)
 
-    def _NH_SIPSessionDidStart(self, notification):
-        self._channel.send(notification)
-
-    def _NH_SIPSessionDidFail(self, notification):
-        self._channel.send(notification)
-
     def _NH_SIPSessionDidEnd(self, notification):
-        self._channel.send(notification)
+        if self.timer is not None and self.timer.active():
+            self.timer.cancel()
+        self.timer = None
+        notification_center = NotificationCenter()
+        notification_center.remove_observer(self, sender=self.stream)
+        notification_center.remove_observer(self, sender=self.session)
+        self.session = None
+        self.stream = None
+
+    _NH_SIPSessionDidFail = _NH_SIPSessionDidEnd
 
