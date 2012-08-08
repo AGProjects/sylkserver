@@ -185,7 +185,7 @@ class Room(object):
         self.audio_conference = AudioConference()
         self.audio_conference.hold()
         self.moh_player = MoHPlayer(self.audio_conference)
-        self.moh_player.initialize()
+        self.moh_player.start()
         self.state = 'started'
 
     @run_in_waitable_green_thread
@@ -725,10 +725,10 @@ class MoHPlayer(object):
     def __init__(self, conference):
         self.conference = conference
         self.files = None
-        self.paused = True
+        self.paused = None
         self._player = None
 
-    def initialize(self):
+    def start(self):
         files = glob('%s/*.wav' % ResourcePath('sounds/moh').normalized)
         if not files:
             log.error(u'No files found, MoH is disabled')
