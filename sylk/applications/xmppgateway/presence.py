@@ -29,6 +29,7 @@ from sylk.applications import ApplicationLogger
 from sylk.applications.xmppgateway.datatypes import Identity, FrozenURI, encode_resource
 from sylk.applications.xmppgateway.xmpp.stanzas import AvailabilityPresence
 from sylk.applications.xmppgateway.xmpp.subscription import XMPPSubscription, XMPPIncomingSubscription
+from sylk.configuration import SIPConfig
 
 log = ApplicationLogger(os.path.dirname(__file__).split(os.path.sep)[-1])
 
@@ -339,10 +340,9 @@ class X2SPresenceHandler(object):
             for route in routes:
                 remaining_time = timeout - time()
                 if remaining_time > 0:
-                    try:
-                        contact_uri = account.contact[route]
-                    except KeyError:
-                        continue
+                    transport = route.transport
+                    parameters = {} if transport=='udp' else {'transport': transport}
+                    contact_uri = SIPURI(user=account.contact.username, host=SIPConfig.local_ip, port=getattr(SIPConfig, 'local_%s_port' % transport), parameters=parameters)
                     subscription_uri = self.sip_identity.uri.as_sip_uri()
                     subscription = Subscription(subscription_uri, FromHeader(self.xmpp_identity.uri.as_sip_uri()),
                                                 ToHeader(subscription_uri),
