@@ -17,19 +17,19 @@ from sipsimple.configuration import ConfigurationError
 from sipsimple.configuration.settings import SIPSimpleSettings
 from sipsimple.core import AudioMixer, Engine, SIPCoreError
 from sipsimple.lookup import DNSManager
-from sipsimple.session import SessionManager
 from sipsimple.storage import MemoryStorage
 from sipsimple.threading import ThreadManager
 from sipsimple.threading.green import run_in_green_thread
 from twisted.internet import reactor
 
+# Load extensions needed for integration with SIP SIMPLE SDK
+import sylk.extensions
+
 from sylk.applications import IncomingRequestHandler
 from sylk.configuration import SIPConfig, ThorNodeConfig
 from sylk.configuration.settings import AccountExtension, BonjourAccountExtension, SylkServerSettingsExtension
 from sylk.log import Logger
-
-# Load extensions needed for integration with SIP SIMPLE SDK
-import sylk.extensions
+from sylk.session import SessionManager
 
 
 class SylkServer(SIPApplication):
@@ -65,7 +65,7 @@ class SylkServer(SIPApplication):
         # Disable MSRP ACM if we are using Bonjour
         account.msrp.connection_model = 'relay' if settings.bonjour.enabled else 'acm'
         account.save()
-        account_manager.default_account = account
+        account_manager.sylkserver_account = account
 
     @run_in_green_thread
     def _initialize_subsystems(self):
@@ -81,7 +81,7 @@ class SylkServer(SIPApplication):
             reactor.stop()
             return
 
-        account = account_manager.default_account
+        account = account_manager.sylkserver_account
 
         # initialize core
         notification_center.add_observer(self, sender=engine)
@@ -125,10 +125,10 @@ class SylkServer(SIPApplication):
         try:
             engine.set_tls_options(port=settings.sip.tls_port if 'tls' in settings.sip.transport_list else None,
                                    protocol=settings.tls.protocol,
-                                   verify_server=account.tls.verify_server if account else False,
+                                   verify_server=account.tls.verify_server,
                                    ca_file=settings.tls.ca_list.normalized if settings.tls.ca_list else None,
-                                   cert_file=account.tls.certificate.normalized if account and account.tls.certificate else None,
-                                   privkey_file=account.tls.certificate.normalized if account and account.tls.certificate else None,
+                                   cert_file=account.tls.certificate.normalized if account.tls.certificate else None,
+                                   privkey_file=account.tls.certificate.normalized if account.tls.certificate else None,
                                    timeout=settings.tls.timeout)
         except Exception, e:
             notification_center.post_notification('SIPApplicationFailedToStartTLS', sender=self, data=NotificationData(error=e))

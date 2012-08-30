@@ -88,7 +88,7 @@ class X2SMucHandler(object):
         to_uri = self.sip_identity.uri.as_sip_uri()
         lookup = DNSLookup()
         settings = SIPSimpleSettings()
-        account = AccountManager().default_account
+        account = AccountManager().sylkserver_account
         if account.sip.outbound_proxy is not None:
             uri = SIPURI(host=account.sip.outbound_proxy.host,
                          port=account.sip.outbound_proxy.port,

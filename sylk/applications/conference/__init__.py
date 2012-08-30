@@ -299,7 +299,7 @@ class IncomingReferralHandler(object):
             log.msg('%s added %s to %s' % (self._refer_headers.get('From').uri, self.refer_to_uri, self.room_uri))
             self._refer_request.accept()
             settings = SIPSimpleSettings()
-            account = AccountManager().default_account
+            account = AccountManager().sylkserver_account
             if account.sip.outbound_proxy is not None:
                 uri = SIPURI(host=account.sip.outbound_proxy.host,
                              port=account.sip.outbound_proxy.port,
@@ -325,7 +325,7 @@ class IncomingReferralHandler(object):
     def _NH_DNSLookupDidSucceed(self, notification):
         notification_center = NotificationCenter()
         notification_center.remove_observer(self, sender=notification.sender)
-        account = AccountManager().default_account
+        account = AccountManager().sylkserver_account
         conference_application = ConferenceApplication()
         try:
             room = conference_application.get_room(self.room_uri)

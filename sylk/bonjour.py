@@ -21,7 +21,7 @@ class BonjourServices(object):
     implements(IObserver)
 
     def __init__(self, service='sipfocus', name='SylkServer', uri_user=None):
-        self.account = AccountManager().default_account
+        self.account = AccountManager().sylkserver_account
         self.service = service
         self.name = name
         self.uri_user = uri_user

@@ -10,7 +10,9 @@ from time import time
 
 from application.notification import IObserver, NotificationCenter, NotificationData
 from application.python import Null, limit
+from application.python.types import Singleton
 from eventlet import api, coros, proc
+from sipsimple.account import AccountManager
 from sipsimple.configuration.settings import SIPSimpleSettings
 from sipsimple.core import Invitation, Subscription, SIPCoreError, sip_status_messages
 from sipsimple.core import ContactHeader, RouteHeader, SubjectHeader, FromHeader, ToHeader
@@ -18,7 +20,7 @@ from sipsimple.core import SIPURI, SDPConnection, SDPSession
 from sipsimple.lookup import DNSLookup, DNSLookupError
 from sipsimple.payloads import ParserError
 from sipsimple.payloads.conference import ConferenceDocument
-from sipsimple.session import Session, SessionManager
+from sipsimple.session import Session
 from sipsimple.session import SessionReplaceHandler, TransferHandler, DialogID, TransferInfo
 from sipsimple.session import InvitationDisconnectedError, MediaStreamDidFailError, InterruptSubscription, TerminateSubscription, SubscriptionError, SIPSubscriptionDidFail
 from sipsimple.session import transition_state
@@ -569,4 +571,56 @@ class ServerSession(Session):
                 self.handle_notification(notification)
             if self._hold_in_progress:
                 self._send_hold()
+
+
+class SessionManager(object):
+    __metaclass__ = Singleton
+    implements(IObserver)
+
+    def __init__(self):
+        self.sessions = []
+        self.state = None
+        self._channel = coros.queue()
+
+    def start(self):
+        self.state = 'starting'
+        notification_center = NotificationCenter()
+        notification_center.post_notification('SIPSessionManagerWillStart', sender=self)
+        notification_center.add_observer(self, 'SIPInvitationChangedState')
+        notification_center.add_observer(self, 'SIPSessionNewIncoming')
+        notification_center.add_observer(self, 'SIPSessionNewOutgoing')
+        notification_center.add_observer(self, 'SIPSessionDidFail')
+        notification_center.add_observer(self, 'SIPSessionDidEnd')
+        self.state = 'started'
+        notification_center.post_notification('SIPSessionManagerDidStart', sender=self)
+
+    def stop(self):
+        self.state = 'stopping'
+        notification_center = NotificationCenter()
+        notification_center.post_notification('SIPSessionManagerWillEnd', sender=self)
+        for session in self.sessions:
+            session.end()
+        while self.sessions:
+            self._channel.wait()
+        notification_center.remove_observer(self, 'SIPInvitationChangedState')
+        notification_center.remove_observer(self, 'SIPSessionNewIncoming')
+        notification_center.remove_observer(self, 'SIPSessionNewOutgoing')
+        notification_center.remove_observer(self, 'SIPSessionDidFail')
+        notification_center.remove_observer(self, 'SIPSessionDidEnd')
+        self.state = 'stopped'
+        notification_center.post_notification('SIPSessionManagerDidEnd', sender=self)
+
+    @run_in_twisted_thread
+    def handle_notification(self, notification):
+        if notification.name == 'SIPInvitationChangedState' and notification.data.state == 'incoming':
+            account = AccountManager().sylkserver_account
+            notification.sender.send_response(100)
+            session = ServerSession(account)
+            session.init_incoming(notification.sender, notification.data)
+        elif notification.name in ('SIPSessionNewIncoming', 'SIPSessionNewOutgoing'):
+            self.sessions.append(notification.sender)
+        elif notification.name in ('SIPSessionDidFail', 'SIPSessionDidEnd'):
+            self.sessions.remove(notification.sender)
+            if self.state == 'stopping':
+                self._channel.send(notification)
 

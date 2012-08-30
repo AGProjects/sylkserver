@@ -317,7 +317,7 @@ class X2SPresenceHandler(object):
         notification_center = NotificationCenter()
         settings = SIPSimpleSettings()
 
-        account = AccountManager().default_account
+        account = AccountManager().sylkserver_account
         refresh_interval =  getattr(command, 'refresh_interval', None) or account.sip.subscribe_interval
 
         try:

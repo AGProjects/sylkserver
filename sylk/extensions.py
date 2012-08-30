@@ -12,7 +12,6 @@ from msrplib.connect import DirectConnector, DirectAcceptor, RelayConnection, MS
 from msrplib.protocol import URI
 from msrplib.session import contains_mime_type
 from msrplib.transport import make_response
-from sipsimple.account import AccountManager
 from sipsimple.core import SDPAttribute
 from sipsimple.payloads.iscomposing import IsComposingDocument, IsComposingMessage, State, LastActive, Refresh, ContentType
 from sipsimple.streams import MediaStreamRegistry
@@ -23,18 +22,6 @@ from sipsimple.threading.green import run_in_green_thread
 from twisted.python.failure import Failure
 
 from sylk.configuration import SIPConfig
-from sylk.session import ServerSession
-
-
-# We need to match on the only account that will be available
-def _always_find_default_account(self, contact_uri):
-    return self.default_account
-AccountManager.find_account = _always_find_default_account
-
-
-# Patch sipsimple.session to use ServerSession instead
-import sipsimple.session
-sipsimple.session.Session = ServerSession
 
 
 # We need to be able to set the local identity in the message CPIM envelope

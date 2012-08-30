@@ -1107,7 +1107,7 @@ class OutgoingFileTransferHandler(object):
     def start(self):
         self.greenlet = api.getcurrent()
         settings = SIPSimpleSettings()
-        account = AccountManager().default_account
+        account = AccountManager().sylkserver_account
         if account.sip.outbound_proxy is not None:
             uri = SIPURI(host=account.sip.outbound_proxy.host,
                             port=account.sip.outbound_proxy.port,
