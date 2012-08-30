@@ -10,16 +10,15 @@ from gnutls.crypto import X509Certificate,  X509PrivateKey
 from application import log
 from application.process import process
 
-class _FileError(Exception): pass
 
 def file_content(file):
     path = process.config_file(file)
     if path is None:
-        raise _FileError("File '%s' does not exist" % file)
+        raise Exception("File '%s' does not exist" % file)
     try:
         f = open(path, 'rt')
     except Exception:
-        raise _FileError("File '%s' could not be open" % file)
+        raise Exception("File '%s' could not be open" % file)
     try:
         return f.read()
     finally:
