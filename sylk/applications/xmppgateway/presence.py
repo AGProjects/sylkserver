@@ -397,6 +397,8 @@ class X2SPresenceHandler(object):
                     notification = self._data_channel.wait()
                     if notification.sender is not self._sip_subscription:
                         continue
+                    if self._xmpp_subscription is None:
+                        continue
                     if notification.name == 'SIPSubscriptionGotNotify':
                         if notification.data.event == 'presence':
                             subscription_state = notification.data.headers.get('Subscription-State').state
