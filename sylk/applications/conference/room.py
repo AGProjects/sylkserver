@@ -20,7 +20,7 @@ try:
 except ImportError:
     from backports.weakref import WeakSet
 
-from application.notification import IObserver, NotificationCenter
+from application.notification import IObserver, NotificationCenter, NotificationData
 from application.python import Null
 from application.system import makedirs
 from eventlet import api, coros, proc
@@ -38,7 +38,6 @@ from sipsimple.streams.applications.chat import CPIMIdentity
 from sipsimple.streams.msrp import ChatStreamError, FileSelector
 from sipsimple.threading import run_in_thread, run_in_twisted_thread
 from sipsimple.threading.green import run_in_green_thread, run_in_waitable_green_thread
-from sipsimple.util import Timestamp, TimestampedNotificationData
 from twisted.internet import reactor
 from zope.interface import implements
 
@@ -237,10 +236,11 @@ class Room(object):
                 message = data.message
                 if message.sender.uri != session.remote_identity.uri:
                     return
-                if data.timestamp is not None and isinstance(message.timestamp, Timestamp):
-                    timestamp = datetime.fromtimestamp(mktime(message.timestamp.timetuple()))
+                if message.timestamp is not None:
+                    value = message.timestamp
+                    timestamp = datetime(value.year, value.month, value.day, value.hour, value.minute, value.second, value.microsecond, value.tzinfo)
                 else:
-                    timestamp = datetime.now()
+                    timestamp = datetime.utcnow()
                 recipient = message.recipients[0]
                 sender = message.sender
                 sender.display_name = self.last_nicknames_map.get(str(session.remote_identity.uri), sender.display_name)
@@ -955,15 +955,15 @@ class IncomingFileTransferHandler(object):
             try:
                 self.file.write(data)
             except EnvironmentError, e:
-                notification_center.post_notification('IncomingFileTransferHandlerGotError', sender=self, data=TimestampedNotificationData(error=str(e)))
+                notification_center.post_notification('IncomingFileTransferHandlerGotError', sender=self, data=NotificationData(error=str(e)))
             else:
                 self.hash.update(data)
         else:
             self.file.close()
             if self.error:
-                notification_center.post_notification('IncomingFileTransferHandlerDidFail', sender=self, data=TimestampedNotificationData())
+                notification_center.post_notification('IncomingFileTransferHandlerDidFail', sender=self)
             else:
-                notification_center.post_notification('IncomingFileTransferHandlerDidEnd', sender=self, data=TimestampedNotificationData())
+                notification_center.post_notification('IncomingFileTransferHandlerDidEnd', sender=self)
 
     @run_in_thread('file-io')
     def remove_bogus_file(self, filename):

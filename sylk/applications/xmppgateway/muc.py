@@ -15,7 +15,6 @@ from sipsimple.lookup import DNSLookup, DNSLookupError
 from sipsimple.streams.msrp import ChatStreamError
 from sipsimple.streams.applications.chat import CPIMIdentity
 from sipsimple.threading.green import run_in_green_thread
-from sipsimple.util import TimestampedNotificationData
 from zope.interface import implements
 
 from sylk.applications import ApplicationLogger
@@ -53,7 +52,7 @@ class X2SMucHandler(object):
         self._xmpp_muc_session = XMPPIncomingMucSession(local_identity=self.sip_identity, remote_identity=self.xmpp_identity)
         notification_center.add_observer(self, sender=self._xmpp_muc_session)
         self._xmpp_muc_session.start()
-        notification_center.post_notification('X2SMucHandlerDidStart', sender=self, data=TimestampedNotificationData())
+        notification_center.post_notification('X2SMucHandlerDidStart', sender=self)
         self._start_sip_session()
 
     def end(self):
@@ -76,7 +75,7 @@ class X2SMucHandler(object):
             self._sip_session.end()
             self._sip_session = None
         self.ended = True
-        notification_center.post_notification('X2SMucHandlerDidEnd', sender=self, data=TimestampedNotificationData())
+        notification_center.post_notification('X2SMucHandlerDidEnd', sender=self)
 
     @run_in_green_thread
     def _start_sip_session(self):
@@ -100,7 +99,7 @@ class X2SMucHandler(object):
             routes = lookup.lookup_sip_proxy(uri, settings.sip.transport_list).wait()
         except DNSLookupError:
             log.warning('DNS lookup error while looking for %s proxy' % uri)
-            notification_center.post_notification('ChatSessionDidFail', sender=self, data=TimestampedNotificationData())
+            notification_center.post_notification('ChatSessionDidFail', sender=self)
             return
         self._msrp_stream = ChatStream(account)
         route = routes.pop(0)

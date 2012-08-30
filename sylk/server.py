@@ -8,7 +8,7 @@ import sys
 from threading import Event
 
 from application import log
-from application.notification import NotificationCenter
+from application.notification import NotificationCenter, NotificationData
 from eventlet import api, proc
 from sipsimple.account import Account, BonjourAccount, AccountManager
 from sipsimple.application import SIPApplication
@@ -21,7 +21,6 @@ from sipsimple.session import SessionManager
 from sipsimple.storage import MemoryStorage
 from sipsimple.threading import ThreadManager
 from sipsimple.threading.green import run_in_green_thread
-from sipsimple.util import TimestampedNotificationData
 from twisted.internet import reactor
 
 from sylk.applications import IncomingRequestHandler
@@ -77,7 +76,7 @@ class SylkServer(SIPApplication):
         settings = SIPSimpleSettings()
         self._load_configuration()
 
-        notification_center.post_notification('SIPApplicationWillStart', sender=self, data=TimestampedNotificationData())
+        notification_center.post_notification('SIPApplicationWillStart', sender=self)
         if self.state == 'stopping':
             reactor.stop()
             return
@@ -132,7 +131,7 @@ class SylkServer(SIPApplication):
                                    privkey_file=account.tls.certificate.normalized if account and account.tls.certificate else None,
                                    timeout=settings.tls.timeout)
         except Exception, e:
-            notification_center.post_notification('SIPApplicationFailedToStartTLS', sender=self, data=TimestampedNotificationData(error=e))
+            notification_center.post_notification('SIPApplicationFailedToStartTLS', sender=self, data=NotificationData(error=e))
 
         # initialize audio objects
         voice_mixer = AudioMixer(None, None, settings.audio.sample_rate, 0, 9999)
@@ -147,7 +146,7 @@ class SylkServer(SIPApplication):
         notification_center.add_observer(self, name='CFGSettingsObjectDidChange')
 
         self.state = 'started'
-        notification_center.post_notification('SIPApplicationDidStart', sender=self, data=TimestampedNotificationData())
+        notification_center.post_notification('SIPApplicationDidStart', sender=self)
 
     @run_in_green_thread
     def _shutdown_subsystems(self):

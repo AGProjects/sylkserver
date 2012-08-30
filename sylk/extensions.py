@@ -6,7 +6,7 @@ import random
 from datetime import datetime
 from dateutil.tz import tzlocal
 
-from application.notification import NotificationCenter
+from application.notification import NotificationCenter, NotificationData
 from eventlet import api
 from msrplib.connect import DirectConnector, DirectAcceptor, RelayConnection, MSRPRelaySettings
 from msrplib.protocol import URI
@@ -20,7 +20,6 @@ from sipsimple.streams.applications.chat import CPIMMessage, CPIMParserError
 from sipsimple.streams.msrp import ChatStreamError, MSRPStreamError, NotificationProxyLogger
 from sipsimple.streams.msrp import ChatStream as _ChatStream, MSRPStreamBase as _MSRPStreamBase
 from sipsimple.threading.green import run_in_green_thread
-from sipsimple.util import TimestampedNotificationData
 from twisted.python.failure import Failure
 
 from sylk.configuration import SIPConfig
@@ -103,10 +102,10 @@ class MSRPStreamBase(_MSRPStreamBase):
         except api.GreenletExit:
             raise
         except Exception, ex:
-            ndata = TimestampedNotificationData(context='initialize', failure=Failure(), reason=str(ex))
+            ndata = NotificationData(context='initialize', failure=Failure(), reason=str(ex))
             notification_center.post_notification('MediaStreamDidFail', self, ndata)
         else:
-            notification_center.post_notification('MediaStreamDidInitialize', self, data=TimestampedNotificationData())
+            notification_center.post_notification('MediaStreamDidInitialize', self)
         finally:
             if self.msrp_session is None and self.msrp is None and self.msrp_connector is None:
                 notification_center.remove_observer(self, sender=self)
@@ -161,19 +160,19 @@ class ChatStream(_ChatStream, MSRPStreamBase):
         notification_center = NotificationCenter()
         if message.content_type.lower() == IsComposingDocument.content_type:
             data = IsComposingDocument.parse(message.body)
-            ndata = TimestampedNotificationData(state=data.state.value,
+            ndata = NotificationData(state=data.state.value,
                                                 refresh=data.refresh.value if data.refresh is not None else None,
                                                 content_type=data.content_type.value if data.content_type is not None else None,
                                                 last_active=data.last_active.value if data.last_active is not None else None,
                                                 sender=message.sender, recipients=message.recipients, private=private, chunk=chunk)
             notification_center.post_notification('ChatStreamGotComposingIndication', self, ndata)
         else:
-            notification_center.post_notification('ChatStreamGotMessage', self, TimestampedNotificationData(message=message, private=private, chunk=chunk))
+            notification_center.post_notification('ChatStreamGotMessage', self, NotificationData(message=message, private=private, chunk=chunk))
 
     def _handle_NICKNAME(self, chunk):
         nickname = chunk.headers['Use-Nickname'].decoded
         notification_center = NotificationCenter()
-        notification_center.post_notification('ChatStreamGotNicknameRequest', self, TimestampedNotificationData(nickname=nickname, chunk=chunk))
+        notification_center.post_notification('ChatStreamGotNicknameRequest', self, NotificationData(nickname=nickname, chunk=chunk))
 
     @run_in_green_thread
     def _send_response(self, response):

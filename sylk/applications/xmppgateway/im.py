@@ -17,7 +17,6 @@ from sipsimple.lookup import DNSLookup, DNSLookupError
 from sipsimple.streams.applications.chat import CPIMIdentity
 from sipsimple.threading import run_in_twisted_thread
 from sipsimple.threading.green import run_in_green_thread, run_in_waitable_green_thread
-from sipsimple.util import TimestampedNotificationData
 from twisted.internet import reactor
 from zope.interface import implements
 
@@ -64,7 +63,7 @@ class ChatSessionHandler(object):
         self.__dict__['started'] = value
         if not old_value and value:
             notification_center = NotificationCenter()
-            notification_center.post_notification('ChatSessionDidStart', sender=self, data=TimestampedNotificationData())
+            notification_center.post_notification('ChatSessionDidStart', sender=self)
             self._send_queued_messages()
     def _get_started(self):
         return self.__dict__['started']
@@ -133,7 +132,7 @@ class ChatSessionHandler(object):
             routes = lookup.lookup_sip_proxy(uri, settings.sip.transport_list).wait()
         except DNSLookupError:
             log.warning('DNS lookup error while looking for %s proxy' % uri)
-            notification_center.post_notification('ChatSessionDidFail', sender=self, data=TimestampedNotificationData())
+            notification_center.post_notification('ChatSessionDidFail', sender=self)
             return
         self.msrp_stream = ChatStream(account)
         route = routes.pop(0)
@@ -164,9 +163,9 @@ class ChatSessionHandler(object):
             self.xmpp_session = None
         self.ended = True
         if self.started:
-            notification_center.post_notification('ChatSessionDidEnd', sender=self, data=TimestampedNotificationData())
+            notification_center.post_notification('ChatSessionDidEnd', sender=self)
         else:
-            notification_center.post_notification('ChatSessionDidFail', sender=self, data=TimestampedNotificationData())
+            notification_center.post_notification('ChatSessionDidFail', sender=self)
 
     def enqueue_xmpp_message(self, message):
         if self.started:

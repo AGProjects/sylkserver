@@ -3,11 +3,11 @@
 
 import os
 
-from application.notification import IObserver, NotificationCenter
+from application.notification import IObserver, NotificationCenter, NotificationData
 from application.python import Null
 from application.python.types import Singleton
 from datetime import datetime
-from sipsimple.util import Timestamp, TimestampedNotificationData
+from sipsimple.util import ISOTimestamp
 from twisted.internet import reactor
 from twisted.words.protocols.jabber.jid import internJID as JID
 from wokkel.component import InternalComponent, Router as _Router
@@ -53,12 +53,12 @@ class XMPPS2SServerFactory(XMPPS2SServerFactory):
         def logDataIn(buf):
             buf = buf.strip()
             if buf:
-                xmpp_logger.msg("RECEIVED", Timestamp(datetime.now()), buf)
+                xmpp_logger.msg("RECEIVED", ISOTimestamp.now(), buf)
 
         def logDataOut(buf):
             buf = buf.strip()
             if buf:
-                xmpp_logger.msg("SENDING", Timestamp(datetime.now()), buf)
+                xmpp_logger.msg("SENDING", ISOTimestamp.now(), buf)
 
         if XMPPGatewayConfig.trace_xmpp:
             xs.rawDataInFn = logDataIn
@@ -72,12 +72,12 @@ class DeferredS2SClientFactory(DeferredS2SClientFactory):
         def logDataIn(buf):
             buf = buf.strip()
             if buf:
-                xmpp_logger.msg("RECEIVED", Timestamp(datetime.now()), buf)
+                xmpp_logger.msg("RECEIVED", ISOTimestamp.now(), buf)
 
         def logDataOut(buf):
             buf = buf.strip()
             if buf:
-                xmpp_logger.msg("SENDING", Timestamp(datetime.now()), buf)
+                xmpp_logger.msg("SENDING", ISOTimestamp.now(), buf)
 
         if XMPPGatewayConfig.trace_xmpp:
             xs.rawDataInFn = logDataIn
@@ -254,7 +254,7 @@ class XMPPManager(object):
             except KeyError:
                 if stanza.type == 'subscribe':
                     notification_center = NotificationCenter()
-                    notification_center.post_notification('XMPPGotPresenceSubscriptionRequest', sender=self, data=TimestampedNotificationData(stanza=stanza))
+                    notification_center.post_notification('XMPPGotPresenceSubscriptionRequest', sender=self, data=NotificationData(stanza=stanza))
             else:
                 subscription.channel.send(stanza)
 
@@ -269,7 +269,7 @@ class XMPPManager(object):
             subscription = self.subscription_manager.incoming_subscriptions[(stanza.recipient.uri, sender_uri_bare)]
         except KeyError:
             notification_center = NotificationCenter()
-            notification_center.post_notification('XMPPGotPresenceSubscriptionRequest', sender=self, data=TimestampedNotificationData(stanza=stanza))
+            notification_center.post_notification('XMPPGotPresenceSubscriptionRequest', sender=self, data=NotificationData(stanza=stanza))
         else:
             subscription.channel.send(stanza)
 
@@ -296,9 +296,9 @@ class XMPPManager(object):
         except KeyError:
             notification_center = NotificationCenter()
             if stanza.available:
-                notification_center.post_notification('XMPPGotMucJoinRequest', sender=self, data=TimestampedNotificationData(stanza=stanza))
+                notification_center.post_notification('XMPPGotMucJoinRequest', sender=self, data=NotificationData(stanza=stanza))
             else:
-                notification_center.post_notification('XMPPGotMucLeaveRequest', sender=self, data=TimestampedNotificationData(stanza=stanza))
+                notification_center.post_notification('XMPPGotMucLeaveRequest', sender=self, data=NotificationData(stanza=stanza))
         else:
             session.channel.send(stanza)
 

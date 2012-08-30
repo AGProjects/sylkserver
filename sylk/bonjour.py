@@ -2,16 +2,15 @@
 #
 
 from application import log
-from application.notification import NotificationCenter, IObserver
+from application.notification import IObserver, NotificationCenter, NotificationData
 from application.python import Null
 from eventlet import api, coros, proc
 from eventlet.green import select
-from sipsimple.account import bonjour, BonjourRegistrationFile
 from sipsimple.account import AccountManager
+from sipsimple.account.bonjour import _bonjour, BonjourRegistrationFile
 from sipsimple.configuration.settings import SIPSimpleSettings
 from sipsimple.threading import run_in_twisted_thread
 from sipsimple.threading.green import Command, run_in_green_thread
-from sipsimple.util import TimestampedNotificationData
 from twisted.internet import reactor
 from zope.interface import implements
 
@@ -72,13 +71,13 @@ class BonjourServices(object):
     def _register_cb(self, file, flags, error_code, name, regtype, domain):
         notification_center = NotificationCenter()
         file = BonjourRegistrationFile.find_by_file(file)
-        if error_code == bonjour.kDNSServiceErr_NoError:
+        if error_code == _bonjour.kDNSServiceErr_NoError:
             notification_center.post_notification('BonjourServiceRegistrationDidSucceed', sender=self,
-                                                  data=TimestampedNotificationData(name=name, transport=file.transport))
+                                                  data=NotificationData(name=name, transport=file.transport))
         else:
-            error = bonjour.BonjourError(error_code)
+            error = _bonjour.BonjourError(error_code)
             notification_center.post_notification('BonjourServiceRegistrationDidFail', sender=self,
-                                                  data=TimestampedNotificationData(reason=str(error), transport=file.transport))
+                                                  data=NotificationData(reason=str(error), transport=file.transport))
             self._files.remove(file)
             self._select_proc.kill(RestartSelect)
             file.close()
@@ -119,7 +118,7 @@ class BonjourServices(object):
             file.close()
         notification_center = NotificationCenter()
         for transport in set(file.transport for file in self._files):
-            notification_center.post_notification('BonjourServiceRegistrationDidEnd', sender=self, data=TimestampedNotificationData(transport=transport))
+            notification_center.post_notification('BonjourServiceRegistrationDidEnd', sender=self, data=NotificationData(transport=transport))
         command.signal()
 
     def _CH_register(self, command):
@@ -133,20 +132,20 @@ class BonjourServices(object):
         missing_transports = supported_transports - registered_transports
         added_transports = set()
         for transport in missing_transports:
-            notification_center.post_notification('BonjourServiceWillRegister', sender=self, data=TimestampedNotificationData(transport=transport))
+            notification_center.post_notification('BonjourServiceWillRegister', sender=self, data=NotificationData(transport=transport))
             try:
                 contact_uri = self.account.contact[transport]
                 contact_uri.user = self.uri_user
                 contact_uri.parameters['isfocus'] = None
                 txtdata = dict(txtvers=1, name=self.name, contact="<%s>" % str(contact_uri))
-                file = bonjour.DNSServiceRegister(name=str(contact_uri),
+                file = _bonjour.DNSServiceRegister(name=str(contact_uri),
                                                   regtype="_%s._%s" % (self.service, transport if transport == 'udp' else 'tcp'),
                                                   port=contact_uri.port,
                                                   callBack=self._register_cb,
-                                                  txtRecord=bonjour.TXTRecord(items=txtdata))
-            except (bonjour.BonjourError, KeyError), e:
+                                                  txtRecord=_bonjour.TXTRecord(items=txtdata))
+            except (_bonjour.BonjourError, KeyError), e:
                 notification_center.post_notification('BonjourServiceRegistrationDidFail', sender=self,
-                                                      data=TimestampedNotificationData(reason=str(e), transport=transport))
+                                                      data=NotificationData(reason=str(e), transport=transport))
             else:
                 self._files.append(BonjourRegistrationFile(file, transport))
                 added_transports.add(transport)
@@ -178,10 +177,10 @@ class BonjourServices(object):
                 contact_uri.user = self.user_uri
                 contact_uri.parameters['isfocus'] = None
                 txtdata = dict(txtvers=1, name=self.name, contact="<%s>" % str(contact_uri))
-                bonjour.DNSServiceUpdateRecord(file.file, None, flags=0, rdata=bonjour.TXTRecord(items=txtdata), ttl=0)
-            except (bonjour.BonjourError, KeyError), e:
+                _bonjour.DNSServiceUpdateRecord(file.file, None, flags=0, rdata=_bonjour.TXTRecord(items=txtdata), ttl=0)
+            except (_bonjour.BonjourError, KeyError), e:
                 notification_center.post_notification('BonjourServiceRegistrationUpdateDidFail', sender=self,
-                                                      data=TimestampedNotificationData(reason=str(e), transport=file.transport))
+                                                      data=NotificationData(reason=str(e), transport=file.transport))
                 update_failure = True
         self._command_channel.send(Command('register'))
         if update_failure:
@@ -192,7 +191,7 @@ class BonjourServices(object):
     def _CH_process_results(self, command):
         for file in (f for f in command.files if not f.closed):
             try:
-                bonjour.DNSServiceProcessResult(file.file)
+                _bonjour.DNSServiceProcessResult(file.file)
             except:
                 # Should we close the file? The documentation doesn't say anything about this. -Luci
                 log.err()
@@ -218,7 +217,7 @@ class BonjourServices(object):
             file.close()
         notification_center = NotificationCenter()
         for transport in set(file.transport for file in self._files):
-            notification_center.post_notification('BonjourServiceRegistrationDidEnd', sender=self, data=TimestampedNotificationData(transport=transport))
+            notification_center.post_notification('BonjourServiceRegistrationDidEnd', sender=self, data=NotificationData(transport=transport))
         command.signal()
 
     @run_in_twisted_thread

@@ -1,8 +1,7 @@
 # Copyright (C) 2012 AG Projects. See LICENSE for details
 #
 
-from application.notification import NotificationCenter
-from sipsimple.util import TimestampedNotificationData
+from application.notification import NotificationCenter, NotificationData
 from wokkel.muc import UserPresence
 from wokkel.xmppim import BasePresenceProtocol, MessageProtocol, PresenceProtocol
 
@@ -39,7 +38,7 @@ class MessageProtocol(MessageProtocol):
             error_type = msg.error['type']
             conditions = [(child.name, child.defaultUri) for child in msg.error.children]
             error_message = ErrorStanza('message', sender, recipient, error_type, conditions, id=msg.getAttribute('id', None))
-            notification_center.post_notification('XMPPGotErrorMessage', sender=self.parent, data=TimestampedNotificationData(error_message=error_message))
+            notification_center.post_notification('XMPPGotErrorMessage', sender=self.parent, data=NotificationData(error_message=error_message))
             return
 
         if type in (None, 'normal', 'chat') and msg.body is not None or msg.html is not None:
@@ -52,10 +51,10 @@ class MessageProtocol(MessageProtocol):
             use_receipt = msg.request is not None and msg.request.defaultUri == RECEIPTS_NS
             if type == 'chat':
                 message = ChatMessage(sender, recipient, body, html_body, id=msg.getAttribute('id', None), use_receipt=use_receipt)
-                notification_center.post_notification('XMPPGotChatMessage', sender=self.parent, data=TimestampedNotificationData(message=message))
+                notification_center.post_notification('XMPPGotChatMessage', sender=self.parent, data=NotificationData(message=message))
             else:
                 message = NormalMessage(sender, recipient, body, html_body, id=msg.getAttribute('id', None), use_receipt=use_receipt)
-                notification_center.post_notification('XMPPGotNormalMessage', sender=self.parent, data=TimestampedNotificationData(message=message))
+                notification_center.post_notification('XMPPGotNormalMessage', sender=self.parent, data=NotificationData(message=message))
             return
 
         if type == 'chat' and msg.body is None and msg.html is None:
@@ -64,7 +63,7 @@ class MessageProtocol(MessageProtocol):
                 state_obj = getattr(msg, state, None)
                 if state_obj is not None and state_obj.defaultUri == CHATSTATES_NS:
                     composing_indication = ChatComposingIndication(sender, recipient, state, id=msg.getAttribute('id', None))
-                    notification_center.post_notification('XMPPGotComposingIndication', sender=self.parent, data=TimestampedNotificationData(composing_indication=composing_indication))
+                    notification_center.post_notification('XMPPGotComposingIndication', sender=self.parent, data=NotificationData(composing_indication=composing_indication))
                     return
 
         # Check if it's a receipt acknowledgement
@@ -72,7 +71,7 @@ class MessageProtocol(MessageProtocol):
             receipt_id = msg.getAttribute('id', None)
             if receipt_id is not None:
                 receipt = MessageReceipt(sender, recipient, receipt_id)
-                notification_center.post_notification('XMPPGotReceipt', sender=self.parent, data=TimestampedNotificationData(receipt=receipt))
+                notification_center.post_notification('XMPPGotReceipt', sender=self.parent, data=NotificationData(receipt=receipt))
 
 
 class PresenceProtocol(PresenceProtocol):
@@ -86,7 +85,7 @@ class PresenceProtocol(PresenceProtocol):
         statuses = stanza.statuses
         presence_stanza = AvailabilityPresence(sender, recipient, available=True, show=show, statuses=statuses, id=id)
         notification_center = NotificationCenter()
-        notification_center.post_notification('XMPPGotPresenceAvailability', sender=self.parent, data=TimestampedNotificationData(presence_stanza=presence_stanza))
+        notification_center.post_notification('XMPPGotPresenceAvailability', sender=self.parent, data=NotificationData(presence_stanza=presence_stanza))
 
     def unavailableReceived(self, stanza):
         sender_uri = FrozenURI.parse('xmpp:'+stanza.element['from'])
@@ -96,7 +95,7 @@ class PresenceProtocol(PresenceProtocol):
         id = stanza.element.getAttribute('id')
         presence_stanza = AvailabilityPresence(sender, recipient, available=False, id=id)
         notification_center = NotificationCenter()
-        notification_center.post_notification('XMPPGotPresenceAvailability', sender=self.parent, data=TimestampedNotificationData(presence_stanza=presence_stanza))
+        notification_center.post_notification('XMPPGotPresenceAvailability', sender=self.parent, data=NotificationData(presence_stanza=presence_stanza))
 
     def _process_subscription_stanza(self, stanza):
         sender_uri = FrozenURI.parse('xmpp:'+stanza.element['from'])
@@ -107,7 +106,7 @@ class PresenceProtocol(PresenceProtocol):
         type = stanza.element.getAttribute('type')
         presence_stanza = SubscriptionPresence(sender, recipient, type, id=id)
         notification_center = NotificationCenter()
-        notification_center.post_notification('XMPPGotPresenceSubscriptionStatus', sender=self.parent, data=TimestampedNotificationData(presence_stanza=presence_stanza))
+        notification_center.post_notification('XMPPGotPresenceSubscriptionStatus', sender=self.parent, data=NotificationData(presence_stanza=presence_stanza))
 
     def subscribedReceived(self, stanza):
         self._process_subscription_stanza(stanza)
@@ -129,7 +128,7 @@ class PresenceProtocol(PresenceProtocol):
         id = stanza.element.getAttribute('id')
         presence_stanza = ProbePresence(sender, recipient, id=id)
         notification_center = NotificationCenter()
-        notification_center.post_notification('XMPPGotPresenceProbe', sender=self.parent, data=TimestampedNotificationData(presence_stanza=presence_stanza))
+        notification_center.post_notification('XMPPGotPresenceProbe', sender=self.parent, data=NotificationData(presence_stanza=presence_stanza))
 
 
 class MUCProtocol(BasePresenceProtocol):
@@ -169,7 +168,7 @@ class MUCProtocol(BasePresenceProtocol):
             body = unicode(msg.body)
         message = GroupChatMessage(sender, recipient, body, html_body, id=msg.getAttribute('id', None))
         notification_center = NotificationCenter()
-        notification_center.post_notification('XMPPMucGotGroupChat', sender=self.parent, data=TimestampedNotificationData(message=message))
+        notification_center.post_notification('XMPPMucGotGroupChat', sender=self.parent, data=NotificationData(message=message))
 
     def availableReceived(self, stanza):
         sender_uri = FrozenURI.parse('xmpp:'+stanza.element['from'])
@@ -179,7 +178,7 @@ class MUCProtocol(BasePresenceProtocol):
         id = stanza.element.getAttribute('id')
         presence_stanza = MUCAvailabilityPresence(sender, recipient, available=True, id=id)
         notification_center = NotificationCenter()
-        notification_center.post_notification('XMPPMucGotPresenceAvailability', sender=self.parent, data=TimestampedNotificationData(presence_stanza=presence_stanza))
+        notification_center.post_notification('XMPPMucGotPresenceAvailability', sender=self.parent, data=NotificationData(presence_stanza=presence_stanza))
 
     def unavailableReceived(self, stanza):
         sender_uri = FrozenURI.parse('xmpp:'+stanza.element['from'])
@@ -189,5 +188,5 @@ class MUCProtocol(BasePresenceProtocol):
         id = stanza.element.getAttribute('id')
         presence_stanza = MUCAvailabilityPresence(sender, recipient, available=False, id=id)
         notification_center = NotificationCenter()
-        notification_center.post_notification('XMPPMucGotPresenceAvailability', sender=self.parent, data=TimestampedNotificationData(presence_stanza=presence_stanza))
+        notification_center.post_notification('XMPPMucGotPresenceAvailability', sender=self.parent, data=NotificationData(presence_stanza=presence_stanza))
 

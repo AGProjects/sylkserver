@@ -20,7 +20,6 @@ from sipsimple.payloads import pidf, rpid
 from sipsimple.payloads import ParserError
 from sipsimple.threading import run_in_twisted_thread
 from sipsimple.threading.green import Command, run_in_green_thread
-from sipsimple.util import TimestampedNotificationData
 from time import time
 from twisted.internet import reactor
 from zope.interface import implements
@@ -57,7 +56,7 @@ class S2XPresenceHandler(object):
         self._xmpp_subscription = XMPPSubscription(local_identity=self.sip_identity, remote_identity=self.xmpp_identity)
         notification_center.add_observer(self, sender=self._xmpp_subscription)
         self._xmpp_subscription.start()
-        notification_center.post_notification('S2XPresenceHandlerDidStart', sender=self, data=TimestampedNotificationData())
+        notification_center.post_notification('S2XPresenceHandlerDidStart', sender=self)
 
     def end(self):
         if self.ended:
@@ -75,7 +74,7 @@ class S2XPresenceHandler(object):
             except SIPCoreError:
                 pass
         self.ended = True
-        notification_center.post_notification('S2XPresenceHandlerDidEnd', sender=self, data=TimestampedNotificationData())
+        notification_center.post_notification('S2XPresenceHandlerDidEnd', sender=self)
 
     def add_sip_subscription(self, subscription):
         self._sip_subscriptions.append(subscription)
@@ -216,7 +215,7 @@ class X2SPresenceHandler(object):
         self._xmpp_subscription.start()
         self._command_proc = proc.spawn(self._run)
         self._subscribe_sip()
-        notification_center.post_notification('X2SPresenceHandlerDidStart', sender=self, data=TimestampedNotificationData())
+        notification_center.post_notification('X2SPresenceHandlerDidStart', sender=self)
 
     def end(self):
         if self.ended:
@@ -229,7 +228,7 @@ class X2SPresenceHandler(object):
         if self._sip_subscription:
             self._unsubscribe_sip()
         self.ended = True
-        notification_center.post_notification('X2SPresenceHandlerDidEnd', sender=self, data=TimestampedNotificationData())
+        notification_center.post_notification('X2SPresenceHandlerDidEnd', sender=self)
 
     @run_in_green_thread
     def _subscribe_sip(self):
