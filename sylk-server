@@ -37,12 +37,6 @@ def main():
                       help='enable bonjour services')
     (options, args) = parser.parse_args()
 
-    try:
-        sylk.dependencies.check()
-    except Exception, e:
-        log.fatal(str(e))
-        sys.exit(1)
-
     path, configuration_filename = os.path.split(options.config_file)
     if path:
         system_config_directory = path
