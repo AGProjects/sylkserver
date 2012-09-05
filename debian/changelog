@@ -1,6 +1,8 @@
-sylkserver (2.0.0-dev) unstable; urgency=low
+sylkserver (2.0.0) UNRELEASED; urgency=low
 
   * Added XMPP gateway application
+  * Added Bonjour support
+  * Added support for MSRP NICKNAME
   * Added ability to select desired application with X-Sylk-App header
   * Added ability to map applications by RURI, domain or username
   * Added ApplicationLogger, in order to prefix each application's log lines
@@ -13,7 +15,7 @@ sylkserver (2.0.0-dev) unstable; urgency=low
   * Made contact_header optional in ServerSession.connect
   * Use received reason when notifyig about REFER request progress
 
- -- Saul Ibarra <saul@ag-projects.com>  Thu, 10 May 2012 10:01:46 +0200
+ -- Saul Ibarra <saul@ag-projects.com>  Wed, 05 Sep 2012 17:33:09 +0200
 
 sylkserver (1.3.0) unstable; urgency=low
 

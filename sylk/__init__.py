@@ -2,7 +2,7 @@
 
 """SylkServer"""
 
-__version__ = '2.0.0-dev'
+__version__ = '2.0.0'
 
 configuration_filename = "config.ini"
 
