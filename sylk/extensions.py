@@ -7,7 +7,7 @@ from datetime import datetime
 from dateutil.tz import tzlocal
 
 from application.notification import NotificationCenter, NotificationData
-from eventlet import api
+from eventlib import api
 from msrplib.connect import DirectConnector, DirectAcceptor, RelayConnection, MSRPRelaySettings
 from msrplib.protocol import URI
 from msrplib.session import contains_mime_type

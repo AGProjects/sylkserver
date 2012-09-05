@@ -5,7 +5,7 @@ from application.notification import IObserver, NotificationCenter, Notification
 from application.python import Null
 from application.python.descriptor import WriteOnceAttribute
 from application.python.types import Singleton
-from eventlet import coros, proc
+from eventlib import coros, proc
 from twisted.internet import reactor
 from zope.interface import implements
 

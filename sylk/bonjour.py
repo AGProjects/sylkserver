@@ -4,8 +4,8 @@
 from application import log
 from application.notification import IObserver, NotificationCenter, NotificationData
 from application.python import Null
-from eventlet import api, coros, proc
-from eventlet.green import select
+from eventlib import api, coros, proc
+from eventlib.green import select
 from sipsimple.account import AccountManager
 from sipsimple.account.bonjour import _bonjour, BonjourRegistrationFile
 from sipsimple.configuration.settings import SIPSimpleSettings

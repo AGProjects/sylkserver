@@ -5,7 +5,7 @@ from application.notification import IObserver, NotificationCenter, Notification
 from application.python import Null
 from application.python.descriptor import WriteOnceAttribute
 from application.python.types import Singleton
-from eventlet import coros, proc
+from eventlib import coros, proc
 from zope.interface import implements
 
 from sylk.applications.xmppgateway.xmpp.stanzas import SubscriptionPresence, ProbePresence, AvailabilityPresence

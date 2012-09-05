@@ -9,7 +9,7 @@ import urllib
 from application.notification import IObserver, NotificationCenter
 from application.python import Null, limit
 from application.python.descriptor import WriteOnceAttribute
-from eventlet import coros, proc
+from eventlib import coros, proc
 from sipsimple.account import AccountManager
 from sipsimple.configuration.settings import SIPSimpleSettings
 from sipsimple.core import SIPURI, SIPCoreError

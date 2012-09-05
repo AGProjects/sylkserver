@@ -7,7 +7,7 @@ from application.notification import IObserver, NotificationCenter
 from application.python import Null
 from application.python.descriptor import WriteOnceAttribute
 from collections import deque
-from eventlet import coros
+from eventlib import coros
 from sipsimple.account import AccountManager
 from sipsimple.configuration.settings import SIPSimpleSettings
 from sipsimple.core import SIPURI

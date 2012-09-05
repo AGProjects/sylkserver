@@ -11,7 +11,7 @@ from time import time
 from application.notification import IObserver, NotificationCenter, NotificationData
 from application.python import Null, limit
 from application.python.types import Singleton
-from eventlet import api, coros, proc
+from eventlib import api, coros, proc
 from sipsimple.account import AccountManager
 from sipsimple.configuration.settings import SIPSimpleSettings
 from sipsimple.core import Invitation, Subscription, SIPCoreError, sip_status_messages

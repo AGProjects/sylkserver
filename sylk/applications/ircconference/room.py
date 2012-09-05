@@ -8,7 +8,7 @@ from application import log
 from application.notification import IObserver, NotificationCenter, NotificationData
 from application.python import Null
 from application.python.types import Singleton
-from eventlet import coros, proc
+from eventlib import coros, proc
 from sipsimple.audio import WavePlayer, WavePlayerError
 from sipsimple.conference import AudioConference
 from sipsimple.configuration.settings import SIPSimpleSettings
@@ -528,7 +528,7 @@ class IRCBot(irc.IRCClient):
 
     def signedOn(self):
         log.msg('Logging into %s channel...' % self.factory.channel)
-        self.join(self.factory.channel) 
+        self.join(self.factory.channel)
 
     def kickedFrom(self, channel, kicker, message):
         log.msg('Got kicked from %s by %s: %s. Rejoining...' % (channel, kicker, message))

@@ -9,7 +9,7 @@ from threading import Event
 
 from application import log
 from application.notification import NotificationCenter, NotificationData
-from eventlet import api, proc
+from eventlib import api, proc
 from sipsimple.account import Account, BonjourAccount, AccountManager
 from sipsimple.application import SIPApplication
 from sipsimple.audio import AudioDevice, RootAudioBridge

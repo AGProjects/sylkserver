@@ -23,7 +23,7 @@ except ImportError:
 from application.notification import IObserver, NotificationCenter, NotificationData
 from application.python import Null
 from application.system import makedirs
-from eventlet import api, coros, proc
+from eventlib import api, coros, proc
 from sipsimple.account import AccountManager
 from sipsimple.application import SIPApplication
 from sipsimple.audio import WavePlayer, WavePlayerError
