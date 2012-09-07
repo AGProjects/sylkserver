@@ -9,7 +9,7 @@ Standards-Version: 3.9.3
 Package: sylkserver
 Architecture: all
 Depends: ${python:Depends}, ${misc:Depends}, python-application (>= 1.4.0), python-backports, python-eventlib, python-sipsimple (>= 0.30.0), python-sqlobject (>= 0.12.4), python-twisted-web, python-twisted-words, python-wokkel (>= 0.7.0)
-Suggests: python-mysqldb
+Suggests: libavahi-compat-libdnssd1, python-mysqldb
 Recommends: sylkserver-sounds
 Description: A state of the art, extensible SIP Application Server
  SylkServer allows creation and delivery of rich multimedia applications
