@@ -90,11 +90,11 @@ def sip_port_validator(port, sibling_port):
         raise ValueError("the TCP and TLS ports must be different")
 
 transport_list = []
-if SIPConfig.local_udp_port:
+if SIPConfig.local_udp_port is not None:
     transport_list.append('udp')
-if SIPConfig.local_tcp_port:
+if SIPConfig.local_tcp_port is not None:
     transport_list.append('tcp')
-if SIPConfig.local_tls_port:
+if SIPConfig.local_tls_port is not None:
     transport_list.append('tls')
 
 udp_port = SIPConfig.local_udp_port or 0
