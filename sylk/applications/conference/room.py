@@ -731,6 +731,7 @@ class MoHPlayer(object):
         random.shuffle(files)
         self.files = cycle(files)
         self._player = WavePlayer(SIPApplication.voice_audio_mixer, '', pause_time=1, initial_play=False, volume=20)
+        self.paused = True
         self.conference.bridge.add(self._player)
         notification_center = NotificationCenter()
         notification_center.add_observer(self, sender=self._player)
@@ -741,6 +742,7 @@ class MoHPlayer(object):
         notification_center = NotificationCenter()
         notification_center.remove_observer(self, sender=self._player)
         self._player.stop()
+        self.paused = True
         self.conference.bridge.remove(self._player)
         self.conference = None
 
