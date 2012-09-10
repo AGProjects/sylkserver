@@ -13,7 +13,6 @@ from collections import defaultdict
 from datetime import datetime
 from glob import glob
 from itertools import chain, cycle
-from time import mktime
 
 try:
     from weakref import WeakSet
@@ -37,7 +36,7 @@ from sipsimple.streams import FileTransferStream
 from sipsimple.streams.applications.chat import CPIMIdentity
 from sipsimple.streams.msrp import ChatStreamError, FileSelector
 from sipsimple.threading import run_in_thread, run_in_twisted_thread
-from sipsimple.threading.green import run_in_green_thread, run_in_waitable_green_thread
+from sipsimple.threading.green import run_in_green_thread
 from twisted.internet import reactor
 from zope.interface import implements
 

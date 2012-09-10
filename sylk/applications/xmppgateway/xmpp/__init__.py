@@ -6,7 +6,6 @@ import os
 from application.notification import IObserver, NotificationCenter, NotificationData
 from application.python import Null
 from application.python.types import Singleton
-from datetime import datetime
 from sipsimple.util import ISOTimestamp
 from twisted.internet import reactor
 from twisted.words.protocols.jabber.jid import internJID as JID

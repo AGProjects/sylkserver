@@ -10,7 +10,6 @@ __all__ = ["Logger"]
 import os
 import sys
 
-from application.python.queue import EventQueue
 from application.system import makedirs
 from sipsimple.configuration.settings import SIPSimpleSettings
 from sipsimple.threading import run_in_thread

@@ -9,7 +9,7 @@ __all__ = ['AccountExtension', 'BonjourAccountExtension', 'SylkServerSettingsExt
 
 from sipsimple.account import MSRPSettings as AccountMSRPSettings, NATTraversalSettings as AccountNATTraversalSettings
 from sipsimple.account import RTPSettings as AccountRTPSettings, SIPSettings as AccountSIPSettings, TLSSettings as AccountTLSSettings
-from sipsimple.configuration import CorrelatedSetting, Setting, SettingsGroup, SettingsObjectExtension
+from sipsimple.configuration import CorrelatedSetting, Setting, SettingsObjectExtension
 from sipsimple.configuration.datatypes import MSRPConnectionModel, MSRPTransport, NonNegativeInteger, PortRange, SampleRate, SIPTransportList, SRTPEncryption
 from sipsimple.configuration.settings import AudioSettings, LogsSettings, RTPSettings, SIPSettings, TLSSettings
 
