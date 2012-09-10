@@ -56,14 +56,18 @@ class ResourcePath(object):
 
     @classproperty
     def resources_directory(cls):
-        binary_directory = os.path.dirname(os.path.realpath(sys.argv[0]))
-        if os.path.basename(binary_directory) == 'bin':
-            application_directory = os.path.dirname(binary_directory)
-            resources_component = 'share/sylkserver'
+        from sylk.configuration import ServerConfig
+        if ServerConfig.resources_dir is not None:
+            return os.path.realpath(ServerConfig.resources_dir)
         else:
-            application_directory = binary_directory
-            resources_component = 'resources'
-        return os.path.realpath(os.path.join(application_directory, resources_component))
+            binary_directory = os.path.dirname(os.path.realpath(sys.argv[0]))
+            if os.path.basename(binary_directory) == 'bin':
+                application_directory = os.path.dirname(binary_directory)
+                resources_component = 'share/sylkserver'
+            else:
+                application_directory = binary_directory
+                resources_component = 'resources'
+            return os.path.realpath(os.path.join(application_directory, resources_component))
 
     def __eq__(self, other):
         try:
