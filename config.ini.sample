@@ -10,6 +10,9 @@
 ; Map user part of the Request URI to a specific application
 ; application_map = 123:conference,test:irc-conference
 
+; Disable the specified applications
+; disabled_applications =
+
 ; trace_dir = /var/log/sylkserver
 ; trace_core = False
 ; trace_sip = False

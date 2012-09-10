@@ -23,7 +23,7 @@ SYLK_APP_HEADER = 'X-Sylk-App'
 
 class ISylkApplication(Interface):
     """
-    Interface defining attributes and methods any application must 
+    Interface defining attributes and methods any application must
     implement.
 
     Each application must use the SylkApplication metaclass.
@@ -73,8 +73,10 @@ class SylkApplication(Singleton):
 
 def load_applications():
     toplevel = os.path.dirname(__file__)
-    app_list = ['sylk.applications.%s' % item for item in os.listdir(toplevel) if os.path.isdir(os.path.join(toplevel, item)) and '__init__.py' in os.listdir(os.path.join(toplevel, item))]
-    map(__import__, app_list)
+    app_list = [item for item in os.listdir(toplevel) if os.path.isdir(os.path.join(toplevel, item)) and '__init__.py' in os.listdir(os.path.join(toplevel, item))]
+    for module in ['sylk.applications.%s' % item for item in set(app_list).difference(ServerConfig.disabled_applications)]:
+        __import__(module)
+    map(__import__, [])
     [app() for app in ApplicationRegistry()]
 
 
