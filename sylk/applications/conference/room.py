@@ -1065,6 +1065,7 @@ class OutgoingFileTransferRequestHandler(object):
         if self.timer is not None and self.timer.active():
             self.timer.cancel()
         self.timer = None
+        notification_center = NotificationCenter()
         notification_center.remove_observer(self, sender=self.stream)
         notification_center.remove_observer(self, sender=self.session)
         self.session = None
