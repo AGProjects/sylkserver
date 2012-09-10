@@ -19,6 +19,7 @@ from zope.interface import implements
 
 from sylk.applications import ISylkApplication, SylkApplication, ApplicationLogger
 from sylk.applications.conference.configuration import get_room_config, ConferenceConfig
+from sylk.applications.conference.database import initialize as init_database
 from sylk.applications.conference.room import Room
 from sylk.applications.conference.web import ScreenSharingWebServer
 from sylk.bonjour import BonjourServices
@@ -26,9 +27,6 @@ from sylk.configuration import SIPConfig, ThorNodeConfig
 from sylk.extensions import ChatStream
 from sylk.session import ServerSession
 from sylk.tls import Certificate, PrivateKey
-
-# Initialize database
-from sylk.applications.conference import database
 
 log = ApplicationLogger(os.path.dirname(__file__).split(os.path.sep)[-1])
 
@@ -52,6 +50,7 @@ class ConferenceApplication(object):
         self.screen_sharing_web_server = None
 
     def start(self):
+        init_database()
         settings = SIPSimpleSettings()
         if settings.bonjour.enabled or ConferenceConfig.use_bonjour:
             self.bonjour_services = BonjourServices('sipfocus')

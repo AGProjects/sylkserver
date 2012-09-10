@@ -16,14 +16,13 @@ from sylk.applications import ApplicationLogger
 from sylk.applications.conference.configuration import ConferenceConfig
 from sylk.database import Database
 
-
-db = Database(ConferenceConfig.db_uri)
+db = Null()
 log = ApplicationLogger(os.path.dirname(__file__).split(os.path.sep)[-1])
+
 
 class MessageHistory(SQLObject):
     class sqlmeta:
         table = ConferenceConfig.history_table
-    _connection = db.connection
     date = DateTimeCol()
     room_uri = UnicodeCol()
     sip_from = UnicodeCol()
@@ -33,7 +32,11 @@ class MessageHistory(SQLObject):
     cpim_recipient = UnicodeCol()
     cpim_timestamp = DateTimeCol()
 
-db.create_table(MessageHistory)
+
+def initialize():
+    db = Database(ConferenceConfig.db_uri)
+    MessageHistory._connection = db.connection
+    db.create_table(MessageHistory)
 
 
 def _save_message(sip_from, room_uri, cpim_body, cpim_content_type, cpim_sender, cpim_recipient, cpim_timestamp):
