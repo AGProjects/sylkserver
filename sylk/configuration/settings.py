@@ -68,10 +68,6 @@ class AudioSettingsExtension(AudioSettings):
     sample_rate = Setting(type=SampleRate, default=16000)
 
 
-class BonjourServices(SettingsGroup):
-    enabled = Setting(type=bool, default=False)
-
-
 class LogsSettingsExtension(LogsSettings):
     directory = Setting(type=Path, default=ServerConfig.trace_dir)
     trace_sip = Setting(type=bool, default=ServerConfig.trace_sip)
@@ -116,7 +112,6 @@ class SylkServerSettingsExtension(SettingsObjectExtension):
     user_agent = Setting(type=str, default='SylkServer-%s' % server_version)
 
     audio = AudioSettingsExtension
-    bonjour = BonjourServices
     logs = LogsSettingsExtension
     rtp = RTPSettingsExtension
     sip = SIPSettingsExtension

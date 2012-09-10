@@ -45,7 +45,7 @@ from sylk.applications import ApplicationLogger
 from sylk.applications.conference import database
 from sylk.applications.conference.configuration import ConferenceConfig, URL
 from sylk.bonjour import BonjourServices
-from sylk.configuration import SIPConfig, ThorNodeConfig
+from sylk.configuration import ServerConfig, SIPConfig, ThorNodeConfig
 from sylk.configuration.datatypes import ResourcePath
 from sylk.session import ServerSession
 
@@ -175,8 +175,7 @@ class Room(object):
     def start(self):
         if self.started:
             return
-        from sylk.applications.conference import ConferenceApplication
-        if ConferenceApplication().bonjour_services is not Null:
+        if ServerConfig.enable_bonjour and self.identity.uri.user != 'conference':
             room_user = self.identity.uri.user
             self.bonjour_services = BonjourServices(service='sipuri', name='Conference Room %s' % room_user, uri_user=room_user)
             self.bonjour_services.start()

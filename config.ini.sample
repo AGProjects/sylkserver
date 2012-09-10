@@ -32,6 +32,8 @@
 
 ; verify_server = False
 
+; Enable Bonjour capabilities for applications
+; enable_bonjour = False
 
 [SIP]
 

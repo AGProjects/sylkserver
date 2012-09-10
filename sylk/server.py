@@ -26,7 +26,7 @@ from twisted.internet import reactor
 import sylk.extensions
 
 from sylk.applications import IncomingRequestHandler
-from sylk.configuration import SIPConfig, ThorNodeConfig
+from sylk.configuration import ServerConfig, SIPConfig, ThorNodeConfig
 from sylk.configuration.settings import AccountExtension, BonjourAccountExtension, SylkServerSettingsExtension
 from sylk.log import Logger
 from sylk.session import SessionManager
@@ -57,13 +57,12 @@ class SylkServer(SIPApplication):
             sys.exit(1)
 
     def _load_configuration(self):
-        # Command line options
-        settings = SIPSimpleSettings()
-        settings.bonjour.enabled = '--use-bonjour' in sys.argv    # Horrible hack, I know
+        if '--enable-bonjour' in sys.argv:
+            ServerConfig.enable_bonjour = True
         account_manager = AccountManager()
         account = Account("account@example.com")     # an account is required by AccountManager
         # Disable MSRP ACM if we are using Bonjour
-        account.msrp.connection_model = 'relay' if settings.bonjour.enabled else 'acm'
+        account.msrp.connection_model = 'relay' if ServerConfig.enable_bonjour else 'acm'
         account.save()
         account_manager.sylkserver_account = account
 

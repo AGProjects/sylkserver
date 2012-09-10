@@ -33,8 +33,8 @@ def main():
     parser.add_option('--config-file', dest='config_file', default=default_config,
                       help='path to configuration file to read ("%s")' % default_config,
                       metavar='File')
-    parser.add_option('--use-bonjour', action='store_true', dest='use_bonjour', default=False,
-                      help='enable bonjour services')
+    parser.add_option('--enable-bonjour', action='store_true', dest='enable_bonjour', default=False,
+                      help='enable Bonjour services')
     (options, args) = parser.parse_args()
 
     path, configuration_filename = os.path.split(options.config_file)
