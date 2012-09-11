@@ -419,7 +419,7 @@ class ServerSession(Session):
                 stun_addresses.extend((value.split(' ', 5)[4] for value in media.attributes.getall('candidate') if value.startswith('S ')))
             if stun_addresses:
                 local_sdp.connection.address = stun_addresses[0]
-            route_header = RouteHeader(self.route.get_uri())
+            route_header = RouteHeader(self.route.uri)
             if is_focus:
                 contact_header.parameters['isfocus'] = None
             if self.subject:
