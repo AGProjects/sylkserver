@@ -111,11 +111,11 @@ class S2XPresenceHandler(object):
                     if 'away' not in person.activities:
                         person.activities.add('away')
                 elif stanza.show == 'dnd':
-                    stanza.extended = 'busy'
+                    status.extended = 'busy'
                     if 'busy' not in person.activities:
                         person.activities.add('busy')
                 else:
-                    stanza.extended = 'available'
+                    status.extended = 'available'
             resource = encode_resource(stanza.sender.uri.resource)
             tuple_id = "ID-%s" % resource
             sip_uri = stanza.sender.uri.as_sip_uri()
