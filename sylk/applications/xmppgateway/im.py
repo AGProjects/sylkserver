@@ -422,7 +422,7 @@ class SIPMessageSender(object):
             route = routes.pop(0)
             from_header = FromHeader(self.from_uri)
             to_header = ToHeader(self.to_uri)
-            route_header = RouteHeader(route.get_uri())
+            route_header = RouteHeader(route.uri)
             notification_center = NotificationCenter()
             for chunk in chunks(self.body, 1000):
                 request = SIPMessageRequest(from_header, to_header, route_header, self.content_type, self.body)

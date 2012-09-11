@@ -347,7 +347,7 @@ class X2SPresenceHandler(object):
                                                 ToHeader(subscription_uri),
                                                 ContactHeader(contact_uri),
                                                 'presence',
-                                                RouteHeader(route.get_uri()),
+                                                RouteHeader(route.uri),
                                                 refresh=refresh_interval)
                     notification_center.add_observer(self, sender=subscription)
                     try:

@@ -154,7 +154,7 @@ class ConferenceHandler(object):
                                                 ToHeader(target_uri),
                                                 ContactHeader(contact_uri),
                                                 'conference',
-                                                RouteHeader(route.get_uri()),
+                                                RouteHeader(route.uri),
                                                 credentials=account.credentials,
                                                 refresh=refresh_interval)
                     notification_center.add_observer(self, sender=subscription)
