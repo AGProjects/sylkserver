@@ -459,10 +459,7 @@ class Room(object):
                 user = (user for user in users if user.entity == str(session.remote_identity.uri)).next()
             except StopIteration:
                 display_text = self.last_nicknames_map.get(str(session.remote_identity.uri), session.remote_identity.display_name)
-                if self.bonjour_services is Null:
-                    user = conference.User(str(session.remote_identity.uri), display_text=display_text)
-                else:
-                    user = conference.User(str(session._invitation.remote_contact_header.uri), display_text=display_text)
+                user = conference.User(str(session.remote_identity.uri), display_text=display_text)
                 user_uri = '%s@%s' % (session.remote_identity.uri.user, session.remote_identity.uri.host)
                 screen_image = self.screen_images.get(user_uri, None)
                 if screen_image is not None and screen_image.active:
