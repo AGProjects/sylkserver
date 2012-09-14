@@ -284,7 +284,7 @@ class IncomingReferralHandler(object):
         self._refer_headers = data.headers
         self.room_uri = data.headers.get('To').uri
         self.refer_to_uri = re.sub('<|>', '', data.headers.get('Refer-To').uri)
-        self.method = data.headers.get('Refer-To').parameters.get('method', 'invite').lower()
+        self.method = data.headers.get('Refer-To').parameters.get('method', 'INVITE').upper()
         self.session = None
         self.streams = []
 
@@ -298,7 +298,7 @@ class IncomingReferralHandler(object):
             return
         notification_center = NotificationCenter()
         notification_center.add_observer(self, sender=self._refer_request)
-        if self.method == 'invite':
+        if self.method == 'INVITE':
             log.msg('%s added %s to %s' % (self._refer_headers.get('From').uri, self.refer_to_uri, self.room_uri))
             self._refer_request.accept()
             settings = SIPSimpleSettings()
@@ -312,7 +312,7 @@ class IncomingReferralHandler(object):
             lookup = DNSLookup()
             notification_center.add_observer(self, sender=lookup)
             lookup.lookup_sip_proxy(uri, settings.sip.transport_list)
-        elif self.method == 'bye':
+        elif self.method == 'BYE':
             log.msg('%s removed %s from %s' % (self._refer_headers.get('From').uri, self.refer_to_uri, self.room_uri))
             self._refer_request.accept()
             conference_application = ConferenceApplication()
