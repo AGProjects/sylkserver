@@ -10,7 +10,7 @@ from application.python import Null
 from gnutls.interfaces.twisted import X509Credentials
 from sipsimple.account import AccountManager
 from sipsimple.configuration.settings import SIPSimpleSettings
-from sipsimple.core import SIPURI, SIPCoreError, Header, ContactHeader, FromHeader, ToHeader
+from sipsimple.core import Engine, SIPURI, SIPCoreError, Header, ContactHeader, FromHeader, ToHeader
 from sipsimple.lookup import DNSLookup
 from sipsimple.streams import AudioStream
 from sipsimple.threading.green import run_in_green_thread
@@ -353,7 +353,7 @@ class IncomingReferralHandler(object):
         to_header = ToHeader(self.refer_to_uri)
         transport = notification.data.result[0].transport
         parameters = {} if transport=='udp' else {'transport': transport}
-        contact_header = ContactHeader(SIPURI(user=self.room_uri.user, host=SIPConfig.local_ip, port=getattr(SIPConfig, 'local_%s_port' % transport), parameters=parameters))
+        contact_header = ContactHeader(SIPURI(user=self.room_uri.user, host=SIPConfig.local_ip.normalized, port=getattr(Engine(), '%s_port' % transport), parameters=parameters))
         extra_headers = []
         if self._refer_headers.get('Referred-By', None) is not None:
             extra_headers.append(Header.new(self._refer_headers.get('Referred-By')))

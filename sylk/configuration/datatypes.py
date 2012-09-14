@@ -9,6 +9,7 @@ import urllib
 import urlparse
 
 from application.python.descriptor import classproperty
+from application.system import host
 from sipsimple.configuration.datatypes import AudioCodecList, Hostname, SIPTransport
 
 
@@ -26,16 +27,19 @@ class AudioCodecs(list):
 class IPAddress(str):
     """An IP address in quad dotted number notation"""
     def __new__(cls, value):
-        if value == '0.0.0.0':
-            raise ValueError("%s is not allowed, please specify a specific IP address" % value)
-        else:
-            try:
-                socket.inet_aton(value)
-            except socket.error:
-                raise ValueError("invalid IP address: %r" % value)
-            except TypeError:
-                raise TypeError("value must be a string")
-            return str(value)
+        try:
+            socket.inet_aton(value)
+        except socket.error:
+            raise ValueError("invalid IP address: %r" % value)
+        except TypeError:
+            raise TypeError("value must be a string")
+        return str.__new__(cls, value)
+
+    @property
+    def normalized(self):
+        if self == '0.0.0.0':
+            return host.default_ip
+        return self
 
 class ResourcePath(object):
     def __init__(self, path):
@@ -94,7 +98,7 @@ class Port(int):
             raise ValueError("illegal port value: %s" % value)
         return value
 
-class PortRange(object):                                                                                                                                                                     
+class PortRange(object):
     """A port range in the form start:end with start and end being even numbers in the [1024, 65536] range"""
     def __init__(self, value):
         self.start, self.end = [int(p) for p in value.split(':', 1)]

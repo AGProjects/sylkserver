@@ -13,7 +13,7 @@ class XMPPGatewayConfig(ConfigSection):
     __cfgfile__ = 'xmppgateway.ini'
     __section__ = 'general'
 
-    local_ip = ConfigSetting(type=IPAddress, value=host.default_ip)
+    local_ip = ConfigSetting(type=IPAddress, value=IPAddress(host.default_ip))
     local_port = ConfigSetting(type=Port, value=5269)
     trace_xmpp = False
     domains = ConfigSetting(type=StringList, value=[])

@@ -14,7 +14,7 @@ from application.python.types import Singleton
 from eventlib import api, coros, proc
 from sipsimple.account import AccountManager
 from sipsimple.configuration.settings import SIPSimpleSettings
-from sipsimple.core import Invitation, Subscription, SIPCoreError, sip_status_messages
+from sipsimple.core import Engine, Invitation, Subscription, SIPCoreError, sip_status_messages
 from sipsimple.core import ContactHeader, RouteHeader, SubjectHeader, FromHeader, ToHeader
 from sipsimple.core import SIPURI, SDPConnection, SDPSession
 from sipsimple.lookup import DNSLookup, DNSLookupError
@@ -149,7 +149,7 @@ class ConferenceHandler(object):
                 if remaining_time > 0:
                     transport = route.transport
                     parameters = {} if transport=='udp' else {'transport': transport}
-                    contact_uri = SIPURI(user=account.contact.username, host=SIPConfig.local_ip, port=getattr(SIPConfig, 'local_%s_port' % transport), parameters=parameters)
+                    contact_uri = SIPURI(user=account.contact.username, host=SIPConfig.local_ip.normalized, port=getattr(Engine(), '%s_port' % transport), parameters=parameters)
                     subscription = Subscription(target_uri, FromHeader(SIPURI.new(self.session.local_identity.uri)),
                                                 ToHeader(target_uri),
                                                 ContactHeader(contact_uri),

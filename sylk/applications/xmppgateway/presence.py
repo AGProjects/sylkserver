@@ -12,7 +12,7 @@ from application.python.descriptor import WriteOnceAttribute
 from eventlib import coros, proc
 from sipsimple.account import AccountManager
 from sipsimple.configuration.settings import SIPSimpleSettings
-from sipsimple.core import SIPURI, SIPCoreError
+from sipsimple.core import Engine, SIPURI, SIPCoreError
 from sipsimple.core import ContactHeader, FromHeader, RouteHeader, ToHeader
 from sipsimple.core import Subscription
 from sipsimple.lookup import DNSLookup, DNSLookupError
@@ -341,7 +341,7 @@ class X2SPresenceHandler(object):
                 if remaining_time > 0:
                     transport = route.transport
                     parameters = {} if transport=='udp' else {'transport': transport}
-                    contact_uri = SIPURI(user=account.contact.username, host=SIPConfig.local_ip, port=getattr(SIPConfig, 'local_%s_port' % transport), parameters=parameters)
+                    contact_uri = SIPURI(user=account.contact.username, host=SIPConfig.local_ip.normalized, port=getattr(Engine(), '%s_port' % transport), parameters=parameters)
                     subscription_uri = self.sip_identity.uri.as_sip_uri()
                     subscription = Subscription(subscription_uri, FromHeader(self.xmpp_identity.uri.as_sip_uri()),
                                                 ToHeader(subscription_uri),

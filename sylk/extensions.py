@@ -105,7 +105,7 @@ class ChatStream(_ChatStream, MSRPStreamBase):
 
     @property
     def local_uri(self):
-        return URI(host=SIPConfig.local_ip, port=0, use_tls=self.transport=='tls', credentials=self.account.tls_credentials)
+        return URI(host=SIPConfig.local_ip.normalized, port=0, use_tls=self.transport=='tls', credentials=self.account.tls_credentials)
 
     def _create_local_media(self, uri_path):
         local_media = MSRPStreamBase._create_local_media(self, uri_path)

@@ -27,7 +27,7 @@ class ConferenceNode(EventServiceClient):
 
     def __init__(self):
         # Needs to be called from a green thread
-        self.node = ThorEntity(SIPConfig.local_ip, ['conference_server', 'xmpp_gateway'], version=sylk.__version__)
+        self.node = ThorEntity(SIPConfig.local_ip.normalized, ['conference_server', 'xmpp_gateway'], version=sylk.__version__)
         self.networks = {}
         self.presence_message = ThorEvent('Thor.Presence', self.node.id)
         self.shutdown_message = ThorEvent('Thor.Leave', self.node.id)

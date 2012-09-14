@@ -34,7 +34,7 @@ class SIPConfig(ConfigSection):
     __cfgfile__ = configuration_filename
     __section__ = 'SIP'
 
-    local_ip = ConfigSetting(type=IPAddress, value=host.default_ip)
+    local_ip = ConfigSetting(type=IPAddress, value=IPAddress(host.default_ip))
     local_udp_port = ConfigSetting(type=Port, value=5060)
     local_tcp_port = ConfigSetting(type=Port, value=5060)
     local_tls_port = ConfigSetting(type=Port, value=5061)

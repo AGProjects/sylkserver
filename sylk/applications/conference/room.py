@@ -28,7 +28,7 @@ from sipsimple.application import SIPApplication
 from sipsimple.audio import WavePlayer, WavePlayerError
 from sipsimple.conference import AudioConference
 from sipsimple.configuration.settings import SIPSimpleSettings
-from sipsimple.core import SIPCoreError, SIPCoreInvalidStateError, SIPURI
+from sipsimple.core import Engine, SIPCoreError, SIPCoreInvalidStateError, SIPURI
 from sipsimple.core import Header, ContactHeader, FromHeader, ToHeader
 from sipsimple.lookup import DNSLookup, DNSLookupError
 from sipsimple.payloads import conference
@@ -69,7 +69,7 @@ class ScreenImage(object):
         from sylk.applications.conference import ConferenceApplication
         port = ConferenceApplication().screen_sharing_web_server.port
         scheme = 'https' if ConferenceConfig.screen_sharing_use_https else 'http'
-        self.url = URL('%s://%s:%s/' % (scheme, ConferenceConfig.screen_sharing_ip, port))
+        self.url = URL('%s://%s:%s/' % (scheme, ConferenceConfig.screen_sharing_ip.normalized, port))
         self.url.query_items['image'] = os.path.join(room.uri, os.path.basename(self.filename))
         self.state = None
         self.timer = None
@@ -1114,7 +1114,7 @@ class OutgoingFileTransferHandler(object):
         to_header = ToHeader(SIPURI.new(self.destination))
         transport = routes[0].transport
         parameters = {} if transport=='udp' else {'transport': transport}
-        contact_header = ContactHeader(SIPURI(user=self.room_uri.user, host=SIPConfig.local_ip, port=getattr(SIPConfig, 'local_%s_port' % transport), parameters=parameters))
+        contact_header = ContactHeader(SIPURI(user=self.room_uri.user, host=SIPConfig.local_ip.normalized, port=getattr(Engine(), '%s_port' % transport), parameters=parameters))
         extra_headers = []
         if ThorNodeConfig.enabled:
             extra_headers.append(Header('Thor-Scope', 'conference-invitation'))
