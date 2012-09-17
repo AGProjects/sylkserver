@@ -4,7 +4,6 @@
 import hashlib
 import os
 import random
-import urllib
 
 from application.notification import IObserver, NotificationCenter
 from application.python import Null, limit
@@ -123,7 +122,7 @@ class S2XPresenceHandler(object):
             contact = pidf.Contact(str(sip_uri))
             tuple = pidf.Service(tuple_id, status=status, contact=contact)
             tuple.add(pidf.DeviceID(resource))
-            tuple.device_info = pidf.DeviceInfo(resource, description=urllib.quote(stanza.sender.uri.resource.encode('utf-8')))
+            tuple.device_info = pidf.DeviceInfo(resource, description=stanza.sender.uri.resource)
             for lang, note in stanza.statuses.iteritems():
                 tuple.notes.add(pidf.PIDFNote(note, lang=lang))
             pidf_doc.add(tuple)
