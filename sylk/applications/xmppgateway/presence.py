@@ -116,16 +116,16 @@ class S2XPresenceHandler(object):
                 else:
                     status.extended = 'available'
             resource = encode_resource(stanza.sender.uri.resource)
-            tuple_id = "ID-%s" % resource
+            service_id = "ID-%s" % resource
             sip_uri = stanza.sender.uri.as_sip_uri()
             sip_uri.parameters['gr'] = resource
             contact = pidf.Contact(str(sip_uri))
-            tuple = pidf.Service(tuple_id, status=status, contact=contact)
-            tuple.add(pidf.DeviceID(resource))
-            tuple.device_info = pidf.DeviceInfo(resource, description=stanza.sender.uri.resource)
+            service = pidf.Service(service_id, status=status, contact=contact)
+            service.add(pidf.DeviceID(resource))
+            service.device_info = pidf.DeviceInfo(resource, description=stanza.sender.uri.resource)
             for lang, note in stanza.statuses.iteritems():
-                tuple.notes.add(pidf.PIDFNote(note, lang=lang))
-            pidf_doc.add(tuple)
+                service.notes.add(pidf.PIDFNote(note, lang=lang))
+            pidf_doc.add(service)
         if not person.activities:
             person.activities = None
         self._pidf = pidf_doc.toxml()
