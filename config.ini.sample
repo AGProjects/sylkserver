@@ -47,7 +47,11 @@
 ; local_tcp_port = 5060
 ; local_tls_port = 5061
 
-; If set all outbound SIP requests will be sent through this SIP proxy
+; If set, all outbound SIP requests will be sent through this SIP proxy
+; The proxy address format is: proxy.example.com:5061;transport=tls
+; Transport can be udp, tcp or tls, if skipped it is considered udp
+; If only the hostname is set, RFC3263 lookups are performed to lookup 
+; the outbound proxy server address
 ; outbound_proxy =
 
 ; A comma-separated list of hosts or networks to trust.
