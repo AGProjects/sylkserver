@@ -1,4 +1,4 @@
-sylkserver (2.1.0) UNRELEASED; urgency=low
+sylkserver (2.1.0) unstable; urgency=low
 
   * Added ability to disable applications
   * Added ability to configure the directory for resource files
@@ -8,8 +8,9 @@ sylkserver (2.1.0) UNRELEASED; urgency=low
   * Fixed setting extended status for XMPP dnd state
   * Fixed API calls due to changes in SIP SIMPLE SDK
   * Delay conference database initialization until application is started
+  * Don't encode and quote DeviceInfo description
 
- -- Saul Ibarra <saul@ag-projects.com>  Fri, 14 Sep 2012 12:50:00 +0200
+ -- Saul Ibarra <saul@ag-projects.com>  Mon, 17 Sep 2012 11:22:59 +0200
 
 sylkserver (2.0.0) unstable; urgency=low
 
