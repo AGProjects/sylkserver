@@ -16,8 +16,8 @@ from sipsimple.core import SDPAttribute
 from sipsimple.payloads.iscomposing import IsComposingDocument, IsComposingMessage, State, LastActive, Refresh, ContentType
 from sipsimple.streams import MediaStreamRegistry
 from sipsimple.streams.applications.chat import CPIMMessage, CPIMParserError
-from sipsimple.streams.msrp import ChatStreamError, MSRPStreamError, NotificationProxyLogger
-from sipsimple.streams.msrp import ChatStream as _ChatStream, MSRPStreamBase as _MSRPStreamBase
+from sipsimple.streams.msrp import ChatStreamError, MSRPStreamError, NotificationProxyLogger, MSRPStreamBase as _MSRPStreamBase
+from sipsimple.streams.msrp import ChatStream as _ChatStream, FileTransferStream as _FileTransferStream
 from sipsimple.threading.green import run_in_green_thread
 from twisted.python.failure import Failure
 
@@ -29,12 +29,13 @@ from sylk.configuration import SIPConfig
 # just seeying the server identity
 registry = MediaStreamRegistry()
 for stream_type in registry.stream_types[:]:
-    if stream_type is _ChatStream:
+    if stream_type in (_ChatStream, _FileTransferStream):
         registry.stream_types.remove(stream_type)
-        break
 del registry
 
+
 class MSRPStreamBase(_MSRPStreamBase):
+
     @run_in_green_thread
     def initialize(self, session, direction):
         self.greenlet = api.getcurrent()
@@ -97,6 +98,7 @@ class MSRPStreamBase(_MSRPStreamBase):
             if self.msrp_session is None and self.msrp is None and self.msrp_connector is None:
                 notification_center.remove_observer(self, sender=self)
             self.greenlet = None
+
 
 class ChatStream(_ChatStream, MSRPStreamBase):
     accept_types = ['message/cpim']
@@ -212,4 +214,13 @@ class ChatStream(_ChatStream, MSRPStreamBase):
         self._enqueue_message(str(message_id), str(msg), 'message/cpim', failure_report='partial', success_report='no')
         return message_id
 
+
+class FileTransferStream(_FileTransferStream, MSRPStreamBase):
+
+    def initialize(self, session, direction):
+        if self.direction == 'sendonly' and self.file_selector.fd is None:
+            notification_center = NotificationCenter()
+            notification_center.post_notification('MediaStreamDidFail', sender=self, data=NotificationData(context='initialize', failure=None, reason='file descriptor not specified'))
+            return
+        MSRPStreamBase.initialize(self, session, direction)
 
