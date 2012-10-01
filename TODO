@@ -1,14 +1,15 @@
 TODO
 ----
 
- + OSX support
+ + Invite XMPP users to MUC
  + XMPP Jingle
+ + XMPP File Transfer
 
 Roadmap
 
- - Registrant application to map rooms to public accounts
+ - Bonjour mode for XMPP
+ - Registrant application
  - Chat offline storage application
- - XMPP File Transfer
  - Update conference info with the display name from 200 OK for outgoing
    invites
  - Management interface
@@ -16,3 +17,5 @@ Roadmap
  - CANCEL server outgoing INVITE
  - Add participants using resource-list
  - Integrate mobwrite collboration editor
+ - WEBrtc support
+
