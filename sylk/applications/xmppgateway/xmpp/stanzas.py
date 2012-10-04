@@ -11,14 +11,7 @@ RECEIPTS_NS   = 'urn:xmpp:receipts'
 STANZAS_NS    = 'urn:ietf:params:xml:ns:xmpp-stanzas'
 XML_NS        = 'http://www.w3.org/XML/1998/namespace'
 MUC_NS        = 'http://jabber.org/protocol/muc'
-MUC_USER_NS  = MUC_NS + '#user'
-MUC_ADMIN_NS = MUC_NS + '#admin'
-MUC_OWNER_NS = MUC_NS + '#owner'
-MUC_ROOMINFO_NS = MUC_NS + '#roominfo'
-MUC_CONFIG_NS   = MUC_NS + '#roomconfig'
-MUC_REQUEST_NS  = MUC_NS + '#request'
-MUC_REGISTER_NS = MUC_NS + '#register'
-# TODO: review ^^
+MUC_USER_NS   = MUC_NS + '#user'
 
 
 class BaseStanza(object):
