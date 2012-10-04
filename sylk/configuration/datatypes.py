@@ -39,7 +39,7 @@ class IPAddress(str):
     def normalized(self):
         if self == '0.0.0.0':
             return host.default_ip
-        return self
+        return str(self)
 
 class ResourcePath(object):
     def __init__(self, path):
