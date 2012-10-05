@@ -17,7 +17,7 @@ from sylk.applications import ApplicationLogger
 from sylk.applications.xmppgateway.configuration import XMPPGatewayConfig
 from sylk.applications.xmppgateway.datatypes import FrozenURI
 from sylk.applications.xmppgateway.xmpp.logger import Logger as XMPPLogger
-from sylk.applications.xmppgateway.xmpp.protocols import MessageProtocol, MUCProtocol, PresenceProtocol
+from sylk.applications.xmppgateway.xmpp.protocols import MessageProtocol, MUCServerProtocol, PresenceProtocol
 from sylk.applications.xmppgateway.xmpp.session import XMPPChatSessionManager, XMPPMucSessionManager
 from sylk.applications.xmppgateway.xmpp.subscription import XMPPSubscriptionManager
 
@@ -121,7 +121,7 @@ class XMPPManager(object):
         self._muc_component = InternalComponent(router)
         self._muc_component.domains = set(self.muc_domains)
 
-        self._muc_protocol = MUCProtocol()
+        self._muc_protocol = MUCServerProtocol()
         self._muc_protocol.setHandlerParent(self._muc_component)
 
         self._s2s_listener = None

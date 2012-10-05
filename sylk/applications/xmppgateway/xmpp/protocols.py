@@ -11,7 +11,7 @@ from sylk.applications.xmppgateway.xmpp.stanzas import RECEIPTS_NS, CHATSTATES_N
         AvailabilityPresence, SubscriptionPresence, ProbePresence,                              \
         MUCAvailabilityPresence, GroupChatMessage                                               \
 
-__all__ = ['MessageProtocol', 'MUCProtocol', 'PresenceProtocol']
+__all__ = ['MessageProtocol', 'MUCServerProtocol', 'PresenceProtocol']
 
 
 class MessageProtocol(MessageProtocol):
@@ -131,7 +131,7 @@ class PresenceProtocol(PresenceProtocol):
         notification_center.post_notification('XMPPGotPresenceProbe', sender=self.parent, data=NotificationData(presence_stanza=presence_stanza))
 
 
-class MUCProtocol(BasePresenceProtocol):
+class MUCServerProtocol(BasePresenceProtocol):
     messageTypes = None, 'normal', 'chat', 'groupchat'
 
     presenceTypeParserMap = {'available': UserPresence,
