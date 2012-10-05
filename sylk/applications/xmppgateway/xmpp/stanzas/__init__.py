@@ -3,6 +3,7 @@
 
 from twisted.words.xish import domish
 
+from sylk import __version__ as SYLK_VERSION
 from sylk.applications.xmppgateway.util import html2text
 
 
@@ -12,6 +13,10 @@ STANZAS_NS    = 'urn:ietf:params:xml:ns:xmpp-stanzas'
 XML_NS        = 'http://www.w3.org/XML/1998/namespace'
 MUC_NS        = 'http://jabber.org/protocol/muc'
 MUC_USER_NS   = MUC_NS + '#user'
+CAPS_NS       = 'http://jabber.org/protocol/caps'
+
+
+SYLK_CAPS = []
 
 
 class BaseStanza(object):
@@ -190,6 +195,11 @@ class AvailabilityPresence(BasePresenceStanza):
                 xml_element.addElement('show', content=self.show)
             if self.priority != 0:
                 xml_element.addElement('priority', content=unicode(self.priority))
+            caps = xml_element.addElement('c', defaultUri=CAPS_NS)
+            caps['node'] = 'http://sylkserver.com'
+            caps['ver'] = SYLK_VERSION
+            if SYLK_CAPS:
+                caps['ext'] = ' '.join(SYLK_CAPS)
         for lang, text in self.statuses.iteritems():
             status = xml_element.addElement('status', content=text)
             if lang:
