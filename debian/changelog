@@ -1,3 +1,11 @@
+sylkserver (2.1.1) unstable; urgency=low
+
+  * Fixed file transfers when using Bonjour mode
+  * Fixed normalizing IPAddress datatype
+  * Disables private messages support when using Bonjour mode
+
+ -- Saul Ibarra <saul@ag-projects.com>  Tue, 09 Oct 2012 14:14:52 +0200
+
 sylkserver (2.1.0) unstable; urgency=low
 
   * Added ability to disable applications
