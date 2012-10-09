@@ -21,7 +21,7 @@ from sipsimple.streams.msrp import ChatStream as _ChatStream, FileTransferStream
 from sipsimple.threading.green import run_in_green_thread
 from twisted.python.failure import Failure
 
-from sylk.configuration import SIPConfig
+from sylk.configuration import SIPConfig, ServerConfig
 
 
 # We need to be able to set the local identity in the message CPIM envelope
@@ -112,7 +112,10 @@ class ChatStream(_ChatStream, MSRPStreamBase):
     def _create_local_media(self, uri_path):
         local_media = MSRPStreamBase._create_local_media(self, uri_path)
         if self.session.local_focus and self.chatroom_capabilities:
-            local_media.attributes.append(SDPAttribute('chatroom', ' '.join(self.chatroom_capabilities)))
+            caps = self.chatroom_capabilities[:]
+            if ServerConfig.enable_bonjour:
+                caps.remove('private-messages')
+            local_media.attributes.append(SDPAttribute('chatroom', ' '.join(caps)))
         return local_media
 
     def _handle_SEND(self, chunk):
