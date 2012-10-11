@@ -228,7 +228,7 @@ class Room(object):
             if message_type == 'message':
                 message = data.message
                 if message.sender.uri != session.remote_identity.uri:
-                    return
+                    continue
                 if message.timestamp is not None:
                     value = message.timestamp
                     timestamp = datetime(value.year, value.month, value.day, value.hour, value.minute, value.second, value.microsecond, value.tzinfo)
@@ -246,7 +246,7 @@ class Room(object):
                     self.dispatch_message(session, message)
             elif message_type == 'composing_indication':
                 if data.sender.uri != session.remote_identity.uri:
-                    return
+                    continue
                 recipient = data.recipients[0]
                 private = len(data.recipients) == 1 and recipient.uri != self.identity.uri
                 if private:
