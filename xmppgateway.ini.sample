@@ -3,7 +3,8 @@
 [general]
 
 ; Comma-separated list of domains for which this server is responsible
-; Add the xmmp-server records into the DNS server responsable for these domains
+; Add the xmmp-server records into the DNS server responsable for these domains,
+; e.g.: _xmpp-server._tcp.example.com. IN SRV	0 0 5269 sylkserver.example.com.
 ; At least one domain is required!
 ; domains =
 
