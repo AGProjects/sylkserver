@@ -43,16 +43,16 @@ class MSRPStreamBase(_MSRPStreamBase):
         notification_center.add_observer(self, sender=self)
         try:
             self.session = session
-            self.transport = self.account.msrp.transport
+            self.transport = self.session.account.msrp.transport
             outgoing = direction=='outgoing'
             logger = NotificationProxyLogger()
-            if self.account.msrp.connection_model == 'relay':
+            if self.session.account.msrp.connection_model == 'relay':
                 if not outgoing and self.remote_role in ('actpass', 'passive'):
                     # 'passive' not allowed by the RFC but play nice for interoperability. -Saul
                     self.msrp_connector = DirectConnector(logger=logger, use_sessmatch=True)
                     self.local_role = 'active'
                 elif not outgoing:
-                    if self.transport=='tls' and None in (self.account.tls_credentials.cert, self.account.tls_credentials.key):
+                    if self.transport=='tls' and None in (self.session.account.tls_credentials.cert, self.session.account.tls_credentials.key):
                         raise MSRPStreamError("Cannot accept MSRP connection without a TLS certificate")
                     self.msrp_connector = DirectAcceptor(logger=logger)
                     self.local_role = 'passive'
@@ -66,7 +66,7 @@ class MSRPStreamBase(_MSRPStreamBase):
                     self.msrp_connector = DirectConnector(logger=logger, use_sessmatch=True)
                     self.local_role = 'active'
                 else:
-                    if not outgoing and self.transport=='tls' and None in (self.account.tls_credentials.cert, self.account.tls_credentials.key):
+                    if not outgoing and self.transport=='tls' and None in (self.session.account.tls_credentials.cert, self.session.account.tls_credentials.key):
                         raise MSRPStreamError("Cannot accept MSRP connection without a TLS certificate")
                     self.msrp_connector = DirectAcceptor(logger=logger, use_sessmatch=True)
                     self.local_role = 'actpass' if outgoing else 'passive'
@@ -92,7 +92,7 @@ class ChatStream(_ChatStream, MSRPStreamBase):
 
     @property
     def local_uri(self):
-        return URI(host=SIPConfig.local_ip.normalized, port=0, use_tls=self.transport=='tls', credentials=self.account.tls_credentials)
+        return URI(host=SIPConfig.local_ip.normalized, port=0, use_tls=self.transport=='tls', credentials=self.session.account.tls_credentials)
 
     def _create_local_media(self, uri_path):
         local_media = MSRPStreamBase._create_local_media(self, uri_path)

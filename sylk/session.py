@@ -318,7 +318,7 @@ class ServerSession(Session):
                 if media_stream.port != 0:
                     for stream_type in MediaStreamRegistry():
                         try:
-                            stream = stream_type.new_from_sdp(self.account, remote_sdp, index)
+                            stream = stream_type.new_from_sdp(self, remote_sdp, index)
                         except InvalidStreamError:
                             break
                         except UnknownStreamError:
