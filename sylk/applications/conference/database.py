@@ -34,6 +34,7 @@ class MessageHistory(SQLObject):
 
 
 def initialize():
+    global db
     db = Database(ConferenceConfig.db_uri)
     MessageHistory._connection = db.connection
     db.create_table(MessageHistory)
