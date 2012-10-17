@@ -8,7 +8,7 @@ from dateutil.tz import tzlocal
 
 from application.notification import NotificationCenter, NotificationData
 from eventlib import api
-from msrplib.connect import DirectConnector, DirectAcceptor, RelayConnection, MSRPRelaySettings
+from msrplib.connect import DirectConnector, DirectAcceptor
 from msrplib.protocol import URI
 from msrplib.session import contains_mime_type
 from msrplib.transport import make_response
@@ -51,30 +51,15 @@ class MSRPStreamBase(_MSRPStreamBase):
                     # 'passive' not allowed by the RFC but play nice for interoperability. -Saul
                     self.msrp_connector = DirectConnector(logger=logger, use_sessmatch=True)
                     self.local_role = 'active'
-                elif not outgoing and not self.account.nat_traversal.use_msrp_relay_for_inbound:
+                elif not outgoing:
                     if self.transport=='tls' and None in (self.account.tls_credentials.cert, self.account.tls_credentials.key):
                         raise MSRPStreamError("Cannot accept MSRP connection without a TLS certificate")
                     self.msrp_connector = DirectAcceptor(logger=logger)
                     self.local_role = 'passive'
-                elif outgoing and not self.account.nat_traversal.use_msrp_relay_for_outbound:
+                else:
+                    # outgoing
                     self.msrp_connector = DirectConnector(logger=logger, use_sessmatch=True)
                     self.local_role = 'active'
-                else:
-                    if self.account.nat_traversal.msrp_relay is None:
-                        relay_host = relay_port = None
-                    else:
-                        if self.transport != self.account.nat_traversal.msrp_relay.transport:
-                            raise MSRPStreamError("MSRP relay transport conflicts with MSRP transport setting")
-                        relay_host = self.account.nat_traversal.msrp_relay.host
-                        relay_port = self.account.nat_traversal.msrp_relay.port
-                    relay = MSRPRelaySettings(domain=self.account.uri.host,
-                                              username=self.account.uri.user,
-                                              password=self.account.credentials.password,
-                                              host=relay_host,
-                                              port=relay_port,
-                                              use_tls=self.transport=='tls')
-                    self.msrp_connector = RelayConnection(relay, 'passive', logger=logger, use_sessmatch=True)
-                    self.local_role = 'actpass' if outgoing else 'passive'
             else:
                 if not outgoing and self.remote_role in ('actpass', 'passive'):
                     # 'passive' not allowed by the RFC but play nice for interoperability. -Saul
