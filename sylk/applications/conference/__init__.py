@@ -333,10 +333,12 @@ class IncomingReferralHandler(object):
         try:
             room = conference_application.get_room(self.room_uri)
         except RoomNotFoundError:
+            self._refer_request.end(500)
             return
         else:
             active_media = room.active_media
         if not active_media:
+            self._refer_request.end(500)
             return
         if 'audio' in active_media:
             self.streams.append(AudioStream(account))
