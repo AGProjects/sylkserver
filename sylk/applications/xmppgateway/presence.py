@@ -15,7 +15,7 @@ from sipsimple.core import Engine, SIPURI, SIPCoreError
 from sipsimple.core import ContactHeader, FromHeader, RouteHeader, ToHeader
 from sipsimple.core import Subscription
 from sipsimple.lookup import DNSLookup, DNSLookupError
-from sipsimple.payloads import pidf, rpid
+from sipsimple.payloads import pidf, rpid, caps
 from sipsimple.payloads import ParserError
 from sipsimple.threading import run_in_twisted_thread
 from sipsimple.threading.green import Command, run_in_green_thread
@@ -123,6 +123,7 @@ class S2XPresenceHandler(object):
             service = pidf.Service(service_id, status=status, contact=contact)
             service.add(pidf.DeviceID(resource))
             service.device_info = pidf.DeviceInfo(resource, description=stanza.sender.uri.resource)
+            service.capabilities = caps.ServiceCapabilities(text=True, message=True)
             for lang, note in stanza.statuses.iteritems():
                 service.notes.add(pidf.PIDFNote(note, lang=lang))
             pidf_doc.add(service)
