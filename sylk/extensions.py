@@ -3,9 +3,6 @@
 
 import random
 
-from datetime import datetime
-from dateutil.tz import tzlocal
-
 from application.notification import NotificationCenter, NotificationData
 from eventlib import api
 from msrplib.connect import DirectConnector, DirectAcceptor
@@ -19,6 +16,7 @@ from sipsimple.streams.applications.chat import CPIMMessage, CPIMParserError
 from sipsimple.streams.msrp import ChatStreamError, MSRPStreamError, NotificationProxyLogger, MSRPStreamBase as _MSRPStreamBase
 from sipsimple.streams.msrp import ChatStream as _ChatStream, FileTransferStream as _FileTransferStream
 from sipsimple.threading.green import run_in_green_thread
+from sipsimple.util import ISOTimestamp
 from twisted.python.failure import Failure
 
 from sylk.configuration import SIPConfig, ServerConfig
@@ -128,7 +126,7 @@ class ChatStream(_ChatStream, MSRPStreamBase):
             return
         else:
             if message.timestamp is None:
-                message.timestamp = datetime.now(tzlocal())
+                message.timestamp = ISOTimestamp.now()
             if message.sender is None:
                 message.sender = self.remote_identity
             private = self.session.remote_focus and len(message.recipients) == 1 and message.recipients[0] != self.remote_identity
@@ -179,7 +177,7 @@ class ChatStream(_ChatStream, MSRPStreamBase):
         if not recipients:
             recipients = [self.remote_identity]
         if timestamp is None:
-            timestamp = datetime.now()
+            timestamp = ISOTimestamp.now()
         # Only use CPIM, it's the only type we accept
         msg = CPIMMessage(content, content_type, sender=local_identity or self.local_identity, recipients=recipients, courtesy_recipients=courtesy_recipients,
                             subject=subject, timestamp=timestamp, required=required, additional_headers=additional_headers)
@@ -193,11 +191,11 @@ class ChatStream(_ChatStream, MSRPStreamBase):
             raise ValueError('Invalid value for composing indication state')
         if message_id is None:
             message_id = '%x' % random.getrandbits(64)
-        content = IsComposingMessage(state=State(state), refresh=Refresh(refresh), last_active=LastActive(last_active or datetime.now()), content_type=ContentType('text')).toxml()
+        content = IsComposingMessage(state=State(state), refresh=Refresh(refresh), last_active=LastActive(last_active or ISOTimestamp.now()), content_type=ContentType('text')).toxml()
         if recipients is None:
             recipients = [self.remote_identity]
         # Only use CPIM, it's the only type we accept
-        msg = CPIMMessage(content, IsComposingDocument.content_type, sender=local_identity or self.local_identity, recipients=recipients, timestamp=datetime.now())
+        msg = CPIMMessage(content, IsComposingDocument.content_type, sender=local_identity or self.local_identity, recipients=recipients, timestamp=ISOTimestamp.now())
         self._enqueue_message(str(message_id), str(msg), 'message/cpim', failure_report='partial', success_report='no')
         return message_id
 
