@@ -11,10 +11,9 @@ from msrplib.session import contains_mime_type
 from msrplib.transport import make_response
 from sipsimple.core import SDPAttribute
 from sipsimple.payloads.iscomposing import IsComposingDocument, IsComposingMessage, State, LastActive, Refresh, ContentType
-from sipsimple.streams import MediaStreamRegistry
 from sipsimple.streams.applications.chat import CPIMMessage, CPIMParserError
-from sipsimple.streams.msrp import ChatStreamError, MSRPStreamError, NotificationProxyLogger, MSRPStreamBase as _MSRPStreamBase
 from sipsimple.streams.msrp import ChatStream as _ChatStream, FileTransferStream as _FileTransferStream
+from sipsimple.streams.msrp import ChatStreamError, MSRPStreamError, NotificationProxyLogger
 from sipsimple.threading.green import run_in_green_thread
 from sipsimple.util import ISOTimestamp
 from twisted.python.failure import Failure
@@ -22,17 +21,7 @@ from twisted.python.failure import Failure
 from sylk.configuration import SIPConfig, ServerConfig
 
 
-# We need to be able to set the local identity in the message CPIM envelope
-# so that messages appear to be coming from the users themselves, instead of
-# just seeying the server identity
-registry = MediaStreamRegistry()
-for stream_type in registry.stream_types[:]:
-    if stream_type in (_ChatStream, _FileTransferStream):
-        registry.stream_types.remove(stream_type)
-del registry
-
-
-class MSRPStreamBase(_MSRPStreamBase):
+class MSRPStreamMixin(object):
 
     @run_in_green_thread
     def initialize(self, session, direction):
@@ -83,7 +72,9 @@ class MSRPStreamBase(_MSRPStreamBase):
             self.greenlet = None
 
 
-class ChatStream(_ChatStream, MSRPStreamBase):
+class ChatStream(MSRPStreamMixin, _ChatStream):
+    priority = 2
+
     accept_types = ['message/cpim']
     accept_wrapped_types = ['*']
     chatroom_capabilities = ['nickname', 'private-messages', 'com.ag-projects.screen-sharing']
@@ -93,7 +84,7 @@ class ChatStream(_ChatStream, MSRPStreamBase):
         return URI(host=SIPConfig.local_ip.normalized, port=0, use_tls=self.transport=='tls', credentials=self.session.account.tls_credentials)
 
     def _create_local_media(self, uri_path):
-        local_media = MSRPStreamBase._create_local_media(self, uri_path)
+        local_media = super(ChatStream, self)._create_local_media(uri_path)
         if self.session.local_focus and self.chatroom_capabilities:
             caps = self.chatroom_capabilities[:]
             if ServerConfig.enable_bonjour:
@@ -200,12 +191,13 @@ class ChatStream(_ChatStream, MSRPStreamBase):
         return message_id
 
 
-class FileTransferStream(_FileTransferStream, MSRPStreamBase):
+class FileTransferStream(MSRPStreamMixin, _FileTransferStream):
+    priority = 11
 
     def initialize(self, session, direction):
         if self.direction == 'sendonly' and self.file_selector.fd is None:
             notification_center = NotificationCenter()
             notification_center.post_notification('MediaStreamDidFail', sender=self, data=NotificationData(context='initialize', failure=None, reason='file descriptor not specified'))
             return
-        MSRPStreamBase.initialize(self, session, direction)
+        super(FileTransferStream, self).initialize(session, direction)
 
