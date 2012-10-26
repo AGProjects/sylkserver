@@ -1,3 +1,15 @@
+sylkserver (2.2.0) unstable; urgency=low
+
+  * Added XEP-0115 caps to presence stanzas
+  * Publish service capabilities for PIDFs translated from XMPP
+  * Adapted to changes in streams API
+  * Use 'xmpp' URI parameter as a hint on generated PIDFs
+  * Fixed message dispatching if non matching identities are found
+  * Fixed initializing conference application database
+  * Fixed not terminating incoming referral in certain cases
+
+ -- Saul Ibarra <saul@ag-projects.com>  Fri, 26 Oct 2012 18:44:44 +0200
+
 sylkserver (2.1.1) unstable; urgency=low
 
   * Fixed file transfers when using Bonjour mode
