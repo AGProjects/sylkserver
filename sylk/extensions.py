@@ -118,21 +118,20 @@ class ChatStream(_ChatStream, MSRPStreamBase):
             else:
                 self.msrp_session.send_report(chunk, 200, 'OK')
                 return
-        if chunk.content_type.lower() == 'message/cpim':
-            try:
-                message = CPIMMessage.parse(chunk.data)
-            except CPIMParserError:
-                self.msrp_session.send_report(chunk, 400, 'CPIM Parser Error')
-                return
-            else:
-                if message.timestamp is None:
-                    message.timestamp = datetime.now(tzlocal())
-                if message.sender is None:
-                    message.sender = self.remote_identity
-                private = self.session.remote_focus and len(message.recipients) == 1 and message.recipients[0] != self.remote_identity
-        else:
+        if chunk.content_type.lower() != 'message/cpim':
             self.msrp_session.send_report(chunk, 415, 'Invalid Content-Type')
             return
+        try:
+            message = CPIMMessage.parse(chunk.data)
+        except CPIMParserError:
+            self.msrp_session.send_report(chunk, 400, 'CPIM Parser Error')
+            return
+        else:
+            if message.timestamp is None:
+                message.timestamp = datetime.now(tzlocal())
+            if message.sender is None:
+                message.sender = self.remote_identity
+            private = self.session.remote_focus and len(message.recipients) == 1 and message.recipients[0] != self.remote_identity
         # TODO: check wrapped content-type and issue a report if it's invalid
         notification_center = NotificationCenter()
         if message.content_type.lower() == IsComposingDocument.content_type:
