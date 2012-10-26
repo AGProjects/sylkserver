@@ -119,6 +119,7 @@ class S2XPresenceHandler(object):
             service_id = "ID-%s" % resource
             sip_uri = stanza.sender.uri.as_sip_uri()
             sip_uri.parameters['gr'] = resource
+            sip_uri.parameters['xmpp'] = None
             contact = pidf.Contact(str(sip_uri))
             service = pidf.Service(service_id, status=status, contact=contact)
             service.add(pidf.DeviceID(resource))
