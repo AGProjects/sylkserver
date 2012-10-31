@@ -441,7 +441,7 @@ class IRCRoom(object):
 
     def _NH_AudioStreamDidTimeout(self, notification):
         stream = notification.sender
-        session = stream._session
+        session = stream.session
         log.msg(u'Audio stream for session %s timed out' % format_identity(session.remote_identity))
         if session.streams == [stream]:
             session.end()
