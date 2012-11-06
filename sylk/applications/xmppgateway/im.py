@@ -27,7 +27,7 @@ from sylk.applications.xmppgateway.xmpp import XMPPManager
 from sylk.applications.xmppgateway.xmpp.session import XMPPChatSession
 from sylk.applications.xmppgateway.xmpp.stanzas import ChatMessage
 from sylk.extensions import ChatStream
-from sylk.session import ServerSession
+from sylk.session import Session
 
 log = ApplicationLogger(os.path.dirname(__file__).split(os.path.sep)[-1])
 
@@ -139,7 +139,7 @@ class ChatSessionHandler(object):
         from_header = FromHeader(from_uri)
         to_header = ToHeader(to_uri)
         contact_header = ContactHeader(contact_uri)
-        self.sip_session = ServerSession(account)
+        self.sip_session = Session(account)
         notification_center.add_observer(self, sender=self.sip_session)
         notification_center.add_observer(self, sender=self.msrp_stream)
         self.sip_session.connect(from_header, to_header, contact_header=contact_header, routes=[route], streams=[self.msrp_stream])

@@ -23,7 +23,7 @@ from sylk.applications.xmppgateway.xmpp import XMPPManager
 from sylk.applications.xmppgateway.xmpp.session import XMPPIncomingMucSession
 from sylk.applications.xmppgateway.xmpp.stanzas import MUCAvailabilityPresence, MUCErrorPresence, STANZAS_NS
 from sylk.extensions import ChatStream
-from sylk.session import ServerSession
+from sylk.session import Session
 
 log = ApplicationLogger(os.path.dirname(__file__).split(os.path.sep)[-1])
 
@@ -106,7 +106,7 @@ class X2SMucHandler(object):
         from_header = FromHeader(from_uri)
         to_header = ToHeader(to_uri)
         contact_header = ContactHeader(contact_uri)
-        self._sip_session = ServerSession(account)
+        self._sip_session = Session(account)
         notification_center.add_observer(self, sender=self._sip_session)
         notification_center.add_observer(self, sender=self._msrp_stream)
         self._sip_session.connect(from_header, to_header, contact_header=contact_header, routes=[route], streams=[self._msrp_stream])

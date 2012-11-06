@@ -25,7 +25,7 @@ from sylk.applications.conference.web import ScreenSharingWebServer
 from sylk.bonjour import BonjourServices
 from sylk.configuration import ServerConfig, SIPConfig, ThorNodeConfig
 from sylk.extensions import ChatStream
-from sylk.session import ServerSession
+from sylk.session import Session
 from sylk.tls import Certificate, PrivateKey
 
 log = ApplicationLogger(os.path.dirname(__file__).split(os.path.sep)[-1])
@@ -344,7 +344,7 @@ class IncomingReferralHandler(object):
             self.streams.append(AudioStream())
         if 'chat' in active_media:
             self.streams.append(ChatStream())
-        self.session = ServerSession(account)
+        self.session = Session(account)
         notification_center.add_observer(self, sender=self.session)
         original_from_header = self._refer_headers.get('From')
         if original_from_header.display_name:

@@ -20,7 +20,7 @@ from sipsimple.core import SIPURI, SDPConnection, SDPSession
 from sipsimple.lookup import DNSLookup, DNSLookupError
 from sipsimple.payloads import ParserError
 from sipsimple.payloads.conference import ConferenceDocument
-from sipsimple.session import Session
+from sipsimple.session import Session as _Session
 from sipsimple.session import SessionReplaceHandler, TransferHandler, DialogID, TransferInfo
 from sipsimple.session import InvitationDisconnectedError, MediaStreamDidFailError, InterruptSubscription, TerminateSubscription, SubscriptionError, SIPSubscriptionDidFail
 from sipsimple.session import transition_state
@@ -307,7 +307,7 @@ class ConferenceHandler(object):
             self._wakeup_timer = reactor.callLater(5, wakeup_action) # wait for system to stabilize
 
 
-class ServerSession(Session):
+class Session(_Session):
 
     def init_incoming(self, invitation, data):
         notification_center = NotificationCenter()
@@ -615,7 +615,7 @@ class SessionManager(object):
         if notification.name == 'SIPInvitationChangedState' and notification.data.state == 'incoming':
             account = AccountManager().sylkserver_account
             notification.sender.send_response(100)
-            session = ServerSession(account)
+            session = Session(account)
             session.init_incoming(notification.sender, notification.data)
         elif notification.name in ('SIPSessionNewIncoming', 'SIPSessionNewOutgoing'):
             self.sessions.append(notification.sender)

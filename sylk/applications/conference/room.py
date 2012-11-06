@@ -46,7 +46,7 @@ from sylk.applications.conference.configuration import ConferenceConfig, URL
 from sylk.bonjour import BonjourServices
 from sylk.configuration import ServerConfig, SIPConfig, ThorNodeConfig
 from sylk.configuration.datatypes import ResourcePath
-from sylk.session import ServerSession
+from sylk.session import Session
 
 log = ApplicationLogger(os.path.dirname(__file__).split(os.path.sep)[-1])
 
@@ -1102,7 +1102,7 @@ class OutgoingFileTransferHandler(object):
             return
 
         notification_center = NotificationCenter()
-        self.session = ServerSession(account)
+        self.session = Session(account)
         self.stream = FileTransferStream(self.file.file_selector, 'sendonly')
         notification_center.add_observer(self, sender=self.session)
         notification_center.add_observer(self, sender=self.stream)
