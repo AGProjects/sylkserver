@@ -341,9 +341,9 @@ class IncomingReferralHandler(object):
             self._refer_request.end(500)
             return
         if 'audio' in active_media:
-            self.streams.append(AudioStream(account))
+            self.streams.append(AudioStream())
         if 'chat' in active_media:
-            self.streams.append(ChatStream(account))
+            self.streams.append(ChatStream())
         self.session = ServerSession(account)
         notification_center.add_observer(self, sender=self.session)
         original_from_header = self._refer_headers.get('From')

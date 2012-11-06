@@ -1103,7 +1103,7 @@ class OutgoingFileTransferHandler(object):
 
         notification_center = NotificationCenter()
         self.session = ServerSession(account)
-        self.stream = FileTransferStream(account, self.file.file_selector, 'sendonly')
+        self.stream = FileTransferStream(self.file.file_selector, 'sendonly')
         notification_center.add_observer(self, sender=self.session)
         notification_center.add_observer(self, sender=self.stream)
         subject = u'File uploaded by %s' % self.file.sender

@@ -101,7 +101,7 @@ class X2SMucHandler(object):
             log.warning('DNS lookup error while looking for %s proxy' % uri)
             notification_center.post_notification('ChatSessionDidFail', sender=self)
             return
-        self._msrp_stream = ChatStream(account)
+        self._msrp_stream = ChatStream()
         route = routes.pop(0)
         from_header = FromHeader(from_uri)
         to_header = ToHeader(to_uri)
