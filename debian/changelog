@@ -1,3 +1,11 @@
+sylkserver (2.2.1) unstable; urgency=low
+
+  * Fixed stream creation after API changes in SDK
+  * Fixed accessing session objects after API changes in SDK
+  * Renamed ServerSession to Session
+
+ -- Saul Ibarra <saul@ag-projects.com>  Fri, 09 Nov 2012 15:55:19 +0100
+
 sylkserver (2.2.0) unstable; urgency=low
 
   * Added XEP-0115 caps to presence stanzas
