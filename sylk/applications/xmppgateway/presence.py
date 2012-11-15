@@ -106,7 +106,7 @@ class S2XPresenceHandler(object):
                     if 'away' not in person.activities:
                         person.activities.add('away')
                 elif stanza.show == 'xa':
-                    status.extended = 'extended-away'
+                    status.extended = 'away'
                     if 'away' not in person.activities:
                         person.activities.add('away')
                 elif stanza.show == 'dnd':
@@ -300,8 +300,6 @@ class X2SPresenceHandler(object):
             if service.status.extended is not None:
                 if service.status.extended == 'away':
                     stanza.show = 'away'
-                elif service.status.extended == 'extended-away':
-                    stanza.show = 'xa'
                 elif service.status.extended == 'busy':
                     stanza.show = 'dnd'
             elif person is not None and person.activities is not None:
