@@ -294,12 +294,12 @@ class IncomingReferralHandler(object):
         try:
             self.refer_to_uri = SIPURI.parse(self.refer_to_uri)
         except SIPCoreError:
+            log.msg('Failed to add %s to %s' % (self.refer_to_uri, self.room_uri))
             self._refer_request.reject(488)
             return
         notification_center = NotificationCenter()
         notification_center.add_observer(self, sender=self._refer_request)
         if self.method == 'INVITE':
-            log.msg('%s added %s to %s' % (self._refer_headers.get('From').uri, self.refer_to_uri, self.room_uri))
             self._refer_request.accept()
             settings = SIPSimpleSettings()
             account = AccountManager().sylkserver_account
@@ -333,11 +333,13 @@ class IncomingReferralHandler(object):
         try:
             room = conference_application.get_room(self.room_uri)
         except RoomNotFoundError:
+            log.msg('Failed to add %s to %s' % (self.refer_to_uri, self.room_uri))
             self._refer_request.end(500)
             return
         else:
             active_media = room.active_media
         if not active_media:
+            log.msg('Failed to add %s to %s' % (self.refer_to_uri, self.room_uri))
             self._refer_request.end(500)
             return
         if 'audio' in active_media:
@@ -384,10 +386,12 @@ class IncomingReferralHandler(object):
             self._refer_request.end(200)
         conference_application = ConferenceApplication()
         conference_application.add_participant(self.session, self.room_uri)
+        log.msg('%s added %s to %s' % (self._refer_headers.get('From').uri, self.refer_to_uri, self.room_uri))
         self.session = None
         self.streams = []
 
     def _NH_SIPSessionDidFail(self, notification):
+        log.msg('Failed to add %s to %s' % (self.refer_to_uri, self.room_uri))
         NotificationCenter().remove_observer(self, sender=notification.sender)
         if self._refer_request is not None:
             self._refer_request.end(notification.data.code or 500, notification.data.reason)
@@ -396,6 +400,7 @@ class IncomingReferralHandler(object):
 
     def _NH_SIPSessionDidEnd(self, notification):
         # If any stream fails to start we won't get SIPSessionDidFail, we'll get here instead
+        log.msg('Failed to add %s to %s' % (self.refer_to_uri, self.room_uri))
         NotificationCenter().remove_observer(self, sender=notification.sender)
         if self._refer_request is not None:
             self._refer_request.end(200)
