@@ -8,7 +8,9 @@ from application.python import Null
 from application.python.types import Singleton
 from sipsimple.util import ISOTimestamp
 from twisted.internet import reactor
-from twisted.words.protocols.jabber.jid import internJID as JID
+from twisted.words.protocols.jabber.error import StanzaError
+from twisted.words.protocols.jabber.jid import JID, internJID
+from wokkel import disco
 from wokkel.component import InternalComponent, Router as _Router
 from wokkel.server import ServerService, XMPPS2SServerFactory, DeferredS2SClientFactory
 from zope.interface import implements
@@ -17,7 +19,7 @@ from sylk.applications import ApplicationLogger
 from sylk.applications.xmppgateway.configuration import XMPPGatewayConfig
 from sylk.applications.xmppgateway.datatypes import FrozenURI
 from sylk.applications.xmppgateway.xmpp.logger import Logger as XMPPLogger
-from sylk.applications.xmppgateway.xmpp.protocols import MessageProtocol, MUCServerProtocol, PresenceProtocol
+from sylk.applications.xmppgateway.xmpp.protocols import DiscoProtocol, MessageProtocol, MUCServerProtocol, PresenceProtocol
 from sylk.applications.xmppgateway.xmpp.session import XMPPChatSessionManager, XMPPMucSessionManager
 from sylk.applications.xmppgateway.xmpp.subscription import XMPPSubscriptionManager
 
@@ -37,7 +39,7 @@ class Router(_Router):
         @param stanza: The stanza to be routed.
         @type stanza: L{domish.Element}.
         """
-        destination = JID(stanza['to'])
+        destination = internJID(stanza['to'])
 
         if destination.host in self.routes:
             self.routes[destination.host].send(stanza)
@@ -98,19 +100,19 @@ class XMPPManager(object):
 
         self.stopped = False
 
-        self.domains = config.domains
-        self.muc_domains = ['%s.%s' % (config.muc_prefix, domain) for domain in self.domains]
+        self.domains = set(config.domains)
+        self.muc_domains = set(['%s.%s' % (config.muc_prefix, domain) for domain in self.domains])
 
         router = Router()
         self._server_service = ServerService(router)
-        self._server_service.domains = set(self.domains+self.muc_domains)
+        self._server_service.domains = self.domains | self.muc_domains
         self._server_service.logTraffic = False    # done manually
 
         self._s2s_factory = XMPPS2SServerFactory(self._server_service)
         self._s2s_factory.logTraffic = False    # done manually
 
         self._internal_component = InternalComponent(router)
-        self._internal_component.domains = set(self.domains)
+        self._internal_component.domains = self.domains
 
         self._message_protocol = MessageProtocol()
         self._message_protocol.setHandlerParent(self._internal_component)
@@ -118,11 +120,17 @@ class XMPPManager(object):
         self._presence_protocol = PresenceProtocol()
         self._presence_protocol.setHandlerParent(self._internal_component)
 
+        self._disco_protocol = DiscoProtocol()
+        self._disco_protocol.setHandlerParent(self._internal_component)
+
         self._muc_component = InternalComponent(router)
-        self._muc_component.domains = set(self.muc_domains)
+        self._muc_component.domains = self.muc_domains
 
         self._muc_protocol = MUCServerProtocol()
         self._muc_protocol.setHandlerParent(self._muc_component)
+
+        self._disco_muc_protocol = DiscoProtocol()
+        self._disco_muc_protocol.setHandlerParent(self._muc_component)
 
         self._s2s_listener = None
 
@@ -300,4 +308,47 @@ class XMPPManager(object):
                 notification_center.post_notification('XMPPGotMucLeaveRequest', sender=self, data=NotificationData(stanza=stanza))
         else:
             session.channel.send(stanza)
+
+    # Disco
+
+    def _NH_XMPPGotDiscoInfoRequest(self, notification):
+        d = notification.data.deferred
+        target_uri = notification.data.target.uri
+
+        if notification.data.node_identifier:
+            d.errback(StanzaError('service-unavailable'))
+            return
+
+        if target_uri.host not in self.domains | self.muc_domains:
+            d.errback(StanzaError('service-unavailable'))
+            return
+
+        elements = []
+
+        if target_uri.host in self.muc_domains:
+            elements.append(disco.DiscoIdentity('conference', 'text', 'SylkServer Chat Service'))
+            elements.append(disco.DiscoFeature('http://jabber.org/protocol/muc'))
+            if target_uri.user:
+                # We can't say much more here, because the actual conference may end up on a different server
+                elements.append(disco.DiscoFeature('muc_temporary'))
+                elements.append(disco.DiscoFeature('muc_unmoderated'))
+        else:
+            if not target_uri.user:
+                elements.append(disco.DiscoIdentity('gateway', 'simple'))
+                elements.append(disco.DiscoIdentity('server', 'im'))
+            else:
+                elements.append(disco.DiscoIdentity('account', 'registered'))
+
+        elements.append(disco.DiscoFeature('http://sylkserver.com'))
+        d.callback(elements)
+
+    def _NH_XMPPGotDiscoItemsRequest(self, notification):
+        d = notification.data.deferred
+        target_uri = notification.data.target.uri
+        items = []
+
+        if not target_uri.user and target_uri.host in self.domains:
+            items.append(disco.DiscoItem(JID('%s.%s' % (XMPPGatewayConfig.muc_prefix, target_uri.host)), name='Multi-User Chat'))
+
+        d.callback(items)
 

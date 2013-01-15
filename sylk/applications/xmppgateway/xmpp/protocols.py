@@ -2,6 +2,8 @@
 #
 
 from application.notification import NotificationCenter, NotificationData
+from twisted.internet import defer
+from wokkel.disco import DiscoHandler
 from wokkel.muc import UserPresence
 from wokkel.xmppim import BasePresenceProtocol, MessageProtocol, PresenceProtocol
 
@@ -11,7 +13,7 @@ from sylk.applications.xmppgateway.xmpp.stanzas import RECEIPTS_NS, CHATSTATES_N
         AvailabilityPresence, SubscriptionPresence, ProbePresence,                              \
         MUCAvailabilityPresence, GroupChatMessage                                               \
 
-__all__ = ['MessageProtocol', 'MUCServerProtocol', 'PresenceProtocol']
+__all__ = ['DiscoProtocol', 'MessageProtocol', 'MUCServerProtocol', 'PresenceProtocol']
 
 
 class MessageProtocol(MessageProtocol):
@@ -189,4 +191,59 @@ class MUCServerProtocol(BasePresenceProtocol):
         presence_stanza = MUCAvailabilityPresence(sender, recipient, available=False, id=id)
         notification_center = NotificationCenter()
         notification_center.post_notification('XMPPMucGotPresenceAvailability', sender=self.parent, data=NotificationData(presence_stanza=presence_stanza))
+
+
+class DiscoProtocol(DiscoHandler):
+
+    def info(self, requestor, target, nodeIdentifier):
+        """
+        Gather data for a disco info request.
+
+        @param requestor: The entity that sent the request.
+        @type requestor: L{JID<twisted.words.protocols.jabber.jid.JID>}
+        @param target: The entity the request was sent to.
+        @type target: L{JID<twisted.words.protocols.jabber.jid.JID>}
+        @param nodeIdentifier: The optional node being queried, or C{''}.
+        @type nodeIdentifier: C{unicode}
+        @return: Deferred with the gathered results from sibling handlers.
+        @rtype: L{defer.Deferred}
+        """
+
+        d = defer.Deferred()
+
+        sender_uri = FrozenURI.parse(requestor)
+        sender = Identity(sender_uri)
+        target_uri = FrozenURI.parse(target)
+        target = Identity(target_uri)
+
+        data = NotificationData(sender=sender, target=target, node_identifier=nodeIdentifier, deferred=d)
+        NotificationCenter().post_notification('XMPPGotDiscoInfoRequest', sender=self.parent, data=data)
+
+        return d
+
+    def items(self, requestor, target, nodeIdentifier):
+        """
+        Gather data for a disco items request.
+
+        @param requestor: The entity that sent the request.
+        @type requestor: L{JID<twisted.words.protocols.jabber.jid.JID>}
+        @param target: The entity the request was sent to.
+        @type target: L{JID<twisted.words.protocols.jabber.jid.JID>}
+        @param nodeIdentifier: The optional node being queried, or C{''}.
+        @type nodeIdentifier: C{unicode}
+        @return: Deferred with the gathered results from sibling handlers.
+        @rtype: L{defer.Deferred}
+        """
+
+        d = defer.Deferred()
+
+        sender_uri = FrozenURI.parse(requestor)
+        sender = Identity(sender_uri)
+        target_uri = FrozenURI.parse(target)
+        target = Identity(target_uri)
+
+        data = NotificationData(sender=sender, target=target, node_identifier=nodeIdentifier, deferred=d)
+        NotificationCenter().post_notification('XMPPGotDiscoItemsRequest', sender=self.parent, data=data)
+
+        return d
 
