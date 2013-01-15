@@ -1,3 +1,14 @@
+sylkserver (2.3.0) unstable; urgency=low
+
+  * Added support for XEP-0030 (service discovery)
+  * Improved logging when adding participants to a conference
+  * Removed extended-away state handling, it no longer exists
+  * Fixed handling presence availability stanzas without a resource part in
+    the from
+  * Fixed translating resource IDs for presence
+
+ -- Saul Ibarra <saul@ag-projects.com>  Tue, 15 Jan 2013 18:10:00 +0100
+
 sylkserver (2.2.1) unstable; urgency=low
 
   * Fixed stream creation after API changes in SDK
