@@ -308,10 +308,6 @@ class XMPPManager(object):
         d = notification.data.deferred
         target_uri = notification.data.target.uri
 
-        if notification.data.node_identifier:
-            d.errback(StanzaError('service-unavailable'))
-            return
-
         if target_uri.host not in self.domains | self.muc_domains:
             d.errback(StanzaError('service-unavailable'))
             return
