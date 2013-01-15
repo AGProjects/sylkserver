@@ -486,8 +486,7 @@ class Room(object):
         if subscribe_request.event != 'conference':
             subscribe_request.reject(489)
             return
-        notification_center = NotificationCenter()
-        notification_center.add_observer(self, sender=subscribe_request)
+        NotificationCenter().add_observer(self, sender=subscribe_request)
         data = self.build_conference_info_payload()
         subscribe_request.accept(conference.ConferenceDocument.content_type, data)
         self.subscriptions.append(subscribe_request)
@@ -560,8 +559,7 @@ class Room(object):
 
     def _NH_SIPIncomingSubscriptionDidEnd(self, notification):
         subscription = notification.sender
-        notification_center = NotificationCenter()
-        notification_center.remove_observer(self, sender=subscription)
+        notification.center.remove_observer(self, sender=subscription)
         try:
             self.subscriptions.remove(subscription)
         except ValueError:
@@ -599,7 +597,6 @@ class Room(object):
                 timer.cancel()
 
     def _NH_SIPSessionDidRenegotiateStreams(self, notification):
-        notification_center = NotificationCenter()
         session = notification.sender
         streams = notification.data.streams
         if notification.data.action == 'add':
@@ -608,7 +605,7 @@ class Room(object):
             except StopIteration:
                 pass
             else:
-                notification_center.add_observer(self, sender=chat_stream)
+                notification.center.add_observer(self, sender=chat_stream)
                 log.msg(u'%s has added chat to %s' % (format_identity(session.remote_identity), self.uri))
                 self.dispatch_server_message('%s has added chat' % format_identity(session.remote_identity), exclude=session)
             try:
@@ -616,7 +613,7 @@ class Room(object):
             except StopIteration:
                 pass
             else:
-                notification_center.add_observer(self, sender=audio_stream)
+                notification.center.add_observer(self, sender=audio_stream)
                 log.msg(u'Audio stream using %s/%sHz (%s), end-points: %s:%d <-> %s:%d' % (audio_stream.codec, audio_stream.sample_rate,
                                                                                           'encrypted' if audio_stream.srtp_active else 'unencrypted',
                                                                                           audio_stream.local_rtp_address, audio_stream.local_rtp_port,
@@ -631,7 +628,7 @@ class Room(object):
             except StopIteration:
                 pass
             else:
-                notification_center.remove_observer(self, sender=chat_stream)
+                notification.center.remove_observer(self, sender=chat_stream)
                 log.msg(u'%s has removed chat from %s' % (format_identity(session.remote_identity), self.uri))
                 self.dispatch_server_message('%s has removed chat' % format_identity(session.remote_identity), exclude=session)
             try:
@@ -639,7 +636,7 @@ class Room(object):
             except StopIteration:
                 pass
             else:
-                notification_center.remove_observer(self, sender=audio_stream)
+                notification.center.remove_observer(self, sender=audio_stream)
                 try:
                     self.audio_conference.remove(audio_stream)
                 except ValueError:
@@ -728,14 +725,12 @@ class MoHPlayer(object):
         self._player = WavePlayer(SIPApplication.voice_audio_mixer, '', pause_time=1, initial_play=False, volume=20)
         self.paused = True
         self.conference.bridge.add(self._player)
-        notification_center = NotificationCenter()
-        notification_center.add_observer(self, sender=self._player)
+        NotificationCenter().add_observer(self, sender=self._player)
 
     def stop(self):
         if self._player is None:
             return
-        notification_center = NotificationCenter()
-        notification_center.remove_observer(self, sender=self._player)
+        NotificationCenter().remove_observer(self, sender=self._player)
         self._player.stop()
         self.paused = True
         self.conference.bridge.remove(self._player)
@@ -976,9 +971,8 @@ class IncomingFileTransferHandler(object):
             self.timer.cancel()
         self.timer = None
 
-        notification_center = NotificationCenter()
-        notification_center.remove_observer(self, sender=self.stream)
-        notification_center.remove_observer(self, sender=self.session)
+        notification.center.remove_observer(self, sender=self.stream)
+        notification.center.remove_observer(self, sender=self.session)
 
         # Mark end of write operation
         self.write_chunk(None)
@@ -999,8 +993,7 @@ class IncomingFileTransferHandler(object):
             self.timer = reactor.callLater(5, self.session.end)
 
     def _NH_IncomingFileTransferHandlerDidEnd(self, notification):
-        notification_center = NotificationCenter()
-        notification_center.remove_observer(self, sender=self)
+        notification.center.remove_observer(self, sender=self)
 
         remote_hash = self.file_selector.hash
         if not self.transfer_finished:
@@ -1024,8 +1017,7 @@ class IncomingFileTransferHandler(object):
         self.stream = None
 
     def _NH_IncomingFileTransferHandlerDidFail(self, notification):
-        notification_center = NotificationCenter()
-        notification_center.remove_observer(self, sender=self)
+        notification.center.remove_observer(self, sender=self)
 
         file = RoomFile(self.filename, self.file_selector.hash, self.file_selector.size, format_identity(self.session.remote_identity, cpim_format=True), self.status)
         room = self.room() or Null

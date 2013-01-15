@@ -86,8 +86,7 @@ class PresenceProtocol(PresenceProtocol):
         show = stanza.show
         statuses = stanza.statuses
         presence_stanza = AvailabilityPresence(sender, recipient, available=True, show=show, statuses=statuses, id=id)
-        notification_center = NotificationCenter()
-        notification_center.post_notification('XMPPGotPresenceAvailability', sender=self.parent, data=NotificationData(presence_stanza=presence_stanza))
+        NotificationCenter().post_notification('XMPPGotPresenceAvailability', sender=self.parent, data=NotificationData(presence_stanza=presence_stanza))
 
     def unavailableReceived(self, stanza):
         sender_uri = FrozenURI.parse('xmpp:'+stanza.element['from'])
@@ -96,8 +95,7 @@ class PresenceProtocol(PresenceProtocol):
         recipient = Identity(recipient_uri)
         id = stanza.element.getAttribute('id')
         presence_stanza = AvailabilityPresence(sender, recipient, available=False, id=id)
-        notification_center = NotificationCenter()
-        notification_center.post_notification('XMPPGotPresenceAvailability', sender=self.parent, data=NotificationData(presence_stanza=presence_stanza))
+        NotificationCenter().post_notification('XMPPGotPresenceAvailability', sender=self.parent, data=NotificationData(presence_stanza=presence_stanza))
 
     def _process_subscription_stanza(self, stanza):
         sender_uri = FrozenURI.parse('xmpp:'+stanza.element['from'])
@@ -107,8 +105,7 @@ class PresenceProtocol(PresenceProtocol):
         id = stanza.element.getAttribute('id')
         type = stanza.element.getAttribute('type')
         presence_stanza = SubscriptionPresence(sender, recipient, type, id=id)
-        notification_center = NotificationCenter()
-        notification_center.post_notification('XMPPGotPresenceSubscriptionStatus', sender=self.parent, data=NotificationData(presence_stanza=presence_stanza))
+        NotificationCenter().post_notification('XMPPGotPresenceSubscriptionStatus', sender=self.parent, data=NotificationData(presence_stanza=presence_stanza))
 
     def subscribedReceived(self, stanza):
         self._process_subscription_stanza(stanza)
@@ -129,8 +126,7 @@ class PresenceProtocol(PresenceProtocol):
         recipient = Identity(recipient_uri)
         id = stanza.element.getAttribute('id')
         presence_stanza = ProbePresence(sender, recipient, id=id)
-        notification_center = NotificationCenter()
-        notification_center.post_notification('XMPPGotPresenceProbe', sender=self.parent, data=NotificationData(presence_stanza=presence_stanza))
+        NotificationCenter().post_notification('XMPPGotPresenceProbe', sender=self.parent, data=NotificationData(presence_stanza=presence_stanza))
 
 
 class MUCServerProtocol(BasePresenceProtocol):
@@ -169,8 +165,7 @@ class MUCServerProtocol(BasePresenceProtocol):
         if msg.body is not None:
             body = unicode(msg.body)
         message = GroupChatMessage(sender, recipient, body, html_body, id=msg.getAttribute('id', None))
-        notification_center = NotificationCenter()
-        notification_center.post_notification('XMPPMucGotGroupChat', sender=self.parent, data=NotificationData(message=message))
+        NotificationCenter().post_notification('XMPPMucGotGroupChat', sender=self.parent, data=NotificationData(message=message))
 
     def availableReceived(self, stanza):
         sender_uri = FrozenURI.parse('xmpp:'+stanza.element['from'])
@@ -179,8 +174,7 @@ class MUCServerProtocol(BasePresenceProtocol):
         recipient = Identity(recipient_uri)
         id = stanza.element.getAttribute('id')
         presence_stanza = MUCAvailabilityPresence(sender, recipient, available=True, id=id)
-        notification_center = NotificationCenter()
-        notification_center.post_notification('XMPPMucGotPresenceAvailability', sender=self.parent, data=NotificationData(presence_stanza=presence_stanza))
+        NotificationCenter().post_notification('XMPPMucGotPresenceAvailability', sender=self.parent, data=NotificationData(presence_stanza=presence_stanza))
 
     def unavailableReceived(self, stanza):
         sender_uri = FrozenURI.parse('xmpp:'+stanza.element['from'])
@@ -189,8 +183,7 @@ class MUCServerProtocol(BasePresenceProtocol):
         recipient = Identity(recipient_uri)
         id = stanza.element.getAttribute('id')
         presence_stanza = MUCAvailabilityPresence(sender, recipient, available=False, id=id)
-        notification_center = NotificationCenter()
-        notification_center.post_notification('XMPPMucGotPresenceAvailability', sender=self.parent, data=NotificationData(presence_stanza=presence_stanza))
+        NotificationCenter().post_notification('XMPPMucGotPresenceAvailability', sender=self.parent, data=NotificationData(presence_stanza=presence_stanza))
 
 
 class DiscoProtocol(DiscoHandler):

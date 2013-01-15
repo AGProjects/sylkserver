@@ -126,18 +126,16 @@ class X2SMucHandler(object):
 
     def _NH_SIPSessionDidEnd(self, notification):
         log.msg("SIP session (MUC) %s ended" % notification.sender._invitation.call_id)
-        notification_center = NotificationCenter()
-        notification_center.remove_observer(self, sender=self._sip_session)
-        notification_center.remove_observer(self, sender=self._msrp_stream)
+        notification.center.remove_observer(self, sender=self._sip_session)
+        notification.center.remove_observer(self, sender=self._msrp_stream)
         self._sip_session = None
         self._msrp_stream = None
         self.end()
 
     def _NH_SIPSessionDidFail(self, notification):
         log.msg("SIP session (MUC) %s failed" % notification.sender._invitation.call_id)
-        notification_center = NotificationCenter()
-        notification_center.remove_observer(self, sender=self._sip_session)
-        notification_center.remove_observer(self, sender=self._msrp_stream)
+        notification.center.remove_observer(self, sender=self._sip_session)
+        notification.center.remove_observer(self, sender=self._msrp_stream)
         self._sip_session = None
         self._msrp_stream = None
         self.end()
@@ -222,8 +220,7 @@ class X2SMucHandler(object):
         self._pending_messages_map.pop(notification.data.message_id)
 
     def _NH_XMPPIncomingMucSessionDidEnd(self, notification):
-        notification_center = NotificationCenter()
-        notification_center.remove_observer(self, sender=self._xmpp_muc_session)
+        notification.center.remove_observer(self, sender=self._xmpp_muc_session)
         self._xmpp_muc_session = None
         self.end()
 

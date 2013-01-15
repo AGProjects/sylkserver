@@ -385,7 +385,6 @@ class IRCRoom(object):
         self.sessions_with_proposals.remove(session)
 
     def _NH_SIPSessionDidRenegotiateStreams(self, notification):
-        notification_center = NotificationCenter()
         session = notification.sender
         streams = notification.data.streams
         if notification.data.action == 'add':
@@ -394,7 +393,7 @@ class IRCRoom(object):
             except StopIteration:
                 pass
             else:
-                notification_center.add_observer(self, sender=chat_stream)
+                notification.center.add_observer(self, sender=chat_stream)
                 log.msg(u'%s has added chat to %s' % (format_identity(session.remote_identity), self.uri))
                 self.dispatch_server_message('%s has added chat' % format_identity(session.remote_identity), exclude=session)
             try:
@@ -402,7 +401,7 @@ class IRCRoom(object):
             except StopIteration:
                 pass
             else:
-                notification_center.add_observer(self, sender=audio_stream)
+                notification.center.add_observer(self, sender=audio_stream)
                 log.msg(u'Audio stream using %s/%sHz (%s), end-points: %s:%d <-> %s:%d' % (audio_stream.codec, audio_stream.sample_rate,
                                                                                           'encrypted' if audio_stream.srtp_active else 'unencrypted',
                                                                                           audio_stream.local_rtp_address, audio_stream.local_rtp_port,
@@ -416,7 +415,7 @@ class IRCRoom(object):
             except StopIteration:
                 pass
             else:
-                notification_center.remove_observer(self, sender=chat_stream)
+                notification.center.remove_observer(self, sender=chat_stream)
                 log.msg(u'%s has removed chat from %s' % (format_identity(session.remote_identity), self.uri))
                 self.dispatch_server_message('%s has removed chat' % format_identity(session.remote_identity), exclude=session)
             try:
@@ -424,7 +423,7 @@ class IRCRoom(object):
             except StopIteration:
                 pass
             else:
-                notification_center.remove_observer(self, sender=audio_stream)
+                notification.center.remove_observer(self, sender=audio_stream)
                 try:
                     self.audio_conference.remove(audio_stream)
                 except ValueError:

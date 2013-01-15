@@ -30,16 +30,14 @@ class XMPPSubscription(object):
         prev_state = self.__dict__.get('state', None)
         self.__dict__['state'] = new_state
         if prev_state != new_state:
-            notification_center = NotificationCenter()
-            notification_center.post_notification('XMPPSubscriptionChangedState', sender=self, data=NotificationData(prev_state=prev_state, state=new_state))
+            NotificationCenter().post_notification('XMPPSubscriptionChangedState', sender=self, data=NotificationData(prev_state=prev_state, state=new_state))
     def _get_state(self):
         return self.__dict__['state']
     state = property(_get_state, _set_state)
     del _get_state, _set_state
 
     def start(self):
-        notification_center = NotificationCenter()
-        notification_center.post_notification('XMPPSubscriptionDidStart', sender=self)
+        NotificationCenter().post_notification('XMPPSubscriptionDidStart', sender=self)
         self._proc = proc.spawn(self._run)
         self.subscribe()
 
@@ -48,8 +46,7 @@ class XMPPSubscription(object):
             return
         self._proc.kill()
         self._proc = None
-        notification_center = NotificationCenter()
-        notification_center.post_notification('XMPPSubscriptionDidEnd', sender=self, data=NotificationData(originator='local'))
+        NotificationCenter().post_notification('XMPPSubscriptionDidEnd', sender=self, data=NotificationData(originator='local'))
         self.state = 'terminated'
 
     def subscribe(self):
@@ -108,16 +105,14 @@ class XMPPIncomingSubscription(object):
         prev_state = self.__dict__.get('state', None)
         self.__dict__['state'] = new_state
         if prev_state != new_state:
-            notification_center = NotificationCenter()
-            notification_center.post_notification('XMPPIncomingSubscriptionChangedState', sender=self, data=NotificationData(prev_state=prev_state, state=new_state))
+            NotificationCenter().post_notification('XMPPIncomingSubscriptionChangedState', sender=self, data=NotificationData(prev_state=prev_state, state=new_state))
     def _get_state(self):
         return self.__dict__['state']
     state = property(_get_state, _set_state)
     del _get_state, _set_state
 
     def start(self):
-        notification_center = NotificationCenter()
-        notification_center.post_notification('XMPPIncomingSubscriptionDidStart', sender=self)
+        NotificationCenter().post_notification('XMPPIncomingSubscriptionDidStart', sender=self)
         self._proc = proc.spawn(self._run)
 
     def end(self):
@@ -126,8 +121,7 @@ class XMPPIncomingSubscription(object):
         self.state = 'terminated'
         self._proc.kill()
         self._proc = None
-        notification_center = NotificationCenter()
-        notification_center.post_notification('XMPPIncomingSubscriptionDidEnd', sender=self, data=NotificationData(originator='local'))
+        NotificationCenter().post_notification('XMPPIncomingSubscriptionDidEnd', sender=self, data=NotificationData(originator='local'))
 
     def accept(self):
         self.state = 'active'

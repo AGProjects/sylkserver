@@ -77,8 +77,7 @@ class S2XPresenceHandler(object):
 
     def add_sip_subscription(self, subscription):
         self._sip_subscriptions.append(subscription)
-        notification_center = NotificationCenter()
-        notification_center.add_observer(self, sender=subscription)
+        NotificationCenter().add_observer(self, sender=subscription)
         if self._xmpp_subscription.state == 'active':
             pidf_doc = self._pidf
             content_type = pidf.PIDFDocument.content_type if pidf_doc is not None else None
@@ -139,9 +138,8 @@ class S2XPresenceHandler(object):
 
     @run_in_twisted_thread
     def _NH_SIPIncomingSubscriptionDidEnd(self, notification):
-        notification_center = NotificationCenter()
         subscription = notification.sender
-        notification_center.remove_observer(self, sender=subscription)
+        notification.center.remove_observer(self, sender=subscription)
         self._sip_subscriptions.remove(subscription)
         if not self._sip_subscriptions:
             self.end()
@@ -167,8 +165,7 @@ class S2XPresenceHandler(object):
             del self._stanza_cache[stanza.sender.uri]
 
     def _NH_XMPPSubscriptionDidFail(self, notification):
-        notification_center = NotificationCenter()
-        notification_center.remove_observer(self, sender=self._xmpp_subscription)
+        notification.center.remove_observer(self, sender=self._xmpp_subscription)
         self._xmpp_subscription = None
         self.end()
 

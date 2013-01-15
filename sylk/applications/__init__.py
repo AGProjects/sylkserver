@@ -216,14 +216,12 @@ class AuthorizationHandler(object):
         return self.trusted_peers
 
     def start(self):
-        notification_center = NotificationCenter()
-        notification_center.add_observer(self, name='ThorNetworkGotUpdate')
+        NotificationCenter().add_observer(self, name='ThorNetworkGotUpdate')
         self.state = 'started'
 
     def stop(self):
         self.state = 'stopped'
-        notification_center = NotificationCenter()
-        notification_center.remove_observer(self, name='ThorNetworkGotUpdate')
+        NotificationCenter().remove_observer(self, name='ThorNetworkGotUpdate')
 
     def authorize_source(self, ip_address):
         if self.state != 'started':

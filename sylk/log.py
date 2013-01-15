@@ -60,13 +60,11 @@ class Logger(object):
             pass
 
         # register to receive log notifications
-        notification_center = NotificationCenter()
-        notification_center.add_observer(self)
+        NotificationCenter().add_observer(self)
         self.stopped = False
 
     def stop(self):
-        notification_center = NotificationCenter()
-        notification_center.remove_observer(self)
+        NotificationCenter().remove_observer(self)
         self.stopped = False
         self._close_files()
 

@@ -151,8 +151,7 @@ class ConferenceApplication(object):
                 session.reject(404)
                 return
         self.pending_sessions.append(session)
-        notification_center = NotificationCenter()
-        notification_center.add_observer(self, sender=session)
+        NotificationCenter().add_observer(self, sender=session)
         if audio_streams:
             session.send_ring_indication()
         streams = [streams[0] for streams in (audio_streams, chat_streams, transfer_streams) if streams]
@@ -218,8 +217,7 @@ class ConferenceApplication(object):
         d = self.invited_participants_map.setdefault(room_uri_str, {})
         d.setdefault(str(session.remote_identity.uri), 0)
         d[str(session.remote_identity.uri)] += 1
-        notification_center = NotificationCenter()
-        notification_center.add_observer(self, sender=session)
+        NotificationCenter().add_observer(self, sender=session)
         room = self.get_room(room_uri, True)
         room.start()
         room.add_session(session)
@@ -247,8 +245,7 @@ class ConferenceApplication(object):
     def _NH_SIPSessionDidEnd(self, notification):
         session = notification.sender
         log.msg('Session from %s ended' % session.remote_identity.uri)
-        notification_center = NotificationCenter()
-        notification_center.remove_observer(self, sender=session)
+        NotificationCenter().remove_observer(self, sender=session)
         if session.direction == 'incoming':
             room_uri = session._invitation.request_uri               # FIXME
         else:
@@ -370,7 +367,7 @@ class IncomingReferralHandler(object):
         self.session.connect(from_header, to_header, contact_header=contact_header, routes=notification.data.result, streams=self.streams, is_focus=True, subject=subject, extra_headers=extra_headers)
 
     def _NH_DNSLookupDidFail(self, notification):
-        NotificationCenter().remove_observer(self, sender=notification.sender)
+        notification.center.remove_observer(self, sender=notification.sender)
 
     def _NH_SIPSessionGotRingIndication(self, notification):
         if self._refer_request is not None:
@@ -381,7 +378,7 @@ class IncomingReferralHandler(object):
             self._refer_request.send_notify(notification.data.code, notification.data.reason)
 
     def _NH_SIPSessionDidStart(self, notification):
-        NotificationCenter().remove_observer(self, sender=notification.sender)
+        notification.center.remove_observer(self, sender=notification.sender)
         if self._refer_request is not None:
             self._refer_request.end(200)
         conference_application = ConferenceApplication()
@@ -392,7 +389,7 @@ class IncomingReferralHandler(object):
 
     def _NH_SIPSessionDidFail(self, notification):
         log.msg('Failed to add %s to %s' % (self.refer_to_uri, self.room_uri))
-        NotificationCenter().remove_observer(self, sender=notification.sender)
+        notification.center.remove_observer(self, sender=notification.sender)
         if self._refer_request is not None:
             self._refer_request.end(notification.data.code or 500, notification.data.reason)
         self.session = None
@@ -401,14 +398,14 @@ class IncomingReferralHandler(object):
     def _NH_SIPSessionDidEnd(self, notification):
         # If any stream fails to start we won't get SIPSessionDidFail, we'll get here instead
         log.msg('Failed to add %s to %s' % (self.refer_to_uri, self.room_uri))
-        NotificationCenter().remove_observer(self, sender=notification.sender)
+        notification.center.remove_observer(self, sender=notification.sender)
         if self._refer_request is not None:
             self._refer_request.end(200)
         self.session = None
         self.streams = []
 
     def _NH_SIPIncomingReferralDidEnd(self, notification):
-        NotificationCenter().remove_observer(self, sender=notification.sender)
+        notification.center.remove_observer(self, sender=notification.sender)
         self._refer_request = None
 
 

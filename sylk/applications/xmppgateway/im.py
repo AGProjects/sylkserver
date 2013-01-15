@@ -62,8 +62,7 @@ class ChatSessionHandler(object):
         old_value = self.__dict__.get('started', False)
         self.__dict__['started'] = value
         if not old_value and value:
-            notification_center = NotificationCenter()
-            notification_center.post_notification('ChatSessionDidStart', sender=self)
+            NotificationCenter().post_notification('ChatSessionDidStart', sender=self)
             self._send_queued_messages()
     def _get_started(self):
         return self.__dict__['started']
@@ -76,8 +75,7 @@ class ChatSessionHandler(object):
             # Reet SIP session timer in case it's active
             if self._sip_session_timer is not None and self._sip_session_timer.active():
                 self._sip_session_timer.reset(SESSION_TIMEOUT)
-            notification_center = NotificationCenter()
-            notification_center.add_observer(self, sender=session)
+            NotificationCenter().add_observer(self, sender=session)
             session.start()
             # Reet SIP session timer in case it's active
             if self._sip_session_timer is not None and self._sip_session_timer.active():
@@ -238,18 +236,16 @@ class ChatSessionHandler(object):
 
     def _NH_SIPSessionDidEnd(self, notification):
         log.msg("SIP session %s ended" % notification.sender._invitation.call_id)
-        notification_center = NotificationCenter()
-        notification_center.remove_observer(self, sender=self.sip_session)
-        notification_center.remove_observer(self, sender=self.msrp_stream)
+        notification.center.remove_observer(self, sender=self.sip_session)
+        notification.center.remove_observer(self, sender=self.msrp_stream)
         self.sip_session = None
         self.msrp_stream = None
         self.end()
 
     def _NH_SIPSessionDidFail(self, notification):
         log.msg("SIP session %s failed" % notification.sender._invitation.call_id)
-        notification_center = NotificationCenter()
-        notification_center.remove_observer(self, sender=self.sip_session)
-        notification_center.remove_observer(self, sender=self.msrp_stream)
+        notification.center.remove_observer(self, sender=self.sip_session)
+        notification.center.remove_observer(self, sender=self.msrp_stream)
         self.sip_session = None
         self.msrp_stream = None
         self.end()
@@ -321,8 +317,7 @@ class ChatSessionHandler(object):
             self.started = True
 
     def _NH_XMPPChatSessionDidEnd(self, notification):
-        notification_center = NotificationCenter()
-        notification_center.remove_observer(self, sender=self.xmpp_session)
+        notification.center.remove_observer(self, sender=self.xmpp_session)
         self.xmpp_session = None
         self.end()
 
@@ -446,13 +441,11 @@ class SIPMessageSender(object):
         handler(notification)
 
     def _NH_SIPMessageDidSucceed(self, notification):
-        notification_center = NotificationCenter()
-        notification_center.remove_observer(self, sender=notification.sender)
+        notification.center.remove_observer(self, sender=notification.sender)
         self._channel.send(notification)
 
     def _NH_SIPMessageDidFail(self, notification):
-        notification_center = NotificationCenter()
-        notification_center.remove_observer(self, sender=notification.sender)
+        notification.center.remove_observer(self, sender=notification.sender)
         self._channel.send(notification)
 
 

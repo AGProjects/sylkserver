@@ -310,7 +310,6 @@ class ConferenceHandler(object):
 class Session(_Session):
 
     def init_incoming(self, invitation, data):
-        notification_center = NotificationCenter()
         remote_sdp = invitation.sdp.proposed_remote
         self.proposed_streams = []
         if remote_sdp:
@@ -359,6 +358,7 @@ class Session(_Session):
                     self.transfer_info.replaced_dialog_id = replaced_dialog_id
                     replace_handler = SessionReplaceHandler(self)
                     replace_handler.start()
+        notification_center = NotificationCenter()
         notification_center.add_observer(self, sender=invitation)
         notification_center.post_notification('SIPSessionNewIncoming', self, NotificationData(streams=self.proposed_streams, headers=data.headers))
 
@@ -366,7 +366,6 @@ class Session(_Session):
     @run_in_green_thread
     def connect(self, from_header, to_header, routes, streams, contact_header=None, is_focus=False, subject=None, extra_headers=[]):
         self.greenlet = api.getcurrent()
-        notification_center = NotificationCenter()
         settings = SIPSimpleSettings()
 
         connected = False
@@ -385,6 +384,7 @@ class Session(_Session):
         self.conference = ConferenceHandler(self)
         self.transfer_handler = Null
         self.__dict__['subject'] = subject
+        notification_center = NotificationCenter()
         notification_center.add_observer(self, sender=self._invitation)
         notification_center.post_notification('SIPSessionNewOutgoing', self, NotificationData(streams=streams))
         for stream in self.proposed_streams:

@@ -35,8 +35,7 @@ class IRCConferenceApplication(object):
             session.reject(488)
             return
         self.pending_sessions.append(session)
-        notification_center = NotificationCenter()
-        notification_center.add_observer(self, sender=session)
+        NotificationCenter().add_observer(self, sender=session)
         if audio_streams:
             session.send_ring_indication()
         if chat_streams:
@@ -83,8 +82,7 @@ class IRCConferenceApplication(object):
     def _NH_SIPSessionDidEnd(self, notification):
         session = notification.sender
         log.msg('Session from %s ended' % session.remote_identity.uri)
-        notification_center = NotificationCenter()
-        notification_center.remove_observer(self, sender=session)
+        NotificationCenter().remove_observer(self, sender=session)
         room = IRCRoom.get_room(session._invitation.request_uri)    # FIXME
         if session in room.sessions:
             # We could get this notifiction even if we didn't get SIPSessionDidStart

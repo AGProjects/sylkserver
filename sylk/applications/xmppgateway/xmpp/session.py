@@ -31,8 +31,7 @@ class XMPPChatSession(object):
         self.xmpp_manager = XMPPManager()
 
     def start(self):
-        notification_center = NotificationCenter()
-        notification_center.post_notification('XMPPChatSessionDidStart', sender=self)
+        NotificationCenter().post_notification('XMPPChatSessionDidStart', sender=self)
         self._proc = proc.spawn(self._run)
         self.state = 'started'
 
@@ -41,8 +40,7 @@ class XMPPChatSession(object):
         self._clear_pending_receipts()
         self._proc.kill()
         self._proc = None
-        notification_center = NotificationCenter()
-        notification_center.post_notification('XMPPChatSessionDidEnd', sender=self, data=NotificationData(originator='local'))
+        NotificationCenter().post_notification('XMPPChatSessionDidEnd', sender=self, data=NotificationData(originator='local'))
         self.state = 'terminated'
 
     def send_message(self, body, html_body, message_id=None, use_receipt=True):
@@ -51,8 +49,7 @@ class XMPPChatSession(object):
         if message_id is not None:
             timer = reactor.callLater(30, self._receipt_timer_expired, message_id)
             self.pending_receipts[message_id] = timer
-            notification_center = NotificationCenter()
-            notification_center.post_notification('XMPPChatSessionDidSendMessage', sender=self, data=NotificationData(message=message))
+            NotificationCenter().post_notification('XMPPChatSessionDidSendMessage', sender=self, data=NotificationData(message=message))
 
     def send_composing_indication(self, state, message_id=None, use_receipt=False):
         message = ChatComposingIndication(self.local_identity, self.remote_identity, state, id=message_id, use_receipt=use_receipt)
@@ -60,8 +57,7 @@ class XMPPChatSession(object):
         if message_id is not None:
             timer = reactor.callLater(30, self._receipt_timer_expired, message_id)
             self.pending_receipts[message_id] = timer
-            notification_center = NotificationCenter()
-            notification_center.post_notification('XMPPChatSessionDidSendMessage', sender=self, data=NotificationData(message=message))
+            NotificationCenter().post_notification('XMPPChatSessionDidSendMessage', sender=self, data=NotificationData(message=message))
 
     def send_receipt_acknowledgement(self, receipt_id):
         message = MessageReceipt(self.local_identity, self.remote_identity, receipt_id)
@@ -100,8 +96,7 @@ class XMPPChatSession(object):
 
     def _receipt_timer_expired(self, message_id):
         self.pending_receipts.pop(message_id)
-        notification_center = NotificationCenter()
-        notification_center.post_notification('XMPPChatSessionDidNotDeliverMessage', sender=self, data=NotificationData(message_id=message_id, code=408, reason='Timeout'))
+        NotificationCenter().post_notification('XMPPChatSessionDidNotDeliverMessage', sender=self, data=NotificationData(message_id=message_id, code=408, reason='Timeout'))
 
     def _clear_pending_receipts(self):
         notification_center = NotificationCenter()
@@ -157,16 +152,14 @@ class XMPPIncomingMucSession(object):
         self.xmpp_manager = XMPPManager()
 
     def start(self):
-        notification_center = NotificationCenter()
-        notification_center.post_notification('XMPPIncomingMucSessionDidStart', sender=self)
+        NotificationCenter().post_notification('XMPPIncomingMucSessionDidStart', sender=self)
         self._proc = proc.spawn(self._run)
         self.state = 'started'
 
     def end(self):
         self._proc.kill()
         self._proc = None
-        notification_center = NotificationCenter()
-        notification_center.post_notification('XMPPIncomingMucSessionDidEnd', sender=self, data=NotificationData(originator='local'))
+        NotificationCenter().post_notification('XMPPIncomingMucSessionDidEnd', sender=self, data=NotificationData(originator='local'))
         self.state = 'terminated'
 
     def send_message(self, sender, body, html_body, message_id=None):

@@ -41,13 +41,11 @@ class XMPPGatewayApplication(object):
         self.x2s_presence_subscriptions = {}
 
     def start(self):
-        notification_center = NotificationCenter()
-        notification_center.add_observer(self, sender=self.xmpp_manager)
+        NotificationCenter().add_observer(self, sender=self.xmpp_manager)
         self.xmpp_manager.start()
 
     def stop(self):
-        notification_center = NotificationCenter()
-        notification_center.remove_observer(self, sender=self.xmpp_manager)
+        NotificationCenter().remove_observer(self, sender=self.xmpp_manager)
         self.xmpp_manager.stop()
 
     def incoming_session(self, session):
@@ -92,8 +90,7 @@ class XMPPGatewayApplication(object):
 
         sip_identity = Identity(sip_leg_uri, session.remote_identity.display_name)
         handler = ChatSessionHandler.new_from_sip_session(sip_identity, session)
-        notification_center = NotificationCenter()
-        notification_center.add_observer(self, sender=handler)
+        NotificationCenter().add_observer(self, sender=handler)
         key = (sip_leg_uri, xmpp_leg_uri)
         self.pending_sessions[key] = handler
 
@@ -127,8 +124,7 @@ class XMPPGatewayApplication(object):
             sip_identity = Identity(sip_leg_uri, data.headers['From'].display_name)
             xmpp_identity = Identity(xmpp_leg_uri)
             handler = S2XPresenceHandler(sip_identity, xmpp_identity)
-            notification_center = NotificationCenter()
-            notification_center.add_observer(self, sender=handler)
+            NotificationCenter().add_observer(self, sender=handler)
             handler.start()
         handler.add_sip_subscription(subscribe_request)
 
@@ -220,8 +216,7 @@ class XMPPGatewayApplication(object):
                     handler = ChatSessionHandler.new_from_xmpp_stanza(xmpp_identity, sip_leg_uri)
                     key = (sip_leg_uri, xmpp_leg_uri)
                     self.pending_sessions[key] = handler
-                    notification_center = NotificationCenter()
-                    notification_center.add_observer(self, sender=handler)
+                    NotificationCenter().add_observer(self, sender=handler)
                 handler.enqueue_xmpp_message(message)
             else:
                 # Find handler pending XMPP confirmation
@@ -241,8 +236,7 @@ class XMPPGatewayApplication(object):
                         handler = ChatSessionHandler.new_from_xmpp_stanza(xmpp_identity, sip_leg_uri)
                         key = (sip_leg_uri, xmpp_leg_uri)
                         self.pending_sessions[key] = handler
-                        notification_center = NotificationCenter()
-                        notification_center.add_observer(self, sender=handler)
+                        NotificationCenter().add_observer(self, sender=handler)
                     handler.enqueue_xmpp_message(message)
                 else:
                     # Found handle, create XMPP session and establish session
@@ -296,8 +290,7 @@ class XMPPGatewayApplication(object):
             xmpp_identity.uri = sender_uri_bare
             sip_identity = stanza.recipient
             handler = X2SPresenceHandler(sip_identity, xmpp_identity)
-            notification_center = NotificationCenter()
-            notification_center.add_observer(self, sender=handler)
+            notification.center.add_observer(self, sender=handler)
             handler.start()
 
     def _NH_XMPPGotMucJoinRequest(self, notification):
@@ -312,8 +305,7 @@ class XMPPGatewayApplication(object):
             sip_identity.uri = muc_uri
             handler = X2SMucHandler(sip_identity, xmpp_identity, nickname)
             handler._first_stanza = stanza
-            notification_center = NotificationCenter()
-            notification_center.add_observer(self, sender=handler)
+            notification.center.add_observer(self, sender=handler)
             handler.start()
 
     def _NH_XMPPGotMucLeaveRequest(self, notification):
@@ -335,8 +327,7 @@ class XMPPGatewayApplication(object):
         handler = notification.sender
         log.msg('Chat session ended sip:%s <--> xmpp:%s' % (handler.sip_identity.uri, handler.xmpp_identity.uri))
         self.chat_sessions.remove(handler)
-        notification_center = NotificationCenter()
-        notification_center.remove_observer(self, sender=handler)
+        notification.center.remove_observer(self, sender=handler)
 
     def _NH_ChatSessionDidFail(self, notification):
         handler = notification.sender
@@ -348,8 +339,7 @@ class XMPPGatewayApplication(object):
                 break
         sip_uri, xmpp_uri = uris
         log.msg('Chat session failed sip:%s <--> xmpp:%s' % (sip_uri, xmpp_uri))
-        notification_center = NotificationCenter()
-        notification_center.remove_observer(self, sender=handler)
+        notification.center.remove_observer(self, sender=handler)
 
     # Presence handling
 
@@ -362,8 +352,7 @@ class XMPPGatewayApplication(object):
         handler = notification.sender
         log.msg('Presence session ended sip:%s --> xmpp:%s' % (handler.sip_identity.uri, handler.xmpp_identity.uri))
         self.s2x_presence_subscriptions.pop((handler.sip_identity.uri, handler.xmpp_identity.uri), None)
-        notification_center = NotificationCenter()
-        notification_center.remove_observer(self, sender=handler)
+        notification.center.remove_observer(self, sender=handler)
 
     def _NH_X2SPresenceHandlerDidStart(self, notification):
         handler = notification.sender
@@ -374,8 +363,7 @@ class XMPPGatewayApplication(object):
         handler = notification.sender
         log.msg('Presence session ended xmpp:%s --> sip:%s' % (handler.xmpp_identity.uri, handler.sip_identity.uri))
         self.x2s_presence_subscriptions.pop((handler.xmpp_identity.uri, handler.sip_identity.uri), None)
-        notification_center = NotificationCenter()
-        notification_center.remove_observer(self, sender=handler)
+        notification.center.remove_observer(self, sender=handler)
 
     # MUC handling
 
@@ -388,6 +376,5 @@ class XMPPGatewayApplication(object):
         handler = notification.sender
         log.msg('MUC session ended xmpp:%s --> sip:%s' % (handler.xmpp_identity.uri, handler.sip_identity.uri))
         self.x2s_muc_sessions.pop((handler.xmpp_identity.uri, handler.sip_identity.uri), None)
-        notification_center = NotificationCenter()
-        notification_center.remove_observer(self, sender=handler)
+        notification.center.remove_observer(self, sender=handler)
 

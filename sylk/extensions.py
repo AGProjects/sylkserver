@@ -136,8 +136,7 @@ class ChatStream(MSRPStreamMixin, _ChatStream):
 
     def _handle_NICKNAME(self, chunk):
         nickname = chunk.headers['Use-Nickname'].decoded
-        notification_center = NotificationCenter()
-        notification_center.post_notification('ChatStreamGotNicknameRequest', self, NotificationData(nickname=nickname, chunk=chunk))
+        NotificationCenter().post_notification('ChatStreamGotNicknameRequest', self, NotificationData(nickname=nickname, chunk=chunk))
 
     @run_in_green_thread
     def _send_response(self, response):
@@ -196,8 +195,7 @@ class FileTransferStream(MSRPStreamMixin, _FileTransferStream):
 
     def initialize(self, session, direction):
         if self.direction == 'sendonly' and self.file_selector.fd is None:
-            notification_center = NotificationCenter()
-            notification_center.post_notification('MediaStreamDidFail', sender=self, data=NotificationData(context='initialize', failure=None, reason='file descriptor not specified'))
+            NotificationCenter().post_notification('MediaStreamDidFail', sender=self, data=NotificationData(context='initialize', failure=None, reason='file descriptor not specified'))
             return
         super(FileTransferStream, self).initialize(session, direction)
 

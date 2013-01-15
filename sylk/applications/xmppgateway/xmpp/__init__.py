@@ -188,22 +188,19 @@ class XMPPManager(object):
         try:
             session = self.chat_session_manager.sessions[(message.recipient.uri, message.sender.uri)]
         except KeyError:
-            notification_center = NotificationCenter()
-            notification_center.post_notification('XMPPGotChatMessage', sender=self, data=notification.data)
+            notification.center.post_notification('XMPPGotChatMessage', sender=self, data=notification.data)
         else:
             session.channel.send(message)
 
     def _NH_XMPPGotNormalMessage(self, notification):
-        notification_center = NotificationCenter()
-        notification_center.post_notification('XMPPGotNormalMessage', sender=self, data=notification.data)
+        notification.center.post_notification('XMPPGotNormalMessage', sender=self, data=notification.data)
 
     def _NH_XMPPGotComposingIndication(self, notification):
-        notification_center = NotificationCenter()
         composing_indication = notification.data.composing_indication
         try:
             session = self.chat_session_manager.sessions[(composing_indication.recipient.uri, composing_indication.sender.uri)]
         except KeyError:
-            notification_center.post_notification('XMPPGotComposingIndication', sender=self, data=notification.data)
+            notification.center.post_notification('XMPPGotComposingIndication', sender=self, data=notification.data)
         else:
             session.channel.send(composing_indication)
 
@@ -212,8 +209,7 @@ class XMPPManager(object):
         try:
             session = self.chat_session_manager.sessions[(error_message.recipient.uri, error_message.sender.uri)]
         except KeyError:
-            notification_center = NotificationCenter()
-            notification_center.post_notification('XMPPGotErrorMessage', sender=self, data=notification.data)
+            notification.center.post_notification('XMPPGotErrorMessage', sender=self, data=notification.data)
         else:
             session.channel.send(error_message)
 
@@ -260,8 +256,7 @@ class XMPPManager(object):
                 subscription = self.subscription_manager.incoming_subscriptions[(stanza.recipient.uri, stanza.sender.uri)]
             except KeyError:
                 if stanza.type == 'subscribe':
-                    notification_center = NotificationCenter()
-                    notification_center.post_notification('XMPPGotPresenceSubscriptionRequest', sender=self, data=NotificationData(stanza=stanza))
+                    notification.center.post_notification('XMPPGotPresenceSubscriptionRequest', sender=self, data=NotificationData(stanza=stanza))
             else:
                 subscription.channel.send(stanza)
 
@@ -275,8 +270,7 @@ class XMPPManager(object):
         try:
             subscription = self.subscription_manager.incoming_subscriptions[(stanza.recipient.uri, sender_uri_bare)]
         except KeyError:
-            notification_center = NotificationCenter()
-            notification_center.post_notification('XMPPGotPresenceSubscriptionRequest', sender=self, data=NotificationData(stanza=stanza))
+            notification.center.post_notification('XMPPGotPresenceSubscriptionRequest', sender=self, data=NotificationData(stanza=stanza))
         else:
             subscription.channel.send(stanza)
 
@@ -301,11 +295,10 @@ class XMPPManager(object):
         try:
             session = self.muc_session_manager.incoming[(muc_uri, stanza.sender.uri)]
         except KeyError:
-            notification_center = NotificationCenter()
             if stanza.available:
-                notification_center.post_notification('XMPPGotMucJoinRequest', sender=self, data=NotificationData(stanza=stanza))
+                notification.center.post_notification('XMPPGotMucJoinRequest', sender=self, data=NotificationData(stanza=stanza))
             else:
-                notification_center.post_notification('XMPPGotMucLeaveRequest', sender=self, data=NotificationData(stanza=stanza))
+                notification.center.post_notification('XMPPGotMucLeaveRequest', sender=self, data=NotificationData(stanza=stanza))
         else:
             session.channel.send(stanza)
 
