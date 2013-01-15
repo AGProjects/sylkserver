@@ -287,9 +287,9 @@ class X2SPresenceHandler(object):
         for service in pidf_doc.services:
             sip_contact = self.sip_identity.uri.as_sip_uri()
             if service.device_info is not None:
-                sip_contact.parameters['gr'] = service.device_info.id
+                sip_contact.parameters['gr'] = 'urn:uuid:%s' % service.device_info.id
             else:
-                sip_contact.parameters['gr'] = service.id # TODO: pseudorandom thing with AoR?
+                sip_contact.parameters['gr'] = service.id
             sender = Identity(FrozenURI.parse(sip_contact))
             if service.status.extended is not None:
                 available = service.status.extended != 'offline'
