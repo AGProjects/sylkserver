@@ -114,7 +114,11 @@ class S2XPresenceHandler(object):
                         person.activities.add('busy')
                 else:
                     status.extended = 'available'
-            resource = encode_resource(stanza.sender.uri.resource)
+            if stanza.sender.uri.resource:
+                resource = encode_resource(stanza.sender.uri.resource)
+            else:
+                # Workaround for clients not sending the resource under certain (unknown) circumstances
+                resource = hashlib.md5("%s@%s" % (uri.user, uri.host)).hexdigest()
             service_id = "ID-%s" % resource
             sip_uri = stanza.sender.uri.as_sip_uri()
             sip_uri.parameters['gr'] = resource
