@@ -387,6 +387,9 @@ class SIPMessageSender(object):
     implements(IObserver)
 
     def __init__(self, message):
+        # TODO: sometimes we may want to send it to the GRUU, for example when a XMPP client
+        # replies to one of our messages. MESSAGE requests don't need a Contact header, though
+        # so how should we communicate our GRUU to the recipient?
         self.from_uri = message.sender.uri.as_sip_uri()
         self.from_uri.parameters.pop('gr', None)    # No GRUU in From header
         self.to_uri = message.recipient.uri.as_sip_uri()
