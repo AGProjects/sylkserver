@@ -49,7 +49,7 @@ class XMPPGatewayApplication(object):
         self.xmpp_manager.stop()
 
     def incoming_session(self, session):
-        log.msg('New incoming session from %s' % session.remote_identity.uri)
+        log.msg('New incoming session from %s to %s' % (session.remote_identity.uri, session.local_identity.uri)
         try:
             msrp_stream = (stream for stream in session.proposed_streams if stream.type=='chat').next()
         except StopIteration:
