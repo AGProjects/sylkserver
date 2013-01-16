@@ -61,10 +61,9 @@ class MessageProtocol(MessageProtocol):
 
         if type == 'chat' and msg.body is None and msg.html is None:
             # Check if it's a composing indication
-            for state in ('active', 'inactive', 'composing', 'paused', 'gone'):
-                state_obj = getattr(msg, state, None)
-                if state_obj is not None and state_obj.defaultUri == CHATSTATES_NS:
-                    composing_indication = ChatComposingIndication(sender, recipient, state, id=msg.getAttribute('id', None))
+            for elem in msg.elements():
+                if elem.uri == CHATSTATES_NS:
+                    composing_indication = ChatComposingIndication(sender, recipient, elem.name, id=msg.getAttribute('id', None))
                     notification_center.post_notification('XMPPGotComposingIndication', sender=self.parent, data=NotificationData(composing_indication=composing_indication))
                     return
 
