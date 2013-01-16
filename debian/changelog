@@ -2,12 +2,14 @@ sylkserver (2.3.0) unstable; urgency=low
 
   * Added support for XEP-0030 (service discovery)
   * Improved logging when adding participants to a conference
+  * Improved logging in XMPP gateway application
   * Removed extended-away state handling, it no longer exists
+  * Several improvements to XMPP stanza parsing
   * Fixed handling presence availability stanzas without a resource part in
     the from
   * Fixed translating resource IDs for presence
 
- -- Saul Ibarra <saul@ag-projects.com>  Tue, 15 Jan 2013 18:10:00 +0100
+ -- Saul Ibarra <saul@ag-projects.com>  Wed, 16 Jan 2013 12:00:41 +0100
 
 sylkserver (2.2.1) unstable; urgency=low
 
