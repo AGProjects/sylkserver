@@ -91,7 +91,7 @@ class S2XPresenceHandler(object):
             return None
         pidf_doc = pidf.PIDF(str(self.xmpp_identity))
         uri = self._stanza_cache.iterkeys().next()
-        person = pidf.Person("ID-%s" % hashlib.md5("%s@%s" % (uri.user, uri.host)).hexdigest())
+        person = pidf.Person("PID-%s" % hashlib.md5("%s@%s" % (uri.user, uri.host)).hexdigest())
         person.activities = rpid.Activities()
         pidf_doc.add(person)
         for stanza in self._stanza_cache.itervalues():
@@ -119,7 +119,7 @@ class S2XPresenceHandler(object):
             else:
                 # Workaround for clients not sending the resource under certain (unknown) circumstances
                 resource = hashlib.md5("%s@%s" % (uri.user, uri.host)).hexdigest()
-            service_id = "ID-%s" % resource
+            service_id = "SID-%s" % resource
             sip_uri = stanza.sender.uri.as_sip_uri()
             sip_uri.parameters['gr'] = resource
             sip_uri.parameters['xmpp'] = None
