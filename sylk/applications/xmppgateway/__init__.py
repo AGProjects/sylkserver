@@ -104,7 +104,7 @@ class XMPPGatewayApplication(object):
             handler.xmpp_session = xmpp_session
 
     def incoming_subscription(self, subscribe_request, data):
-        log.msg('New subscription from %s to %s' % (data.headers['From'].uri, data.headers['To'].uri)
+        log.msg('New subscription from %s to %s' % (data.headers['From'].uri, data.headers['To'].uri))
         if subscribe_request.event != 'presence':
             log.msg('Subscription rejected: only presence event is supported')
             subscribe_request.reject(489)
@@ -144,7 +144,7 @@ class XMPPGatewayApplication(object):
         if Null in (content_type, from_header, to_header):
             message_request.answer(400)
             return
-        log.msg('New SIP Message from %s to %s' % from_header.uri, to_header.uri)
+        log.msg('New SIP Message from %s to %s' % (from_header.uri, to_header.uri))
 
         # Check domain
         if from_header.uri.host not in XMPPGatewayConfig.domains:
@@ -156,7 +156,7 @@ class XMPPGatewayApplication(object):
             try:
                 cpim_message = CPIMMessage.parse(data.body)
             except CPIMParserError:
-				log.msg('Message rejected: CPIM parse error')
+		log.msg('Message rejected: CPIM parse error')
                 message_request.answer(400)
                 return
             else:

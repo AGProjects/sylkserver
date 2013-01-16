@@ -99,7 +99,7 @@ class X2SMucHandler(object):
             routes = lookup.lookup_sip_proxy(uri, settings.sip.transport_list).wait()
         except DNSLookupError:
             log.warning('DNS lookup error while looking for %s proxy' % uri)
-            notification_center.post_notification('ChatSessionDidFail', sender=self, NotificationData(reason='DNS lookup error'))
+            notification_center.post_notification('ChatSessionDidFail', sender=self, data=NotificationData(reason='DNS lookup error'))
             return
         self._msrp_stream = ChatStream()
         route = routes.pop(0)

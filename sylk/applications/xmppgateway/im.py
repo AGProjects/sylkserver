@@ -130,7 +130,7 @@ class ChatSessionHandler(object):
             routes = lookup.lookup_sip_proxy(uri, settings.sip.transport_list).wait()
         except DNSLookupError:
             log.warning('DNS lookup error while looking for %s proxy' % uri)
-            notification_center.post_notification('ChatSessionDidFail', sender=self, NotificationData(reason='DNS lookup error'))
+            notification_center.post_notification('ChatSessionDidFail', sender=self, data=NotificationData(reason='DNS lookup error'))
             return
         self.msrp_stream = ChatStream()
         route = routes.pop(0)
@@ -163,7 +163,7 @@ class ChatSessionHandler(object):
         if self.started:
             notification_center.post_notification('ChatSessionDidEnd', sender=self)
         else:
-            notification_center.post_notification('ChatSessionDidFail', sender=self, NotificationData(reason='Ended before actually started'))
+            notification_center.post_notification('ChatSessionDidFail', sender=self, data=NotificationData(reason='Ended before actually started'))
 
     def enqueue_xmpp_message(self, message):
         if self.started:
