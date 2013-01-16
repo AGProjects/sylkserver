@@ -49,15 +49,17 @@ class XMPPGatewayApplication(object):
         self.xmpp_manager.stop()
 
     def incoming_session(self, session):
-        log.msg('New incoming session from %s to %s' % (session.remote_identity.uri, session.local_identity.uri))
+        log.msg('New session from %s to %s' % (session.remote_identity.uri, session.local_identity.uri))
         try:
             msrp_stream = (stream for stream in session.proposed_streams if stream.type=='chat').next()
         except StopIteration:
+            log.msg('Session rejected: Only MSRP media is supported')
             session.reject(488, 'Only MSRP media is supported')
             return
 
         # Check domain
         if session.remote_identity.uri.host not in XMPPGatewayConfig.domains:
+            log.msg('Session rejected: From domain is not a local XMPP domain')
             session.reject(606, 'Not Acceptable')
             return
 
@@ -85,6 +87,7 @@ class XMPPGatewayApplication(object):
             pass
         else:
             # There is another pending session with same identifiers, can't accept this one
+            log.msg('Session rejected: other session with same identifiers in progress')
             session.reject(488)
             return
 
@@ -101,13 +104,16 @@ class XMPPGatewayApplication(object):
             handler.xmpp_session = xmpp_session
 
     def incoming_subscription(self, subscribe_request, data):
+        log.msg('New subscription from %s to %s' % (data.headers['From'].uri, data.headers['To'].uri)
         if subscribe_request.event != 'presence':
+            log.msg('Subscription rejected: only presence event is supported')
             subscribe_request.reject(489)
             return
 
         # Check domain
         remote_identity_uri = data.headers['From'].uri
         if remote_identity_uri.host not in XMPPGatewayConfig.domains:
+            log.msg('Subscription rejected: From domain is not a local XMPP domain')
             subscribe_request.reject(606)
             return
 
@@ -138,10 +144,11 @@ class XMPPGatewayApplication(object):
         if Null in (content_type, from_header, to_header):
             message_request.answer(400)
             return
-        log.msg('New incoming SIP MESSAGE from %s' % from_header.uri)
+        log.msg('New SIP Message from %s to %s' % from_header.uri, to_header.uri)
 
         # Check domain
         if from_header.uri.host not in XMPPGatewayConfig.domains:
+            log.msg('Message rejected: From domain is not a local XMPP domain')
             message_request.answer(606)
             return
 
@@ -149,6 +156,7 @@ class XMPPGatewayApplication(object):
             try:
                 cpim_message = CPIMMessage.parse(data.body)
             except CPIMParserError:
+				log.msg('Message rejected: CPIM parse error')
                 message_request.answer(400)
                 return
             else:
@@ -250,7 +258,7 @@ class XMPPGatewayApplication(object):
                 sip_message_sender.send().wait()
             except SIPMessageError as e:
                 # TODO report back an error stanza
-                log.error('Error sending SIP MESSAGE: %s' % e)
+                log.error('Error sending SIP Message: %s' % e)
 
     @run_in_green_thread
     def _NH_XMPPGotNormalMessage(self, notification):
@@ -260,7 +268,7 @@ class XMPPGatewayApplication(object):
             sip_message_sender.send().wait()
         except SIPMessageError as e:
             # TODO report back an error stanza
-            log.error('Error sending SIP MESSAGE: %s' % e)
+            log.error('Error sending SIP Message: %s' % e)
 
     @run_in_green_thread
     def _NH_XMPPGotComposingIndication(self, notification):
@@ -276,7 +284,7 @@ class XMPPGatewayApplication(object):
                 sip_message_sender.send().wait()
             except SIPMessageError as e:
                 # TODO report back an error stanza
-                log.error('Error sending SIP MESSAGE: %s' % e)
+                log.error('Error sending SIP Message: %s' % e)
 
     def _NH_XMPPGotPresenceSubscriptionRequest(self, notification):
         stanza = notification.data.stanza
@@ -338,30 +346,30 @@ class XMPPGatewayApplication(object):
                 del self.pending_sessions[k]
                 break
         sip_uri, xmpp_uri = uris
-        log.msg('Chat session failed sip:%s <--> xmpp:%s' % (sip_uri, xmpp_uri))
+        log.msg('Chat session failed sip:%s <--> xmpp:%s (%s)' % (sip_uri, xmpp_uri, notification.data.reason))
         notification.center.remove_observer(self, sender=handler)
 
     # Presence handling
 
     def _NH_S2XPresenceHandlerDidStart(self, notification):
         handler = notification.sender
-        log.msg('Presence session established sip:%s --> xmpp:%s' % (handler.sip_identity.uri, handler.xmpp_identity.uri))
+        log.msg('Presence subscription established sip:%s --> xmpp:%s' % (handler.sip_identity.uri, handler.xmpp_identity.uri))
         self.s2x_presence_subscriptions[(handler.sip_identity.uri, handler.xmpp_identity.uri)] = handler
 
     def _NH_S2XPresenceHandlerDidEnd(self, notification):
         handler = notification.sender
-        log.msg('Presence session ended sip:%s --> xmpp:%s' % (handler.sip_identity.uri, handler.xmpp_identity.uri))
+        log.msg('Presence subscription ended sip:%s --> xmpp:%s' % (handler.sip_identity.uri, handler.xmpp_identity.uri))
         self.s2x_presence_subscriptions.pop((handler.sip_identity.uri, handler.xmpp_identity.uri), None)
         notification.center.remove_observer(self, sender=handler)
 
     def _NH_X2SPresenceHandlerDidStart(self, notification):
         handler = notification.sender
-        log.msg('Presence session established xmpp:%s --> sip:%s' % (handler.xmpp_identity.uri, handler.sip_identity.uri))
+        log.msg('Presence subscription established xmpp:%s --> sip:%s' % (handler.xmpp_identity.uri, handler.sip_identity.uri))
         self.x2s_presence_subscriptions[(handler.xmpp_identity.uri, handler.sip_identity.uri)] = handler
 
     def _NH_X2SPresenceHandlerDidEnd(self, notification):
         handler = notification.sender
-        log.msg('Presence session ended xmpp:%s --> sip:%s' % (handler.xmpp_identity.uri, handler.sip_identity.uri))
+        log.msg('Presence subscription ended xmpp:%s --> sip:%s' % (handler.xmpp_identity.uri, handler.sip_identity.uri))
         self.x2s_presence_subscriptions.pop((handler.xmpp_identity.uri, handler.sip_identity.uri), None)
         notification.center.remove_observer(self, sender=handler)
 
@@ -369,12 +377,12 @@ class XMPPGatewayApplication(object):
 
     def _NH_X2SMucHandlerDidStart(self, notification):
         handler = notification.sender
-        log.msg('MUC session established xmpp:%s --> sip:%s' % (handler.xmpp_identity.uri, handler.sip_identity.uri))
+        log.msg('Multiparty session established xmpp:%s --> sip:%s' % (handler.xmpp_identity.uri, handler.sip_identity.uri))
         self.x2s_muc_sessions[(handler.xmpp_identity.uri, handler.sip_identity.uri)] = handler
 
     def _NH_X2SMucHandlerDidEnd(self, notification):
         handler = notification.sender
-        log.msg('MUC session ended xmpp:%s --> sip:%s' % (handler.xmpp_identity.uri, handler.sip_identity.uri))
+        log.msg('Multiparty session ended xmpp:%s --> sip:%s' % (handler.xmpp_identity.uri, handler.sip_identity.uri))
         self.x2s_muc_sessions.pop((handler.xmpp_identity.uri, handler.sip_identity.uri), None)
         notification.center.remove_observer(self, sender=handler)
 

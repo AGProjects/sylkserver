@@ -4,7 +4,7 @@
 import os
 import uuid
 
-from application.notification import IObserver, NotificationCenter
+from application.notification import IObserver, NotificationCenter, NotificationData
 from application.python import Null
 from application.python.descriptor import WriteOnceAttribute
 from sipsimple.account import AccountManager
@@ -99,7 +99,7 @@ class X2SMucHandler(object):
             routes = lookup.lookup_sip_proxy(uri, settings.sip.transport_list).wait()
         except DNSLookupError:
             log.warning('DNS lookup error while looking for %s proxy' % uri)
-            notification_center.post_notification('ChatSessionDidFail', sender=self)
+            notification_center.post_notification('ChatSessionDidFail', sender=self, NotificationData(reason='DNS lookup error'))
             return
         self._msrp_stream = ChatStream()
         route = routes.pop(0)
@@ -116,7 +116,7 @@ class X2SMucHandler(object):
         handler(notification)
 
     def _NH_SIPSessionDidStart(self, notification):
-        log.msg("SIP session (MUC) %s started" % notification.sender._invitation.call_id)
+        log.msg("SIP multiparty session %s started" % notification.sender._invitation.call_id)
         if not self._sip_session.remote_focus or not self._msrp_stream.nickname_allowed:
             self.end()
             return
@@ -125,7 +125,7 @@ class X2SMucHandler(object):
         self._first_stanza = None
 
     def _NH_SIPSessionDidEnd(self, notification):
-        log.msg("SIP session (MUC) %s ended" % notification.sender._invitation.call_id)
+        log.msg("SIP multiparty session %s ended" % notification.sender._invitation.call_id)
         notification.center.remove_observer(self, sender=self._sip_session)
         notification.center.remove_observer(self, sender=self._msrp_stream)
         self._sip_session = None
@@ -133,7 +133,7 @@ class X2SMucHandler(object):
         self.end()
 
     def _NH_SIPSessionDidFail(self, notification):
-        log.msg("SIP session (MUC) %s failed" % notification.sender._invitation.call_id)
+        log.msg("SIP multiparty session %s failed" % notification.sender._invitation.call_id)
         notification.center.remove_observer(self, sender=self._sip_session)
         notification.center.remove_observer(self, sender=self._msrp_stream)
         self._sip_session = None
