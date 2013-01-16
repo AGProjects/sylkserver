@@ -34,16 +34,19 @@ class MessageProtocol(MessageProtocol):
         sender = Identity(sender_uri)
         recipient_uri = FrozenURI.parse('xmpp:'+msg['to'])
         recipient = Identity(recipient_uri)
-        type = msg.getAttribute('type')
 
-        if type == 'error':
+        msg_type = msg.getAttribute('type')
+        msg_id = msg.getAttribute('id', None)
+        is_empty = msg.body is None and msg.html is None
+
+        if msg_type == 'error':
             error_type = msg.error['type']
-            conditions = [(child.name, child.defaultUri) for child in msg.error.children]
-            error_message = ErrorStanza('message', sender, recipient, error_type, conditions, id=msg.getAttribute('id', None))
+            conditions = [(child.name, child.defaultUri) for child in msg.error.elements()]
+            error_message = ErrorStanza('message', sender, recipient, error_type, conditions, id=msg_id)
             notification_center.post_notification('XMPPGotErrorMessage', sender=self.parent, data=NotificationData(error_message=error_message))
             return
 
-        if type in (None, 'normal', 'chat') and msg.body is not None or msg.html is not None:
+        if msg_type in (None, 'normal', 'chat') and not is_empty:
             body = None
             html_body = None
             if msg.html is not None:
@@ -56,34 +59,36 @@ class MessageProtocol(MessageProtocol):
                 use_receipt = False
             else:
                 use_receipt = elem.name == u'request'
-            if type == 'chat':
-                message = ChatMessage(sender, recipient, body, html_body, id=msg.getAttribute('id', None), use_receipt=use_receipt)
+            if msg_type == 'chat':
+                message = ChatMessage(sender, recipient, body, html_body, id=msg_id, use_receipt=use_receipt)
                 notification_center.post_notification('XMPPGotChatMessage', sender=self.parent, data=NotificationData(message=message))
             else:
-                message = NormalMessage(sender, recipient, body, html_body, id=msg.getAttribute('id', None), use_receipt=use_receipt)
+                message = NormalMessage(sender, recipient, body, html_body, id=msg_id, use_receipt=use_receipt)
                 notification_center.post_notification('XMPPGotNormalMessage', sender=self.parent, data=NotificationData(message=message))
             return
 
-        if type == 'chat' and msg.body is None and msg.html is None:
-            # Check if it's a composing indication
+        # Check if it's a composing indication
+        if msg_type == 'chat' and is_empty:
             for elem in msg.elements():
-                if elem.uri == CHATSTATES_NS:
-                    composing_indication = ChatComposingIndication(sender, recipient, elem.name, id=msg.getAttribute('id', None))
+                try:
+                    elem = next(c for c in msg.elements() if c.uri == CHATSTATES_NS)
+                except StopIteration:
+                    pass
+                else:
+                    composing_indication = ChatComposingIndication(sender, recipient, elem.name, id=msg_id)
                     notification_center.post_notification('XMPPGotComposingIndication', sender=self.parent, data=NotificationData(composing_indication=composing_indication))
                     return
 
         # Check if it's a receipt acknowledgement
-        if msg.body is None and msg.html is None:
+        if is_empty:
             try:
                 elem = next(c for c in msg.elements() if c.uri == RECEIPTS_NS)
             except StopIteration:
                 pass
             else:
-                if elem.name == u'received':
-                    receipt_id = msg.getAttribute('id', None)
-                    if receipt_id is not None:
-                        receipt = MessageReceipt(sender, recipient, receipt_id)
-                        notification_center.post_notification('XMPPGotReceipt', sender=self.parent, data=NotificationData(receipt=receipt))
+                if elem.name == u'received' and msg_id is not None:
+                    receipt = MessageReceipt(sender, recipient, msg_id)
+                    notification_center.post_notification('XMPPGotReceipt', sender=self.parent, data=NotificationData(receipt=receipt))
 
 
 class PresenceProtocol(PresenceProtocol):
