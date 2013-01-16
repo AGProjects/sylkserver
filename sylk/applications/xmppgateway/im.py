@@ -189,7 +189,7 @@ class ChatSessionHandler(object):
             self.msrp_stream.send_composing_indication('idle', 30, local_identity=sender)
 
     def _inactivity_timeout(self):
-        log.msg("Ending SIP session %s due to incactivity" % self.sip_session._invitation.call_id)
+        log.msg("Ending SIP session %s due to inactivity" % self.sip_session._invitation.call_id)
         self.sip_session.end()
 
     def handle_notification(self, notification):
