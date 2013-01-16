@@ -4,7 +4,7 @@
 import os
 import uuid
 
-from application.notification import IObserver, NotificationCenter, NotificationData
+from application.notification import IObserver, NotificationCenter
 from application.python import Null
 from application.python.descriptor import WriteOnceAttribute
 from sipsimple.account import AccountManager
@@ -79,7 +79,6 @@ class X2SMucHandler(object):
 
     @run_in_green_thread
     def _start_sip_session(self):
-        notification_center = NotificationCenter()
         # self.xmpp_identity is our local identity
         from_uri = self.xmpp_identity.uri.as_sip_uri()
         del from_uri.parameters['gr']    # no GRUU in From header
@@ -99,7 +98,7 @@ class X2SMucHandler(object):
             routes = lookup.lookup_sip_proxy(uri, settings.sip.transport_list).wait()
         except DNSLookupError:
             log.warning('DNS lookup error while looking for %s proxy' % uri)
-            notification_center.post_notification('ChatSessionDidFail', sender=self, data=NotificationData(reason='DNS lookup error'))
+            self.end()
             return
         self._msrp_stream = ChatStream()
         route = routes.pop(0)
@@ -107,6 +106,7 @@ class X2SMucHandler(object):
         to_header = ToHeader(to_uri)
         contact_header = ContactHeader(contact_uri)
         self._sip_session = Session(account)
+        notification_center = NotificationCenter()
         notification_center.add_observer(self, sender=self._sip_session)
         notification_center.add_observer(self, sender=self._msrp_stream)
         self._sip_session.connect(from_header, to_header, contact_header=contact_header, routes=[route], streams=[self._msrp_stream])
