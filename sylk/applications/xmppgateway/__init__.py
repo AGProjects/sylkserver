@@ -104,7 +104,7 @@ class XMPPGatewayApplication(object):
             handler.xmpp_session = xmpp_session
 
     def incoming_subscription(self, subscribe_request, data):
-        log.msg('New subscription from %s to %s' % (data.headers['From'].uri, data.headers['To'].uri))
+        log.msg('New subscription from %s to %s' % (data.headers['From'].uri, data.headers['To'].uri)
         if subscribe_request.event != 'presence':
             log.msg('Subscription rejected: only presence event is supported')
             subscribe_request.reject(489)
