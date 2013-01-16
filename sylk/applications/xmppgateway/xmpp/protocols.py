@@ -50,7 +50,12 @@ class MessageProtocol(MessageProtocol):
                 html_body = msg.html.toXml()
             if msg.body is not None:
                 body = unicode(msg.body)
-            use_receipt = msg.request is not None and msg.request.defaultUri == RECEIPTS_NS
+            try:
+                elem = next(c for c in msg.elements() if c.uri == RECEIPTS_NS)
+            except StopIteration:
+                use_receipt = False
+            else:
+                use_receipt = elem.name == u'request'
             if type == 'chat':
                 message = ChatMessage(sender, recipient, body, html_body, id=msg.getAttribute('id', None), use_receipt=use_receipt)
                 notification_center.post_notification('XMPPGotChatMessage', sender=self.parent, data=NotificationData(message=message))
@@ -68,11 +73,17 @@ class MessageProtocol(MessageProtocol):
                     return
 
         # Check if it's a receipt acknowledgement
-        if msg.body is None and msg.html is None and msg.received is not None and msg.received.defaultUri == RECEIPTS_NS:
-            receipt_id = msg.getAttribute('id', None)
-            if receipt_id is not None:
-                receipt = MessageReceipt(sender, recipient, receipt_id)
-                notification_center.post_notification('XMPPGotReceipt', sender=self.parent, data=NotificationData(receipt=receipt))
+        if msg.body is None and msg.html is None:
+            try:
+                elem = next(c for c in msg.elements() if c.uri == RECEIPTS_NS)
+            except StopIteration:
+                pass
+            else:
+                if elem.name == u'received':
+                    receipt_id = msg.getAttribute('id', None)
+                    if receipt_id is not None:
+                        receipt = MessageReceipt(sender, recipient, receipt_id)
+                        notification_center.post_notification('XMPPGotReceipt', sender=self.parent, data=NotificationData(receipt=receipt))
 
 
 class PresenceProtocol(PresenceProtocol):
