@@ -483,7 +483,7 @@ class Room(object):
         return self.conference_info_payload.toxml()
 
     def handle_incoming_subscription(self, subscribe_request, data):
-        log.msg('New %s subscription from %s to %s' % (subscribe_request.event, data.headers['From'].uri, data.headers['To'].uri)
+        log.msg('New %s subscription from %s to %s' % (subscribe_request.event, data.headers['From'].uri, data.headers['To'].uri))
         if subscribe_request.event != 'conference':
             log.msg('Subscription rejected: only conference event is supported')
             subscribe_request.reject(489)
@@ -657,7 +657,7 @@ class Room(object):
         self.dispatch_conference_info()
 
     def _NH_SIPSessionTransferNewIncoming(self, notification):
-		log.msg(u'Call transfer request rejected, REFER messages must be sent out of band')
+	log.msg(u'Call transfer request rejected, REFER messages must be sent out of band')
         notification.sender.reject_transfer(403)
 
     @staticmethod

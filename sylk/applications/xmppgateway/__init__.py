@@ -109,7 +109,9 @@ class XMPPGatewayApplication(object):
         if Null in (from_header, to_header):
             subscribe_request.reject(400)
             return
+
         log.msg('New subscription from %s to %s' % (from_header.uri, to_header.uri))
+
         if subscribe_request.event != 'presence':
             log.msg('Subscription rejected: only presence event is supported')
             subscribe_request.reject(489)
