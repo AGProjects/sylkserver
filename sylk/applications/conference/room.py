@@ -352,7 +352,7 @@ class Room(object):
             pass
         else:
             notification_center.add_observer(self, sender=audio_stream)
-            log.msg(u'Room %s - Audio stream %s/%sHz (%s), end-points: %s:%d <-> %s:%d' % (self.uri, audio_stream.codec, audio_stream.sample_rate,
+            log.msg(u'Room %s - audio stream %s/%sHz (%s), end-points: %s:%d <-> %s:%d' % (self.uri, audio_stream.codec, audio_stream.sample_rate,
                                                                                       'encrypted' if audio_stream.srtp_active else 'unencrypted',
                                                                                       audio_stream.local_rtp_address, audio_stream.local_rtp_port,
                                                                                       audio_stream.remote_rtp_address, audio_stream.remote_rtp_port))
@@ -364,7 +364,7 @@ class Room(object):
             if transfer_stream.direction == 'recvonly':
                 transfer_handler = IncomingFileTransferHandler(self, session)
                 transfer_handler.start()
-                txt = u'Room % - %s is uploading file %s (%s)' % (self.uri, format_identity(session.remote_identity, cpim_format=True), transfer_stream.file_selector.name.decode('utf-8'), self.format_file_size(transfer_stream.file_selector.size))
+                txt = u'Room %s - %s is uploading file %s (%s)' % (self.uri, format_identity(session.remote_identity, cpim_format=True), transfer_stream.file_selector.name.decode('utf-8'), self.format_file_size(transfer_stream.file_selector.size))
             else:
                 transfer_handler = OutgoingFileTransferRequestHandler(self, session)
                 transfer_handler.start()
@@ -483,7 +483,7 @@ class Room(object):
         return self.conference_info_payload.toxml()
 
     def handle_incoming_subscription(self, subscribe_request, data):
-        log.msg('Room %s - new subscription from %s' % (self.uri, data.headers['From'].uri))
+        log.msg('Room %s - subscription from %s' % (self.uri, data.headers['From'].uri))
         if subscribe_request.event != 'conference':
             log.msg('Room %s - Subscription rejected: only conference event is supported' % self.uri)
             subscribe_request.reject(489)

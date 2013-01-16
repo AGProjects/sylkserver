@@ -169,7 +169,6 @@ class ConferenceApplication(object):
             subscribe_request.reject(400)
             return
 
-        log.msg(u'Subscription from %s' % from_header.uri)
         if subscribe_request.event != 'conference':
             log.msg(u'Subscription rejected: only conference event is supported')
             subscribe_request.reject(489)
@@ -210,12 +209,12 @@ class ConferenceApplication(object):
             refer_request.reject(400)
             return
 
-        log.msg(u'Request from %s to %s to join %s' % (from_header.uri, to_header.uri, refer_to_header.uri))
+        log.msg(u'Room %s - join request from %s to %s' % ('%s@%s' % (to_header.uri.user, to_header.uri.host), from_header.uri, refer_to_header.uri))
 
         try:
             self.validate_acl(data.request_uri, from_header.uri)
         except ACLValidationError:
-            log.msg(u'Join request for %s rejected: unauthorized by access list' % refer_to_header.uri)
+            log.msg(u'Room %s - join request rejected: unauthorized by access list' % room_uri)
             refer_request.reject(403)
             return
         referral_handler = IncomingReferralHandler(refer_request, data)
@@ -265,7 +264,6 @@ class ConferenceApplication(object):
     @run_in_green_thread
     def _NH_SIPSessionDidEnd(self, notification):
         session = notification.sender
-        log.msg(u'Session from %s ended' % session.remote_identity.uri)
         NotificationCenter().remove_observer(self, sender=session)
         if session.direction == 'incoming':
             room_uri = session._invitation.request_uri               # FIXME
@@ -291,7 +289,7 @@ class ConferenceApplication(object):
     def _NH_SIPSessionDidFail(self, notification):
         session = notification.sender
         self.pending_sessions.remove(session)
-        log.msg(u'Session from %s failed' % session.remote_identity.uri)
+        log.msg(u'Session from %s failed: %s' % session.remote_identity.uri, notification.data.reason)
 
 
 class IncomingReferralHandler(object):
@@ -301,6 +299,7 @@ class IncomingReferralHandler(object):
         self._refer_request = refer_request
         self._refer_headers = data.headers
         self.room_uri = data.headers.get('To').uri
+        self.room_uri_str = '%s@%s' % (self.room_uri.user, self.room_uri.host)
         self.refer_to_uri = re.sub('<|>', '', data.headers.get('Refer-To').uri)
         self.method = data.headers.get('Refer-To').parameters.get('method', 'INVITE').upper()
         self.session = None
@@ -312,7 +311,7 @@ class IncomingReferralHandler(object):
         try:
             self.refer_to_uri = SIPURI.parse(self.refer_to_uri)
         except SIPCoreError:
-            log.msg('Failed to add %s to %s' % (self.refer_to_uri, self.room_uri))
+            log.msg('Room %s - failed to add %s' % (self.room_uri_str, self.refer_to_uri))
             self._refer_request.reject(488)
             return
         notification_center = NotificationCenter()
@@ -331,7 +330,7 @@ class IncomingReferralHandler(object):
             notification_center.add_observer(self, sender=lookup)
             lookup.lookup_sip_proxy(uri, settings.sip.transport_list)
         elif self.method == 'BYE':
-            log.msg('%s removed %s from %s' % (self._refer_headers.get('From').uri, self.refer_to_uri, self.room_uri))
+            log.msg('Room %s - %s removed %s from %s' % (self.room_uri_str, self._refer_headers.get('From').uri, self.refer_to_uri))
             self._refer_request.accept()
             conference_application = ConferenceApplication()
             conference_application.remove_participant(self.refer_to_uri, self.room_uri)
@@ -351,13 +350,13 @@ class IncomingReferralHandler(object):
         try:
             room = conference_application.get_room(self.room_uri)
         except RoomNotFoundError:
-            log.msg('Failed to add %s to %s' % (self.refer_to_uri, self.room_uri))
+            log.msg('Room %s - failed to add %s to %s' % (self.room_uri_str, self.refer_to_uri))
             self._refer_request.end(500)
             return
         else:
             active_media = room.active_media
         if not active_media:
-            log.msg('Failed to add %s to %s' % (self.refer_to_uri, self.room_uri))
+            log.msg('Room %s - failed to add %s' % (self.room_uri_str, self.refer_to_uri))
             self._refer_request.end(500)
             return
         if 'audio' in active_media:
@@ -404,21 +403,21 @@ class IncomingReferralHandler(object):
             self._refer_request.end(200)
         conference_application = ConferenceApplication()
         conference_application.add_participant(self.session, self.room_uri)
-        log.msg('%s added %s to %s' % (self._refer_headers.get('From').uri, self.refer_to_uri, self.room_uri))
+        log.msg('Room %s - %s added %s' % (self.room_uri_str, self._refer_headers.get('From').uri, self.refer_to_uri))
         self.session = None
         self.streams = []
 
     def _NH_SIPSessionDidFail(self, notification):
-        log.msg('Failed to add %s to %s' % (self.refer_to_uri, self.room_uri))
+        log.msg('Room %s - failed to add %s: %s' % (self.room_uri_str, self.refer_to_uri, notification.data.reason))
         notification.center.remove_observer(self, sender=notification.sender)
         if self._refer_request is not None:
-            self._refer_request.end(notification.data.code or 500, notification.data.reason)
+            self._refer_request.end(notification.data.code or 500, notification.data.reason or  notification.data.code)
         self.session = None
         self.streams = []
 
     def _NH_SIPSessionDidEnd(self, notification):
         # If any stream fails to start we won't get SIPSessionDidFail, we'll get here instead
-        log.msg('Failed to add %s to %s' % (self.refer_to_uri, self.room_uri))
+        log.msg('Room %s - failed to add %s' % (self.room_uri_str, self.refer_to_uri))
         notification.center.remove_observer(self, sender=notification.sender)
         if self._refer_request is not None:
             self._refer_request.end(200)
