@@ -110,13 +110,13 @@ class ConferenceApplication(object):
         chat_streams = [stream for stream in session.proposed_streams if stream.type=='chat']
         transfer_streams = [stream for stream in session.proposed_streams if stream.type=='file-transfer']
         if not audio_streams and not chat_streams and not transfer_streams:
-	    log.msg(u'Session rejected: invalid media, only RTP audio and MSRP chat are supported')
+            log.msg(u'Session rejected: invalid media, only RTP audio and MSRP chat are supported')
             session.reject(488)
             return
         try:
             self.validate_acl(session._invitation.request_uri, session.remote_identity.uri)
         except ACLValidationError:
-	    log.msg(u'Session rejected: unauthorized by access list')
+            log.msg(u'Session rejected: unauthorized by access list')
             session.reject(403)
             return
         # Check if requested files belong to this room
@@ -124,13 +124,13 @@ class ConferenceApplication(object):
             try:
                 room = self.get_room(session._invitation.request_uri)
             except RoomNotFoundError:
-		log.msg(u'Session rejected: room not found')
+                log.msg(u'Session rejected: room not found')
                 session.reject(404)
                 return
             try:
                 file = (file for file in room.files if file.hash == stream.file_selector.hash).next()
             except StopIteration:
-		log.msg(u'Session rejected: requested file not found')
+                log.msg(u'Session rejected: requested file not found')
                 session.reject(404)
                 return
             filename = os.path.basename(file.name)
@@ -152,7 +152,7 @@ class ConferenceApplication(object):
                     break
             else:
                 # File got removed from the filesystem
-		log.msg(u'Session rejected: requested file removed from the filesystem')
+                log.msg(u'Session rejected: requested file removed from the filesystem')
                 session.reject(404)
                 return
         self.pending_sessions.append(session)
@@ -169,8 +169,7 @@ class ConferenceApplication(object):
             subscribe_request.reject(400)
             return
 
-	log.msg(u'New subscription from %s to %s' % (from_header.uri, to_header.uri))
-
+        log.msg(u'Subscription from %s' % from_header.uri)
         if subscribe_request.event != 'conference':
             log.msg(u'Subscription rejected: only conference event is supported')
             subscribe_request.reject(489)
@@ -185,7 +184,7 @@ class ConferenceApplication(object):
                 # Check if we need to skip the ACL because this was an invited participant
                 if not (str(from_header.uri) in self.invited_participants_map.get('%s@%s' % (data.request_uri.user, data.request_uri.host), {}) or
                         str(from_header.uri) in self.invited_participants_map.get('%s@%s' % (to_header.uri.user, to_header.uri.host), {})):
-		    log.msg(u'Subscription rejected: unauthorized by access list')
+                    log.msg(u'Subscription rejected: unauthorized by access list')
                     subscribe_request.reject(403)
                     return
         try:
@@ -194,11 +193,11 @@ class ConferenceApplication(object):
             try:
                 room = self.get_room(to_header.uri)
             except RoomNotFoundError:
-		log.msg(u'Subscription rejected: room not found')
+                log.msg(u'Subscription rejected: room not yet created')
                 subscribe_request.reject(480)
                 return
         if not room.started:
-	    log.msg(u'Subscription rejected: room not started yet')
+            log.msg(u'Subscription rejected: room not started yet')
             subscribe_request.reject(480)
         else:
             room.handle_incoming_subscription(subscribe_request, data)
@@ -211,19 +210,19 @@ class ConferenceApplication(object):
             refer_request.reject(400)
             return
 
-	log.msg(u'Request from %s to %s to join room %s' % (from_header.uri, to_header.uri, refer_to_header.uri))
+        log.msg(u'Request from %s to %s to join %s' % (from_header.uri, to_header.uri, refer_to_header.uri))
 
         try:
             self.validate_acl(data.request_uri, from_header.uri)
         except ACLValidationError:
-	    log.msg(u'Join request rejected: unauthorized by access list')
+            log.msg(u'Join request for %s rejected: unauthorized by access list' % refer_to_header.uri)
             refer_request.reject(403)
             return
         referral_handler = IncomingReferralHandler(refer_request, data)
         referral_handler.start()
 
     def incoming_sip_message(self, message_request, data):
-	log.msg(u'SIP Message is not supported, use MSRP media instead')
+        log.msg(u'SIP Message is not supported, use MSRP media instead')
         message_request.answer(405)
 
     def accept_session(self, session, streams):
@@ -234,7 +233,7 @@ class ConferenceApplication(object):
         # Keep track of the invited participants, we must skip ACL policy
         # for SUBSCRIBE requests
         room_uri_str = '%s@%s' % (room_uri.user, room_uri.host)
-        log.msg(u'Outgoing session from room %s to %s started' % (room_uri_str, session.remote_identity.uri))
+        log.msg(u'Room %s - outgoing session to %s started' % (room_uri_str, session.remote_identity.uri))
         d = self.invited_participants_map.setdefault(room_uri_str, {})
         d.setdefault(str(session.remote_identity.uri), 0)
         d[str(session.remote_identity.uri)] += 1
@@ -249,7 +248,7 @@ class ConferenceApplication(object):
         except RoomNotFoundError:
             pass
         else:
-            log.msg('%s removed from conference' % participant_uri)
+            log.msg('Room %s - %s removed from conference' % (room_uri, participant_uri))
             room.terminate_sessions(participant_uri)
 
     def handle_notification(self, notification):
@@ -266,7 +265,7 @@ class ConferenceApplication(object):
     @run_in_green_thread
     def _NH_SIPSessionDidEnd(self, notification):
         session = notification.sender
-        log.msg(u'Session from %s to %s ended' % (session.remote_identity.uri, session.local_identity.uri))
+        log.msg(u'Session from %s ended' % session.remote_identity.uri)
         NotificationCenter().remove_observer(self, sender=session)
         if session.direction == 'incoming':
             room_uri = session._invitation.request_uri               # FIXME
@@ -292,7 +291,7 @@ class ConferenceApplication(object):
     def _NH_SIPSessionDidFail(self, notification):
         session = notification.sender
         self.pending_sessions.remove(session)
-        log.msg(u'Session from %s to %s failed' % (session.remote_identity.uri, session.local_identity.uri))
+        log.msg(u'Session from %s failed' % session.remote_identity.uri)
 
 
 class IncomingReferralHandler(object):
