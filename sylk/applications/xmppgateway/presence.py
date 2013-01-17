@@ -474,7 +474,7 @@ class X2SPresenceHandler(object):
         self.end()
 
     def _NH_XMPPIncomingSubscriptionGotSubscribe(self, notification):
-        if self._sip_subscription.state.lower() == 'active':
+        if self._sip_subscription is not None and self._sip_subscription.state.lower() == 'active':
             self._xmpp_subscription.accept()
 
     _NH_XMPPIncomingSubscriptionGotProbe = _NH_XMPPIncomingSubscriptionGotSubscribe
