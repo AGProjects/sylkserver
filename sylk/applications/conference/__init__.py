@@ -330,7 +330,7 @@ class IncomingReferralHandler(object):
             notification_center.add_observer(self, sender=lookup)
             lookup.lookup_sip_proxy(uri, settings.sip.transport_list)
         elif self.method == 'BYE':
-            log.msg('Room %s - %s removed %s from %s' % (self.room_uri_str, self._refer_headers.get('From').uri, self.refer_to_uri))
+            log.msg('Room %s - %s removed %s from the room' % (self.room_uri_str, self._refer_headers.get('From').uri, self.refer_to_uri))
             self._refer_request.accept()
             conference_application = ConferenceApplication()
             conference_application.remove_participant(self.refer_to_uri, self.room_uri)
