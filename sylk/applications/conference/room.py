@@ -548,7 +548,7 @@ class Room(object):
         session = notification.sender.session
         chunk = notification.data.chunk
         if nickname:
-            if nickname in self.session_nickname_map.values() and self.session_nickname_map[session] != nickname:
+            if nickname in self.session_nickname_map.values() and (session not in self.session_nickname_map or self.session_nickname_map[session] != nickname):
                 notification.sender.reject_nickname(chunk, 425, 'Nickname reserved or already in use')
                 return
             self.session_nickname_map[session] = nickname
