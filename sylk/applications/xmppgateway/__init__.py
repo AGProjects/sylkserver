@@ -5,7 +5,7 @@ import os
 
 from application.notification import IObserver, NotificationCenter
 from application.python import Null
-from sipsimple.core import SIPURI
+from sipsimple.core import SIPURI, SIPCoreError
 from sipsimple.payloads import ParserError
 from sipsimple.payloads.iscomposing import IsComposingDocument, IsComposingMessage
 from sipsimple.streams.applications.chat import CPIMMessage, CPIMParserError
@@ -17,7 +17,8 @@ from sylk.applications.xmppgateway.configuration import XMPPGatewayConfig
 from sylk.applications.xmppgateway.datatypes import Identity, FrozenURI, generate_sylk_resource, decode_resource
 from sylk.applications.xmppgateway.im import SIPMessageSender, SIPMessageError, ChatSessionHandler
 from sylk.applications.xmppgateway.presence import S2XPresenceHandler, X2SPresenceHandler
-from sylk.applications.xmppgateway.muc import X2SMucHandler
+from sylk.applications.xmppgateway.muc import X2SMucInvitationHandler, S2XMucInvitationHandler, X2SMucHandler
+from sylk.applications.xmppgateway.util import format_uri
 from sylk.applications.xmppgateway.xmpp import XMPPManager
 from sylk.applications.xmppgateway.xmpp.session import XMPPChatSession
 from sylk.applications.xmppgateway.xmpp.stanzas import ChatMessage, ChatComposingIndication, NormalMessage
@@ -39,6 +40,8 @@ class XMPPGatewayApplication(object):
         self.x2s_muc_sessions = {}
         self.s2x_presence_subscriptions = {}
         self.x2s_presence_subscriptions = {}
+        self.s2x_muc_add_participant_handlers = {}
+        self.x2s_muc_add_participant_handlers = {}
 
     def start(self):
         NotificationCenter().add_observer(self, sender=self.xmpp_manager)
@@ -55,6 +58,34 @@ class XMPPGatewayApplication(object):
         except StopIteration:
             log.msg('Session rejected: Only MSRP media is supported')
             session.reject(488, 'Only MSRP media is supported')
+            return
+
+        # Check if this session is really an invitation to add a participant to a conference room / muc
+        if session.remote_identity.uri.host in self.xmpp_manager.muc_domains and 'isfocus' in session._invitation.remote_contact_header.parameters:
+            try:
+                referred_by_uri = SIPURI.parse(session.transfer_info.referred_by)
+            except SIPCoreError:
+                log.msg("SIP multiparty session invitation %s failed: invalid Referred-By header" % session._invitation.call_id)
+                session.reject(488)
+                return
+            muc_uri = FrozenURI(session.remote_identity.uri.user, session.remote_identity.uri.host)
+            inviter_uri = FrozenURI(referred_by_uri.user, referred_by_uri.host)
+            recipient_uri = FrozenURI(session.local_identity.uri.user, session.local_identity.uri.host)
+            sender = Identity(muc_uri)
+            recipient = Identity(recipient_uri)
+            inviter = Identity(inviter_uri)
+            try:
+                handler = self.s2x_muc_add_participant_handlers[(muc_uri, recipient_uri)]
+            except KeyError:
+                handler = S2XMucInvitationHandler(session, sender, recipient, inviter)
+                self.s2x_muc_add_participant_handlers[(muc_uri, recipient_uri)] = handler
+                NotificationCenter().add_observer(self, sender=handler)
+                handler.start()
+            else:
+                log.msg("SIP multiparty session invitation %s failed: there is another invitation in progress from %s to %s" % (session._invitation.call_id,
+                                                                                                                                format_uri(inviter_uri, 'sip'),
+                                                                                                                                format_uri(recipient_uri, 'xmpp')))
+                session.reject(480)
             return
 
         # Check domain
@@ -322,10 +353,31 @@ class XMPPGatewayApplication(object):
             handler._first_stanza = stanza
             notification.center.add_observer(self, sender=handler)
             handler.start()
+            # Check if there was a pending join request on the SIP side
+            try:
+                handler = self.s2x_muc_add_participant_handlers[(muc_uri, FrozenURI(stanza.sender.uri.user, stanza.sender.uri.host))]
+            except KeyError:
+                pass
+            else:
+                handler.stop()
 
-    def _NH_XMPPGotMucLeaveRequest(self, notification):
-        # TODO: give error?
-        pass
+    def _NH_XMPPGotMucAddParticipantRequest(self, notification):
+        sender = notification.data.sender
+        recipient = notification.data.recipient
+        participant = notification.data.participant
+        muc_uri = FrozenURI(recipient.uri.user, recipient.uri.host)
+        sender_uri = FrozenURI(sender.uri.user, sender.uri.host)
+        participant_uri = FrozenURI(participant.uri.user, participant.uri.host)
+        sender = Identity(sender_uri)
+        recipient = Identity(muc_uri)
+        participant = Identity(participant_uri)
+        try:
+            handler = self.x2s_muc_add_participant_handlers[(muc_uri, participant_uri)]
+        except KeyError:
+            handler = X2SMucInvitationHandler(sender, recipient, participant)
+            self.x2s_muc_add_participant_handlers[(muc_uri, participant_uri)] = handler
+            notification.center.add_observer(self, sender=handler)
+            handler.start()
 
     # Chat session handling
 
@@ -391,5 +443,55 @@ class XMPPGatewayApplication(object):
         handler = notification.sender
         log.msg('Multiparty session ended xmpp:%s --> sip:%s' % (handler.xmpp_identity.uri, handler.sip_identity.uri))
         self.x2s_muc_sessions.pop((handler.xmpp_identity.uri, handler.sip_identity.uri), None)
+        notification.center.remove_observer(self, sender=handler)
+
+    def _NH_X2SMucInvitationHandlerDidStart(self, notification):
+        handler = notification.sender
+        sender_uri = handler.sender.uri
+        muc_uri = handler.recipient.uri
+        participant_uri = handler.participant.uri
+        log.msg('%s invited %s to multiparty chat %s' % (format_uri(sender_uri, 'xmpp'), format_uri(participant_uri), format_uri(muc_uri, 'sip')))
+
+    def _NH_X2SMucInvitationHandlerDidEnd(self, notification):
+        handler = notification.sender
+        sender_uri = handler.sender.uri
+        muc_uri = handler.recipient.uri
+        participant_uri = handler.participant.uri
+        log.msg('%s added %s to multiparty chat %s' % (format_uri(sender_uri, 'xmpp'), format_uri(participant_uri), format_uri(muc_uri, 'sip')))
+        del self.x2s_muc_add_participant_handlers[(muc_uri, participant_uri)]
+        notification.center.remove_observer(self, sender=handler)
+
+    def _NH_X2SMucInvitationHandlerDidFail(self, notification):
+        handler = notification.sender
+        sender_uri = handler.sender.uri
+        muc_uri = handler.recipient.uri
+        participant_uri = handler.participant.uri
+        log.msg('%s could not add %s to multiparty chat %s: %s' % (format_uri(sender_uri, 'xmpp'), format_uri(participant_uri), format_uri(muc_uri, 'sip'), notification.data.failure))
+        del self.x2s_muc_add_participant_handlers[(muc_uri, participant_uri)]
+        notification.center.remove_observer(self, sender=handler)
+
+    def _NH_S2XMucInvitationHandlerDidStart(self, notification):
+        handler = notification.sender
+        muc_uri = handler.sender.uri
+        inviter_uri = handler.inviter.uri
+        recipient_uri = handler.recipient.uri
+        log.msg("%s invited %s to multiparty chat %s" % (format_uri(inviter_uri, 'sip'), format_uri(recipient_uri, 'xmpp'), format_uri(muc_uri, 'sip')))
+
+    def _NH_S2XMucInvitationHandlerDidEnd(self, notification):
+        handler = notification.sender
+        muc_uri = handler.sender.uri
+        inviter_uri = handler.inviter.uri
+        recipient_uri = handler.recipient.uri
+        log.msg('%s added %s to multiparty chat %s' % (format_uri(inviter_uri, 'sip'), format_uri(recipient_uri, 'xmpp'), format_uri(muc_uri, 'sip')))
+        del self.s2x_muc_add_participant_handlers[(muc_uri, recipient_uri)]
+        notification.center.remove_observer(self, sender=handler)
+
+    def _NH_S2XMucInvitationHandlerDidFail(self, notification):
+        handler = notification.sender
+        muc_uri = handler.sender.uri
+        inviter_uri = handler.inviter.uri
+        recipient_uri = handler.recipient.uri
+        log.msg('%s could not add %s to multiparty chat %s: %s' % (format_uri(inviter_uri, 'sip'), format_uri(recipient_uri, 'xmpp'), format_uri(muc_uri, 'sip'), str(notification.data.failure)))
+        del self.s2x_muc_add_participant_handlers[(muc_uri, recipient_uri)]
         notification.center.remove_observer(self, sender=handler)
 

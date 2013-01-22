@@ -302,6 +302,11 @@ class XMPPManager(object):
         else:
             session.channel.send(stanza)
 
+    def _NH_XMPPMucGotInvitation(self, notification):
+        invitation = notification.data.invitation
+        data = NotificationData(sender=invitation.sender, recipient=invitation.recipient, participant=invitation.invited_user)
+        notification.center.post_notification('XMPPGotMucAddParticipantRequest', sender=self, data=data)
+
     # Disco
 
     def _NH_XMPPGotDiscoInfoRequest(self, notification):

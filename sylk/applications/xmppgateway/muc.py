@@ -2,30 +2,277 @@
 #
 
 import os
+import random
 import uuid
 
-from application.notification import IObserver, NotificationCenter
-from application.python import Null
+from application.notification import IObserver, NotificationCenter, NotificationData
+from application.python import Null, limit
 from application.python.descriptor import WriteOnceAttribute
-from sipsimple.account import AccountManager
+from eventlib import coros, proc
+from sipsimple.account import AccountManager, BonjourAccount
 from sipsimple.configuration.settings import SIPSimpleSettings
-from sipsimple.core import SIPURI
-from sipsimple.core import ContactHeader, FromHeader, ToHeader
+from sipsimple.core import Engine, SIPURI, SIPCoreError, Referral, sip_status_messages
+from sipsimple.core import ContactHeader, FromHeader, ToHeader, ReferToHeader, RouteHeader
 from sipsimple.lookup import DNSLookup, DNSLookupError
 from sipsimple.streams.msrp import ChatStreamError
 from sipsimple.streams.applications.chat import CPIMIdentity
+from sipsimple.threading import run_in_twisted_thread
 from sipsimple.threading.green import run_in_green_thread
+from time import time
+from twisted.internet import reactor
 from zope.interface import implements
 
 from sylk.applications import ApplicationLogger
 from sylk.applications.xmppgateway.datatypes import Identity, FrozenURI, encode_resource
 from sylk.applications.xmppgateway.xmpp import XMPPManager
 from sylk.applications.xmppgateway.xmpp.session import XMPPIncomingMucSession
-from sylk.applications.xmppgateway.xmpp.stanzas import MUCAvailabilityPresence, MUCErrorPresence, STANZAS_NS
+from sylk.applications.xmppgateway.xmpp.stanzas import MUCAvailabilityPresence, MUCErrorPresence, OutgoingInvitationMessage, STANZAS_NS
+from sylk.configuration import SIPConfig
 from sylk.extensions import ChatStream
 from sylk.session import Session
 
 log = ApplicationLogger(os.path.dirname(__file__).split(os.path.sep)[-1])
+
+
+class ReferralError(Exception):
+    def __init__(self, error, code=0):
+        self.error = error
+        self.code = code
+
+
+class SIPReferralDidFail(Exception):
+    def __init__(self, data):
+        self.data = data
+
+
+class MucInvitationFailure(object):
+    def __init__(self, code, reason):
+        self.code = code
+        self.reason = reason
+    def __str__(self):
+        return '%s (%s)' % (self.code, self.reason)
+
+
+class X2SMucInvitationHandler(object):
+    implements(IObserver)
+
+    def __init__(self, sender, recipient, participant):
+        self.sender = sender
+        self.recipient = recipient
+        self.participant = participant
+        self.active = False
+        self.route = None
+        self._channel = coros.queue()
+        self._referral = None
+        self._wakeup_timer = None
+        self._failure = None
+
+    def start(self):
+        notification_center = NotificationCenter()
+        notification_center.add_observer(self, name='DNSNameserversDidChange')
+        notification_center.add_observer(self, name='SystemIPAddressDidChange')
+        notification_center.add_observer(self, name='SystemDidWakeUpFromSleep')
+        proc.spawn(self._run)
+        notification_center.post_notification('X2SMucInvitationHandlerDidStart', sender=self)
+
+    def _run(self):
+        notification_center = NotificationCenter()
+        settings = SIPSimpleSettings()
+
+        sender_uri = self.sender.uri.as_sip_uri()
+        recipient_uri = self.recipient.uri.as_sip_uri()
+        participant_uri = self.participant.uri.as_sip_uri()
+
+        try:
+            # Lookup routes
+            account = AccountManager().sylkserver_account
+            if account is BonjourAccount():
+                raise ReferralError(error='Bonjour account is not supported')
+            elif account.sip.outbound_proxy is not None and account.sip.outbound_proxy.transport in settings.sip.transport_list:
+                uri = SIPURI(host=account.sip.outbound_proxy.host, port=account.sip.outbound_proxy.port, parameters={'transport': account.sip.outbound_proxy.transport})
+            elif account.sip.always_use_my_proxy:
+                uri = SIPURI(host=account.id.domain)
+            else:
+                uri = SIPURI.new(recipient_uri)
+            lookup = DNSLookup()
+            try:
+                routes = lookup.lookup_sip_proxy(uri, settings.sip.transport_list).wait()
+            except DNSLookupError, e:
+                timeout = random.uniform(15, 30)
+                raise ReferralError(error='DNS lookup failed: %s' % e)
+
+            timeout = time() + 30
+            for route in routes:
+                self.route = route
+                remaining_time = timeout - time()
+                if remaining_time > 0:
+                    transport = route.transport
+                    parameters = {} if transport=='udp' else {'transport': transport}
+                    contact_uri = SIPURI(user=account.contact.username, host=SIPConfig.local_ip.normalized, port=getattr(Engine(), '%s_port' % transport), parameters=parameters)
+                    refer_to_header = ReferToHeader(str(participant_uri))
+                    refer_to_header.parameters['method'] = 'INVITE'
+                    referral = Referral(recipient_uri, FromHeader(sender_uri),
+                                        ToHeader(recipient_uri),
+                                        refer_to_header,
+                                        ContactHeader(contact_uri),
+                                        RouteHeader(route.uri),
+                                        account.credentials)
+                    notification_center.add_observer(self, sender=referral)
+                    try:
+                        referral.send_refer(timeout=limit(remaining_time, min=1, max=5))
+                    except SIPCoreError:
+                        notification_center.remove_observer(self, sender=referral)
+                        timeout = 5
+                        raise ReferralError(error='Internal error')
+                    self._referral = referral
+                    try:
+                        while True:
+                            notification = self._channel.wait()
+                            if notification.name == 'SIPReferralDidStart':
+                                break
+                    except SIPReferralDidFail, e:
+                        notification_center.remove_observer(self, sender=referral)
+                        self._referral = None
+                        if e.data.code in (403, 405):
+                            raise ReferralError(error=sip_status_messages[e.data.code], code=e.data.code)
+                        else:
+                            # Otherwise just try the next route
+                            continue
+                    else:
+                        break
+            else:
+                self.route = None
+                raise ReferralError(error='No more routes to try')
+            # At this point it is subscribed. Handle notifications and ending/failures.
+            try:
+                self.active = True
+                while True:
+                    notification = self._channel.wait()
+                    if notification.name == 'SIPReferralDidEnd':
+                        break
+            except SIPReferralDidFail, e:
+                notification_center.remove_observer(self, sender=self._referral)
+                raise ReferralError(error=e.data.reason, code=e.data.code)
+            else:
+                notification_center.remove_observer(self, sender=self._referral)
+            finally:
+                self.active = False
+        except ReferralError, e:
+            self._failure = MucInvitationFailure(e.code, e.error)
+        finally:
+            if self._wakeup_timer is not None and self._wakeup_timer.active():
+                self._wakeup_timer.cancel()
+            self._wakeup_timer = None
+            notification_center.remove_observer(self, name='DNSNameserversDidChange')
+            notification_center.remove_observer(self, name='SystemIPAddressDidChange')
+            notification_center.remove_observer(self, name='SystemDidWakeUpFromSleep')
+            self._referral = None
+            if self._failure is not None:
+                notification_center.post_notification('X2SMucInvitationHandlerDidFail', sender=self, data=NotificationData(failure=self._failure))
+            else:
+                notification_center.post_notification('X2SMucInvitationHandlerDidEnd', sender=self)
+
+    def _refresh(self):
+        account = AccountManager().sylkserver_account
+        transport = self.route.transport
+        parameters = {} if transport=='udp' else {'transport': transport}
+        contact_uri = SIPURI(user=account.contact.username, host=SIPConfig.local_ip.normalized, port=getattr(Engine(), '%s_port' % transport), parameters=parameters)
+        contact_header = ContactHeader(contact_uri)
+        self._referral.refresh(contact_header=contact_header, timeout=2)
+
+    @run_in_twisted_thread
+    def handle_notification(self, notification):
+        handler = getattr(self, '_NH_%s' % notification.name, Null)
+        handler(notification)
+
+    def _NH_SIPReferralDidStart(self, notification):
+        self._channel.send(notification)
+
+    def _NH_SIPReferralDidEnd(self, notification):
+        self._channel.send(notification)
+
+    def _NH_SIPReferralDidFail(self, notification):
+        self._channel.send_exception(SIPReferralDidFail(notification.data))
+
+    def _NH_SIPReferralGotNotify(self, notification):
+        self._channel.send(notification)
+
+    def _NH_DNSNameserversDidChange(self, notification):
+        if self.active:
+            self._refresh()
+
+    def _NH_SystemIPAddressDidChange(self, notification):
+        if self.active:
+            self._refresh()
+
+    def _NH_SystemDidWakeUpFromSleep(self, notification):
+        if self._wakeup_timer is None:
+            def wakeup_action():
+                if self.active:
+                    self._refresh()
+                self._wakeup_timer = None
+            self._wakeup_timer = reactor.callLater(5, wakeup_action) # wait for system to stabilize
+
+
+class S2XMucInvitationHandler(object):
+    implements(IObserver)
+
+    def __init__(self, session, sender, recipient, inviter):
+        self.session = session
+        self.sender = sender
+        self.recipient = recipient
+        self.inviter = inviter
+        self._timer = None
+        self._failure = None
+
+    def start(self):
+        notification_center = NotificationCenter()
+        notification_center.add_observer(self, sender=self.session)
+        stanza = OutgoingInvitationMessage(self.sender, self.recipient, self.inviter, id='MUC.'+uuid.uuid4().hex)
+        xmpp_manager = XMPPManager()
+        xmpp_manager.send_muc_stanza(stanza)
+        self._timer = reactor.callLater(90, self._timeout)
+        notification_center.post_notification('S2XMucInvitationHandlerDidStart', sender=self)
+
+    def stop(self):
+        if self._timer is not None and self._timer.active():
+            self._timer.cancel()
+        self._timer = None
+        notification_center = NotificationCenter()
+        if self.session is not None:
+            notification_center.remove_observer(self, sender=self.session)
+            reactor.callLater(5, self._end_session, self.session)
+            self.session = None
+        if self._failure is not None:
+            notification_center.post_notification('S2XMucInvitationHandlerDidFail', sender=self, data=NotificationData(failure=self._failure))
+        else:
+            notification_center.post_notification('S2XMucInvitationHandlerDidEnd', sender=self)
+
+    def _end_session(self, session):
+        try:
+            session.end(480)
+        except Exception:
+            pass
+
+    def _timeout(self):
+        NotificationCenter().remove_observer(self, sender=self.session)
+        try:
+            self.session.end(408)
+        except Exception:
+            pass
+        self.session = None
+        self._failure = MucInvitationFailure('Timeout', 408)
+        self.stop()
+
+    def handle_notification(self, notification):
+        handler = getattr(self, '_NH_%s' % notification.name, Null)
+        handler(notification)
+
+    def _NH_SIPSessionDidFail(self, notification):
+        notification.center.remove_observer(self, sender=self.session)
+        self.session = None
+        self._failure = MucInvitationFailure(notification.data.reason or notification.data.failure_reason, notification.data.code)
+        self.stop()
 
 
 class X2SMucHandler(object):
@@ -193,7 +440,7 @@ class X2SMucHandler(object):
             body = None
         resource = message.sender.display_name or str(message.sender.uri)
         sender = Identity(FrozenURI(self.sip_identity.uri.user, self.sip_identity.uri.host, resource))
-        self._xmpp_muc_session.send_message(sender, body, html_body, message_id=str(uuid.uuid4()))
+        self._xmpp_muc_session.send_message(sender, body, html_body, message_id='MUC.'+uuid.uuid4().hex)
         self._msrp_stream.msrp_session.send_report(notification.data.chunk, 200, 'OK')
 
     def _NH_ChatStreamDidSetNickname(self, notification):

@@ -8,10 +8,10 @@ from wokkel.muc import UserPresence
 from wokkel.xmppim import BasePresenceProtocol, MessageProtocol, PresenceProtocol
 
 from sylk.applications.xmppgateway.datatypes import Identity, FrozenURI
-from sylk.applications.xmppgateway.xmpp.stanzas import RECEIPTS_NS, CHATSTATES_NS, ErrorStanza, \
-        NormalMessage, MessageReceipt, ChatMessage, ChatComposingIndication,                    \
-        AvailabilityPresence, SubscriptionPresence, ProbePresence,                              \
-        MUCAvailabilityPresence, GroupChatMessage                                               \
+from sylk.applications.xmppgateway.xmpp.stanzas import (RECEIPTS_NS, CHATSTATES_NS, MUC_USER_NS, ErrorStanza,
+        NormalMessage, MessageReceipt, ChatMessage, ChatComposingIndication,
+        AvailabilityPresence, SubscriptionPresence, ProbePresence,
+        MUCAvailabilityPresence, GroupChatMessage, IncomingInvitationMessage)
 
 __all__ = ['DiscoProtocol', 'MessageProtocol', 'MUCServerProtocol', 'PresenceProtocol']
 
@@ -165,8 +165,14 @@ class MUCServerProtocol(BasePresenceProtocol):
         if messageType == 'groupchat':
             self.onGroupChat(message)
         else:
-            # TODO: give error, private messages not supported
-            pass
+            to_uri = FrozenURI.parse('xmpp:'+message['to'])
+            if to_uri.host in self.parent.domains:
+                # Check if it's an invitation
+                if message.x is not None and message.x.invite is not None and message.x.invite.uri == MUC_USER_NS:
+                    self.onInvitation(message)
+            else:
+                # TODO: give error, private messages not supported
+                pass
 
     def onGroupChat(self, msg):
         sender_uri = FrozenURI.parse('xmpp:'+msg['from'])
@@ -181,6 +187,20 @@ class MUCServerProtocol(BasePresenceProtocol):
             body = unicode(msg.body)
         message = GroupChatMessage(sender, recipient, body, html_body, id=msg.getAttribute('id', None))
         NotificationCenter().post_notification('XMPPMucGotGroupChat', sender=self.parent, data=NotificationData(message=message))
+
+    def onInvitation(self, msg):
+        sender_uri = FrozenURI.parse('xmpp:'+msg['from'])
+        sender = Identity(sender_uri)
+        recipient_uri = FrozenURI.parse('xmpp:'+msg['to'])
+        recipient = Identity(recipient_uri)
+        invited_user_uri = FrozenURI.parse('xmpp:'+msg.x.invite['to'])
+        invited_user = Identity(invited_user_uri)
+        if msg.x.invite.reason is not None and msg.x.invite.reason.uri == MUC_USER_NS:
+            reason = unicode(msg.x.invite.reason)
+        else:
+            reason = None
+        invitation = IncomingInvitationMessage(sender, recipient, invited_user=invited_user, reason=reason, id=msg.getAttribute('id', None))
+        NotificationCenter().post_notification('XMPPMucGotInvitation', sender=self.parent, data=NotificationData(invitation=invitation))
 
     def availableReceived(self, stanza):
         sender_uri = FrozenURI.parse('xmpp:'+stanza.element['from'])

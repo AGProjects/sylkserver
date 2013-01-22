@@ -159,6 +159,38 @@ class BasePresenceStanza(BaseStanza):
     stanza_type = 'presence'
 
 
+class IncomingInvitationMessage(BaseMessageStanza):
+    def __init__(self, sender, recipient, invited_user, reason=None, id=None):
+        super(IncomingInvitationMessage, self).__init__(sender, recipient, body=None, html_body=None, id=id, use_receipt=False)
+        self.invited_user = invited_user
+        self.reason = reason
+
+    def to_xml_element(self):
+        xml_element = super(IncomingInvitationMessage, self).to_xml_element()
+        child = xml_element.addElement((MUC_USER_NS, 'x'))
+        child.addElement('invite')
+        child.invite['to'] = self.invited_user.uri.as_string('xmpp')
+        if self.reason:
+            child.invite.addElement('reason', content=self.reason)
+        return xml_element
+
+
+class OutgoingInvitationMessage(BaseMessageStanza):
+    def __init__(self, sender, recipient, originator, reason=None, id=None):
+        super(OutgoingInvitationMessage, self).__init__(sender, recipient, body=None, html_body=None, id=id, use_receipt=False)
+        self.originator = originator
+        self.reason = reason
+
+    def to_xml_element(self):
+        xml_element = super(OutgoingInvitationMessage, self).to_xml_element()
+        child = xml_element.addElement((MUC_USER_NS, 'x'))
+        child.addElement('invite')
+        child.invite['from'] = self.originator.uri.as_string('xmpp')
+        if self.reason:
+            child.invite.addElement('reason', content=self.reason)
+        return xml_element
+
+
 class AvailabilityPresence(BasePresenceStanza):
     def __init__(self, sender, recipient, available=True, show=None, statuses=None, priority=0, id=None):
         super(AvailabilityPresence, self).__init__(sender, recipient, id=id)
