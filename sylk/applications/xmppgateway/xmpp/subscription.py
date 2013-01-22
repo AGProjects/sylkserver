@@ -72,7 +72,7 @@ class XMPPSubscription(object):
             item = self.channel.wait()
             if isinstance(item, AvailabilityPresence):
                 if self.state == 'subscribe_sent':
-                    self.state == 'active'
+                    self.state = 'active'
                 notification_center.post_notification('XMPPSubscriptionGotNotify', sender=self, data=NotificationData(presence=item))
             elif isinstance(item, SubscriptionPresence):
                 if self.state == 'subscribe_sent' and item.type == 'subscribed':
