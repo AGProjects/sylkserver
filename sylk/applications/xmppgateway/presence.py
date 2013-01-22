@@ -25,6 +25,7 @@ from zope.interface import implements
 
 from sylk.applications import ApplicationLogger
 from sylk.applications.xmppgateway.datatypes import Identity, FrozenURI, encode_resource
+from sylk.applications.xmppgateway.util import format_uri
 from sylk.applications.xmppgateway.xmpp.stanzas import AvailabilityPresence
 from sylk.applications.xmppgateway.xmpp.subscription import XMPPSubscription, XMPPIncomingSubscription
 from sylk.configuration import SIPConfig
@@ -148,6 +149,9 @@ class S2XPresenceHandler(object):
         if not self._sip_subscriptions:
             self.end()
 
+    def _NH_SIPIncomingSubscriptionNotifyDidFail(self, notification):
+        log.msg('Sending SIP NOTIFY failed from %s to %s for presence flow 0x%x: %s (%s)' % (format_uri(self.xmpp_identity.uri, 'xmpp'), format_uri(self.sip_identity.uri, 'sip'), id(self), notification.data.code, notification.data.reason))
+
     def _NH_XMPPSubscriptionChangedState(self, notification):
         if notification.data.prev_state == 'subscribe_sent' and notification.data.state == 'active':
             pidf_doc = self._pidf
@@ -159,11 +163,12 @@ class S2XPresenceHandler(object):
         stanza = notification.data.presence
         self._stanza_cache[stanza.sender.uri] = stanza
         pidf_doc = self._build_pidf()
+        log.msg('Got XMPP NOTIFY from %s to %s for presence flow 0x%x' % (format_uri(self.xmpp_identity.uri, 'xmpp'), format_uri(self.sip_identity.uri, 'sip'), id(self)))
         for subscription in self._sip_subscriptions:
             try:
                 subscription.push_content(pidf.PIDFDocument.content_type, pidf_doc)
-            except SIPCoreError:
-                pass
+            except SIPCoreError, e:
+                log.msg('Failed to send SIP NOTIFY from %s to %s for presence flow 0x%x: %s' % (format_uri(self.xmpp_identity.uri, 'xmpp'), format_uri(self.sip_identity.uri, 'sip'), id(self), e))
         if not stanza.available:
             # Only inform once about this device being unavailable
             del self._stanza_cache[stanza.sender.uri]
@@ -408,6 +413,7 @@ class X2SPresenceHandler(object):
                                 # The state went from active to pending, hide the presence state?
                                 pass
                             if notification.data.body:
+                                log.msg('Got SIP NOTIFY from %s to %s' % (format_uri(self.sip_identity.uri, 'sip'), format_uri(self.xmpp_identity.uri, 'xmpp')))
                                 self._process_pidf(notification.data.body)
                     elif notification.name == 'SIPSubscriptionDidEnd':
                         break

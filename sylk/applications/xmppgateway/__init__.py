@@ -141,7 +141,7 @@ class XMPPGatewayApplication(object):
             subscribe_request.reject(400)
             return
 
-        log.msg('New subscription from %s to %s' % (from_header.uri, to_header.uri))
+        log.msg('New SIP subscription from %s to %s' % (format_uri(from_header.uri, 'sip'), format_uri(to_header.uri, 'xmpp')))
 
         if subscribe_request.event != 'presence':
             log.msg('Subscription rejected: only presence event is supported')
@@ -168,8 +168,12 @@ class XMPPGatewayApplication(object):
             sip_identity = Identity(sip_leg_uri, data.headers['From'].display_name)
             xmpp_identity = Identity(xmpp_leg_uri)
             handler = S2XPresenceHandler(sip_identity, xmpp_identity)
+            self.s2x_presence_subscriptions[(sip_leg_uri, xmpp_leg_uri)] = handler
             NotificationCenter().add_observer(self, sender=handler)
             handler.start()
+        else:
+            log.msg('New SIP subscription from %s to %s added to presence flow 0x%x' % (format_uri(from_header.uri, 'sip'), format_uri(to_header.uri, 'xmpp'), id(handler)))
+
         handler.add_sip_subscription(subscribe_request)
 
     def incoming_referral(self, refer_request, data):
@@ -336,6 +340,7 @@ class XMPPGatewayApplication(object):
             xmpp_identity.uri = sender_uri_bare
             sip_identity = stanza.recipient
             handler = X2SPresenceHandler(sip_identity, xmpp_identity)
+            self.x2s_presence_subscriptions[(sender_uri_bare, stanza.recipient.uri)] = handler
             notification.center.add_observer(self, sender=handler)
             handler.start()
 
@@ -412,23 +417,21 @@ class XMPPGatewayApplication(object):
 
     def _NH_S2XPresenceHandlerDidStart(self, notification):
         handler = notification.sender
-        log.msg('Presence subscription established sip:%s --> xmpp:%s' % (handler.sip_identity.uri, handler.xmpp_identity.uri))
-        self.s2x_presence_subscriptions[(handler.sip_identity.uri, handler.xmpp_identity.uri)] = handler
+        log.msg('Presence flow 0x%x established %s --> %s' % (id(handler), format_uri(handler.sip_identity.uri, 'sip'), format_uri(handler.xmpp_identity.uri, 'xmpp')))
 
     def _NH_S2XPresenceHandlerDidEnd(self, notification):
         handler = notification.sender
-        log.msg('Presence subscription ended sip:%s --> xmpp:%s' % (handler.sip_identity.uri, handler.xmpp_identity.uri))
+        log.msg('Presence flow 0x%x ended %s --> %s' % (id(handler), format_uri(handler.sip_identity.uri, 'sip'), format_uri(handler.xmpp_identity.uri, 'xmpp'), handler))
         self.s2x_presence_subscriptions.pop((handler.sip_identity.uri, handler.xmpp_identity.uri), None)
         notification.center.remove_observer(self, sender=handler)
 
     def _NH_X2SPresenceHandlerDidStart(self, notification):
         handler = notification.sender
-        log.msg('Presence subscription established xmpp:%s --> sip:%s' % (handler.xmpp_identity.uri, handler.sip_identity.uri))
-        self.x2s_presence_subscriptions[(handler.xmpp_identity.uri, handler.sip_identity.uri)] = handler
+        log.msg('Presence flow 0x%x established %s --> %s' % (id(handler), format_uri(handler.xmpp_identity.uri, 'xmpp'), format_uri(handler.sip_identity.uri, 'sip')))
 
     def _NH_X2SPresenceHandlerDidEnd(self, notification):
         handler = notification.sender
-        log.msg('Presence subscription ended xmpp:%s --> sip:%s' % (handler.xmpp_identity.uri, handler.sip_identity.uri))
+        log.msg('Presence flow 0x%x ended %s --> %s' % (id(handler), format_uri(handler.xmpp_identity.uri, 'xmpp'), format_uri(handler.sip_identity.uri, 'sip')))
         self.x2s_presence_subscriptions.pop((handler.xmpp_identity.uri, handler.sip_identity.uri), None)
         notification.center.remove_observer(self, sender=handler)
 
