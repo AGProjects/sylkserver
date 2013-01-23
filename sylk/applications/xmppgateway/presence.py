@@ -19,6 +19,7 @@ from sipsimple.payloads import pidf, rpid, caps
 from sipsimple.payloads import ParserError
 from sipsimple.threading import run_in_twisted_thread
 from sipsimple.threading.green import Command, run_in_green_thread
+from sipsimple.util import ISOTimestamp
 from time import time
 from twisted.internet import reactor
 from zope.interface import implements
@@ -129,6 +130,7 @@ class S2XPresenceHandler(object):
             service = pidf.Service(service_id, status=status, contact=contact)
             service.add(pidf.DeviceID(resource))
             service.device_info = pidf.DeviceInfo(resource, description=stanza.sender.uri.resource)
+            service.timestamp = pidf.ServiceTimestamp(ISOTimestamp.now())    # TODO: mirror the one in the stanza, if present
             service.capabilities = caps.ServiceCapabilities(text=True, message=True)
             for lang, note in stanza.statuses.iteritems():
                 service.notes.add(pidf.PIDFNote(note, lang=lang))
