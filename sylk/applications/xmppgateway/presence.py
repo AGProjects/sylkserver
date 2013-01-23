@@ -168,7 +168,7 @@ class S2XPresenceHandler(object):
         self._stanza_cache[stanza.sender.uri] = stanza
         stanza.timestamp = ISOTimestamp.now()    # TODO: mirror the one in the stanza, if present
         pidf_doc = self._build_pidf()
-        log.msg('Got XMPP NOTIFY from %s to %s for presence flow 0x%x' % (format_uri(self.xmpp_identity.uri, 'xmpp'), format_uri(self.sip_identity.uri, 'sip'), id(self)))
+        log.msg('XMPP NOTIFY from %s to %s for presence flow 0x%x' % (format_uri(self.xmpp_identity.uri, 'xmpp'), format_uri(self.sip_identity.uri, 'sip'), id(self)))
         for subscription in self._sip_subscriptions:
             try:
                 subscription.push_content(pidf.PIDFDocument.content_type, pidf_doc)
@@ -418,7 +418,7 @@ class X2SPresenceHandler(object):
                                 # The state went from active to pending, hide the presence state?
                                 pass
                             if notification.data.body:
-                                log.msg('Got SIP NOTIFY from %s to %s' % (format_uri(self.sip_identity.uri, 'sip'), format_uri(self.xmpp_identity.uri, 'xmpp')))
+                                log.msg('SIP NOTIFY from %s to %s' % (format_uri(self.sip_identity.uri, 'sip'), format_uri(self.xmpp_identity.uri, 'xmpp')))
                                 self._process_pidf(notification.data.body)
                     elif notification.name == 'SIPSubscriptionDidEnd':
                         break
