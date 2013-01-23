@@ -130,7 +130,7 @@ class S2XPresenceHandler(object):
             service = pidf.Service(service_id, status=status, contact=contact)
             service.add(pidf.DeviceID(resource))
             service.device_info = pidf.DeviceInfo(resource, description=stanza.sender.uri.resource)
-            service.timestamp = pidf.ServiceTimestamp(ISOTimestamp.now())    # TODO: mirror the one in the stanza, if present
+            service.timestamp = pidf.ServiceTimestamp(stanza.timestamp)
             service.capabilities = caps.ServiceCapabilities(text=True, message=True)
             for lang, note in stanza.statuses.iteritems():
                 service.notes.add(pidf.PIDFNote(note, lang=lang))
@@ -166,6 +166,7 @@ class S2XPresenceHandler(object):
     def _NH_XMPPSubscriptionGotNotify(self, notification):
         stanza = notification.data.presence
         self._stanza_cache[stanza.sender.uri] = stanza
+        stanza.timestamp = ISOTimestamp.now()    # TODO: mirror the one in the stanza, if present
         pidf_doc = self._build_pidf()
         log.msg('Got XMPP NOTIFY from %s to %s for presence flow 0x%x' % (format_uri(self.xmpp_identity.uri, 'xmpp'), format_uri(self.sip_identity.uri, 'sip'), id(self)))
         for subscription in self._sip_subscriptions:
