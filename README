@@ -2,7 +2,7 @@
 SylkServer
 ----------
 
-Copyright (c) 2010-2012 AG Projects
+Copyright (c) 2010-2013 AG Projects
 http://ag-projects.com
 
 Main author: Saul Ibarra
@@ -22,8 +22,8 @@ the license is available at http://www.fsf.org/licensing/licenses/gpl-3.0.html
 Description
 -----------
 
-SylkServer is a SIP application server that can be programmed to perform SIP
-end-point applications.
+SylkServer is an application server that can be programmed to perform SIP
+end-point applications and act as a gateway between SIP and XMPP domains.
 
 The server has support for SIP signaling over TLS, TCP and UDP transports,
 RTP and MSRP media planes, capability for creating ad-hoc SIP multimedia
@@ -57,9 +57,9 @@ SIP Signaling
 NAT Traversal
 
  - SIP Outbound
- - ICE and STUN
- - MSRP Relay
- - MSRP ACM
+ - ICE clients
+ - MSRP Relay clients
+ - MSRP ACM clients
 
 Audio
 
@@ -88,15 +88,15 @@ Conferencing
 
  - Wideband RTP mixer
  - MSRP switch
+ - XMPP MUC
  - Multiparty screensharing
  - Conference event package
- - Add/remove participants
 
 XMPP Gateway
 
  - Server to Server mode
  - IM (MSRP sessions and SIP Messages)
- - Presence translation
+ - Presence (SIMPLE and XMPP)
 
 
 Applications
