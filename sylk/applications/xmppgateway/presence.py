@@ -85,6 +85,7 @@ class S2XPresenceHandler(object):
             subscription.accept(content_type, pidf_doc)
         else:
             subscription.accept_pending()
+        log.msg('SIP subscription from %s to %s added to presence flow 0x%x (%d subs)' % (format_uri(self.sip_identity.uri, 'sip'), format_uri(self.xmpp_identity.uri, 'xmpp'), id(self), len(self._sip_subscriptions)))
 
     def _build_pidf(self):
         if not self._stanza_cache:
@@ -148,6 +149,7 @@ class S2XPresenceHandler(object):
         self._sip_subscriptions.remove(subscription)
         if not self._sip_subscriptions:
             self.end()
+        log.msg('SIP subscription from %s to %s removed from presence flow 0x%x (%d subs)' % (format_uri(self.sip_identity.uri, 'sip'), format_uri(self.xmpp_identity.uri, 'xmpp'), id(self), len(self._sip_subscriptions)))
 
     def _NH_SIPIncomingSubscriptionNotifyDidFail(self, notification):
         log.msg('Sending SIP NOTIFY failed from %s to %s for presence flow 0x%x: %s (%s)' % (format_uri(self.xmpp_identity.uri, 'xmpp'), format_uri(self.sip_identity.uri, 'sip'), id(self), notification.data.code, notification.data.reason))
