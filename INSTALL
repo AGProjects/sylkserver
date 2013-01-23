@@ -11,8 +11,8 @@ Ths software can be installed manually from it source tree or as a Debian
 package on Debian and Ubuntu systems.
 
 
-Configure Repositories
-----------------------
+Debian and Ubuntu packages
+--------------------------
 
 Install the AG Projects debian software signing key: 
 
@@ -21,27 +21,29 @@ sudo apt-key add agp-debian-gpg.key
 
 Add these lines to /etc/apt/sources.list:
 
-
-Ubuntu Natty (11.04)
---------------------
-
-deb	http://ag-projects.com/ubuntu natty main
+#Ubuntu Natty
+deb    http://ag-projects.com/ubuntu natty main 
 deb-src http://ag-projects.com/ubuntu natty main
 
+#Ubuntu Oneiric
+deb    http://ag-projects.com/ubuntu oneiric main 
+deb-src http://ag-projects.com/ubuntu oneiric main
 
-Ubuntu Maverick (10.10)
------------------------
+#Ubuntu Precise
+deb    http://ag-projects.com/ubuntu precise main 
+deb-src http://ag-projects.com/ubuntu precise main
 
-deb	http://ag-projects.com/ubuntu maverick main
-deb-src http://ag-projects.com/ubuntu maverick main
+#Ubuntu Quantal
+deb    http://ag-projects.com/ubuntu quantal main 
+deb-src http://ag-projects.com/ubuntu quantal main
 
+#Debian Stable
+deb    http://ag-projects.com/debian stable main 
+deb-src http://ag-projects.com/debian stable main
 
-Ubuntu Lucid (10.04)
---------------------
-
-deb	http://ag-projects.com/ubuntu lucid main
-deb-src http://ag-projects.com/ubuntu lucid main
-
+#Debian Unstable
+deb    http://ag-projects.com/debian unstable main 
+deb-src http://ag-projects.com/debian unstable main
 
 Update the list of available packages:
 
@@ -82,10 +84,10 @@ darcs pull -a
 
 Install the required dependencies:
 
- * python-sipsimple (>= 0.20.0) http://sipsimpleclient.com
+ * python-sipsimple (>= 0.30.0) http://sipsimpleclient.com
  * python-sqlobject (>= 0.12.4)
  * python-twisted-words
- * python-wokkel
+ * python-wokkel http://wokkel.ik.nu/
 
 To run SylkServer in the foreground:
 
