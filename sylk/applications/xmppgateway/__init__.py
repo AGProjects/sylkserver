@@ -421,7 +421,7 @@ class XMPPGatewayApplication(object):
 
     def _NH_S2XPresenceHandlerDidEnd(self, notification):
         handler = notification.sender
-        log.msg('Presence flow 0x%x ended %s --> %s' % (id(handler), format_uri(handler.sip_identity.uri, 'sip'), format_uri(handler.xmpp_identity.uri, 'xmpp'), handler))
+        log.msg('Presence flow 0x%x ended %s --> %s' % (id(handler), format_uri(handler.sip_identity.uri, 'sip'), format_uri(handler.xmpp_identity.uri, 'xmpp')))
         self.s2x_presence_subscriptions.pop((handler.sip_identity.uri, handler.xmpp_identity.uri), None)
         notification.center.remove_observer(self, sender=handler)
 
