@@ -30,8 +30,8 @@ class BaseStanza(object):
 
     def to_xml_element(self):
         xml_element = domish.Element((None, self.stanza_type))
-        xml_element['from'] = self.sender.uri.as_string('xmpp')
-        xml_element['to'] = self.recipient.uri.as_string('xmpp')
+        xml_element['from'] = unicode(self.sender.uri.as_xmpp_jid())
+        xml_element['to'] = unicode(self.recipient.uri.as_xmpp_jid())
         if self.type:
             xml_element['type'] = self.type
         if self.id is not None:
@@ -59,8 +59,8 @@ class ErrorStanza(object):
 
     def to_xml_element(self):
         xml_element = domish.Element((None, self.stanza_type))
-        xml_element['from'] = self.sender.uri.as_string('xmpp')
-        xml_element['to'] = self.recipient.uri.as_string('xmpp')
+        xml_element['from'] = unicode(self.sender.uri.as_xmpp_jid())
+        xml_element['to'] = unicode(self.recipient.uri.as_xmpp_jid())
         xml_element['type'] = 'error'
         if self.id is not None:
             xml_element['id'] = self.id
@@ -169,7 +169,7 @@ class IncomingInvitationMessage(BaseMessageStanza):
         xml_element = super(IncomingInvitationMessage, self).to_xml_element()
         child = xml_element.addElement((MUC_USER_NS, 'x'))
         child.addElement('invite')
-        child.invite['to'] = self.invited_user.uri.as_string('xmpp')
+        child.invite['to'] = unicode(self.invited_user.uri.as_xmpp_jid())
         if self.reason:
             child.invite.addElement('reason', content=self.reason)
         return xml_element
@@ -185,7 +185,7 @@ class OutgoingInvitationMessage(BaseMessageStanza):
         xml_element = super(OutgoingInvitationMessage, self).to_xml_element()
         child = xml_element.addElement((MUC_USER_NS, 'x'))
         child.addElement('invite')
-        child.invite['from'] = self.originator.uri.as_string('xmpp')
+        child.invite['from'] = unicode(self.originator.uri.as_xmpp_jid())
         if self.reason:
             child.invite.addElement('reason', content=self.reason)
         return xml_element
@@ -266,7 +266,7 @@ class MUCAvailabilityPresence(AvailabilityPresence):
         if self.role:
             item['role'] = self.role
         if self.jid:
-            item['jid'] = self.jid.uri.as_string('xmpp')
+            item['jid'] = unicode(self.jid.uri.as_xmpp_jid())
         for code in self.muc_statuses:
             status = muc.addElement('status')
             status['code'] = code

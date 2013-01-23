@@ -86,18 +86,7 @@ class BaseURI(object):
         return uri
 
     def as_xmpp_jid(self):
-        jid = JID(tuple=(self.user, self.host, self.resource))
-        return jid
-
-    def as_string(self, protocol):
-        if protocol not in ('sip', 'xmpp'):
-            raise ValueError('protocol must be one of "sip" or "xmpp"')
-        if protocol == 'sip':
-            uri = self.as_sip_uri()
-            return unicode(str(uri))
-        else:
-            uri = self.as_xmpp_jid()
-            return unicode(uri)
+        return JID(tuple=(self.user, self.host, self.resource))
 
     def __eq__(self, other):
         if isinstance(other, BaseURI):
