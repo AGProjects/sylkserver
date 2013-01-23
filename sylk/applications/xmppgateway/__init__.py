@@ -198,7 +198,7 @@ class XMPPGatewayApplication(object):
             try:
                 cpim_message = CPIMMessage.parse(data.body)
             except CPIMParserError:
-		log.msg('Message rejected: CPIM parse error')
+                log.msg('Message rejected: CPIM parse error')
                 message_request.answer(400)
                 return
             else:
