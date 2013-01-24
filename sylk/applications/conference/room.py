@@ -657,7 +657,7 @@ class Room(object):
         self.dispatch_conference_info()
 
     def _NH_SIPSessionTransferNewIncoming(self, notification):
-        log.msg(u'Room %s - Call transfer request rejected, REFER messages must be sent out of band' % self.uri)
+        log.msg(u'Room %s - Call transfer request rejected, REFER must be out of dialog (RFC4579 5.5)' % self.uri)
         notification.sender.reject_transfer(403)
 
     @staticmethod
