@@ -140,11 +140,11 @@ class S2XPresenceHandler(object):
         self._pidf = pidf_doc.toxml()
         return self._pidf
 
+    @run_in_twisted_thread
     def handle_notification(self, notification):
         handler = getattr(self, '_NH_%s' % notification.name, Null)
         handler(notification)
 
-    @run_in_twisted_thread
     def _NH_SIPIncomingSubscriptionDidEnd(self, notification):
         subscription = notification.sender
         notification.center.remove_observer(self, sender=subscription)
