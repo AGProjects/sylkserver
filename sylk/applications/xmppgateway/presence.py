@@ -149,12 +149,21 @@ class S2XPresenceHandler(object):
         subscription = notification.sender
         notification.center.remove_observer(self, sender=subscription)
         self._sip_subscriptions.remove(subscription)
+        log.msg('SIP subscription from %s to %s removed from presence flow 0x%x (%d subs)' % (format_uri(self.sip_identity.uri, 'sip'), format_uri(self.xmpp_identity.uri, 'xmpp'), id(self), len(self._sip_subscriptions)))
         if not self._sip_subscriptions:
             self.end()
-        log.msg('SIP subscription from %s to %s removed from presence flow 0x%x (%d subs)' % (format_uri(self.sip_identity.uri, 'sip'), format_uri(self.xmpp_identity.uri, 'xmpp'), id(self), len(self._sip_subscriptions)))
 
     def _NH_SIPIncomingSubscriptionNotifyDidFail(self, notification):
         log.msg('Sending SIP NOTIFY failed from %s to %s for presence flow 0x%x: %s (%s)' % (format_uri(self.xmpp_identity.uri, 'xmpp'), format_uri(self.sip_identity.uri, 'sip'), id(self), notification.data.code, notification.data.reason))
+
+    def _NH_SIPIncomingSubscriptionGotUnsubscribe(self, notification):
+        log.msg('SIP subscription from %s to %s was terminated by user for presence flow 1x%x (%d subs)' % (format_uri(self.sip_identity.uri, 'sip'), format_uri(self.xmpp_identity.uri, 'xmpp'), id(self), len(self._sip_subscriptions)))
+
+    def _NH_SIPIncomingSubscriptionGotRefreshingSubscribe(self, notification):
+        log.msg('SIP subscription from %s to %s was refreshed for presence flow 0x%x (%d subs)' % (format_uri(self.sip_identity.uri, 'sip'), format_uri(self.xmpp_identity.uri, 'xmpp'), id(self), len(self._sip_subscriptions)))
+
+    def _NH_SIPIncomingSubscriptionDidTimeout(self, notification):
+        log.msg('SIP subscription from %s to %s timed out for presence flow 0x%x (%d subs)' % (format_uri(self.sip_identity.uri, 'sip'), format_uri(self.xmpp_identity.uri, 'xmpp'), id(self), len(self._sip_subscriptions)))
 
     def _NH_XMPPSubscriptionChangedState(self, notification):
         if notification.data.prev_state == 'subscribe_sent' and notification.data.state == 'active':
