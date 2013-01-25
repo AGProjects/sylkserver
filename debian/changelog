@@ -1,10 +1,13 @@
 sylkserver (2.3.0) unstable; urgency=low
 
+  * Added SIP - XMPP gateway abiliy to invite participants to a multiparty chat
   * Added support for XEP-0030 (service discovery)
+  * Added timestamp to generated PIDF documents
   * Improved logging when adding participants to a conference
   * Improved logging in XMPP gateway application
   * Removed extended-away state handling, it no longer exists
   * Several improvements to XMPP stanza parsing
+  * Fixed detecting nickname collision
   * Fixed handling presence availability stanzas without a resource part in
     the from
   * Fixed translating resource IDs for presence
