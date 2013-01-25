@@ -3,6 +3,7 @@
 
 __all__ = ['ISylkApplication', 'ApplicationRegistry', 'SylkApplication', 'IncomingRequestHandler', 'ApplicationLogger']
 
+import abc
 import os
 import socket
 import struct
@@ -14,40 +15,12 @@ from application.python import Null
 from application.python.types import Singleton
 from itertools import chain
 from sipsimple.threading import run_in_twisted_thread
-from zope.interface import Attribute, Interface, implements
+from zope.interface import implements
 
 from sylk.configuration import ServerConfig, SIPConfig, ThorNodeConfig
 
 
 SYLK_APP_HEADER = 'X-Sylk-App'
-
-class ISylkApplication(Interface):
-    """
-    Interface defining attributes and methods any application must
-    implement.
-
-    Each application must use the SylkApplication metaclass.
-    """
-
-    __appname__ = Attribute("Application name")
-
-    def start(self):
-        pass
-
-    def stop(self):
-        pass
-
-    def incoming_session(self, session):
-        pass
-
-    def incoming_subscription(self, subscribe_request, data):
-        pass
-
-    def incoming_referral(self, refer_request, data):
-        pass
-
-    def incoming_sip_message(self, message_request, data):
-        pass
 
 
 class ApplicationRegistry(object):
@@ -64,11 +37,49 @@ class ApplicationRegistry(object):
             self.applications.append(app)
 
 
-class SylkApplication(Singleton):
+class ApplicationName(object):
+    def __get__(self, obj, objtype):
+        name = objtype.__name__
+        return name[:-11].lower() if name.endswith('Application') else name.lower()
+
+
+class SylkApplicationMeta(abc.ABCMeta, Singleton):
     """Metaclass for defining SylkServer applications: a Singleton that also adds them to the application registry"""
     def __init__(cls, name, bases, dic):
-        super(SylkApplication, cls).__init__(name, bases, dic)
-        ApplicationRegistry().add(cls)
+        super(SylkApplicationMeta, cls).__init__(name, bases, dic)
+        if name != 'SylkApplication':
+            ApplicationRegistry().add(cls)
+
+
+class SylkApplication(object):
+    """Base class for all SylkServer applications"""
+
+    __metaclass__ = SylkApplicationMeta
+    __appname__ = ApplicationName()
+
+    @abc.abstractmethod
+    def start(self):
+        pass
+
+    @abc.abstractmethod
+    def stop(self):
+        pass
+
+    @abc.abstractmethod
+    def incoming_session(self, session):
+        pass
+
+    @abc.abstractmethod
+    def incoming_subscription(self, subscribe_request, data):
+        pass
+
+    @abc.abstractmethod
+    def incoming_referral(self, refer_request, data):
+        pass
+
+    @abc.abstractmethod
+    def incoming_sip_message(self, message_request, data):
+        pass
 
 
 def load_applications():

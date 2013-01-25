@@ -7,15 +7,12 @@ from application.python import Null
 from twisted.internet import reactor
 from zope.interface import implements
 
-from sylk.applications import ISylkApplication, SylkApplication
+from sylk.applications import SylkApplication
 from sylk.applications.ircconference.room import IRCRoom
 
 
-class IRCConferenceApplication(object):
-    __metaclass__ = SylkApplication
-    implements(ISylkApplication, IObserver)
-
-    __appname__ = 'irc-conference'
+class IRCConferenceApplication(SylkApplication):
+    implements(IObserver)
 
     def __init__(self):
         self.rooms = set()

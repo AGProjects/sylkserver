@@ -12,7 +12,7 @@ from sipsimple.streams.applications.chat import CPIMMessage, CPIMParserError
 from sipsimple.threading.green import run_in_green_thread
 from zope.interface import implements
 
-from sylk.applications import ISylkApplication, SylkApplication, ApplicationLogger
+from sylk.applications import SylkApplication, ApplicationLogger
 from sylk.applications.xmppgateway.configuration import XMPPGatewayConfig
 from sylk.applications.xmppgateway.datatypes import Identity, FrozenURI, generate_sylk_resource, decode_resource
 from sylk.applications.xmppgateway.im import SIPMessageSender, SIPMessageError, ChatSessionHandler
@@ -26,11 +26,8 @@ from sylk.applications.xmppgateway.xmpp.stanzas import ChatMessage, ChatComposin
 log = ApplicationLogger(os.path.dirname(__file__).split(os.path.sep)[-1])
 
 
-class XMPPGatewayApplication(object):
-    __metaclass__ = SylkApplication
-    implements(ISylkApplication, IObserver)
-
-    __appname__ = 'xmppgateway'
+class XMPPGatewayApplication(SylkApplication):
+    implements(IObserver)
 
     def __init__(self):
         self.xmpp_manager = XMPPManager()
