@@ -4,7 +4,6 @@
 import random
 import urllib
 
-from application import log
 from application.notification import IObserver, NotificationCenter, NotificationData
 from application.python import Null
 from application.python.types import Singleton
@@ -23,6 +22,7 @@ from twisted.words.protocols import irc
 from zope.interface import implements
 
 from sylk.applications.ircconference.configuration import get_room_configuration
+from sylk.applications.ircconference.logger import log
 from sylk.configuration.datatypes import ResourcePath
 
 

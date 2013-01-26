@@ -1,7 +1,6 @@
 # Copyright (C) 2012 AG Projects. See LICENSE for details
 #
 
-import os
 import random
 import uuid
 
@@ -22,16 +21,14 @@ from time import time
 from twisted.internet import reactor
 from zope.interface import implements
 
-from sylk.applications import ApplicationLogger
 from sylk.applications.xmppgateway.datatypes import Identity, FrozenURI, encode_resource
+from sylk.applications.xmppgateway.logger import log
 from sylk.applications.xmppgateway.xmpp import XMPPManager
 from sylk.applications.xmppgateway.xmpp.session import XMPPIncomingMucSession
 from sylk.applications.xmppgateway.xmpp.stanzas import MUCAvailabilityPresence, MUCErrorPresence, OutgoingInvitationMessage, STANZAS_NS
 from sylk.configuration import SIPConfig
 from sylk.extensions import ChatStream
 from sylk.session import Session
-
-log = ApplicationLogger(os.path.dirname(__file__).split(os.path.sep)[-1])
 
 
 class ReferralError(Exception):

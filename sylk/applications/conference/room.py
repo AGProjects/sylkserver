@@ -40,15 +40,13 @@ from sipsimple.threading.green import run_in_green_thread
 from twisted.internet import reactor
 from zope.interface import implements
 
-from sylk.applications import ApplicationLogger
 from sylk.applications.conference import database
 from sylk.applications.conference.configuration import ConferenceConfig, URL
+from sylk.applications.conference.logger import log
 from sylk.bonjour import BonjourServices
 from sylk.configuration import ServerConfig, SIPConfig, ThorNodeConfig
 from sylk.configuration.datatypes import ResourcePath
 from sylk.session import Session
-
-log = ApplicationLogger(os.path.dirname(__file__).split(os.path.sep)[-1])
 
 
 def format_identity(identity, cpim_format=False):

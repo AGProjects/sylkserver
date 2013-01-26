@@ -257,6 +257,10 @@ class AuthorizationHandler(object):
 class ApplicationLogger(object):
     __metaclass__ = Singleton
 
+    @classmethod
+    def for_package(cls, package):
+        return cls(package.split('.')[-1])
+
     def __init__(self, prefix):
         self.prefix = '[%s] ' % prefix
 

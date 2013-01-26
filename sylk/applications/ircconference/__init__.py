@@ -1,13 +1,13 @@
 # Copyright (C) 2011 AG Projects. See LICENSE for details
 #
 
-from application import log
 from application.notification import IObserver, NotificationCenter
 from application.python import Null
 from twisted.internet import reactor
 from zope.interface import implements
 
 from sylk.applications import SylkApplication
+from sylk.applications.ircconference.logger import log
 from sylk.applications.ircconference.room import IRCRoom
 
 

@@ -2,7 +2,6 @@
 #
 
 import hashlib
-import os
 import random
 
 from application.notification import IObserver, NotificationCenter
@@ -24,14 +23,12 @@ from time import time
 from twisted.internet import reactor
 from zope.interface import implements
 
-from sylk.applications import ApplicationLogger
 from sylk.applications.xmppgateway.datatypes import Identity, FrozenURI, encode_resource
+from sylk.applications.xmppgateway.logger import log
 from sylk.applications.xmppgateway.util import format_uri
 from sylk.applications.xmppgateway.xmpp.stanzas import AvailabilityPresence
 from sylk.applications.xmppgateway.xmpp.subscription import XMPPSubscription, XMPPIncomingSubscription
 from sylk.configuration import SIPConfig
-
-log = ApplicationLogger(os.path.dirname(__file__).split(os.path.sep)[-1])
 
 
 __all__ = ['S2XPresenceHandler', 'X2SPresenceHandler']

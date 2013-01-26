@@ -12,12 +12,12 @@ from eventlib.twistedutil import block_on
 from sqlobject import SQLObject, DateTimeCol, UnicodeCol
 from twisted.internet.threads import deferToThread
 
-from sylk.applications import ApplicationLogger
 from sylk.applications.conference.configuration import ConferenceConfig
+from sylk.applications.conference.logger import log
 from sylk.database import Database
 
+
 db = Null()
-log = ApplicationLogger(os.path.dirname(__file__).split(os.path.sep)[-1])
 
 
 class MessageHistory(SQLObject):

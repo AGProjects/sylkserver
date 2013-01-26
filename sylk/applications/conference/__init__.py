@@ -17,9 +17,10 @@ from sipsimple.threading.green import run_in_green_thread
 from twisted.internet import reactor
 from zope.interface import implements
 
-from sylk.applications import SylkApplication, ApplicationLogger
+from sylk.applications import SylkApplication
 from sylk.applications.conference.configuration import get_room_config, ConferenceConfig
 from sylk.applications.conference.database import initialize as init_database
+from sylk.applications.conference.logger import log
 from sylk.applications.conference.room import Room
 from sylk.applications.conference.web import ScreenSharingWebServer
 from sylk.bonjour import BonjourServices
@@ -27,8 +28,6 @@ from sylk.configuration import ServerConfig, SIPConfig, ThorNodeConfig
 from sylk.extensions import ChatStream
 from sylk.session import Session
 from sylk.tls import Certificate, PrivateKey
-
-log = ApplicationLogger(os.path.dirname(__file__).split(os.path.sep)[-1])
 
 
 class ACLValidationError(Exception): pass

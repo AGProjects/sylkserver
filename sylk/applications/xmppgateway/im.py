@@ -1,8 +1,6 @@
 # Copyright (C) 2012 AG Projects. See LICENSE for details
 #
 
-import os
-
 from application.notification import IObserver, NotificationCenter, NotificationData
 from application.python import Null
 from application.python.descriptor import WriteOnceAttribute
@@ -20,16 +18,14 @@ from sipsimple.threading.green import run_in_green_thread, run_in_waitable_green
 from twisted.internet import reactor
 from zope.interface import implements
 
-from sylk.applications import ApplicationLogger
 from sylk.applications.xmppgateway.configuration import XMPPGatewayConfig
 from sylk.applications.xmppgateway.datatypes import Identity, FrozenURI, generate_sylk_resource, encode_resource
+from sylk.applications.xmppgateway.logger import log
 from sylk.applications.xmppgateway.xmpp import XMPPManager
 from sylk.applications.xmppgateway.xmpp.session import XMPPChatSession
 from sylk.applications.xmppgateway.xmpp.stanzas import ChatMessage
 from sylk.extensions import ChatStream
 from sylk.session import Session
-
-log = ApplicationLogger(os.path.dirname(__file__).split(os.path.sep)[-1])
 
 
 __all__ = ['ChatSessionHandler', 'SIPMessageSender', 'SIPMessageError']

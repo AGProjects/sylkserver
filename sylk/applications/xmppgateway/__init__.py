@@ -1,8 +1,6 @@
 # Copyright (C) 2012 AG Projects. See LICENSE for details
 #
 
-import os
-
 from application.notification import IObserver, NotificationCenter
 from application.python import Null
 from sipsimple.core import SIPURI, SIPCoreError
@@ -12,18 +10,17 @@ from sipsimple.streams.applications.chat import CPIMMessage, CPIMParserError
 from sipsimple.threading.green import run_in_green_thread
 from zope.interface import implements
 
-from sylk.applications import SylkApplication, ApplicationLogger
+from sylk.applications import SylkApplication
 from sylk.applications.xmppgateway.configuration import XMPPGatewayConfig
 from sylk.applications.xmppgateway.datatypes import Identity, FrozenURI, generate_sylk_resource, decode_resource
 from sylk.applications.xmppgateway.im import SIPMessageSender, SIPMessageError, ChatSessionHandler
+from sylk.applications.xmppgateway.logger import log
 from sylk.applications.xmppgateway.presence import S2XPresenceHandler, X2SPresenceHandler
 from sylk.applications.xmppgateway.muc import X2SMucInvitationHandler, S2XMucInvitationHandler, X2SMucHandler
 from sylk.applications.xmppgateway.util import format_uri
 from sylk.applications.xmppgateway.xmpp import XMPPManager
 from sylk.applications.xmppgateway.xmpp.session import XMPPChatSession
 from sylk.applications.xmppgateway.xmpp.stanzas import ChatMessage, ChatComposingIndication, NormalMessage
-
-log = ApplicationLogger(os.path.dirname(__file__).split(os.path.sep)[-1])
 
 
 class XMPPGatewayApplication(SylkApplication):

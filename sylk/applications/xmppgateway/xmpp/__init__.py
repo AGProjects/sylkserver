@@ -1,8 +1,6 @@
 # Copyright (C) 2012 AG Projects. See LICENSE for details
 #
 
-import os
-
 from application.notification import IObserver, NotificationCenter, NotificationData
 from application.python import Null
 from application.python.types import Singleton
@@ -15,15 +13,13 @@ from wokkel.component import InternalComponent, Router as _Router
 from wokkel.server import ServerService, XMPPS2SServerFactory, DeferredS2SClientFactory
 from zope.interface import implements
 
-from sylk.applications import ApplicationLogger
 from sylk.applications.xmppgateway.configuration import XMPPGatewayConfig
 from sylk.applications.xmppgateway.datatypes import FrozenURI
+from sylk.applications.xmppgateway.logger import log
 from sylk.applications.xmppgateway.xmpp.logger import Logger as XMPPLogger
 from sylk.applications.xmppgateway.xmpp.protocols import DiscoProtocol, MessageProtocol, MUCServerProtocol, PresenceProtocol
 from sylk.applications.xmppgateway.xmpp.session import XMPPChatSessionManager, XMPPMucSessionManager
 from sylk.applications.xmppgateway.xmpp.subscription import XMPPSubscriptionManager
-
-log = ApplicationLogger(os.path.dirname(__file__).split(os.path.sep)[-1])
 
 
 xmpp_logger = XMPPLogger()
