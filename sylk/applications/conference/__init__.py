@@ -214,7 +214,7 @@ class ConferenceApplication(object):
         try:
             self.validate_acl(data.request_uri, from_header.uri)
         except ACLValidationError:
-            log.msg(u'Room %s - join request rejected: unauthorized by access list' % room_uri)
+            log.msg(u'Room %s - invite participant request rejected: unauthorized by access list' % data.request_uri)
             refer_request.reject(403)
             return
         referral_handler = IncomingReferralHandler(refer_request, data)
