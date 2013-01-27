@@ -295,7 +295,7 @@ class IncomingReferralHandler(object):
     def __init__(self, refer_request, data):
         self._refer_request = refer_request
         self._refer_headers = data.headers
-        self.room_uri = data.headers.get('To').uri
+        self.room_uri = data.request_uri
         self.room_uri_str = '%s@%s' % (self.room_uri.user, self.room_uri.host)
         self.refer_to_uri = re.sub('<|>', '', data.headers.get('Refer-To').uri)
         self.method = data.headers.get('Refer-To').parameters.get('method', 'INVITE').upper()
