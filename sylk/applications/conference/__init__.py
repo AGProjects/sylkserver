@@ -264,7 +264,7 @@ class ConferenceApplication(object):
     @run_in_green_thread
     def _NH_SIPSessionDidEnd(self, notification):
         session = notification.sender
-        NotificationCenter().remove_observer(self, sender=session)
+        notification.center.remove_observer(self, sender=session)
         if session.direction == 'incoming':
             room_uri = session._invitation.request_uri               # FIXME
         else:
