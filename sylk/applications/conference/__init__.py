@@ -285,6 +285,7 @@ class ConferenceApplication(SylkApplication):
     def _NH_SIPSessionDidFail(self, notification):
         session = notification.sender
         self.pending_sessions.remove(session)
+        notification.center.remove_observer(self, sender=session)
         log.msg(u'Session from %s failed: %s' % (session.remote_identity.uri, notification.data.reason))
 
 
