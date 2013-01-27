@@ -16,6 +16,9 @@
 ; Disable the specified applications
 ; disabled_applications =
 
+; Directory where extra applications are stored
+; extra_applications_dir =
+
 ; trace_dir = /var/log/sylkserver
 ; trace_core = False
 ; trace_sip = False

@@ -7,6 +7,7 @@ import abc
 import os
 import socket
 import struct
+import sys
 
 from application import log
 from application.configuration.datatypes import NetworkRange
@@ -82,12 +83,24 @@ class SylkApplication(object):
         pass
 
 
-def load_applications():
+def load_builtin_applications():
     toplevel = os.path.dirname(__file__)
     app_list = [item for item in os.listdir(toplevel) if os.path.isdir(os.path.join(toplevel, item)) and '__init__.py' in os.listdir(os.path.join(toplevel, item))]
     for module in ['sylk.applications.%s' % item for item in set(app_list).difference(ServerConfig.disabled_applications)]:
         __import__(module)
-    map(__import__, [])
+
+def load_extra_applications():
+    if ServerConfig.extra_applications_dir:
+        toplevel = os.path.realpath(os.path.abspath(ServerConfig.extra_applications_dir.normalized))
+        if os.path.isdir(toplevel):
+            app_list = [item for item in os.listdir(toplevel) if os.path.isdir(os.path.join(toplevel, item)) and '__init__.py' in os.listdir(os.path.join(toplevel, item))]
+            sys.path.append(toplevel)
+            for module in (item for item in set(app_list).difference(ServerConfig.disabled_applications)):
+                __import__(module)
+
+def load_applications():
+    load_builtin_applications()
+    load_extra_applications()
     [app() for app in ApplicationRegistry()]
 
 
