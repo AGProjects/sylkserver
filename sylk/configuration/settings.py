@@ -37,7 +37,6 @@ class AccountRTPSettingsExtension(AccountRTPSettings):
 
 
 class AccountSIPSettingsExtension(AccountSIPSettings):
-    register = Setting(type=bool, default=False)
     outbound_proxy = Setting(type=SIPProxyAddress, default=SIPConfig.outbound_proxy, nillable=True)
 
 

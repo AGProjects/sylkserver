@@ -61,6 +61,10 @@ class SylkServer(SIPApplication):
             ServerConfig.enable_bonjour = True
         account_manager = AccountManager()
         account = Account("account@example.com")     # an account is required by AccountManager
+        account.message_summary.enabled = False
+        account.presence.enabled = False
+        account.sip.register = False
+        account.xcap.enabled = False
         # Disable MSRP ACM if we are using Bonjour
         account.msrp.connection_model = 'relay' if ServerConfig.enable_bonjour else 'acm'
         account.save()
