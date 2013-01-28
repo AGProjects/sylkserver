@@ -9,6 +9,8 @@
 
 ; Map user part of the Request URI to a specific application
 ; application_map = 123:conference,test:irc-conference
+; This static mapping can be overwritten by adding X-Sylk-App header set to
+; the value of a valid SylkServer application name
 
 ; Disable the specified applications
 ; disabled_applications =
