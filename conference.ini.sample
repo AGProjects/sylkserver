@@ -14,13 +14,13 @@ db_uri = sqlite:///var/lib/sylkserver/conference.sqlite
 ; replay_history = 20
 
 ; Directory for storing files transferred to rooms (a subdirectory for each room will be created)
-; file_transfer_dir = /var/spool/sylkserver
+file_transfer_dir = /var/spool/sylkserver
 
 ; File transfer push support. If enabled files will be pushed to all active
 ; participants after receiving the file
 ; push_file_transfer = False
 
-; Directory where images use by the Screen Sharing functionality will be stored
+; Directory where images used by the Screen Sharing functionality will be stored
 screen_sharing_dir = /var/spool/sylkserver/screensharing
 
 ; IP address used for serving Screen Sharing HTTP requests, empty string means listen on interface used

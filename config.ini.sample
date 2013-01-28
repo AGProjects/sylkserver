@@ -25,10 +25,9 @@ trace_dir = /var/log/sylkserver
 ; trace_msrp = False
 ; trace_notifications = False
 
-; TLS can be used for encryption of SIP signaling and MSRP media. TLS is
-; disabled by default.  To enable TLS, you must have a valid X.509
-; certificate and configure it below, then set the local_tls_port in the SIP
-; section and use_tls in MSRP section
+; TLS is used by default for SIP signaling and MSRP media using a
+; self-signed certificate.  You may want to use a properly signed X.509
+; certificate and configure it below
 
 ; The X.509 Certificate Authorities file
 ca_file = /etc/sylkserver/tls/ca.crt
@@ -40,6 +39,7 @@ certificate = /etc/sylkserver/tls/default.crt
 
 ; Enable Bonjour capabilities for applications
 ; enable_bonjour = False
+
 
 [SIP]
 
