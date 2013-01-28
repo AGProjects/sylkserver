@@ -19,7 +19,7 @@
 ; Directory where extra applications are stored
 ; extra_applications_dir =
 
-; trace_dir = /var/log/sylkserver
+trace_dir = /var/log/sylkserver
 ; trace_core = False
 ; trace_sip = False
 ; trace_msrp = False
@@ -31,10 +31,10 @@
 ; section and use_tls in MSRP section
 
 ; The X.509 Certificate Authorities file
-; ca_file = /etc/sylkserver/tls/ca.crt
+ca_file = /etc/sylkserver/tls/ca.crt
 
 ; The file containing X.509 certificate and private key in unencrypted format
-; certificate = /etc/sylkserver/tls/default.crt
+certificate = /etc/sylkserver/tls/default.crt
 
 ; verify_server = False
 
