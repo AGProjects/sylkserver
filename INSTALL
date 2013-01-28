@@ -84,7 +84,7 @@ darcs pull -a
 
 Install the required dependencies:
 
- * python-sipsimple (>= 0.32.0) http://sipsimpleclient.org
+ * python-sipsimple (>= 0.33.0) http://sipsimpleclient.org
  * python-sqlobject (>= 0.12.4)
  * python-twisted-words
  * python-wokkel http://wokkel.ik.nu/
