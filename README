@@ -102,6 +102,10 @@ XMPP Gateway
 Applications
 ------------
 
+When a request arrives at SylkServer, an application is selected depending
+on the Request URI.  The selection mechanism is described in detail in the
+sample configuration file config.ini.sample.
+
 Conference
 
 SylkServer allows SIP end-points to create ad-hoc conference rooms by
@@ -118,15 +122,18 @@ accept it, store it for the duration of the conference and offer it to all
 participants either present at that moment, or offer it on demand to those
 that have joined the conference at a later moment.
 
+Using an extension to MSRP chat protocol, the server provides also
+multi-party screen sharing capability.
+
 
 XMPP Gateway
 
 SylkServer can act as a transparent gateway between SIP and XMPP protocols. 
 This can be used by a SIP service provider to bridge out to XMPP domains or
-to receive incoming requests from XMPP domains to its local SIP users.  In a
-similar fashion, a XMPP service provider can use the gateway to bridge out
-to SIP domains and handle incoming requestes from SIP domains to the XMPP
-users it serves.
+to receive incoming chat sessions from XMPP domains to its local SIP users. 
+In a similar fashion, a XMPP service provider can use the gateway to bridge
+out to SIP domains and handle incoming chat requestes from SIP domains to
+the XMPP users it serves.
 
 A media session or a presence session initiated by an incoming connection on
 the XMPP side is translated into an outgoing request on the SIP side and the
@@ -167,6 +174,9 @@ The server implements relevant features from the following standards:
  - Interworking between the Session Initiation Protocol (SIP) and the
    Extensible Messaging and Presence Protocol (XMPP):
    http://xmpp.org/internet-drafts/draft-saintandre-sip-xmpp-chat-03.html
+-  Interworking between the Session Initiation Protocol (SIP) and the
+   Extensible Messaging and Presence Protocol (XMPP): Multi-Party Text Chat
+   http://xmpp.org/internet-drafts/draft-saintandre-sip-xmpp-groupchat-01.html
 
 
 Support
