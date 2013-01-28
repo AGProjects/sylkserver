@@ -1,6 +1,7 @@
 sylkserver (2.3.0) unstable; urgency=low
 
   * Added SIP/XMPP gateway ability to invite participants to a multiparty chat
+  * Added RTP audio and MSRP chat 'echo' application
   * Added support for XEP-0030 (service discovery)
   * Added timestamp to generated PIDF documents
   * Improved logging when adding participants to a conference
