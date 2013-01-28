@@ -13,6 +13,8 @@
 
 ; Prefix that will be appended to all domains in the above setting, which will
 ; be used as a Multi User Chat (MUC) component
+; Add the xmpp-server records into the DNS server for the conference domains,
+; e.g.: _xmpp-server._tcp.conference.example.com. IN SRV 0 0 5269 sylkserver.example.com.
 ; muc_prefix = conference
 
 ; IP address used for listening to XMPP connections; empty string or any means listen on interface used
