@@ -20,7 +20,7 @@ class ServerConfig(ConfigSection):
     verify_server = False
     enable_bonjour = False
     default_application = 'conference'
-    application_map = ConfigSetting(type=StringList, value='')
+    application_map = ConfigSetting(type=StringList, value=['echo:echo'])
     disabled_applications = ConfigSetting(type=StringList, value='')
     extra_applications_dir = ConfigSetting(type=NillablePath, value=None)
     resources_dir = ConfigSetting(type=Path, value=None)
