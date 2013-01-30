@@ -3,16 +3,20 @@ sylkserver (2.3.0) unstable; urgency=low
   * Added SIP/XMPP gateway ability to invite participants to a multiparty chat
   * Added RTP audio and MSRP chat 'echo' application
   * Added support for XEP-0030 (service discovery)
+  * Added ability to load extra applications from an external directory
   * Added timestamp to generated PIDF documents
-  * Improved logging when adding participants to a conference
-  * Improved logging for the XMPP gateway application
+  * Simplified mechanism required for adding new applications
+  * Refactored per-application logger
+  * Improved logging in XMPP gateway and conference applications
   * Removed extended-away state handling as it no longer exists in the SDK
   * Made several improvements to XMPP stanza parsing
   * Fixed detecting MSRP Nickname collision
   * Fixed handling presence stanzas without a resource part in the from
   * Fixed translating resource IDs for presence
+  * Fixed leaking session objects if session fails while joining a conference
+  * Fixed mapping room URI for received REFER requests
 
- -- Saul Ibarra <saul@ag-projects.com>  Wed, 16 Jan 2013 12:00:41 +0100
+ -- Saul Ibarra <saul@ag-projects.com>  Wed, 30 Jan 2013 11:04:10 +0100
 
 sylkserver (2.2.1) unstable; urgency=low
 
