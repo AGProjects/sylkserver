@@ -10,7 +10,7 @@ from twisted.words.protocols.jabber.error import StanzaError
 from twisted.words.protocols.jabber.jid import JID, internJID
 from wokkel import disco
 from wokkel.component import InternalComponent, Router as _Router
-from wokkel.generic import VersionHandler
+from wokkel.generic import FallbackHandler, VersionHandler
 from wokkel.server import ServerService, XMPPS2SServerFactory, DeferredS2SClientFactory
 from zope.interface import implements
 
@@ -143,6 +143,14 @@ class XMPPManager(object):
         version_protocol = VersionHandler('SylkServer', SYLK_VERSION)
         version_protocol.setHandlerParent(self._internal_component)
         self._protocols.add(version_protocol)
+
+        fallback_protocol = FallbackHandler()
+        fallback_protocol.setHandlerParent(self._internal_component)
+        self._protocols.add(fallback_protocol)
+
+        fallback_muc_protocol = FallbackHandler()
+        fallback_muc_protocol.setHandlerParent(self._muc_component)
+        self._protocols.add(fallback_muc_protocol)
 
         self._s2s_listener = None
 
