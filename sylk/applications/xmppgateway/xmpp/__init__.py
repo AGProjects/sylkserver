@@ -8,10 +8,9 @@ from sipsimple.util import ISOTimestamp
 from twisted.internet import reactor
 from twisted.words.protocols.jabber.error import StanzaError
 from twisted.words.protocols.jabber.jid import JID, internJID
-from wokkel import disco
+from wokkel import disco, ping
 from wokkel.component import InternalComponent, Router as _Router
 from wokkel.generic import FallbackHandler, VersionHandler
-from wokkel.ping import PingHandler
 from wokkel.server import ServerService, XMPPS2SServerFactory, DeferredS2SClientFactory
 from zope.interface import implements
 
@@ -153,7 +152,7 @@ class XMPPManager(object):
         fallback_muc_protocol.setHandlerParent(self._muc_component)
         self._protocols.add(fallback_muc_protocol)
 
-        ping_protocol = PingHandler()
+        ping_protocol = ping.PingHandler()
         ping_protocol.setHandlerParent(self._internal_component)
         self._protocols.add(ping_protocol)
 
@@ -352,13 +351,18 @@ class XMPPManager(object):
                 elements.append(disco.DiscoFeature('muc_temporary'))
                 elements.append(disco.DiscoFeature('muc_unmoderated'))
         else:
+            elements.append(disco.DiscoFeature(ping.NS_PING))
             if not target_uri.user:
-                elements.append(disco.DiscoIdentity('gateway', 'simple'))
-                elements.append(disco.DiscoIdentity('server', 'im'))
+                elements.append(disco.DiscoIdentity('gateway', 'simple', 'SylkServer'))
+                elements.append(disco.DiscoIdentity('server', 'im', 'SylkServer'))
             else:
                 elements.append(disco.DiscoIdentity('account', 'registered'))
+                elements.append(disco.DiscoFeature('http://jabber.org/protocol/caps'))
 
+        elements.append(disco.DiscoFeature(disco.NS_DISCO_INFO))
+        elements.append(disco.DiscoFeature(disco.NS_DISCO_ITEMS))
         elements.append(disco.DiscoFeature('http://sylkserver.com'))
+
         d.callback(elements)
 
     def _NH_XMPPGotDiscoItemsRequest(self, notification):

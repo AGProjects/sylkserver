@@ -1,6 +1,8 @@
 # Copyright (C) 2012 AG Projects. See LICENSE for details
 #
 
+import hashlib
+
 from twisted.words.xish import domish
 
 from sylk import __version__ as SYLK_VERSION
@@ -16,6 +18,7 @@ MUC_USER_NS   = MUC_NS + '#user'
 CAPS_NS       = 'http://jabber.org/protocol/caps'
 
 
+SYLK_HASH = hashlib.sha1('SylkServer-%s' % SYLK_VERSION).hexdigest()
 SYLK_CAPS = []
 
 
@@ -229,7 +232,8 @@ class AvailabilityPresence(BasePresenceStanza):
                 xml_element.addElement('priority', content=unicode(self.priority))
             caps = xml_element.addElement('c', defaultUri=CAPS_NS)
             caps['node'] = 'http://sylkserver.com'
-            caps['ver'] = SYLK_VERSION
+            caps['hash'] = 'sha-1'
+            caps['ver'] = SYLK_HASH
             if SYLK_CAPS:
                 caps['ext'] = ' '.join(SYLK_CAPS)
         for lang, text in self.statuses.iteritems():
