@@ -107,26 +107,36 @@ class XMPPManager(object):
         self._s2s_factory = XMPPS2SServerFactory(self._server_service)
         self._s2s_factory.logTraffic = False    # done manually
 
+        # Setup internal components
+
         self._internal_component = InternalComponent(router)
         self._internal_component.domains = self.domains
-
-        self._message_protocol = MessageProtocol()
-        self._message_protocol.setHandlerParent(self._internal_component)
-
-        self._presence_protocol = PresenceProtocol()
-        self._presence_protocol.setHandlerParent(self._internal_component)
-
-        self._disco_protocol = DiscoProtocol()
-        self._disco_protocol.setHandlerParent(self._internal_component)
-
         self._muc_component = InternalComponent(router)
         self._muc_component.domains = self.muc_domains
 
-        self._muc_protocol = MUCServerProtocol()
-        self._muc_protocol.setHandlerParent(self._muc_component)
+        # Setup protocols
 
-        self._disco_muc_protocol = DiscoProtocol()
-        self._disco_muc_protocol.setHandlerParent(self._muc_component)
+        self._protocols = set()
+
+        message_protocol = MessageProtocol()
+        message_protocol.setHandlerParent(self._internal_component)
+        self._protocols.add(message_protocol)
+
+        presence_protocol = PresenceProtocol()
+        presence_protocol.setHandlerParent(self._internal_component)
+        self._protocols.add(presence_protocol)
+
+        disco_protocol = DiscoProtocol()
+        disco_protocol.setHandlerParent(self._internal_component)
+        self._protocols.add(disco_protocol)
+
+        muc_protocol = MUCServerProtocol()
+        muc_protocol.setHandlerParent(self._muc_component)
+        self._protocols.add(muc_protocol)
+
+        disco_muc_protocol = DiscoProtocol()
+        disco_muc_protocol.setHandlerParent(self._muc_component)
+        self._protocols.add(disco_muc_protocol)
 
         self._s2s_listener = None
 
