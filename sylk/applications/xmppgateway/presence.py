@@ -75,6 +75,11 @@ class S2XPresenceHandler(object):
         notification_center.post_notification('S2XPresenceHandlerDidEnd', sender=self)
 
     def add_sip_subscription(self, subscription):
+        # If s subscription is received after the handle has ended but before
+        # S2XPresenceHandlerDidEnd has been processed we need to ignore it and wait for a retransmission
+        # which we will handle by creating a new S2XPresenceHandler
+        if self.ended:
+            return
         self._sip_subscriptions.append(subscription)
         NotificationCenter().add_observer(self, sender=subscription)
         if self._xmpp_subscription.state == 'active':
