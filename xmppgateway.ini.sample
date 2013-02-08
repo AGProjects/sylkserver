@@ -2,19 +2,21 @@
 
 [general]
 
-; Comma-separated list of domains for which this server is responsible
-; Add the xmpp-server records into the DNS server responsable for these domains,
-; e.g.: _xmpp-server._tcp.example.com. IN SRV	0 0 5269 sylkserver.example.com.
-; At least one domain is required!
-; domains =
+; Comma-separated list of Internet domains for which this server is
+; responsible. Beside this setting, you must also add the xmpp-server records
+; into the DNS server responsable for these Internet domains, e.g.:
+; _xmpp-server._tcp.example.com.  IN SRV 0 0 5269 sylkserver.example.com.
+; At least one domain is required, replace the example below with your own domain:
+domains = example.com
 
 ; The following settings are the default used by the software, uncomment
 ; them only if you want to make changes
 
-; Prefix that will be appended to all domains in the above setting, which will
-; be used as a Multi User Chat (MUC) component
-; Add the xmpp-server records into the DNS server for the conference domains,
-; e.g.: _xmpp-server._tcp.conference.example.com. IN SRV 0 0 5269 sylkserver.example.com.
+; Prefix that will be appended to all Internet domains in the above setting,
+; which will be used as a Multi User Chat (MUC) component.  Beside this
+; setting, you must also add the xmpp-server DNS records into the DNS server
+; for the conference domains, e.g.:
+; _xmpp-server._tcp.conference.example.com.  IN SRV 0 0 5269 sylkserver.example.com.
 ; muc_prefix = conference
 
 ; IP address used for listening to XMPP connections; empty string or any means listen on interface used
