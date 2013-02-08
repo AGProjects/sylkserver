@@ -9,6 +9,7 @@ from application.notification import IObserver, NotificationCenter
 from application.python import Null
 from gnutls.interfaces.twisted import X509Credentials
 from sipsimple.account import AccountManager
+from sipsimple.account.bonjour import BonjourPresenceState
 from sipsimple.configuration.settings import SIPSimpleSettings
 from sipsimple.core import Engine, SIPURI, SIPCoreError, Header, ContactHeader, FromHeader, ToHeader
 from sipsimple.lookup import DNSLookup
@@ -54,6 +55,7 @@ class ConferenceApplication(SylkApplication):
             log.msg("Bonjour publication started for service 'sipfocus'")
             self.bonjour_room_service = BonjourServices(service='sipuri', name='Conference Room', uri_user='conference')
             self.bonjour_room_service.start()
+            self.bonjour_room_service.presence_state = BonjourPresenceState('available', u'No participants')
             log.msg("Bonjour publication started for service 'sipuri'")
         self.screen_sharing_web_server = ScreenSharingWebServer(ConferenceConfig.screen_sharing_dir)
         if ConferenceConfig.screen_sharing_use_https and ConferenceConfig.screen_sharing_certificate is not None:

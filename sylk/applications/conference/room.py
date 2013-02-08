@@ -24,6 +24,7 @@ from application.python import Null
 from application.system import makedirs
 from eventlib import api, coros, proc
 from sipsimple.account import AccountManager
+from sipsimple.account.bonjour import BonjourPresenceState
 from sipsimple.application import SIPApplication
 from sipsimple.audio import WavePlayer, WavePlayerError
 from sipsimple.conference import AudioConference
@@ -383,6 +384,9 @@ class Room(object):
         if str(session.remote_identity.uri) not in set(str(s.remote_identity.uri) for s in self.sessions if s is not session):
             self.dispatch_server_message('%s has joined the room %s' % (format_identity(session.remote_identity), self.format_stream_types(session.streams)), exclude=session)
 
+        if ServerConfig.enable_bonjour:
+            self._update_bonjour_presence()
+
     def remove_session(self, session):
         notification_center = NotificationCenter()
         notification_center.remove_observer(self, sender=session)
@@ -436,6 +440,9 @@ class Room(object):
             log.msg(u'Room %s - Last participant left conference' % self.uri)
         if str(session.remote_identity.uri) not in set(str(s.remote_identity.uri) for s in self.sessions if s is not session):
             self.dispatch_server_message('%s has left the room after %s' % (format_identity(session.remote_identity), self.format_session_duration(session)))
+
+        if ServerConfig.enable_bonjour:
+            self._update_bonjour_presence()
 
     def terminate_sessions(self, uri):
         if not self.started:
@@ -509,6 +516,25 @@ class Room(object):
         sender_uri = '%s@%s' % (sender.uri.user, sender.uri.host)
         screen_image = self.screen_images.setdefault(sender_uri, ScreenImage(self, sender))
         screen_image.save(image)
+
+    def _update_bonjour_presence(self):
+        num = len(self.sessions)
+        if num == 0:
+            num_str = 'No'
+        elif num == 1:
+            num_str = 'One'
+        elif num == 2:
+            num_str = 'Two'
+        else:
+            num_str = str(num)
+        txt = u'%s participant%s' % (num_str, '' if num==1 else 's')
+        presence_state = BonjourPresenceState('available', txt)
+        if self.bonjour_services is Null:
+            # This is the room being published all the time
+            from sylk.applications.conference import ConferenceApplication
+            ConferenceApplication().bonjour_room_service.presence_state = presence_state
+        else:
+            self.bonjour_services.presence_state = presence_state
 
     @run_in_twisted_thread
     def handle_notification(self, notification):

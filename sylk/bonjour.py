@@ -7,10 +7,11 @@ from application.python import Null
 from eventlib import api, coros, proc
 from eventlib.green import select
 from sipsimple.account import AccountManager
-from sipsimple.account.bonjour import _bonjour, BonjourRegistrationFile
+from sipsimple.account.bonjour import _bonjour, BonjourPresenceState, BonjourRegistrationFile
 from sipsimple.configuration.settings import SIPSimpleSettings
-from sipsimple.threading import run_in_twisted_thread
+from sipsimple.threading import call_in_twisted_thread, run_in_twisted_thread
 from sipsimple.threading.green import Command, run_in_green_thread
+from threading import Lock
 from twisted.internet import reactor
 from zope.interface import implements
 
@@ -32,6 +33,8 @@ class BonjourServices(object):
         self._register_timer = None
         self._update_timer = None
         self._wakeup_timer = None
+        self._lock = Lock()
+        self.__dict__['presence_state'] = None
 
     @run_in_green_thread
     def start(self):
@@ -67,6 +70,21 @@ class BonjourServices(object):
 
     def update_registrations(self):
         self._command_channel.send(Command('update_registrations'))
+
+    def _get_presence_state(self):
+        return self.__dict__['presence_state']
+
+    def _set_presence_state(self, state):
+        if state is not None and not isinstance(state, BonjourPresenceState):
+            raise ValueError("state must be a %s instance or None" % BonjourPresenceState.__name__)
+        with self._lock:
+            old_state = self.__dict__['presence_state']
+            self.__dict__['presence_state'] = state
+            if state != old_state:
+                call_in_twisted_thread(self.update_registrations)
+
+    presence_state = property(_get_presence_state, _set_presence_state)
+    del _get_presence_state, _set_presence_state
 
     def _register_cb(self, file, flags, error_code, name, regtype, domain):
         notification_center = NotificationCenter()
@@ -138,6 +156,10 @@ class BonjourServices(object):
                 contact_uri.user = self.uri_user
                 contact_uri.parameters['isfocus'] = None
                 txtdata = dict(txtvers=1, name=self.name, contact="<%s>" % str(contact_uri))
+                state = self.presence_state
+                if state is not None:
+                    txtdata['status'] = state.status
+                    txtdata['note'] = state.note.encode('utf-8')
                 file = _bonjour.DNSServiceRegister(name=str(contact_uri),
                                                   regtype="_%s._%s" % (self.service, transport if transport == 'udp' else 'tcp'),
                                                   port=contact_uri.port,
@@ -177,6 +199,10 @@ class BonjourServices(object):
                 contact_uri.user = self.user_uri
                 contact_uri.parameters['isfocus'] = None
                 txtdata = dict(txtvers=1, name=self.name, contact="<%s>" % str(contact_uri))
+                state = self.presence_state
+                if state is not None:
+                    txtdata['status'] = state.status
+                    txtdata['note'] = state.note.encode('utf-8')
                 _bonjour.DNSServiceUpdateRecord(file.file, None, flags=0, rdata=_bonjour.TXTRecord(items=txtdata), ttl=0)
             except (_bonjour.BonjourError, KeyError), e:
                 notification_center.post_notification('BonjourServiceRegistrationUpdateDidFail', sender=self,
