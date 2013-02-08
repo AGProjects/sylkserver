@@ -196,7 +196,7 @@ class BonjourServices(object):
         for file in (f for f in self._files if isinstance(f, BonjourRegistrationFile)):
             try:
                 contact_uri = self.account.contact[file.transport]
-                contact_uri.user = self.user_uri
+                contact_uri.user = self.uri_user
                 contact_uri.parameters['isfocus'] = None
                 txtdata = dict(txtvers=1, name=self.name, contact="<%s>" % str(contact_uri))
                 state = self.presence_state
