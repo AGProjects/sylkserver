@@ -166,6 +166,8 @@ class XMPPManager(object):
         self.stopped = False
         xmpp_logger.start()
         config = XMPPGatewayConfig
+        if config.trace_xmpp and xmpp_logger._xmpptrace_filename is not None:
+            log.msg('Logging XMPP trace to file "%s"' % xmpp_logger._xmpptrace_filename)
         self._s2s_listener = reactor.listenTCP(config.local_port, self._s2s_factory, interface=config.local_ip)
         listen_address = self._s2s_listener.getHost()
         log.msg("XMPP listener started on %s:%d" % (listen_address.host, listen_address.port))
