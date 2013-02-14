@@ -494,9 +494,9 @@ class Room(object):
             subscribe_request.reject(489)
             return
         NotificationCenter().add_observer(self, sender=subscribe_request)
+        self.subscriptions.append(subscribe_request)
         data = self.build_conference_info_payload()
         subscribe_request.accept(conference.ConferenceDocument.content_type, data)
-        self.subscriptions.append(subscribe_request)
 
     def accept_proposal(self, session, streams):
         self.sessions_with_proposals.pop(session)
