@@ -826,9 +826,9 @@ class WelcomeHandler(object):
             audio_stream = (stream for stream in self.session.streams if stream.type == 'audio').next()
         except StopIteration:
             return
+        player = WavePlayer(audio_stream.mixer, '', pause_time=1, initial_play=False, volume=50)
+        audio_stream.bridge.add(player)
         try:
-            player = WavePlayer(audio_stream.mixer, '', pause_time=1, initial_play=False, volume=50)
-            audio_stream.bridge.add(player)
             if welcome_prompt:
                 file = ResourcePath('sounds/co_welcome_conference.wav').normalized
                 self.play_file_in_player(player, file, 1)
@@ -854,19 +854,19 @@ class WelcomeHandler(object):
                 self.play_file_in_player(player, file, 0)
             file = ResourcePath('sounds/connected_tone.wav').normalized
             self.play_file_in_player(player, file, 0.1)
-            audio_stream.bridge.remove(player)
         except InterruptWelcome:
-            try:
-                audio_stream.bridge.remove(player)
-            except ValueError:
-                pass
+            # No need to remove the bridge from the stream, it's done automatically
+            pass
         else:
+            audio_stream.bridge.remove(player)
             self.room.audio_conference.add(audio_stream)
             self.room.audio_conference.unhold()
             if len(self.room.audio_conference.streams) == 1:
                 self.room.moh_player.play()
             else:
                 self.room.moh_player.pause()
+        finally:
+            player.stop()
 
     def render_chat_welcome_prompt(self):
         txt = 'Welcome to the conference.'
