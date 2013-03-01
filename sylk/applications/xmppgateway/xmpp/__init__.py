@@ -51,43 +51,33 @@ class XMPPManager(object):
 
         # Setup protocols
 
-        self._protocols = set()
+        self.message_protocol = MessageProtocol()
+        self.message_protocol.setHandlerParent(self._internal_component)
 
-        message_protocol = MessageProtocol()
-        message_protocol.setHandlerParent(self._internal_component)
-        self._protocols.add(message_protocol)
+        self.presence_protocol = PresenceProtocol()
+        self.presence_protocol.setHandlerParent(self._internal_component)
 
-        presence_protocol = PresenceProtocol()
-        presence_protocol.setHandlerParent(self._internal_component)
-        self._protocols.add(presence_protocol)
+        self.disco_protocol = DiscoProtocol()
+        self.disco_protocol.setHandlerParent(self._internal_component)
 
-        disco_protocol = DiscoProtocol()
-        disco_protocol.setHandlerParent(self._internal_component)
-        self._protocols.add(disco_protocol)
+        self.muc_protocol = MUCServerProtocol()
+        self.muc_protocol.setHandlerParent(self._muc_component)
 
-        muc_protocol = MUCServerProtocol()
-        muc_protocol.setHandlerParent(self._muc_component)
-        self._protocols.add(muc_protocol)
+        self.disco_muc_protocol = DiscoProtocol()
+        self.disco_muc_protocol.setHandlerParent(self._muc_component)
 
-        disco_muc_protocol = DiscoProtocol()
-        disco_muc_protocol.setHandlerParent(self._muc_component)
-        self._protocols.add(disco_muc_protocol)
+        self.version_protocol = VersionHandler('SylkServer', SYLK_VERSION)
+        self.version_protocol.setHandlerParent(self._internal_component)
 
-        version_protocol = VersionHandler('SylkServer', SYLK_VERSION)
-        version_protocol.setHandlerParent(self._internal_component)
-        self._protocols.add(version_protocol)
+        self.fallback_protocol = FallbackHandler()
+        self.fallback_protocol.setHandlerParent(self._internal_component)
 
-        fallback_protocol = FallbackHandler()
-        fallback_protocol.setHandlerParent(self._internal_component)
-        self._protocols.add(fallback_protocol)
+        self.fallback_muc_protocol = FallbackHandler()
+        self.fallback_muc_protocol.setHandlerParent(self._muc_component)
 
-        fallback_muc_protocol = FallbackHandler()
-        fallback_muc_protocol.setHandlerParent(self._muc_component)
-        self._protocols.add(fallback_muc_protocol)
+        self.ping_protocol = ping.PingHandler()
+        self.ping_protocol.setHandlerParent(self._internal_component)
 
-        ping_protocol = ping.PingHandler()
-        ping_protocol.setHandlerParent(self._internal_component)
-        self._protocols.add(ping_protocol)
 
         self._s2s_listener = None
 
