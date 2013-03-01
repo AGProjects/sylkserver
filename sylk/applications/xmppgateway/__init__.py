@@ -103,7 +103,7 @@ class XMPPGatewayApplication(SylkApplication):
             try:
                 remote_resource = decode_resource(remote_resource)
             except (TypeError, UnicodeError):
-                pass
+                remote_resource = None
         xmpp_leg_uri = FrozenURI(request_uri.user, request_uri.host, remote_resource)
 
         try:
