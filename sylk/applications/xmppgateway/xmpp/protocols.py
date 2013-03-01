@@ -3,10 +3,13 @@
 
 from application.notification import NotificationCenter, NotificationData
 from twisted.internet import defer
-from wokkel.disco import DiscoHandler
+from twisted.words.protocols.jabber.error import StanzaError
+from twisted.words.protocols.jabber.jid import JID
+from wokkel import disco, ping
 from wokkel.muc import UserPresence
 from wokkel.xmppim import BasePresenceProtocol, MessageProtocol, PresenceProtocol
 
+from sylk.applications.xmppgateway.configuration import XMPPGatewayConfig
 from sylk.applications.xmppgateway.datatypes import Identity, FrozenURI
 from sylk.applications.xmppgateway.xmpp.stanzas import (RECEIPTS_NS, CHATSTATES_NS, MUC_USER_NS, ErrorStanza,
         NormalMessage, MessageReceipt, ChatMessage, ChatComposingIndication,
@@ -221,7 +224,7 @@ class MUCServerProtocol(BasePresenceProtocol):
         NotificationCenter().post_notification('XMPPMucGotPresenceAvailability', sender=self.parent, data=NotificationData(presence_stanza=presence_stanza))
 
 
-class DiscoProtocol(DiscoHandler):
+class DiscoProtocol(disco.DiscoHandler):
 
     def info(self, requestor, target, nodeIdentifier):
         """
@@ -237,17 +240,34 @@ class DiscoProtocol(DiscoHandler):
         @rtype: L{defer.Deferred}
         """
 
-        d = defer.Deferred()
+        xmpp_manager = self.parent.manager
 
-        sender_uri = FrozenURI.parse(requestor)
-        sender = Identity(sender_uri)
-        target_uri = FrozenURI.parse(target)
-        target = Identity(target_uri)
+        if target.host not in xmpp_manager.domains | xmpp_manager.muc_domains:
+            return defer.fail(StanzaError('service-unavailable'))
 
-        data = NotificationData(sender=sender, target=target, node_identifier=nodeIdentifier, deferred=d)
-        NotificationCenter().post_notification('XMPPGotDiscoInfoRequest', sender=self.parent, data=data)
+        elements = []
 
-        return d
+        if target.host in xmpp_manager.muc_domains:
+            elements.append(disco.DiscoIdentity('conference', 'text', 'SylkServer Chat Service'))
+            elements.append(disco.DiscoFeature('http://jabber.org/protocol/muc'))
+            if target.user:
+                # We can't say much more here, because the actual conference may end up on a different server
+                elements.append(disco.DiscoFeature('muc_temporary'))
+                elements.append(disco.DiscoFeature('muc_unmoderated'))
+        else:
+            elements.append(disco.DiscoFeature(ping.NS_PING))
+            if not target.user:
+                elements.append(disco.DiscoIdentity('gateway', 'simple', 'SylkServer'))
+                elements.append(disco.DiscoIdentity('server', 'im', 'SylkServer'))
+            else:
+                elements.append(disco.DiscoIdentity('account', 'registered'))
+                elements.append(disco.DiscoFeature('http://jabber.org/protocol/caps'))
+
+        elements.append(disco.DiscoFeature(disco.NS_DISCO_INFO))
+        elements.append(disco.DiscoFeature(disco.NS_DISCO_ITEMS))
+        elements.append(disco.DiscoFeature('http://sylkserver.com'))
+
+        return defer.succeed(elements)
 
     def items(self, requestor, target, nodeIdentifier):
         """
@@ -263,15 +283,12 @@ class DiscoProtocol(DiscoHandler):
         @rtype: L{defer.Deferred}
         """
 
-        d = defer.Deferred()
+        xmpp_manager = self.parent.manager
 
-        sender_uri = FrozenURI.parse(requestor)
-        sender = Identity(sender_uri)
-        target_uri = FrozenURI.parse(target)
-        target = Identity(target_uri)
+        items = []
 
-        data = NotificationData(sender=sender, target=target, node_identifier=nodeIdentifier, deferred=d)
-        NotificationCenter().post_notification('XMPPGotDiscoItemsRequest', sender=self.parent, data=data)
+        if not target.user and target.host in xmpp_manager.domains:
+            items.append(disco.DiscoItem(JID('%s.%s' % (XMPPGatewayConfig.muc_prefix, target.host)), name='Multi-User Chat'))
 
-        return d
+        return defer.succeed(items)
 
