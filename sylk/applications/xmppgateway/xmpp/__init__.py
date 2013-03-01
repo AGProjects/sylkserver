@@ -4,90 +4,23 @@
 from application.notification import IObserver, NotificationCenter, NotificationData
 from application.python import Null
 from application.python.types import Singleton
-from sipsimple.util import ISOTimestamp
 from twisted.internet import reactor
 from twisted.words.protocols.jabber.error import StanzaError
-from twisted.words.protocols.jabber.jid import JID, internJID
+from twisted.words.protocols.jabber.jid import JID
 from wokkel import disco, ping
-from wokkel.component import InternalComponent, Router as _Router
 from wokkel.generic import FallbackHandler, VersionHandler
-from wokkel.server import ServerService, XMPPS2SServerFactory, DeferredS2SClientFactory
+from wokkel.server import ServerService
 from zope.interface import implements
 
 from sylk import __version__ as SYLK_VERSION
 from sylk.applications.xmppgateway.configuration import XMPPGatewayConfig
 from sylk.applications.xmppgateway.datatypes import FrozenURI
 from sylk.applications.xmppgateway.logger import log
-from sylk.applications.xmppgateway.xmpp.logger import Logger as XMPPLogger
 from sylk.applications.xmppgateway.xmpp.protocols import DiscoProtocol, MessageProtocol, MUCServerProtocol, PresenceProtocol
+from sylk.applications.xmppgateway.xmpp.server import SylkInternalComponent, SylkRouter, SylkS2SServerFactory, xmpp_logger
 from sylk.applications.xmppgateway.xmpp.session import XMPPChatSessionManager, XMPPMucSessionManager
 from sylk.applications.xmppgateway.xmpp.subscription import XMPPSubscriptionManager
 
-
-xmpp_logger = XMPPLogger()
-
-
-# Utility classes
-
-class Router(_Router):
-    def route(self, stanza):
-        """
-        Route a stanza. (subclassed to avoid vebose logging)
-
-        @param stanza: The stanza to be routed.
-        @type stanza: L{domish.Element}.
-        """
-        destination = internJID(stanza['to'])
-
-        if destination.host in self.routes:
-            self.routes[destination.host].send(stanza)
-        else:
-            self.routes[None].send(stanza)
-
-
-class XMPPS2SServerFactory(XMPPS2SServerFactory):
-    def onConnectionMade(self, xs):
-        super(self.__class__, self).onConnectionMade(xs)
-
-        def logDataIn(buf):
-            buf = buf.strip()
-            if buf:
-                xmpp_logger.msg("RECEIVED", ISOTimestamp.now(), buf)
-
-        def logDataOut(buf):
-            buf = buf.strip()
-            if buf:
-                xmpp_logger.msg("SENDING", ISOTimestamp.now(), buf)
-
-        if XMPPGatewayConfig.trace_xmpp:
-            xs.rawDataInFn = logDataIn
-            xs.rawDataOutFn = logDataOut
-
-
-class DeferredS2SClientFactory(DeferredS2SClientFactory):
-    def onConnectionMade(self, xs):
-        super(self.__class__, self).onConnectionMade(xs)
-
-        def logDataIn(buf):
-            buf = buf.strip()
-            if buf:
-                xmpp_logger.msg("RECEIVED", ISOTimestamp.now(), buf)
-
-        def logDataOut(buf):
-            buf = buf.strip()
-            if buf:
-                xmpp_logger.msg("SENDING", ISOTimestamp.now(), buf)
-
-        if XMPPGatewayConfig.trace_xmpp:
-            xs.rawDataInFn = logDataIn
-            xs.rawDataOutFn = logDataOut
-
-# Patch Wokkel's DeferredS2SClientFactory to use our logger
-import wokkel.server
-wokkel.server.DeferredS2SClientFactory = DeferredS2SClientFactory
-del wokkel.server
-
-# Manager
 
 class XMPPManager(object):
     __metaclass__ = Singleton
@@ -101,19 +34,19 @@ class XMPPManager(object):
         self.domains = set(config.domains)
         self.muc_domains = set(['%s.%s' % (config.muc_prefix, domain) for domain in self.domains])
 
-        router = Router()
+        router = SylkRouter()
         self._server_service = ServerService(router)
         self._server_service.domains = self.domains | self.muc_domains
         self._server_service.logTraffic = False    # done manually
 
-        self._s2s_factory = XMPPS2SServerFactory(self._server_service)
+        self._s2s_factory = SylkS2SServerFactory(self._server_service)
         self._s2s_factory.logTraffic = False    # done manually
 
         # Setup internal components
 
-        self._internal_component = InternalComponent(router)
+        self._internal_component = SylkInternalComponent(router)
         self._internal_component.domains = self.domains
-        self._muc_component = InternalComponent(router)
+        self._muc_component = SylkInternalComponent(router)
         self._muc_component.domains = self.muc_domains
 
         # Setup protocols
