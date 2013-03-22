@@ -2,7 +2,7 @@
 #
 
 from application.notification import NotificationCenter, NotificationData
-from twisted.internet import defer
+from twisted.internet import defer, reactor
 from twisted.words.protocols.jabber.error import StanzaError
 from twisted.words.protocols.jabber.jid import JID
 from wokkel import disco, ping
@@ -15,8 +15,9 @@ from sylk.applications.xmppgateway.xmpp.stanzas import (RECEIPTS_NS, CHATSTATES_
         NormalMessage, MessageReceipt, ChatMessage, ChatComposingIndication,
         AvailabilityPresence, SubscriptionPresence, ProbePresence,
         MUCAvailabilityPresence, GroupChatMessage, IncomingInvitationMessage)
+from sylk.applications.xmppgateway.xmpp.stanzas import jingle
 
-__all__ = ['DiscoProtocol', 'MessageProtocol', 'MUCServerProtocol', 'PresenceProtocol']
+__all__ = ['DiscoProtocol', 'JingleProtocol', 'MessageProtocol', 'MUCServerProtocol', 'PresenceProtocol']
 
 
 class MessageProtocol(MessageProtocol):
@@ -246,6 +247,9 @@ class DiscoProtocol(disco.DiscoHandler):
             return defer.fail(StanzaError('service-unavailable'))
 
         elements = []
+        elements.append(disco.DiscoFeature(disco.NS_DISCO_INFO))
+        elements.append(disco.DiscoFeature(disco.NS_DISCO_ITEMS))
+        elements.append(disco.DiscoFeature('http://sylkserver.com'))
 
         if target.host in xmpp_manager.muc_domains:
             elements.append(disco.DiscoIdentity('conference', 'text', 'SylkServer Chat Service'))
@@ -260,12 +264,16 @@ class DiscoProtocol(disco.DiscoHandler):
                 elements.append(disco.DiscoIdentity('gateway', 'simple', 'SylkServer'))
                 elements.append(disco.DiscoIdentity('server', 'im', 'SylkServer'))
             else:
-                elements.append(disco.DiscoIdentity('account', 'registered'))
+                elements.append(disco.DiscoIdentity('client', 'pc'))
+                elements.append(disco.DiscoFeature('urn:ietf:rfc:3264'))
                 elements.append(disco.DiscoFeature('http://jabber.org/protocol/caps'))
-
-        elements.append(disco.DiscoFeature(disco.NS_DISCO_INFO))
-        elements.append(disco.DiscoFeature(disco.NS_DISCO_ITEMS))
-        elements.append(disco.DiscoFeature('http://sylkserver.com'))
+                elements.append(disco.DiscoFeature('http://jabber.org/protocol/chatstates'))
+                elements.append(disco.DiscoFeature(jingle.NS_JINGLE))
+                elements.append(disco.DiscoFeature(jingle.NS_JINGLE_APPS_RTP))
+                elements.append(disco.DiscoFeature(jingle.NS_JINGLE_APPS_RTP_AUDIO))
+                #elements.append(disco.DiscoFeature(jingle.NS_JINGLE_APPS_RTP_VIDEO))
+                elements.append(disco.DiscoFeature(jingle.NS_JINGLE_ICE_UDP_TRANSPORT))
+                elements.append(disco.DiscoFeature(jingle.NS_JINGLE_RAW_UDP_TRANSPORT))
 
         return defer.succeed(elements)
 
@@ -291,4 +299,45 @@ class DiscoProtocol(disco.DiscoHandler):
             items.append(disco.DiscoItem(JID('%s.%s' % (XMPPGatewayConfig.muc_prefix, target.host)), name='Multi-User Chat'))
 
         return defer.succeed(items)
+
+
+class JingleProtocol(jingle.JingleHandler):
+    # Functions here need to return immediately so that the IQ result is sent, so schedule them in the reactor
+    # TODO: review and remove this, just post notifications?
+
+    def onSessionInitiate(self, request):
+        reactor.callLater(0, NotificationCenter().post_notification,
+                             'XMPPGotJingleSessionInitiate',
+                             sender=self.parent,
+                             data=NotificationData(stanza=request))
+
+    def onSessionTerminate(self, request):
+        reactor.callLater(0, NotificationCenter().post_notification,
+                             'XMPPGotJingleSessionTerminate',
+                             sender=self.parent,
+                             data=NotificationData(stanza=request))
+
+    def onSessionAccept(self, request):
+        reactor.callLater(0, NotificationCenter().post_notification,
+                             'XMPPGotJingleSessionAccept',
+                             sender=self.parent,
+                             data=NotificationData(stanza=request))
+
+    def onSessionInfo(self, request):
+        reactor.callLater(0, NotificationCenter().post_notification,
+                             'XMPPGotJingleSessionInfo',
+                             sender=self.parent,
+                             data=NotificationData(stanza=request))
+
+    def onDescriptionInfo(self, request):
+        reactor.callLater(0, NotificationCenter().post_notification,
+                             'XMPPGotJingleDescriptionInfo',
+                             sender=self.parent,
+                             data=NotificationData(stanza=request))
+
+    def onTransportInfo(self, request):
+        reactor.callLater(0, NotificationCenter().post_notification,
+                             'XMPPGotJingleTransportInfo',
+                             sender=self.parent,
+                             data=NotificationData(stanza=request))
 

@@ -16,6 +16,7 @@ from sylk.applications.xmppgateway.datatypes import Identity, FrozenURI, generat
 from sylk.applications.xmppgateway.im import SIPMessageSender, SIPMessageError, ChatSessionHandler
 from sylk.applications.xmppgateway.logger import log
 from sylk.applications.xmppgateway.presence import S2XPresenceHandler, X2SPresenceHandler
+from sylk.applications.xmppgateway.media import MediaSessionHandler
 from sylk.applications.xmppgateway.muc import X2SMucInvitationHandler, S2XMucInvitationHandler, X2SMucHandler
 from sylk.applications.xmppgateway.util import format_uri
 from sylk.applications.xmppgateway.xmpp import XMPPManager
@@ -30,6 +31,7 @@ class XMPPGatewayApplication(SylkApplication):
         self.xmpp_manager = XMPPManager()
         self.pending_sessions = {}
         self.chat_sessions = set()
+        self.media_sessions = set()
         self.s2x_muc_sessions = {}
         self.x2s_muc_sessions = {}
         self.s2x_presence_subscriptions = {}
@@ -38,22 +40,30 @@ class XMPPGatewayApplication(SylkApplication):
         self.x2s_muc_add_participant_handlers = {}
 
     def start(self):
-        NotificationCenter().add_observer(self, sender=self.xmpp_manager)
+        notification_center = NotificationCenter()
+        notification_center.add_observer(self, sender=self.xmpp_manager)
+        notification_center.add_observer(self, name='JingleSessionNewIncoming')
         self.xmpp_manager.start()
 
     def stop(self):
-        NotificationCenter().remove_observer(self, sender=self.xmpp_manager)
+        notification_center = NotificationCenter()
+        notification_center.remove_observer(self, sender=self.xmpp_manager)
+        notification_center.add_observer(self, name='JingleSessionNewIncoming')
         self.xmpp_manager.stop()
 
     def incoming_session(self, session):
         log.msg('New session from %s to %s' % (session.remote_identity.uri, session.local_identity.uri))
-        try:
-            msrp_stream = (stream for stream in session.proposed_streams if stream.type=='chat').next()
-        except StopIteration:
-            log.msg('Session rejected: Only MSRP media is supported')
-            session.reject(488, 'Only MSRP media is supported')
-            return
 
+        stream_types = set([stream.type for stream in session.proposed_streams])
+        if 'chat' in stream_types:
+            self.incoming_chat_session(session)
+        elif 'audio' in stream_types or 'video' in stream_types:
+            self.incoming_media_session(session)
+        else:
+            log.msg('Session rejected: Unsupported media: %s' % stream_types)
+            session.reject(488)
+
+    def incoming_chat_session(self, session):
         # Check if this session is really an invitation to add a participant to a conference room / muc
         if session.remote_identity.uri.host in self.xmpp_manager.muc_domains and 'isfocus' in session._invitation.remote_contact_header.parameters:
             try:
@@ -127,6 +137,20 @@ class XMPPGatewayApplication(SylkApplication):
             xmpp_session = XMPPChatSession(local_identity=handler.sip_identity, remote_identity=Identity(xmpp_leg_uri))
             handler.xmpp_identity = xmpp_session.remote_identity
             handler.xmpp_session = xmpp_session
+
+    def incoming_media_session(self, session):
+        if session.remote_identity.uri.host in self.xmpp_manager.muc_domains:
+            # Sessions to MUC are not allowed yet
+            session.reject(403)
+            return
+        if session.remote_identity.uri.host not in self.xmpp_manager.domains:
+            log.msg('Session rejected: From domain is not a local XMPP domain')
+            session.reject(606, 'Not Acceptable')
+            return
+
+        handler = MediaSessionHandler.new_from_sip_session(session)
+        if handler is not None:
+            NotificationCenter().add_observer(self, sender=handler)
 
     def incoming_subscription(self, subscribe_request, data):
         from_header = data.headers.get('From', Null)
@@ -492,5 +516,29 @@ class XMPPGatewayApplication(SylkApplication):
         recipient_uri = handler.recipient.uri
         log.msg('%s could not add %s to multiparty chat %s: %s' % (format_uri(inviter_uri, 'sip'), format_uri(recipient_uri, 'xmpp'), format_uri(muc_uri, 'sip'), str(notification.data.failure)))
         del self.s2x_muc_add_participant_handlers[(muc_uri, recipient_uri)]
+        notification.center.remove_observer(self, sender=handler)
+
+    # Media sessions
+
+    def _NH_JingleSessionNewIncoming(self, notification):
+        session = notification.sender
+        handler = MediaSessionHandler.new_from_jingle_session(session)
+        if handler is not None:
+            notification.center.add_observer(self, sender=handler)
+
+    def _NH_MediaSessionHandlerDidStart(self, notification):
+        handler = notification.sender
+        log.msg('Media session started sip:%s <--> xmpp:%s' % (handler.sip_identity.uri, handler.xmpp_identity.uri))
+        self.media_sessions.add(handler)
+
+    def _NH_MediaSessionHandlerDidEnd(self, notification):
+        handler = notification.sender
+        log.msg('Media session ended sip:%s <--> xmpp:%s' % (handler.sip_identity.uri, handler.xmpp_identity.uri))
+        self.media_sessions.remove(handler)
+        notification.center.remove_observer(self, sender=handler)
+
+    def _NH_MediaSessionHandlerDidFail(self, notification):
+        handler = notification.sender
+        log.msg('Media session failed sip:%s <--> xmpp:%s' % (handler.sip_identity.uri, handler.xmpp_identity.uri))
         notification.center.remove_observer(self, sender=handler)
 

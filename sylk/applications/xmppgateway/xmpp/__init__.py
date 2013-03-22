@@ -5,6 +5,7 @@ from application.notification import IObserver, NotificationCenter, Notification
 from application.python import Null
 from application.python.types import Singleton
 from twisted.internet import reactor
+from wokkel.disco import DiscoClientProtocol
 from wokkel.generic import FallbackHandler, VersionHandler
 from wokkel.ping import PingHandler
 from wokkel.server import ServerService
@@ -14,7 +15,8 @@ from sylk import __version__ as SYLK_VERSION
 from sylk.applications.xmppgateway.configuration import XMPPGatewayConfig
 from sylk.applications.xmppgateway.datatypes import FrozenURI
 from sylk.applications.xmppgateway.logger import log
-from sylk.applications.xmppgateway.xmpp.protocols import DiscoProtocol, MessageProtocol, MUCServerProtocol, PresenceProtocol
+from sylk.applications.xmppgateway.xmpp.jingle.session import JingleSession, JingleSessionManager
+from sylk.applications.xmppgateway.xmpp.protocols import DiscoProtocol, JingleProtocol, MessageProtocol, MUCServerProtocol, PresenceProtocol
 from sylk.applications.xmppgateway.xmpp.server import SylkInternalComponent, SylkRouter, SylkS2SServerFactory, xmpp_logger
 from sylk.applications.xmppgateway.xmpp.session import XMPPChatSessionManager, XMPPMucSessionManager
 from sylk.applications.xmppgateway.xmpp.subscription import XMPPSubscriptionManager
@@ -60,6 +62,9 @@ class XMPPManager(object):
         self.disco_protocol = DiscoProtocol()
         self.disco_protocol.setHandlerParent(self._internal_component)
 
+        self.disco_client_protocol = DiscoClientProtocol()
+        self.disco_client_protocol.setHandlerParent(self._internal_component)
+
         self.muc_protocol = MUCServerProtocol()
         self.muc_protocol.setHandlerParent(self._muc_component)
 
@@ -78,11 +83,15 @@ class XMPPManager(object):
         self.ping_protocol = PingHandler()
         self.ping_protocol.setHandlerParent(self._internal_component)
 
+        self.jingle_protocol = JingleProtocol()
+        self.jingle_protocol.setHandlerParent(self._internal_component)
+
         self._s2s_listener = None
 
         self.chat_session_manager = XMPPChatSessionManager()
         self.muc_session_manager = XMPPMucSessionManager()
         self.subscription_manager = XMPPSubscriptionManager()
+        self.jingle_session_manager = JingleSessionManager()
 
     def start(self):
         self.stopped = False
@@ -96,6 +105,7 @@ class XMPPManager(object):
         self.chat_session_manager.start()
         self.muc_session_manager.start()
         self.subscription_manager.start()
+        self.jingle_session_manager.start()
         notification_center = NotificationCenter()
         notification_center.add_observer(self, sender=self._internal_component)
         notification_center.add_observer(self, sender=self._muc_component)
@@ -105,6 +115,7 @@ class XMPPManager(object):
     def stop(self):
         self.stopped = True
         self._s2s_listener.stopListening()
+        self.jingle_session_manager.stop()
         self.subscription_manager.stop()
         self.muc_session_manager.stop()
         self.chat_session_manager.stop()
@@ -254,4 +265,55 @@ class XMPPManager(object):
         invitation = notification.data.invitation
         data = NotificationData(sender=invitation.sender, recipient=invitation.recipient, participant=invitation.invited_user)
         notification.center.post_notification('XMPPGotMucAddParticipantRequest', sender=self, data=data)
+
+    # Jingle
+
+    def _NH_XMPPGotJingleSessionInitiate(self, notification):
+        stanza = notification.data.stanza
+        try:
+            self.jingle_session_manager.sessions[stanza.jingle.sid]
+        except KeyError:
+            session = JingleSession(self.jingle_protocol)
+            session.init_incoming(stanza)
+            session.send_ring_indication()
+
+    def _NH_XMPPGotJingleSessionTerminate(self, notification):
+        stanza = notification.data.stanza
+        try:
+            session = self.jingle_session_manager.sessions[stanza.jingle.sid]
+        except KeyError:
+            return
+        session.handle_notification(notification)
+
+    def _NH_XMPPGotJingleSessionInfo(self, notification):
+        stanza = notification.data.stanza
+        try:
+            session = self.jingle_session_manager.sessions[stanza.jingle.sid]
+        except KeyError:
+            return
+        session.handle_notification(notification)
+
+    def _NH_XMPPGotJingleSessionAccept(self, notification):
+        stanza = notification.data.stanza
+        try:
+            session = self.jingle_session_manager.sessions[stanza.jingle.sid]
+        except KeyError:
+            return
+        session.handle_notification(notification)
+
+    def _NH_XMPPGotJingleDescriptionInfo(self, notification):
+        stanza = notification.data.stanza
+        try:
+            session = self.jingle_session_manager.sessions[stanza.jingle.sid]
+        except KeyError:
+            return
+        session.handle_notification(notification)
+
+    def _NH_XMPPGotJingleTransportInfo(self, notification):
+        stanza = notification.data.stanza
+        try:
+            session = self.jingle_session_manager.sessions[stanza.jingle.sid]
+        except KeyError:
+            return
+        session.handle_notification(notification)
 
