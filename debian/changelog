@@ -1,3 +1,16 @@
+sylkserver (2.4.0) unstable; urgency=low
+
+  * Added VoIP translation for SIP/XMPP gateway (Jingle)
+  * Added Presence to Bonjour conference rooms (XEP-0174)
+  * Added support for XMPP software version (XEP-0092)
+  * Added support for XMPP ping (XEP-0199)
+  * Reply with service-unavailable to unsupported XMPP IQ stanzas
+  * Improved XMPP service discovery support (XEP-0115)
+  * Fixed a race condition related to SIP subscriptions
+  * Improved description of XMPP related settings
+
+ -- Saul Ibarra <saul@ag-projects.com>  Fri, 22 Mar 2013 14:02:28 +0100
+
 sylkserver (2.3.0) unstable; urgency=low
 
   * Added SIP/XMPP gateway ability to invite participants to a multiparty chat
