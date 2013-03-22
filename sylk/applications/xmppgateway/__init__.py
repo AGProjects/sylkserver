@@ -52,15 +52,15 @@ class XMPPGatewayApplication(SylkApplication):
         self.xmpp_manager.stop()
 
     def incoming_session(self, session):
-        log.msg('New session from %s to %s' % (session.remote_identity.uri, session.local_identity.uri))
-
         stream_types = set([stream.type for stream in session.proposed_streams])
         if 'chat' in stream_types:
+            log.msg('New chat session from %s to %s' % (session.remote_identity.uri, session.local_identity.uri))
             self.incoming_chat_session(session)
-        elif 'audio' in stream_types or 'video' in stream_types:
+        elif 'audio' in stream_types:
+            log.msg('New audio session from %s to %s' % (session.remote_identity.uri, session.local_identity.uri))
             self.incoming_media_session(session)
         else:
-            log.msg('Session rejected: Unsupported media: %s' % stream_types)
+            log.msg('New session from %s to %s rejected. Unsupported media: %s ' % (session.remote_identity.uri, session.local_identity.uri, stream_types))
             session.reject(488)
 
     def incoming_chat_session(self, session):
