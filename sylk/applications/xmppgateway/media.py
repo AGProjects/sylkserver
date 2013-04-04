@@ -167,7 +167,7 @@ class MediaSessionHandler(object):
         remote_jid = self.xmpp_identity.uri.as_xmpp_jid()
 
         # If this was an invitation to a conference, use the information in the Referred-By header
-        if local_jid.host in xmpp_manager.muc_domains and self.sip_session.transfer_info and self.sip_session.transfer_info.referred_by:
+        if self.sip_identity.uri.host in xmpp_manager.muc_domains and self.sip_session.transfer_info and self.sip_session.transfer_info.referred_by:
             try:
                 referred_by_uri = SIPURI.parse(self.sip_session.transfer_info.referred_by)
             except SIPCoreError:
@@ -205,7 +205,7 @@ class MediaSessionHandler(object):
         self._xmpp_identity = Identity(FrozenURI.parse(valid[0]))
 
         notification_center = NotificationCenter()
-        if local_jid.host in xmpp_manager.muc_domains:
+        if self.sip_identity.uri.host in xmpp_manager.muc_domains:
             self.jingle_session = JingleSession(xmpp_manager.jingle_coin_protocol)
         else:
             self.jingle_session = JingleSession(xmpp_manager.jingle_protocol)
