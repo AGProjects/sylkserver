@@ -503,7 +503,7 @@ class JingleSession(object):
         notification = operation.notification
         stanza = notification.data.stanza
         if notification.name == 'XMPPGotJingleSessionTerminate':
-            if self.state not in ('incoming', 'connecting', 'connected'):
+            if self.state not in ('incoming', 'connecting', 'connected_pending_accept', 'connected'):
                 return
             if self._timer is not None and self._timer.active():
                 self._timer.cancel()
@@ -529,7 +529,7 @@ class JingleSession(object):
             if not info:
                 return
             if info == 'ringing':
-                if self.state != 'connecting':
+                if self.state not in ('connecting', 'connected_pending_accept'):
                     return
                 notification.center.post_notification('JingleSessionGotRingIndication', self)
             elif info in ('hold', 'unhold'):
@@ -608,17 +608,22 @@ class JingleSession(object):
                     error = 'media stream failed: %s' % e.data.reason
                 self._fail(originator='local', reason='failed-application', description=error)
             else:
-                self.state = 'connected'
+                self.state = 'connected_pending_accept'
                 self.streams = self.proposed_streams
                 self.proposed_streams = None
                 self.start_time = datetime.now()
-                notification.center.post_notification('JingleSessionDidStart', self, NotificationData(streams=self.streams))
         elif notification.name == 'XMPPGotJingleSessionAccept':
-            if self.state != 'connecting':
+            if self.state not in ('connecting', 'connected_pending_accept'):
                 return
             if self._timer is not None and self._timer.active():
                 self._timer.cancel()
             self._timer = None
+
+            if self.state == 'connected_pending_accept':
+                # We already faked the connection
+                self.state = 'connected'
+                notification.center.post_notification('JingleSessionDidStart', self, NotificationData(streams=self.streams))
+                return
 
             # Add candidates acquired on transport-info stanzas
             for s in self._pending_transport_info_stanzas:
