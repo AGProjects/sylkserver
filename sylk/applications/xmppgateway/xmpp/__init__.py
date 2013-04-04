@@ -16,7 +16,7 @@ from sylk.applications.xmppgateway.configuration import XMPPGatewayConfig
 from sylk.applications.xmppgateway.datatypes import FrozenURI
 from sylk.applications.xmppgateway.logger import log
 from sylk.applications.xmppgateway.xmpp.jingle.session import JingleSession, JingleSessionManager
-from sylk.applications.xmppgateway.xmpp.protocols import DiscoProtocol, JingleProtocol, MessageProtocol, MUCServerProtocol, PresenceProtocol
+from sylk.applications.xmppgateway.xmpp.protocols import DiscoProtocol, JingleProtocol, MessageProtocol, MUCServerProtocol, MUCPresenceProtocol, PresenceProtocol
 from sylk.applications.xmppgateway.xmpp.server import SylkInternalComponent, SylkRouter, SylkS2SServerFactory, xmpp_logger
 from sylk.applications.xmppgateway.xmpp.session import XMPPChatSessionManager, XMPPMucSessionManager
 from sylk.applications.xmppgateway.xmpp.subscription import XMPPSubscriptionManager
@@ -68,6 +68,9 @@ class XMPPManager(object):
         self.muc_protocol = MUCServerProtocol()
         self.muc_protocol.setHandlerParent(self._muc_component)
 
+        self.muc_presence_protocol = MUCPresenceProtocol()
+        self.muc_presence_protocol.setHandlerParent(self._muc_component)
+
         self.disco_muc_protocol = DiscoProtocol()
         self.disco_muc_protocol.setHandlerParent(self._muc_component)
 
@@ -85,6 +88,9 @@ class XMPPManager(object):
 
         self.jingle_protocol = JingleProtocol()
         self.jingle_protocol.setHandlerParent(self._internal_component)
+
+        self.jingle_coin_protocol = JingleProtocol()
+        self.jingle_coin_protocol.setHandlerParent(self._muc_component)
 
         self._s2s_listener = None
 
@@ -273,7 +279,7 @@ class XMPPManager(object):
         try:
             self.jingle_session_manager.sessions[stanza.jingle.sid]
         except KeyError:
-            session = JingleSession(self.jingle_protocol)
+            session = JingleSession(notification.data.protocol)
             session.init_incoming(stanza)
             session.send_ring_indication()
 

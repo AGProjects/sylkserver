@@ -5,9 +5,7 @@ from application.notification import NotificationCenter, NotificationData
 from twisted.internet import defer, reactor
 from twisted.words.protocols.jabber.error import StanzaError
 from twisted.words.protocols.jabber.jid import JID
-from wokkel import disco, ping
-from wokkel.muc import UserPresence
-from wokkel.xmppim import BasePresenceProtocol, MessageProtocol, PresenceProtocol
+from wokkel import disco, muc, ping, xmppim
 
 from sylk.applications.xmppgateway.configuration import XMPPGatewayConfig
 from sylk.applications.xmppgateway.datatypes import Identity, FrozenURI
@@ -17,10 +15,10 @@ from sylk.applications.xmppgateway.xmpp.stanzas import (RECEIPTS_NS, CHATSTATES_
         MUCAvailabilityPresence, GroupChatMessage, IncomingInvitationMessage)
 from sylk.applications.xmppgateway.xmpp.stanzas import jingle
 
-__all__ = ['DiscoProtocol', 'JingleProtocol', 'MessageProtocol', 'MUCServerProtocol', 'PresenceProtocol']
+__all__ = ['DiscoProtocol', 'JingleProtocol', 'MessageProtocol', 'MUCServerProtocol', 'MUCPresenceProtocol', 'PresenceProtocol']
 
 
-class MessageProtocol(MessageProtocol):
+class MessageProtocol(xmppim.MessageProtocol):
     messageTypes = None, 'normal', 'chat', 'headline', 'groupchat', 'error'
 
     def _onMessage(self, message):
@@ -95,7 +93,7 @@ class MessageProtocol(MessageProtocol):
                     notification_center.post_notification('XMPPGotReceipt', sender=self.parent, data=NotificationData(receipt=receipt))
 
 
-class PresenceProtocol(PresenceProtocol):
+class PresenceProtocol(xmppim.PresenceProtocol):
     def availableReceived(self, stanza):
         sender_uri = FrozenURI.parse('xmpp:'+stanza.element['from'])
         sender = Identity(sender_uri)
@@ -148,14 +146,14 @@ class PresenceProtocol(PresenceProtocol):
         NotificationCenter().post_notification('XMPPGotPresenceProbe', sender=self.parent, data=NotificationData(presence_stanza=presence_stanza))
 
 
-class MUCServerProtocol(BasePresenceProtocol):
+class MUCServerProtocol(xmppim.BasePresenceProtocol):
     messageTypes = None, 'normal', 'chat', 'groupchat'
 
-    presenceTypeParserMap = {'available': UserPresence,
-                             'unavailable': UserPresence}
+    presenceTypeParserMap = {'available': muc.UserPresence,
+                             'unavailable': muc.UserPresence}
 
     def connectionInitialized(self):
-        BasePresenceProtocol.connectionInitialized(self)
+        self.xmlstream.addObserver('/presence/x[@xmlns="%s"]' % muc.NS_MUC, self._onPresence)
         self.xmlstream.addObserver('/message', self._onMessage)
 
     def _onMessage(self, message):
@@ -254,6 +252,13 @@ class DiscoProtocol(disco.DiscoHandler):
         if target.host in xmpp_manager.muc_domains:
             elements.append(disco.DiscoIdentity('conference', 'text', 'SylkServer Chat Service'))
             elements.append(disco.DiscoFeature('http://jabber.org/protocol/muc'))
+            elements.append(disco.DiscoFeature('urn:ietf:rfc:3264'))
+            elements.append(disco.DiscoFeature(jingle.NS_JINGLE))
+            elements.append(disco.DiscoFeature(jingle.NS_JINGLE_APPS_RTP))
+            elements.append(disco.DiscoFeature(jingle.NS_JINGLE_APPS_RTP_AUDIO))
+            #elements.append(disco.DiscoFeature(jingle.NS_JINGLE_APPS_RTP_VIDEO))
+            elements.append(disco.DiscoFeature(jingle.NS_JINGLE_ICE_UDP_TRANSPORT))
+            elements.append(disco.DiscoFeature(jingle.NS_JINGLE_RAW_UDP_TRANSPORT))
             if target.user:
                 # We can't say much more here, because the actual conference may end up on a different server
                 elements.append(disco.DiscoFeature('muc_temporary'))
@@ -265,9 +270,9 @@ class DiscoProtocol(disco.DiscoHandler):
                 elements.append(disco.DiscoIdentity('server', 'im', 'SylkServer'))
             else:
                 elements.append(disco.DiscoIdentity('client', 'pc'))
-                elements.append(disco.DiscoFeature('urn:ietf:rfc:3264'))
                 elements.append(disco.DiscoFeature('http://jabber.org/protocol/caps'))
                 elements.append(disco.DiscoFeature('http://jabber.org/protocol/chatstates'))
+                elements.append(disco.DiscoFeature('urn:ietf:rfc:3264'))
                 elements.append(disco.DiscoFeature(jingle.NS_JINGLE))
                 elements.append(disco.DiscoFeature(jingle.NS_JINGLE_APPS_RTP))
                 elements.append(disco.DiscoFeature(jingle.NS_JINGLE_APPS_RTP_AUDIO))
@@ -309,7 +314,7 @@ class JingleProtocol(jingle.JingleHandler):
         reactor.callLater(0, NotificationCenter().post_notification,
                              'XMPPGotJingleSessionInitiate',
                              sender=self.parent,
-                             data=NotificationData(stanza=request))
+                             data=NotificationData(stanza=request, protocol=self))
 
     def onSessionTerminate(self, request):
         reactor.callLater(0, NotificationCenter().post_notification,
@@ -340,4 +345,37 @@ class JingleProtocol(jingle.JingleHandler):
                              'XMPPGotJingleTransportInfo',
                              sender=self.parent,
                              data=NotificationData(stanza=request))
+
+
+class MUCPresenceProtocol(xmppim.PresenceProtocol):
+    """Protocol implementation to handle presence subscription to MUC URIs
+    """
+
+    def subscribeReceived(self, stanza):
+        """
+        Subscription request was received.
+        """
+        self.subscribed(stanza.sender, sender=stanza.recipient)
+        self.send_available(stanza)
+
+    def unsubscribeReceived(self, stanza):
+        """
+        Unsubscription request was received.
+        """
+        self.unsubscribed(stanza.sender, sender=stanza.recipient)
+
+    def probeReceived(self, stanza):
+        """
+        Probe presence was received.
+        """
+        self.send_available(stanza)
+
+    def send_available(self, stanza):
+        sender_uri = FrozenURI.parse('xmpp:'+stanza.element['from'])
+        sender = Identity(sender_uri)
+        recipient_uri = FrozenURI.parse('xmpp:'+stanza.element['to'])
+        recipient = Identity(recipient_uri)
+
+        available = AvailabilityPresence(sender=recipient, recipient=sender)
+        self.send(available.to_xml_element())
 

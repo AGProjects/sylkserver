@@ -8,7 +8,7 @@ from sipsimple.account import AccountManager
 from sipsimple.conference import AudioConference
 from sipsimple.configuration.settings import SIPSimpleSettings
 from sipsimple.core import ContactHeader, FromHeader, ToHeader
-from sipsimple.core import Engine, SIPURI
+from sipsimple.core import Engine, SIPURI, SIPCoreError
 from sipsimple.lookup import DNSLookup, DNSLookupError
 from sipsimple.streams import MediaStreamRegistry as SIPMediaStreamRegistry
 from sipsimple.threading import run_in_twisted_thread
@@ -125,9 +125,9 @@ class MediaSessionHandler(object):
         notification_center = NotificationCenter()
         # self.xmpp_identity is our local identity on the SIP side
         from_uri = self.xmpp_identity.uri.as_sip_uri()
-        del from_uri.parameters['gr']    # no GRUU in From header
+        from_uri.parameters.pop('gr', None)    # no GRUU in From header
         to_uri = self.sip_identity.uri.as_sip_uri()
-        del to_uri.parameters['gr']      # no GRUU in To header
+        to_uri.parameters.pop('gr', None)      # no GRUU in To header
         # TODO: need to fix GRUU in the proxy
         #contact_uri = self.xmpp_identity.uri.as_sip_uri()
         #contact_uri.parameters['gr'] = encode_resource(contact_uri.parameters['gr'].decode('utf-8'))
@@ -166,6 +166,17 @@ class MediaSessionHandler(object):
         local_jid = self.sip_identity.uri.as_xmpp_jid()
         remote_jid = self.xmpp_identity.uri.as_xmpp_jid()
 
+        # If this was an invitation to a conference, use the information in the Referred-By header
+        if local_jid.host in xmpp_manager.muc_domains and self.sip_session.transfer_info and self.sip_session.transfer_info.referred_by:
+            try:
+                referred_by_uri = SIPURI.parse(self.sip_session.transfer_info.referred_by)
+            except SIPCoreError:
+                self.sip_session.reject(488)
+                return
+            else:
+                inviter_uri = FrozenURI(referred_by_uri.user, referred_by_uri.host)
+                local_jid = inviter_uri.as_xmpp_jid()
+
         # Use disco to gather potential JIDs to call
         d = xmpp_manager.disco_client_protocol.requestItems(remote_jid, sender=local_jid)
         try:
@@ -194,7 +205,10 @@ class MediaSessionHandler(object):
         self._xmpp_identity = Identity(FrozenURI.parse(valid[0]))
 
         notification_center = NotificationCenter()
-        self.jingle_session = JingleSession(xmpp_manager.jingle_protocol)
+        if local_jid.host in xmpp_manager.muc_domains:
+            self.jingle_session = JingleSession(xmpp_manager.jingle_coin_protocol)
+        else:
+            self.jingle_session = JingleSession(xmpp_manager.jingle_protocol)
         notification_center.add_observer(self, sender=self.jingle_session)
         self.jingle_session.connect(self.sip_identity, self.xmpp_identity, streams)
 

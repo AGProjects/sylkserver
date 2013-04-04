@@ -139,13 +139,9 @@ class XMPPGatewayApplication(SylkApplication):
             handler.xmpp_session = xmpp_session
 
     def incoming_media_session(self, session):
-        if session.remote_identity.uri.host in self.xmpp_manager.muc_domains:
-            # Sessions to MUC are not allowed yet
-            session.reject(403)
-            return
-        if session.remote_identity.uri.host not in self.xmpp_manager.domains:
+        if session.remote_identity.uri.host not in self.xmpp_manager.domains|self.xmpp_manager.muc_domains:
             log.msg('Session rejected: From domain is not a local XMPP domain')
-            session.reject(606, 'Not Acceptable')
+            session.reject(403)
             return
 
         handler = MediaSessionHandler.new_from_sip_session(session)
