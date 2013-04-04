@@ -612,6 +612,9 @@ class JingleSession(object):
                 self.streams = self.proposed_streams
                 self.proposed_streams = None
                 self.start_time = datetime.now()
+                # Hold the streams to prevent real RTP from flowing
+                for stream in self.streams:
+                    stream.hold()
         elif notification.name == 'XMPPGotJingleSessionAccept':
             if self.state not in ('connecting', 'connected_pending_accept'):
                 return
@@ -620,7 +623,10 @@ class JingleSession(object):
             self._timer = None
 
             if self.state == 'connected_pending_accept':
-                # We already faked the connection
+                # We already negotiated ICE and media is 'flowing' (not really because streams are on hold)
+                # unhold the streams and pretend the session just started
+                for stream in self.streams:
+                    stream.unhold()
                 self.state = 'connected'
                 notification.center.post_notification('JingleSessionDidStart', self, NotificationData(streams=self.streams))
                 return
