@@ -36,8 +36,9 @@ class IRCConferenceApplication(SylkApplication):
         if audio_streams:
             session.send_ring_indication()
         if chat_streams:
-            # Disable private message capability
-            chat_streams[0].chatroom_capabilities = []
+            for stream in chat_streams:
+                # Disable chatroom capabilities other than nickname
+                stream.chatroom_capabilities = ['nickname']
         streams = [streams[0] for streams in (audio_streams, chat_streams) if streams]
         reactor.callLater(4 if audio_streams else 0, self.accept_session, session, streams)
 

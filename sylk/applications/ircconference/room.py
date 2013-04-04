@@ -461,6 +461,11 @@ class IRCRoom(object):
         else:
             self.pending_messages.append(irc_message)
 
+    def _NH_ChatStreamGotNicknameRequest(self, notification):
+        # Discard the nickname but pretend we accept it so that XMPP clients can work
+        chunk = notification.data.chunk
+        notification.sender.accept_nickname(chunk)
+
     def _NH_IRCBotGotConnected(self, notification):
         self.irc_protocol = notification.data.protocol
         # Send enqueued messages
