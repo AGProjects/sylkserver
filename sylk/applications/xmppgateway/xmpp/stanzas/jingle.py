@@ -32,6 +32,8 @@ NS_JINGLE_APPS_RTP_INFO  = NS_JINGLE_APPS_BASE + ':rtp:info:1'
 NS_JINGLE_APPS_RTP_AUDIO = NS_JINGLE_APPS_BASE + ':rtp:audio'
 NS_JINGLE_APPS_RTP_VIDEO = NS_JINGLE_APPS_BASE + ':rtp:video'
 
+NS_JINGLE_APPS_COIN      = NS_JINGLE_APPS_BASE + ':coin:1'
+
 NS_JINGLE_ICE_UDP_TRANSPORT = NS_JINGLE_BASE + ':transports:ice-udp:1'
 NS_JINGLE_RAW_UDP_TRANSPORT = NS_JINGLE_BASE + ':transports:raw-udp:1'
 
@@ -539,11 +541,28 @@ class MuteInfo(Info):
         return element
 
 
+class ConferenceInfo(object):
+
+    def __init__(self, isfocus):
+        self.isfocus = isfocus
+
+    @classmethod
+    def fromElement(cls, element):
+        return cls(element.getAttribute('isfocus'))
+
+    def toElement(self, defaultUri=None):
+        #element = domish.Element((defaultUri or NS_JINGLE_APPS_COIN, 'conference-info'))
+        # TODO: Jitsi sends an empty string here, lets do the same until they fix it
+        element = domish.Element(("", 'conference-info'))
+        element['isfocus'] = 'true' if self.isfocus else 'false'
+        return element
+
+
 class Jingle(object):
     """
     A class representing a Jingle element within an IQ request
     """
-    def __init__(self, action, sid, initiator=None, responder=None, content=None, reason=None, info=None):
+    def __init__(self, action, sid, initiator=None, responder=None, content=None, reason=None, info=None, conference_info=None):
         self.action = action
         self.sid = sid
         self.initiator = initiator
@@ -557,6 +576,7 @@ class Jingle(object):
                 self.content = []
         else:
             self.content = content
+        self.conference_info = conference_info
 
     @classmethod
     def fromElement(cls, element):
@@ -568,6 +588,8 @@ class Jingle(object):
         content = []
         reason = None
         info = None
+        conference_info = None
+
         for c in element.elements():
             if c.name == 'content':
                 content.append(Content.fromElement(c))
@@ -578,7 +600,9 @@ class Jingle(object):
                     info = MuteInfo.fromElement(c)
                 else:
                     info = Info.fromElement(c)
-        return cls(action, sid, initiator, responder, content=content, reason=reason, info=info)
+            elif c.name == 'conference-info' and c.uri == NS_JINGLE_APPS_COIN:
+                conference_info = ConferenceInfo.fromElement(c)
+        return cls(action, sid, initiator, responder, content=content, reason=reason, info=info, conference_info=conference_info)
 
     def toElement(self):
         element = domish.Element((NS_JINGLE, 'jingle'))
@@ -594,6 +618,8 @@ class Jingle(object):
             element.addChild(self.reason.toElement())
         if self.info:
             element.addChild(self.info.toElement())
+        if self.conference_info:
+            element.addChild(self.conference_info.toElement())
         return element
 
 
@@ -613,6 +639,23 @@ class JingleIq(Request):
     def toElement(self):
         element = Request.toElement(self)
         element.addChild(self.jingle.toElement())
+        return element
+
+
+class ConferenceInfoIq(Request):
+    stanzaKind = 'iq'
+    stanzaType = 'set'
+    timeout = None
+
+    def __init__(self, sender=None, recipient=None, payload=None):
+        if not payload:
+            raise ValueError('conference info payload cannot be empty')
+        Request.__init__(self, recipient, sender, self.stanzaType)
+        self.payload = payload
+
+    def toElement(self):
+        element = Request.toElement(self)
+        element.addRawXml(self.payload)
         return element
 
 

@@ -7,9 +7,11 @@ import string
 from application.notification import IObserver, NotificationCenter, NotificationData
 from application.python import Null
 from application.python.types import Singleton
+from cStringIO import StringIO
 from datetime import datetime
 from eventlib import api, coros, proc
 from eventlib.twistedutil import block_on
+from lxml import etree
 from sipsimple.account import AccountManager
 from sipsimple.configuration.settings import SIPSimpleSettings
 from sipsimple.core import SDPSession, SDPMediaStream, SDPConnection, SDPNegotiator
@@ -49,7 +51,7 @@ class Operation(object):
 
 
 class AcceptOperation(Operation):
-    __params__ = ('streams',)
+    __params__ = ('streams', 'is_focus')
 
 
 class SendRingIndicationOperation(Operation):
@@ -77,7 +79,11 @@ class ProcessRemoteOperation(Operation):
 
 
 class ConnectOperation(Operation):
-    __params__ = ('sender', 'recipient', 'streams')
+    __params__ = ('sender', 'recipient', 'streams', 'is_focus')
+
+
+class SendConferenceInfoOperation(Operation):
+    __params__ = ('xml',)
 
 
 class JingleSession(object):
@@ -111,6 +117,7 @@ class JingleSession(object):
         self.start_time = None
         self.end_time = None
         self.on_hold = False
+        self.local_focus = False
 
     def init_incoming(self, stanza):
         self._id = stanza.jingle.sid
@@ -148,14 +155,14 @@ class JingleSession(object):
         else:
             self._fail(originator='local', reason='unsupported-applications')
 
-    def connect(self, sender_identity, recipient_identity, streams):
-        self._schedule_operation(ConnectOperation(sender=sender_identity, recipient=recipient_identity, streams=streams))
+    def connect(self, sender_identity, recipient_identity, streams, is_focus=False):
+        self._schedule_operation(ConnectOperation(sender=sender_identity, recipient=recipient_identity, streams=streams, is_focus=is_focus))
 
     def send_ring_indication(self):
         self._schedule_operation(SendRingIndicationOperation())
 
-    def accept(self, streams):
-        self._schedule_operation(AcceptOperation(streams=streams))
+    def accept(self, streams, is_focus=False):
+        self._schedule_operation(AcceptOperation(streams=streams, is_focus=is_focus))
 
     def reject(self, reason='busy'):
         self._schedule_operation(RejectOperation(reason=reason))
@@ -186,6 +193,12 @@ class JingleSession(object):
     @property
     def remote_identity(self):
         return self._remote_identity
+
+    @run_in_twisted_thread
+    def _send_conference_info(self, xml):
+        # This function is not meant for users to call, entities with knowledge about JingleSession
+        # internals will call it, such as the MediaSessionHandler
+        self._schedule_operation(SendConferenceInfoOperation(xml=xml))
 
     def _send_stanza(self, stanza):
         if self.direction == 'incoming':
@@ -298,6 +311,8 @@ class JingleSession(object):
                 self._fail(originator='local', reason='incompatible-parameters', description=str(e))
                 return
 
+            self.local_focus = operation.is_focus
+
             notification_center.post_notification('JingleSessionWillStart', sender=self)
 
             # Get active SDPs (negotiator may make changes)
@@ -307,6 +322,8 @@ class JingleSession(object):
             # Build the payload and send it over
             payload = sdp_to_jingle(local_sdp)
             payload.sid = self._id
+            if self.local_focus:
+                payload.conference_info = jingle.ConferenceInfo(True)
             stanza = self._protocol.sessionAccept(self._local_jid, self._remote_jid, payload)
             d = self._send_stanza(stanza)
             block_on(d)
@@ -369,6 +386,7 @@ class JingleSession(object):
         self.direction = 'outgoing'
         self.state = 'connecting'
         self.proposed_streams = operation.streams
+        self.local_focus = operation.is_focus
         self._id = random_id()
         self._local_identity = operation.sender
         self._remote_identity = operation.recipient
@@ -398,6 +416,8 @@ class JingleSession(object):
             # Build the payload and send it over
             payload = sdp_to_jingle(local_sdp)
             payload.sid = self._id
+            if self.local_focus:
+                payload.conference_info = jingle.ConferenceInfo(True)
             stanza = self._protocol.sessionInitiate(self._local_jid, self._remote_jid, payload)
             d = self._send_stanza(stanza)
             block_on(d)
@@ -498,6 +518,18 @@ class JingleSession(object):
         stanza = self._protocol.sessionInfo(self._local_jid, self._remote_jid, self._id, jingle.Info('unhold'))
         self._send_stanza(stanza)
         NotificationCenter().post_notification('JingleSessionDidChangeHoldState', self, NotificationData(originator='local', on_hold=False, partial=False))
+
+    def _OH_SendConferenceInfoOperation(self, operation):
+        if self.state != 'connected':
+            return
+        if not self.local_focus:
+            return
+        tree = etree.parse(StringIO(operation.xml))
+        tree.getroot().attrib['sid'] = self._id             # FIXME: non-standard, but Jitsi does it
+        data = etree.tostring(tree, xml_declaration=False)  # Strip the XML heading
+        stanza = jingle.ConferenceInfoIq(sender=self._local_jid, recipient=self._remote_jid, payload=data)
+        stanza.timeout = self.jingle_stanza_timeout
+        self._protocol.request(stanza)
 
     def _OH_ProcessRemoteOperation(self, operation):
         notification = operation.notification

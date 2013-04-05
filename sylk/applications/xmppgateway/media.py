@@ -210,7 +210,7 @@ class MediaSessionHandler(object):
         else:
             self.jingle_session = JingleSession(xmpp_manager.jingle_protocol)
         notification_center.add_observer(self, sender=self.jingle_session)
-        self.jingle_session.connect(self.sip_identity, self.xmpp_identity, streams)
+        self.jingle_session.connect(self.sip_identity, self.xmpp_identity, streams, is_focus=self.sip_session.remote_focus)
 
     def end(self):
         if self.ended:
@@ -251,7 +251,7 @@ class MediaSessionHandler(object):
                 pass
             else:
                 self._audio_bidge.add(audio_stream)
-            self.jingle_session.accept(self.jingle_session.proposed_streams)
+            self.jingle_session.accept(self.jingle_session.proposed_streams, is_focus=self.sip_session.remote_focus)
         else:
             # Both sessions have been accepted now
             self.started = True
@@ -286,6 +286,9 @@ class MediaSessionHandler(object):
                 self.jingle_session.hold()
             else:
                 self.jingle_session.unhold()
+
+    def _NH_SIPSessionGotConferenceInfo(self, notification):
+        self.jingle_session._send_conference_info(notification.data.conference_info.toxml())
 
     def _NH_JingleSessionDidStart(self, notification):
         log.msg("Jingle session %s started" % notification.sender.id)
