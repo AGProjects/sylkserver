@@ -4,6 +4,8 @@
 import random
 import urllib
 
+from itertools import count
+
 from application.notification import IObserver, NotificationCenter, NotificationData
 from application.python import Null
 from application.python.types import Singleton
@@ -95,6 +97,7 @@ class IRCRoom(object):
         self.message_dispatcher = None
         self.audio_conference = None
         self.conference_info_payload = None
+        self.conference_info_version = count(1)
         self.irc_connector = None
         self.irc_protocol = None
 
@@ -207,6 +210,7 @@ class IRCRoom(object):
             conference_description = ConferenceDescription(display_text='#%s on %s' % (irc_configuration.channel, irc_configuration.server[0]), free_text='Hosted by %s' % settings.user_agent)
             host_info = HostInfo(web_page=WebPage(irc_configuration.website))
             self.conference_info_payload = Conference(self.identity.uri, conference_description=conference_description, host_info=host_info, users=Users())
+        self.conference_info_payload.version = next(self.conference_info_version)
         user_count = len(set(str(s.remote_identity.uri) for s in self.sessions)) + len(irc_participants)
         self.conference_info_payload.conference_state = ConferenceState(user_count=user_count, active=True)
         users = Users()
