@@ -1,3 +1,15 @@
+sylkserver (2.4.1) unstable; urgency=low
+
+  * Allow Jingle users to join conference rooms with audio
+  * Added support for XEP-298 (coin)
+  * Improved logging for incoming sessions
+  * Fixed sending JingleSessionDidStart too early
+  * Prevent real RTP from leaking until we get session-accept
+  * Partial nickname support for IRC conference application
+  * Set version attribute on conference-info payloads
+
+ -- Saul Ibarra <saul@ag-projects.com>  Fri, 05 Apr 2013 12:29:51 +0200
+
 sylkserver (2.4.0) unstable; urgency=low
 
   * Added VoIP translation for SIP/XMPP gateway (Jingle)
