@@ -21,6 +21,7 @@ from sipsimple.storage import MemoryStorage
 from sipsimple.threading import ThreadManager
 from sipsimple.threading.green import run_in_green_thread
 from twisted.internet import reactor
+from uuid import uuid4
 
 # Load extensions needed for integration with SIP SIMPLE SDK
 import sylk.extensions
@@ -141,6 +142,11 @@ class SylkServer(SIPApplication):
         self.voice_audio_device = AudioDevice(voice_mixer)
         self.voice_audio_bridge = RootAudioBridge(voice_mixer)
         self.voice_audio_bridge.add(self.voice_audio_device)
+
+        # initialize instance id
+        if not settings.instance_id:
+            settings.instance_id = uuid4().urn
+            settings.save()
 
         # initialize middleware components
         account_manager.start()
