@@ -74,6 +74,7 @@ class SylkServer(SIPApplication):
     @run_in_green_thread
     def _initialize_subsystems(self):
         account_manager = AccountManager()
+        dns_manager = DNSManager()
         engine = Engine()
         notification_center = NotificationCenter()
         session_manager = SessionManager()
@@ -135,6 +136,9 @@ class SylkServer(SIPApplication):
         except Exception, e:
             notification_center.post_notification('SIPApplicationFailedToStartTLS', sender=self, data=NotificationData(error=e))
 
+        # initialize PJSIP internal resolver
+        engine.set_nameservers(dns_manager.nameservers)
+
         # initialize audio objects
         voice_mixer = AudioMixer(None, None, settings.audio.sample_rate, 0, 9999)
         self.voice_audio_device = AudioDevice(voice_mixer)
@@ -147,6 +151,7 @@ class SylkServer(SIPApplication):
             settings.save()
 
         # initialize middleware components
+        dns_manager.start()
         account_manager.start()
         session_manager.start()
 
