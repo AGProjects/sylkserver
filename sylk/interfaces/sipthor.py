@@ -45,7 +45,6 @@ class ConferenceNode(EventServiceClient):
         connector.failed = True
         available_connectors = set(c for c in self.connectors if not c.failed)
         if not available_connectors:
-            log.fatal("All Thor Event Servers have unrecoverable errors.")
             NotificationCenter().post_notification('ThorNetworkGotFatalError', sender=self)
 
     def stop(self):

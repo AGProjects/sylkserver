@@ -240,5 +240,5 @@ class SylkServer(SIPApplication):
         log.error('An exception occured within the SIP core:\n%s\n' % notification.data.traceback)
 
     def _NH_ThorNetworkGotFatalError(self, notification):
-        self.stop()
+        log.error("All Thor Event Servers have unrecoverable errors.")
 
