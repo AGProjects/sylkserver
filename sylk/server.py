@@ -9,7 +9,7 @@ from threading import Event
 
 from application import log
 from application.notification import NotificationCenter, NotificationData
-from eventlib import api, proc
+from eventlib import proc
 from sipsimple.account import Account, BonjourAccount, AccountManager
 from sipsimple.application import SIPApplication
 from sipsimple.audio import AudioDevice, RootAudioBridge
@@ -181,15 +181,7 @@ class SylkServer(SIPApplication):
         # shutdown engine
         engine = Engine()
         engine.stop()
-        # TODO: timeout should be removed when the Engine is fixed so that it never hangs. -Saul
-        try:
-            with api.timeout(15):
-                while True:
-                    notification = self._channel.wait()
-                    if notification.name == 'SIPEngineDidEnd':
-                        break
-        except api.TimeoutError:
-            pass
+
         # stop threads
         thread_manager = ThreadManager()
         thread_manager.stop()
