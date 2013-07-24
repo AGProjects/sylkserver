@@ -4,7 +4,7 @@
 from application.configuration import ConfigSection, ConfigSetting
 from application.configuration.datatypes import NetworkRangeList, StringList
 from application.system import host
-from sipsimple.configuration.datatypes import NonNegativeInteger, SRTPEncryption
+from sipsimple.configuration.datatypes import NonNegativeInteger, SampleRate, SRTPEncryption
 
 from sylk import configuration_filename
 from sylk.configuration.datatypes import AudioCodecs, IPAddress, NillablePath, Path, Port, PortRange, SIPProxyAddress
@@ -58,6 +58,7 @@ class RTPConfig(ConfigSection):
     port_range = ConfigSetting(type=PortRange, value=PortRange('50000:50500'))
     srtp_encryption = ConfigSetting(type=SRTPEncryption, value='optional')
     timeout = ConfigSetting(type=NonNegativeInteger, value=30)
+    sample_rate = ConfigSetting(type=SampleRate, value=32000)
 
 
 class ThorNodeConfig(ConfigSection):

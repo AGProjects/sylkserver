@@ -64,7 +64,7 @@ class BonjourAccountExtension(SettingsObjectExtension):
 class AudioSettingsExtension(AudioSettings):
     input_device = Setting(type=str, default=None, nillable=True)
     output_device = Setting(type=str, default=None, nillable=True)
-    sample_rate = Setting(type=SampleRate, default=32000)
+    sample_rate = Setting(type=SampleRate, default=RTPConfig.sample_rate)
 
 
 class LogsSettingsExtension(LogsSettings):

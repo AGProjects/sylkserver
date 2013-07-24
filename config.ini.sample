@@ -94,3 +94,6 @@ certificate = /etc/sylkserver/tls/default.crt
 ; RTP stream timeout, session will be disconnected after this value
 ; timeout = 30
 
+; Audio sampling rate
+; sample_rate = 32000
+
