@@ -1,0 +1,9 @@
+; Playback application configuration
+
+[Playback]
+; files_dir = /usr/share/sylkserver/sounds/playback
+
+
+; [test@conference.example.com]
+; file = test.wav
+
