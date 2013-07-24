@@ -81,8 +81,10 @@ def main():
 
     try:
         server.start()
-        signal.pause()
-        server.stop_event.wait()
+        while True:
+            server.stop_event.wait(999999)
+            if server.stop_event.is_set():
+                break
         log.msg("%s stopped" % fullname)
     except Exception, e:
         log.fatal("failed to run %s: %s" % (fullname, e))
