@@ -31,7 +31,7 @@ class AccountNATTraversalSettingsExtension(AccountNATTraversalSettings):
 
 
 class AccountRTPSettingsExtension(AccountRTPSettings):
-    audio_codec_list = Setting(type=AudioCodecs, default=RTPConfig.audio_codecs, nillable=True)
+    audio_codec_list = Setting(type=AudioCodecs, default=None, nillable=True)
     srtp_encryption = Setting(type=SRTPEncryption, default=RTPConfig.srtp_encryption)
     use_srtp_without_tls = Setting(type=bool, default=True)
 
@@ -76,6 +76,7 @@ class LogsSettingsExtension(LogsSettings):
 
 
 class RTPSettingsExtension(RTPSettings):
+    audio_codec_list = Setting(type=AudioCodecs, default=RTPConfig.audio_codecs)
     port_range = Setting(type=PortRange, default=PortRange(RTPConfig.port_range.start, RTPConfig.port_range.end))
     timeout = Setting(type=NonNegativeInteger, default=RTPConfig.timeout)
 

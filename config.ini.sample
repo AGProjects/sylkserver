@@ -82,8 +82,8 @@ certificate = /etc/sylkserver/tls/default.crt
 
 ; RTP transport settings
 
-; Allowed codec list, valid values: G722, speex, PCMU, PCMA, iLBC, GSM
-; audio_codecs = G722,speex,PCMU,PCMA
+; Allowed codec list, valid values: opus, G722, speex, PCMU, PCMA, iLBC, GSM
+; audio_codecs = opus,speex,G722,PCMU,PCMA
 
 ; Port range used for RTP
 ; port_range = 50000:50500
