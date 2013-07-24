@@ -1,6 +1,8 @@
 # Copyright (C) 2012 AG Projects. See LICENSE for details
 #
 
+import uuid
+
 from application import log
 from application.notification import IObserver, NotificationCenter, NotificationData
 from application.python import Null
@@ -155,10 +157,11 @@ class BonjourServices(object):
                 contact_uri = self.account.contact[transport]
                 contact_uri.user = self.uri_user
                 contact_uri.parameters['isfocus'] = None
-                txtdata = dict(txtvers=1, name=self.name, contact="<%s>" % str(contact_uri))
+                instance_id = str(uuid.UUID(settings.instance_id))
+                txtdata = dict(txtvers=1, name=self.name, contact="<%s>" % str(contact_uri), instance_id=instance_id)
                 state = self.presence_state
                 if state is not None:
-                    txtdata['status'] = state.status
+                    txtdata['state'] = state.state
                     txtdata['note'] = state.note.encode('utf-8')
                 file = _bonjour.DNSServiceRegister(name=str(contact_uri),
                                                   regtype="_%s._%s" % (self.service, transport if transport == 'udp' else 'tcp'),
@@ -198,10 +201,11 @@ class BonjourServices(object):
                 contact_uri = self.account.contact[file.transport]
                 contact_uri.user = self.uri_user
                 contact_uri.parameters['isfocus'] = None
-                txtdata = dict(txtvers=1, name=self.name, contact="<%s>" % str(contact_uri))
+                instance_id = str(uuid.UUID(settings.instance_id))
+                txtdata = dict(txtvers=1, name=self.name, contact="<%s>" % str(contact_uri), instance_id=instance_id)
                 state = self.presence_state
                 if state is not None:
-                    txtdata['status'] = state.status
+                    txtdata['state'] = state.state
                     txtdata['note'] = state.note.encode('utf-8')
                 _bonjour.DNSServiceUpdateRecord(file.file, None, flags=0, rdata=_bonjour.TXTRecord(items=txtdata), ttl=0)
             except (_bonjour.BonjourError, KeyError), e:
