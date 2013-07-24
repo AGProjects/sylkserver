@@ -174,7 +174,7 @@ class Logger(object):
         settings = SIPSimpleSettings()
         if not settings.logs.trace_pjsip:
             return
-        message = "(%(level)d) %(sender)14s: %(message)s" % notification.data.__dict__
+        message = "(%(level)d) %(message)s" % notification.data.__dict__
         if settings.logs.trace_pjsip:
             try:
                 self._init_log_file('pjsiptrace')
