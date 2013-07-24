@@ -11,7 +11,7 @@ from sipsimple.account import MSRPSettings as AccountMSRPSettings, NATTraversalS
 from sipsimple.account import RTPSettings as AccountRTPSettings, SIPSettings as AccountSIPSettings, TLSSettings as AccountTLSSettings
 from sipsimple.configuration import CorrelatedSetting, Setting, SettingsObjectExtension
 from sipsimple.configuration.datatypes import MSRPConnectionModel, MSRPTransport, NonNegativeInteger, PortRange, SampleRate, SIPTransportList, SRTPEncryption
-from sipsimple.configuration.settings import AudioSettings, LogsSettings, RTPSettings, SIPSettings, TLSSettings
+from sipsimple.configuration.settings import AudioSettings, EchoCancellerSettings, LogsSettings, RTPSettings, SIPSettings, TLSSettings
 
 from sylk import __version__ as server_version
 from sylk.configuration import ServerConfig, SIPConfig, MSRPConfig, RTPConfig
@@ -61,10 +61,16 @@ class BonjourAccountExtension(SettingsObjectExtension):
 
 # General settings extensions
 
+class EchoCancellerSettingsExtension(EchoCancellerSettings):
+    enabled = Setting(type=bool, default=False)
+    tail_length = Setting(type=NonNegativeInteger, default=0)
+
+
 class AudioSettingsExtension(AudioSettings):
     input_device = Setting(type=str, default=None, nillable=True)
     output_device = Setting(type=str, default=None, nillable=True)
     sample_rate = Setting(type=SampleRate, default=RTPConfig.sample_rate)
+    echo_canceller = EchoCancellerSettings
 
 
 class LogsSettingsExtension(LogsSettings):
