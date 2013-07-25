@@ -63,6 +63,7 @@ def format_identity(identity, cpim_format=False):
 class ScreenImage(object):
     def __init__(self, room, sender):
         self.room = weakref.ref(room)
+        self.room_uri = room.uri
         self.sender = sender
         self.filename = os.path.join(ConferenceConfig.screen_sharing_dir, room.uri, '%s@%s_%s.jpg' % (sender.uri.user, sender.uri.host, ''.join(random.sample(string.letters+string.digits, 10))))
         from sylk.applications.conference import ConferenceApplication
@@ -89,7 +90,7 @@ class ScreenImage(object):
             with open(tmp_filename, 'wb') as file:
                 file.write(image)
         except EnvironmentError, e:
-            log.msg('Room %s - cannot write screen sharing image: %s: %s' % (self.uri, self.filename, e))
+            log.msg('Room %s - cannot write screen sharing image: %s: %s' % (self.room_uri, self.filename, e))
         else:
             try:
                 os.rename(tmp_filename, self.filename)
@@ -108,7 +109,7 @@ class ScreenImage(object):
             self.timer = reactor.callLater(10, self.stop_advertising)
             room = self.room() or Null
             room.dispatch_conference_info()
-            txt = 'Room %s - %s is sharing the screen at %s' % (self.uri, format_identity(self.sender, cpim_format=True), self.url)
+            txt = 'Room %s - %s is sharing the screen at %s' % (self.room_uri, format_identity(self.sender, cpim_format=True), self.url)
             room.dispatch_server_message(txt)
             log.msg(txt)
 
@@ -953,7 +954,7 @@ class IncomingFileTransferHandler(object):
         try:
             self.file = open(self.filename, 'wb')
         except EnvironmentError:
-            log.msg('Room %s - cannot write destination filename: %s' % (self.uri, self.filename))
+            log.msg('Room %s - cannot write destination filename: %s' % (self.room_uri, self.filename))
             self.session.end()
             return
         notification_center = NotificationCenter()
