@@ -92,16 +92,22 @@ class ConferenceConfig(ConfigSection):
     db_uri = ConfigSetting(type=str, value='sqlite://'+os.getcwd()+'/var/lib/sylkserver/conference.sqlite')
     history_table = ConfigSetting(type=str, value='message_history')
     replay_history = 20
+
     access_policy = ConfigSetting(type=AccessPolicyValue, value=AccessPolicyValue('allow, deny'))
     allow = ConfigSetting(type=PolicySettingValue, value=PolicySettingValue('all'))
     deny = ConfigSetting(type=PolicySettingValue, value=PolicySettingValue('none'))
+
     file_transfer_dir = ConfigSetting(type=Path, value=Path('var/spool/sylkserver'))
     push_file_transfer = False
+
     screen_sharing_dir = ConfigSetting(type=Path, value=Path('var/spool/sylkserver/screensharing'))
     screen_sharing_ip = ConfigSetting(type=IPAddress, value=IPAddress(host.default_ip))
     screen_sharing_port = ConfigSetting(type=Port, value=0)
     screen_sharing_use_https = True
     screen_sharing_certificate = ConfigSetting(type=NillablePath, value=NillablePath('tls/default.crt'))
+
+    advertise_xmpp_support = True
+    pstn_access_number = ConfigSetting(type=str, value='')
 
 
 class RoomConfig(ConfigSection):
@@ -110,6 +116,9 @@ class RoomConfig(ConfigSection):
     access_policy = ConfigSetting(type=AccessPolicyValue, value=AccessPolicyValue('allow, deny'))
     allow = ConfigSetting(type=PolicySettingValue, value=PolicySettingValue('all'))
     deny = ConfigSetting(type=PolicySettingValue, value=PolicySettingValue('none'))
+
+    pstn_access_number = ConferenceConfig.pstn_access_number
+    advertise_xmpp_support = ConferenceConfig.advertise_xmpp_support
 
 
 class Configuration(object):
@@ -126,6 +135,6 @@ def get_room_config(room):
         RoomConfig.reset()
     else:
         # Apply general policy
-        config = Configuration(dict((attr, getattr(ConferenceConfig, attr)) for attr in ('access_policy', 'allow', 'deny')))
+        config = Configuration(dict((attr, getattr(ConferenceConfig, attr)) for attr in ('access_policy', 'allow', 'deny', 'pstn_access_number', 'advertise_xmpp_support')))
     return config
 

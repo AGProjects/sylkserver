@@ -42,7 +42,7 @@ from twisted.internet import reactor
 from zope.interface import implements
 
 from sylk.applications.conference import database
-from sylk.applications.conference.configuration import ConferenceConfig, URL
+from sylk.applications.conference.configuration import get_room_config, ConferenceConfig, WebURL
 from sylk.applications.conference.logger import log
 from sylk.bonjour import BonjourServices
 from sylk.configuration import ServerConfig, SIPConfig, ThorNodeConfig
@@ -69,7 +69,7 @@ class ScreenImage(object):
         from sylk.applications.conference import ConferenceApplication
         port = ConferenceApplication().screen_sharing_web_server.port
         scheme = 'https' if ConferenceConfig.screen_sharing_use_https else 'http'
-        self.url = URL('%s://%s:%s/' % (scheme, ConferenceConfig.screen_sharing_ip.normalized, port))
+        self.url = WebURL('%s://%s:%s/' % (scheme, ConferenceConfig.screen_sharing_ip.normalized, port))
         self.url.query_items['image'] = os.path.join(room.uri, os.path.basename(self.filename))
         self.state = None
         self.timer = None
@@ -135,6 +135,7 @@ class Room(object):
     implements(IObserver)
 
     def __init__(self, uri):
+        self.config = get_room_config(uri)
         self.uri = uri
         self.identity = CPIMIdentity(SIPURI.parse('sip:%s' % self.uri), display_name='Conference Room')
         self.files = []
@@ -455,6 +456,13 @@ class Room(object):
         if self.conference_info_payload is None:
             settings = SIPSimpleSettings()
             conference_description = conference.ConferenceDescription(display_text='Ad-hoc conference', free_text='Hosted by %s' % settings.user_agent)
+            conference_description.conf_uris = conference.ConfUris()
+            conference_description.conf_uris.add(conference.ConfUrisEntry('sip:%s' % self.uri, purpose='participation'))
+            if self.config.advertise_xmpp_support:
+                conference_description.conf_uris.add(conference.ConfUrisEntry('xmpp:%s' % self.uri, purpose='participation'))
+                # TODO: add grouptextchat service uri
+            if self.config.pstn_access_number:
+                conference_description.conf_uris.add(conference.ConfUrisEntry('tel:%s' % self.config.pstn_access_number, purpose='participation'))
             host_info = conference.HostInfo(web_page=conference.WebPage('http://sylkserver.com'))
             self.conference_info_payload = conference.Conference(self.identity.uri, conference_description=conference_description, host_info=host_info, users=conference.Users())
         self.conference_info_payload.version = next(self.conference_info_version)
@@ -871,15 +879,24 @@ class WelcomeHandler(object):
             player.stop()
 
     def render_chat_welcome_prompt(self):
-        txt = 'Welcome to the conference.'
+        txt = 'Welcome to SylkServer!'
         user_count = len(set(str(s.remote_identity.uri) for s in self.room.sessions) - set([str(self.session.remote_identity.uri)]))
         if user_count == 0:
-            txt += ' You are the first participant in the room.'
+            txt += ' You are the first participant'
         else:
             if user_count == 1:
-                txt += ' There is one more participant in the room.'
+                txt += ' There is one more participant'
             else:
-                txt += ' There are %s more participants in the room.' % user_count
+                txt += ' There are %s more participants' % user_count
+        txt +=  ' in this conference room.'
+        if True or not ServerConfig.enable_bonjour:
+            if self.room.config.advertise_xmpp_support or self.room.config.pstn_access_number:
+                txt += ' Other participants can join at these addresses:\n\n'
+                if self.room.config.pstn_access_number:
+                    txt += '    - Using a landline or mobile phone, dial %s\n' % self.room.config.pstn_access_number
+                if self.room.config.advertise_xmpp_support:
+                    txt += '    - Using an XMPP client, connect to group chat room %s\n' % self.room.uri
+                txt += '    - Using a SIP client, initiate a session to %s' % self.room.uri
         return txt
 
     def render_chat_welcome(self, welcome_prompt):
@@ -888,8 +905,8 @@ class WelcomeHandler(object):
         except StopIteration:
             return
         try:
-            #welcome_prompt = self.render_chat_welcome_prompt()
-            #chat_stream.send_message(welcome_prompt, 'text/plain', local_identity=self.room.identity, recipients=[self.room.identity])
+            welcome_prompt = self.render_chat_welcome_prompt()
+            chat_stream.send_message(welcome_prompt, 'text/plain', local_identity=self.room.identity, recipients=[self.room.identity])
             remote_identity = CPIMIdentity.parse(format_identity(self.session.remote_identity, cpim_format=True))
             for msg in database.get_last_messages(self.room.uri, ConferenceConfig.replay_history):
                 recipient = CPIMIdentity.parse(msg.cpim_recipient)
