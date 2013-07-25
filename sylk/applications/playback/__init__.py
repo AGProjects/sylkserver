@@ -60,18 +60,18 @@ class PlaybackApplication(SylkApplication):
     @run_in_green_thread
     def _NH_SIPSessionDidStart(self, notification):
         session = notification.sender
-        log.msg('Session %s started' % session._invitation.call_id)
+        log.msg('%s - Session %s started' % (session._invitation.request_uri, session._invitation.call_id))
         handler = PlaybackHandler(session)
         handler.run()
 
     def _NH_SIPSessionDidFail(self, notification):
         session = notification.sender
-        log.msg('Session %s failed' % session._invitation.call_id)
+        log.msg('%s - Session %s failed' % (session._invitation.request_uri, session._invitation.call_id))
         NotificationCenter().remove_observer(self, sender=session)
 
     def _NH_SIPSessionDidEnd(self, notification):
         session = notification.sender
-        log.msg('Session %s ended' % session._invitation.call_id)
+        log.msg('%s - Session %s ended' % (session._invitation.request_uri, session._invitation.call_id))
         NotificationCenter().remove_observer(self, sender=session)
 
 
