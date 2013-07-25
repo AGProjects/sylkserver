@@ -136,8 +136,7 @@ class Room(object):
 
     def __init__(self, uri):
         self.uri = uri
-        self.identity = CPIMIdentity.parse('<sip:%s>' % self.uri)
-        self.identity.display_name = 'Conference Room'
+        self.identity = CPIMIdentity(SIPURI.parse('sip:%s' % self.uri), display_name='Conference Room')
         self.files = []
         self.screen_images = {}
         self.sessions = []
