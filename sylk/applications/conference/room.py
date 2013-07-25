@@ -428,7 +428,7 @@ class Room(object):
             elif len(self.audio_conference.streams) == 1:
                 self.moh_player.play()
         try:
-            transfer_stream = (stream for stream in session.streams if stream.type == 'file-transfer').next()
+            next(stream for stream in session.streams if stream.type == 'file-transfer')
         except StopIteration:
             pass
         else:
