@@ -891,7 +891,7 @@ class WelcomeHandler(object):
         txt +=  ' in this conference room.'
         if True or not ServerConfig.enable_bonjour:
             if self.room.config.advertise_xmpp_support or self.room.config.pstn_access_number:
-                txt += ' Other participants can join at these addresses:\n\n'
+                txt += '\n\nOther participants can join at these addresses:\n\n'
                 if self.room.config.pstn_access_number:
                     txt += '    - Using a landline or mobile phone, dial %s\n' % self.room.config.pstn_access_number
                 if self.room.config.advertise_xmpp_support:
