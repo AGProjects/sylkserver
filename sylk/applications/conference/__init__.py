@@ -190,11 +190,11 @@ class ConferenceApplication(SylkApplication):
             try:
                 room = self.get_room(to_header.uri)
             except RoomNotFoundError:
-                log.msg(u'Subscription rejected: room %s not yet created' % data.request_uri)
+                log.msg(u'Subscription rejected: room not yet created')
                 subscribe_request.reject(480)
                 return
         if not room.started:
-            log.msg(u'Subscription rejected: room %s not started yet' % room.uri)
+            log.msg(u'Subscription rejected: room not started yet')
             subscribe_request.reject(480)
         else:
             room.handle_incoming_subscription(subscribe_request, data)

@@ -26,7 +26,7 @@ class PlaybackApplication(SylkApplication):
         pass
 
     def incoming_session(self, session):
-        log.msg('Incoming session %s from %s' % (session._invitation.call_id, session.remote_identity.uri))
+        log.msg('Incoming session %s from %s to %s' % (session._invitation.call_id, session.remote_identity.uri, session.local_identity.uri))
         try:
             audio_stream = next(stream for stream in session.proposed_streams if stream.type=='audio')
         except StopIteration:
@@ -60,18 +60,18 @@ class PlaybackApplication(SylkApplication):
     @run_in_green_thread
     def _NH_SIPSessionDidStart(self, notification):
         session = notification.sender
-        log.msg('%s - Session %s started' % (session._invitation.request_uri, session._invitation.call_id))
+        log.msg('Session %s started' % session._invitation.call_id)
         handler = PlaybackHandler(session)
         handler.run()
 
     def _NH_SIPSessionDidFail(self, notification):
         session = notification.sender
-        log.msg('%s - Session %s failed' % (session._invitation.request_uri, session._invitation.call_id))
+        log.msg('Session %s failed' % session._invitation.call_id)
         NotificationCenter().remove_observer(self, sender=session)
 
     def _NH_SIPSessionDidEnd(self, notification):
         session = notification.sender
-        log.msg('%s - Session %s ended' % (session._invitation.request_uri, session._invitation.call_id))
+        log.msg('Session %s ended' % session._invitation.call_id)
         NotificationCenter().remove_observer(self, sender=session)
 
 
@@ -95,7 +95,7 @@ class PlaybackHandler(object):
         audio_stream = self.session.streams[0]
         player = WavePlayer(audio_stream.mixer, file)
         audio_stream.bridge.add(player)
-        log.msg(u"Playing file %s" % file)
+        log.msg(u"Playing file %s for session %s" % (file, self.session._invitation.call_id))
         try:
             player.play().wait()
         except (ValueError, WavePlayerError), e:
