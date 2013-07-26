@@ -896,7 +896,8 @@ class WelcomeHandler(object):
                     txt += '    - Using a landline or mobile phone, dial %s\n' % self.room.config.pstn_access_number
                 if self.room.config.advertise_xmpp_support:
                     txt += '    - Using an XMPP client, connect to group chat room %s\n' % self.room.uri
-                txt += '    - Using a SIP client, initiate a session to %s' % self.room.uri
+                txt += '    - Using a SIP client, initiate a session to %s\n' % self.room.uri
+        txt += '\n'
         return txt
 
     def render_chat_welcome(self, welcome_prompt):
