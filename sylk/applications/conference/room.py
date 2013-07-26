@@ -893,10 +893,11 @@ class WelcomeHandler(object):
             if self.room.config.advertise_xmpp_support or self.room.config.pstn_access_number:
                 txt += '\n\nOther participants can join at these addresses:\n\n'
                 if self.room.config.pstn_access_number:
-                    txt += '    - Using a landline or mobile phone, dial %s\n' % self.room.config.pstn_access_number
+                    txt += '    - Using a landline or mobile phone, dial %s (audio)\n' % self.room.config.pstn_access_number
                 if self.room.config.advertise_xmpp_support:
-                    txt += '    - Using an XMPP client, connect to group chat room %s\n' % self.room.uri
-                txt += '    - Using a SIP client, initiate a session to %s\n' % self.room.uri
+                    txt += '    - Using an XMPP client, connect to group chat room %s (chat)\n' % self.room.uri
+                    txt += '    - Using an XMPP Jingle capable client, add contact %s and call it (audio)\n' % self.room.uri
+                txt += '    - Using a SIP client, initiate a session to %s (audio and chat)\n' % self.room.uri
         txt += '\n'
         return txt
 
