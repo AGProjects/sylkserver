@@ -42,11 +42,11 @@ from twisted.internet import reactor
 from zope.interface import implements
 
 from sylk.applications.conference import database
-from sylk.applications.conference.configuration import get_room_config, ConferenceConfig, WebURL
+from sylk.applications.conference.configuration import get_room_config, ConferenceConfig
 from sylk.applications.conference.logger import log
 from sylk.bonjour import BonjourServices
 from sylk.configuration import ServerConfig, SIPConfig, ThorNodeConfig
-from sylk.configuration.datatypes import ResourcePath
+from sylk.configuration.datatypes import ResourcePath, URL
 from sylk.session import Session
 
 
@@ -69,7 +69,7 @@ class ScreenImage(object):
         from sylk.applications.conference import ConferenceApplication
         port = ConferenceApplication().screen_sharing_web_server.port
         scheme = 'https' if ConferenceConfig.screen_sharing_use_https else 'http'
-        self.url = WebURL('%s://%s:%s/' % (scheme, ConferenceConfig.screen_sharing_ip.normalized, port))
+        self.url = URL('%s://%s:%s/' % (scheme, ConferenceConfig.screen_sharing_ip.normalized, port))
         self.url.query_items['image'] = os.path.join(room.uri, os.path.basename(self.filename))
         self.state = None
         self.timer = None
