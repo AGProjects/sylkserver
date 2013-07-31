@@ -907,8 +907,8 @@ class WelcomeHandler(object):
         except StopIteration:
             return
         try:
-            welcome_prompt = self.render_chat_welcome_prompt()
-            chat_stream.send_message(welcome_prompt, 'text/plain', local_identity=self.room.identity, recipients=[self.room.identity])
+            welcome_text = self.render_chat_welcome_prompt()
+            chat_stream.send_message(welcome_text, 'text/plain', local_identity=self.room.identity, recipients=[self.room.identity])
             remote_identity = CPIMIdentity.parse(format_identity(self.session.remote_identity, cpim_format=True))
             for msg in database.get_last_messages(self.room.uri, ConferenceConfig.replay_history):
                 recipient = CPIMIdentity.parse(msg.cpim_recipient)
