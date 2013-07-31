@@ -9,7 +9,7 @@ import re
 from application.configuration import ConfigFile, ConfigSection, ConfigSetting
 from application.system import host
 
-from sylk.configuration.datatypes import IPAddress, NillablePath, Path, Port, URL
+from sylk.configuration.datatypes import IPAddress, NillablePath, Path, Port
 
 
 # Datatypes
@@ -73,14 +73,6 @@ class PolicySettingValue(list):
         domain = uri.host
         uri = re.sub('^(sip:|sips:)', '', str(uri))
         return uri in self or domain in self
-
-
-class WebURL(str):
-    def __new__(cls, url):
-        url = URL(url)
-        if url.scheme.lower() not in ('http', 'https'):
-            raise ValueError('invalid web URL: %s' % url.original_url)
-        return url.url
 
 
 # Configuration objects
