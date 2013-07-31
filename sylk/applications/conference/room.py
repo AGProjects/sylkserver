@@ -642,7 +642,7 @@ class Room(object):
                 pass
             else:
                 notification.center.add_observer(self, sender=chat_stream)
-                log.msg(u'Room %s - %s has added chat to %s' % (self.uri, format_identity(session.remote_identity)))
+                log.msg(u'Room %s - %s has added chat' % (self.uri, format_identity(session.remote_identity)))
                 self.dispatch_server_message('%s has added chat' % format_identity(session.remote_identity), exclude=session)
             try:
                 audio_stream = (stream for stream in streams if stream.type == 'audio').next()
