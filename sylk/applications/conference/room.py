@@ -452,8 +452,8 @@ class Room(object):
             if self.config.advertise_xmpp_support:
                 conference_description.conf_uris.add(conference.ConfUrisEntry('xmpp:%s' % self.uri, purpose='participation'))
                 # TODO: add grouptextchat service uri
-            if self.config.pstn_access_number:
-                conference_description.conf_uris.add(conference.ConfUrisEntry('tel:%s' % self.config.pstn_access_number, purpose='participation'))
+            for number in self.config.pstn_access_numbers:
+                conference_description.conf_uris.add(conference.ConfUrisEntry('tel:%s' % number, purpose='participation'))
             host_info = conference.HostInfo(web_page=conference.WebPage('http://sylkserver.com'))
             self.conference_info_payload = conference.Conference(self.identity.uri, conference_description=conference_description, host_info=host_info, users=conference.Users())
         self.conference_info_payload.version = next(self.conference_info_version)
@@ -860,10 +860,14 @@ class WelcomeHandler(object):
                 txt += ' There are %s more participants' % user_count
         txt +=  ' in this conference room.'
         if True or not ServerConfig.enable_bonjour:
-            if self.room.config.advertise_xmpp_support or self.room.config.pstn_access_number:
+            if self.room.config.advertise_xmpp_support or self.room.config.pstn_access_numbers:
                 txt += '\n\nOther participants can join at these addresses:\n\n'
-                if self.room.config.pstn_access_number:
-                    txt += '    - Using a landline or mobile phone, dial %s (audio)\n' % self.room.config.pstn_access_number
+                if self.room.config.pstn_access_numbers:
+                    if len(self.room.config.pstn_access_numbers) == 1:
+                        nums = self.room.config.pstn_access_numbers[0]
+                    else:
+                        nums = ', '.join(self.room.config.pstn_access_numbers[:-1]) + ' or %s' % self.room.config.pstn_access_numbers[-1]
+                    txt += '    - Using a landline or mobile phone, dial %s (audio)\n' % nums
                 if self.room.config.advertise_xmpp_support:
                     txt += '    - Using an XMPP client, connect to group chat room %s (chat)\n' % self.room.uri
                     txt += '    - Using an XMPP Jingle capable client, add contact %s and call it (audio)\n' % self.room.uri

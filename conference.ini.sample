@@ -39,8 +39,8 @@ screen_sharing_dir = /var/spool/sylkserver/screensharing
 ; Advertise XMPP support in conference URIs and welcome (text) message
 ; advertise_xmpp_support = True
 
-; PSTN number to advertise as a conference URI
-; pstn_access_number =
+; Comma separated list of PSTN numbers to advertise as a conference URI
+; pstn_access_numbers =
 
 ; Access Lists Default Policy
 ; Apache-style access lists for the caller using SIP domains or SIP URIs

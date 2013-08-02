@@ -7,6 +7,7 @@ import os
 import re
 
 from application.configuration import ConfigFile, ConfigSection, ConfigSetting
+from application.configuration.datatypes import StringList
 from application.system import host
 
 from sylk.configuration.datatypes import IPAddress, NillablePath, Path, Port
@@ -99,7 +100,7 @@ class ConferenceConfig(ConfigSection):
     screen_sharing_certificate = ConfigSetting(type=NillablePath, value=NillablePath('tls/default.crt'))
 
     advertise_xmpp_support = True
-    pstn_access_number = ConfigSetting(type=str, value='')
+    pstn_access_numbers = ConfigSetting(type=StringList, value='')
 
 
 class RoomConfig(ConfigSection):
@@ -109,7 +110,7 @@ class RoomConfig(ConfigSection):
     allow = ConfigSetting(type=PolicySettingValue, value=PolicySettingValue('all'))
     deny = ConfigSetting(type=PolicySettingValue, value=PolicySettingValue('none'))
 
-    pstn_access_number = ConferenceConfig.pstn_access_number
+    pstn_access_numbers = ConferenceConfig.pstn_access_numbers
     advertise_xmpp_support = ConferenceConfig.advertise_xmpp_support
 
 
@@ -127,6 +128,6 @@ def get_room_config(room):
         RoomConfig.reset()
     else:
         # Apply general policy
-        config = Configuration(dict((attr, getattr(ConferenceConfig, attr)) for attr in ('access_policy', 'allow', 'deny', 'pstn_access_number', 'advertise_xmpp_support')))
+        config = Configuration(dict((attr, getattr(ConferenceConfig, attr)) for attr in ('access_policy', 'allow', 'deny', 'pstn_access_numbers', 'advertise_xmpp_support')))
     return config
 
