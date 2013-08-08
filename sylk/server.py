@@ -198,6 +198,12 @@ class SylkServer(SIPApplication):
             from sylk.interfaces.sipthor import ConferenceNode
             ConferenceNode().stop()
 
+    def _NH_AudioDevicesDidChange(self, notification):
+        pass
+
+    def _NH_DefaultAudioDeviceDidChange(self, notification):
+        pass
+
     def _NH_SIPApplicationFailedToStartTLS(self, notification):
         log.fatal("Couldn't set TLS options: %s" % notification.data.error)
 
