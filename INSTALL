@@ -19,31 +19,9 @@ Install the AG Projects debian software signing key:
 wget http://download.ag-projects.com/agp-debian-gpg.key
 sudo apt-key add agp-debian-gpg.key
 
-Add these lines to /etc/apt/sources.list:
+Add these repository matching your distribution to /etc/apt/sources.list:
 
-#Ubuntu Natty
-deb    http://ag-projects.com/ubuntu natty main 
-deb-src http://ag-projects.com/ubuntu natty main
-
-#Ubuntu Oneiric
-deb    http://ag-projects.com/ubuntu oneiric main 
-deb-src http://ag-projects.com/ubuntu oneiric main
-
-#Ubuntu Precise
-deb    http://ag-projects.com/ubuntu precise main 
-deb-src http://ag-projects.com/ubuntu precise main
-
-#Ubuntu Quantal
-deb    http://ag-projects.com/ubuntu quantal main 
-deb-src http://ag-projects.com/ubuntu quantal main
-
-#Debian Stable
-deb    http://ag-projects.com/debian stable main 
-deb-src http://ag-projects.com/debian stable main
-
-#Debian Unstable
-deb    http://ag-projects.com/debian unstable main 
-deb-src http://ag-projects.com/debian unstable main
+http://projects.ag-projects.com/projects/documentation/wiki/Repositories
 
 Update the list of available packages:
 
@@ -84,9 +62,9 @@ darcs pull -a
 
 Install the required dependencies:
 
- * python-sipsimple (>= 0.33.0) http://sipsimpleclient.org
+ * python-sipsimple http://sipsimpleclient.org
  * python-sqlobject (>= 0.12.4)
- * python-twisted-words
+ * python-twisted
  * python-wokkel http://wokkel.ik.nu/
 
 To run SylkServer in the foreground:
