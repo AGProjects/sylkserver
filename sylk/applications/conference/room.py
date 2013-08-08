@@ -14,11 +14,6 @@ from datetime import datetime
 from glob import glob
 from itertools import chain, count, cycle
 
-try:
-    from weakref import WeakSet
-except ImportError:
-    from backports.weakref import WeakSet
-
 from application.notification import IObserver, NotificationCenter, NotificationData
 from application.python import Null
 from application.system import makedirs
@@ -143,7 +138,7 @@ class Room(object):
         self.sessions = []
         self.sessions_with_proposals = {}
         self.subscriptions = []
-        self.transfer_handlers = WeakSet()
+        self.transfer_handlers = weakref.WeakSet()
         self.state = 'stopped'
         self.incoming_message_queue = coros.queue()
         self.message_dispatcher = None
