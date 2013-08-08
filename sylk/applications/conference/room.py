@@ -235,7 +235,7 @@ class Room(object):
                 sender.display_name = self.last_nicknames_map.get(str(session.remote_identity.uri), sender.display_name)
                 message.sender = sender
                 database.async_save_message(format_identity(session.remote_identity, True), self.uri, message.body, message.content_type, unicode(message.sender), unicode(recipient), timestamp)
-                private = len(message.recipients) == 1 and recipient.uri != self.identity.uri
+                private = len(message.recipients) == 1 and '%s@%s' % (recipient.uri.user, recipient.uri.host) != self.uri
                 if private:
                     self.dispatch_private_message(session, message)
                 else:
@@ -244,7 +244,7 @@ class Room(object):
                 if data.sender.uri != session.remote_identity.uri:
                     continue
                 recipient = data.recipients[0]
-                private = len(data.recipients) == 1 and recipient.uri != self.identity.uri
+                private = len(message.recipients) == 1 and '%s@%s' % (recipient.uri.user, recipient.uri.host) != self.uri
                 if private:
                     self.dispatch_private_iscomposing(session, data)
                 else:
