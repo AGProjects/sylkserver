@@ -1,3 +1,21 @@
+sylkserver (2.5.0) unstable; urgency=low
+
+  * Adapted to changes in latest SIP SIMPLE SDK
+  * Added playback application
+  * Enabled Opus codec by default
+  * Added setting for sample rate, defaults to 32 kHz
+  * Advertise PSTN and XMPP access in conference rooms
+  * Replaced prompts with higher quality ones
+  * Fixed initializing PJSIP's internal resolver
+  * Don't use signal.pause to pause the main thread
+  * Always disable echo canceller
+  * Improved logging
+  * Ignore audio device change notifications
+  * Removed dependency on python-backports
+  * Dropped Python 2.6 support
+
+ -- Saul Ibarra <saul@ag-projects.com>  Fri, 09 Aug 2013 13:15:53 +0200
+
 sylkserver (2.4.1) unstable; urgency=low
 
   * Allow Jingle users to join conference rooms with audio
