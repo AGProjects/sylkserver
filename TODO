@@ -1,19 +1,8 @@
-TODO
-----
-
- + XMPP File Transfer
-
 Roadmap
+-------
 
- - Bonjour mode for XMPP
- - Registrant application
- - Chat offline storage application
- - Update conference info with the display name from 200 OK for outgoing
-   invites
- - Management interface
- - Re-invite will all media
- - CANCEL server outgoing INVITE
- - Add participants using resource-list
- - Integrate mobwrite collboration editor
- - WEBrtc support
+ - Registrar application
+ - Presence Agent application
+ - Offline storage application
+ - WebRTC gateway
 
