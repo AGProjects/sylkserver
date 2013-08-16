@@ -842,7 +842,7 @@ class WelcomeHandler(object):
                 file = ResourcePath('sounds/co_only_one.wav').normalized
                 self.play_file_in_player(player, file, 0.5)
             elif user_count == 1:
-                file = ResourcePath('sounds/co_there_is.wav').normalized
+                file = ResourcePath('sounds/co_there_is_one.wav').normalized
                 self.play_file_in_player(player, file, 0.5)
             elif user_count < 100:
                 file = ResourcePath('sounds/co_there_are.wav').normalized
