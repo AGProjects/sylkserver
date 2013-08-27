@@ -42,6 +42,7 @@ class EchoApplication(SylkApplication):
         streams = [streams[0] for streams in (audio_streams, chat_streams) if streams]
         reactor.callLater(2 if audio_streams else 0, self._accept_session, session, streams)
         self.pending.add(session)
+        session._end_timer = None
 
     def incoming_subscription(self, request, data):
         request.reject(405)
@@ -84,6 +85,7 @@ class EchoApplication(SylkApplication):
             notification.center.add_observer(self, sender=audio_stream)
         if chat_stream is not None:
             notification.center.add_observer(self, sender=chat_stream)
+        session._end_timer = reactor.callLater(600, session.end)
 
     def _NH_SIPSessionDidEnd(self, notification):
         session = notification.sender
@@ -92,12 +94,18 @@ class EchoApplication(SylkApplication):
         # We could get DidEnd even if we never got DidStart
         self.sessions.discard(session)
         self.pending.discard(session)
+        if session._end_timer is not None and session._end_timer.active():
+            session._end_timer.cancel()
+        session._end_timer = None
 
     def _NH_SIPSessionDidFail(self, notification):
         session = notification.sender
         log.msg('Session %s failed from %s' % session.call_id)
         self.pending.remove(session)
         notification.center.remove_observer(self, sender=session)
+        if session._end_timer is not None and session._end_timer.active():
+            session._end_timer.cancel()
+        session._end_timer = None
 
     def _NH_ChatStreamGotMessage(self, notification):
         stream = notification.sender
