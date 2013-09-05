@@ -225,6 +225,8 @@ class Room(object):
                 message = data.message
                 if message.sender.uri != session.remote_identity.uri:
                     continue
+                if message.body.startswith('?OTR:'):
+                    continue
                 if message.timestamp is not None:
                     value = message.timestamp
                     timestamp = datetime(value.year, value.month, value.day, value.hour, value.minute, value.second, value.microsecond, value.tzinfo)
