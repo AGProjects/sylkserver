@@ -255,12 +255,11 @@ class Room(object):
             try:
                 chat_stream = (stream for stream in s.streams if stream.type == 'chat').next()
             except StopIteration:
-                pass
-            else:
-                try:
-                    chat_stream.send_message(message.body, message.content_type, local_identity=message.sender, recipients=[self.identity], timestamp=message.timestamp, additional_headers=message.additional_headers)
-                except ChatStreamError, e:
-                    log.error(u'Error dispatching message to %s: %s' % (s.remote_identity.uri, e))
+                continue
+            try:
+                chat_stream.send_message(message.body, message.content_type, local_identity=message.sender, recipients=[self.identity], timestamp=message.timestamp, additional_headers=message.additional_headers)
+            except ChatStreamError, e:
+                log.error(u'Error dispatching message to %s: %s' % (s.remote_identity.uri, e))
 
     def dispatch_private_message(self, session, message):
         # Private messages are delivered to all sessions matching the recipient but also to the sender,
@@ -271,24 +270,22 @@ class Room(object):
                 chat_stream = (stream for stream in s.streams if stream.type == 'chat').next()
             except StopIteration:
                 continue
-            else:
-                try:
-                    chat_stream.send_message(message.body, message.content_type, local_identity=message.sender, recipients=[recipient], timestamp=message.timestamp, additional_headers=message.additional_headers)
-                except ChatStreamError, e:
-                    log.error(u'Error dispatching private message to %s: %s' % (s.remote_identity.uri, e))
+            try:
+                chat_stream.send_message(message.body, message.content_type, local_identity=message.sender, recipients=[recipient], timestamp=message.timestamp, additional_headers=message.additional_headers)
+            except ChatStreamError, e:
+                log.error(u'Error dispatching private message to %s: %s' % (s.remote_identity.uri, e))
 
     def dispatch_iscomposing(self, session, data):
         for s in (s for s in self.sessions if s is not session):
             try:
                 chat_stream = (stream for stream in s.streams if stream.type == 'chat').next()
             except StopIteration:
-                pass
-            else:
-                identity = CPIMIdentity.parse(format_identity(session.remote_identity, True))
-                try:
-                    chat_stream.send_composing_indication(data.state, data.refresh, local_identity=identity, recipients=[self.identity])
-                except ChatStreamError, e:
-                    log.error(u'Error dispatching composing indication to %s: %s' % (s.remote_identity.uri, e))
+                continue
+            identity = CPIMIdentity.parse(format_identity(session.remote_identity, True))
+            try:
+                chat_stream.send_composing_indication(data.state, data.refresh, local_identity=identity, recipients=[self.identity])
+            except ChatStreamError, e:
+                log.error(u'Error dispatching composing indication to %s: %s' % (s.remote_identity.uri, e))
 
     def dispatch_private_iscomposing(self, session, data):
         recipient_uri = data.recipients[0].uri
@@ -297,21 +294,19 @@ class Room(object):
                 chat_stream = (stream for stream in s.streams if stream.type == 'chat').next()
             except StopIteration:
                 continue
-            else:
-                identity = CPIMIdentity.parse(format_identity(session.remote_identity, True))
-                try:
-                    chat_stream.send_composing_indication(data.state, data.refresh, local_identity=identity)
-                except ChatStreamError, e:
-                    log.error(u'Error dispatching private composing indication to %s: %s' % (s.remote_identity.uri, e))
+            identity = CPIMIdentity.parse(format_identity(session.remote_identity, True))
+            try:
+                chat_stream.send_composing_indication(data.state, data.refresh, local_identity=identity)
+            except ChatStreamError, e:
+                log.error(u'Error dispatching private composing indication to %s: %s' % (s.remote_identity.uri, e))
 
     def dispatch_server_message(self, body, content_type='text/plain', exclude=None):
         for session in (session for session in self.sessions if session is not exclude):
             try:
                 chat_stream = (stream for stream in session.streams if stream.type == 'chat').next()
             except StopIteration:
-                pass
-            else:
-                chat_stream.send_message(body, content_type, local_identity=self.identity, recipients=[self.identity])
+                continue
+            chat_stream.send_message(body, content_type, local_identity=self.identity, recipients=[self.identity])
         self_identity = format_identity(self.identity, cpim_format=True)
         database.async_save_message(self_identity, self.uri, body, content_type, self_identity, self_identity, datetime.now())
 
