@@ -76,15 +76,19 @@ def main():
         log.msg('Stopping SylkServer...')
         server.stop()
 
+    def kill_server(*args):
+        log.msg('Forcefully exiting SylkServer...')
+        os._exit(1)
+
     process.signals.add_handler(signal.SIGTERM, stop_server)
     process.signals.add_handler(signal.SIGINT, stop_server)
+    process.signals.add_handler(signal.SIGALRM, kill_server)
 
     try:
         server.start()
-        while True:
-            server.stop_event.wait(999999)
-            if server.stop_event.is_set():
-                break
+        signal.pause()
+        signal.alarm(5)
+        server.stop_event.wait()
         log.msg("%s stopped" % fullname)
     except Exception, e:
         log.fatal("failed to run %s: %s" % (fullname, e))
