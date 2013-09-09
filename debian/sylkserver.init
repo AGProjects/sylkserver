@@ -26,7 +26,7 @@ test -f $SERVER || exit 0
 
 . /lib/lsb/init-functions
 
-# Load startup options if available                                                                                                                                       
+# Load startup options if available
 if [ -f $DEFAULTS ]; then
     . $DEFAULTS || true
 fi
