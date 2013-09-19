@@ -21,8 +21,7 @@ from eventlib import api, coros, proc
 from sipsimple.account import AccountManager
 from sipsimple.account.bonjour import BonjourPresenceState
 from sipsimple.application import SIPApplication
-from sipsimple.audio import WavePlayer, WavePlayerError
-from sipsimple.conference import AudioConference
+from sipsimple.audio import AudioConference, WavePlayer, WavePlayerError
 from sipsimple.configuration.settings import SIPSimpleSettings
 from sipsimple.core import Engine, SIPCoreError, SIPCoreInvalidStateError, SIPURI
 from sipsimple.core import Header, ContactHeader, FromHeader, ToHeader

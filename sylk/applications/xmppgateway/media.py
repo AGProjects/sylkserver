@@ -5,7 +5,7 @@ from application.notification import IObserver, NotificationCenter, Notification
 from application.python import Null
 from eventlib.twistedutil import block_on
 from sipsimple.account import AccountManager
-from sipsimple.conference import AudioConference
+from sipsimple.audio import AudioConference
 from sipsimple.configuration.settings import SIPSimpleSettings
 from sipsimple.core import ContactHeader, FromHeader, ToHeader
 from sipsimple.core import Engine, SIPURI, SIPCoreError

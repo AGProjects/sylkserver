@@ -10,8 +10,7 @@ from application.notification import IObserver, NotificationCenter, Notification
 from application.python import Null
 from application.python.types import Singleton
 from eventlib import coros, proc
-from sipsimple.audio import WavePlayer, WavePlayerError
-from sipsimple.conference import AudioConference
+from sipsimple.audio import AudioConference, WavePlayer, WavePlayerError
 from sipsimple.configuration.settings import SIPSimpleSettings
 from sipsimple.core import SIPURI, SIPCoreError, SIPCoreInvalidStateError
 from sipsimple.payloads.conference import Conference, ConferenceDocument, ConferenceDescription, ConferenceState, Endpoint, EndpointStatus, HostInfo, JoiningInfo, Media, User, Users, WebPage
