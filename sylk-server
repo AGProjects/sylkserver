@@ -82,11 +82,11 @@ def main():
 
     process.signals.add_handler(signal.SIGTERM, stop_server)
     process.signals.add_handler(signal.SIGINT, stop_server)
-    process.signals.add_handler(signal.SIGALRM, kill_server)
 
     try:
         server.start()
         signal.pause()
+        process.signals.add_handler(signal.SIGALRM, kill_server)
         signal.alarm(5)
         server.stop_event.wait(5)
         log.msg("%s stopped" % fullname)
