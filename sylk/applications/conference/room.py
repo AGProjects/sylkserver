@@ -889,7 +889,6 @@ class WelcomeHandler(object):
                     txt += '    - Using an XMPP client, connect to group chat room %s (chat)\n' % self.room.uri
                     txt += '    - Using an XMPP Jingle capable client, add contact %s and call it (audio)\n' % self.room.uri
                 txt += '    - Using a SIP client, initiate a session to %s (audio and chat)\n' % self.room.uri
-        txt += '\n'
         return txt
 
     def render_chat_welcome(self, welcome_prompt):
