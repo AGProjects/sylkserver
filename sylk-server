@@ -42,7 +42,7 @@ def main():
         system_config_directory = path
 
     process.system_config_directory = system_config_directory
-    sylk.configuration_filename = process.config_file(configuration_filename)
+    sylk.configuration_filename = process.config_file(options.config_file)
     pid_file = options.pid_file or default_pid
 
     # when run in foreground, do not require root access because of /var/run/sylkserver
