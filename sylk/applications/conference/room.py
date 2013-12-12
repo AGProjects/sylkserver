@@ -586,11 +586,12 @@ class Room(object):
 
     def _NH_SIPIncomingSubscriptionDidEnd(self, notification):
         subscription = notification.sender
-        notification.center.remove_observer(self, sender=subscription)
         try:
             self.subscriptions.remove(subscription)
         except ValueError:
             pass
+        else:
+            notification.center.remove_observer(self, sender=subscription)
 
     def _NH_SIPSessionDidChangeHoldState(self, notification):
         session = notification.sender
