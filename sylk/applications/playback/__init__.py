@@ -74,9 +74,10 @@ class PlaybackApplication(SylkApplication):
         log.msg('Session %s ended' % session._invitation.call_id)
         NotificationCenter().remove_observer(self, sender=session)
 
-    def _NH_SIPSessionGotProposal(self, notification):
-        session = notification.sender
-        session.reject_proposal()
+    def _NH_SIPSessionNewProposal(self, notification):
+        if notification.data.originator == 'remote':
+            session = notification.sender
+            session.reject_proposal()
 
 
 class InterruptPlayback(Exception): pass

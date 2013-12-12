@@ -384,8 +384,9 @@ class X2SMucHandler(object):
         self._msrp_stream = None
         self.end()
 
-    def _NH_SIPSessionGotProposal(self, notification):
-        self._sip_session.reject_proposal()
+    def _NH_SIPSessionNewProposal(self, notification):
+        if notification.data.originator == 'remote':
+            self._sip_session.reject_proposal()
 
     def _NH_SIPSessionTransferNewIncoming(self, notification):
         self._sip_session.reject_transfer(403)

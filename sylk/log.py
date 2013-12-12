@@ -161,28 +161,26 @@ class Logger(object):
         buf.append(notification.data.data)
         buf.append('--')
         message = '\n'.join(buf)
-        if settings.logs.trace_sip:
-            try:
-                self._init_log_file('siptrace')
-            except Exception:
-                pass
-            else:
-                self._siptrace_file.write('%s [%s %d]: %s\n' % (notification.datetime, os.path.basename(sys.argv[0]).rstrip('.py'), os.getpid(), message))
-                self._siptrace_file.flush()
+        try:
+            self._init_log_file('siptrace')
+        except Exception:
+            pass
+        else:
+            self._siptrace_file.write('%s [%s %d]: %s\n' % (notification.datetime, os.path.basename(sys.argv[0]).rstrip('.py'), os.getpid(), message))
+            self._siptrace_file.flush()
 
     def _LH_SIPEngineLog(self, notification):
         settings = SIPSimpleSettings()
         if not settings.logs.trace_pjsip:
             return
         message = "(%(level)d) %(message)s" % notification.data.__dict__
-        if settings.logs.trace_pjsip:
-            try:
-                self._init_log_file('pjsiptrace')
-            except Exception:
-                pass
-            else:
-                self._pjsiptrace_file.write('%s [%s %d] %s\n' % (notification.datetime, os.path.basename(sys.argv[0]).rstrip('.py'), os.getpid(), message))
-                self._pjsiptrace_file.flush()
+        try:
+            self._init_log_file('pjsiptrace')
+        except Exception:
+            pass
+        else:
+            self._pjsiptrace_file.write('%s [%s %d] %s\n' % (notification.datetime, os.path.basename(sys.argv[0]).rstrip('.py'), os.getpid(), message))
+            self._pjsiptrace_file.flush()
 
     def _LH_DNSLookupTrace(self, notification):
         settings = SIPSimpleSettings()
@@ -204,14 +202,13 @@ class Logger(object):
                            dns.resolver.NoNameservers: 'no DNS name servers could be reached',
                            dns.resolver.Timeout: 'no DNS response received, the query has timed out'}
             message += ' failed: %s' % message_map.get(notification.data.error.__class__, '')
-        if settings.logs.trace_sip:
-            try:
-                self._init_log_file('siptrace')
-            except Exception:
-                pass
-            else:
-                self._siptrace_file.write('%s [%s %d]: %s\n' % (notification.datetime, os.path.basename(sys.argv[0]).rstrip('.py'), os.getpid(), message))
-                self._siptrace_file.flush()
+        try:
+            self._init_log_file('siptrace')
+        except Exception:
+            pass
+        else:
+            self._siptrace_file.write('%s [%s %d]: %s\n' % (notification.datetime, os.path.basename(sys.argv[0]).rstrip('.py'), os.getpid(), message))
+            self._siptrace_file.flush()
 
     def _LH_MSRPTransportTrace(self, notification):
         settings = SIPSimpleSettings()
@@ -223,14 +220,13 @@ class Logger(object):
         remote_address = notification.sender.getPeer()
         remote_address = '%s:%d' % (remote_address.host, remote_address.port)
         message = '%s %s %s\n' % (local_address, arrow, remote_address) + notification.data.data
-        if settings.logs.trace_msrp:
-            try:
-                self._init_log_file('msrptrace')
-            except Exception:
-                pass
-            else:
-                self._msrptrace_file.write('%s [%s %d]: %s\n' % (notification.datetime, os.path.basename(sys.argv[0]).rstrip('.py'), os.getpid(), message))
-                self._msrptrace_file.flush()
+        try:
+            self._init_log_file('msrptrace')
+        except Exception:
+            pass
+        else:
+            self._msrptrace_file.write('%s [%s %d]: %s\n' % (notification.datetime, os.path.basename(sys.argv[0]).rstrip('.py'), os.getpid(), message))
+            self._msrptrace_file.flush()
 
     def _LH_MSRPLibraryLog(self, notification):
         settings = SIPSimpleSettings()
@@ -239,14 +235,13 @@ class Logger(object):
         if notification.data.level < self.msrp_level:
             return
         message = '%s%s' % (notification.data.level.prefix, notification.data.message)
-        if settings.logs.trace_msrp:
-            try:
-                self._init_log_file('msrptrace')
-            except Exception:
-                pass
-            else:
-                self._msrptrace_file.write('%s [%s %d]: %s\n' % (notification.datetime, os.path.basename(sys.argv[0]).rstrip('.py'), os.getpid(), message))
-                self._msrptrace_file.flush()
+        try:
+            self._init_log_file('msrptrace')
+        except Exception:
+            pass
+        else:
+            self._msrptrace_file.write('%s [%s %d]: %s\n' % (notification.datetime, os.path.basename(sys.argv[0]).rstrip('.py'), os.getpid(), message))
+            self._msrptrace_file.flush()
 
     # private methods
     #
@@ -299,5 +294,4 @@ class Logger(object):
                 raise
             else:
                 setattr(self, '_%s_error' % type, False)
-
 

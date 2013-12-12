@@ -109,8 +109,8 @@ class SylkServer(SIPApplication):
                        # audio
                        codecs=list(settings.rtp.audio_codec_list),
                        # logging
-                       log_level=settings.logs.pjsip_level,
-                       trace_sip=True,
+                       trace_sip=settings.logs.trace_sip,
+                       log_level=settings.logs.pjsip_level if settings.logs.trace_pjsip else 0,
                        # events and requests to handle
                        events={'conference': ['application/conference-info+xml'],
                                'presence': ['application/pidf+xml'],

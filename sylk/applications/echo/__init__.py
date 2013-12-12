@@ -117,50 +117,28 @@ class EchoApplication(SylkApplication):
         else:
             stream.msrp_session.send_report(notification.data.chunk, 413, 'Unwanted message')
 
-    def _NH_SIPSessionGotProposal(self, notification):
-        session = notification.sender
-        audio_streams = [stream for stream in notification.data.streams if stream.type=='audio']
-        chat_streams = [stream for stream in notification.data.streams if stream.type=='chat']
-        if not audio_streams and not chat_streams:
-            session.reject_proposal()
-            return
-        streams = [streams[0] for streams in (audio_streams, chat_streams) if streams]
-        session.accept_proposal(streams)
+    def _NH_SIPSessionNewProposal(self, notification):
+        if notification.data.originator == 'remote':
+            session = notification.sender
+            audio_streams = [stream for stream in notification.data.proposed_streams if stream.type=='audio']
+            chat_streams = [stream for stream in notification.data.proposed_streams if stream.type=='chat']
+            if not audio_streams and not chat_streams:
+                session.reject_proposal()
+                return
+            streams = [streams[0] for streams in (audio_streams, chat_streams) if streams]
+            session.accept_proposal(streams)
 
     def _NH_SIPSessionDidRenegotiateStreams(self, notification):
         session = notification.sender
-        streams = notification.data.streams
-        if notification.data.action == 'add':
-            try:
-                chat_stream = next(stream for stream in streams if stream.type == 'chat')
-            except StopIteration:
-                pass
-            else:
-                notification.center.add_observer(self, sender=chat_stream)
-                log.msg(u'Session %s has added chat' % session.call_id)
-            try:
-                audio_stream = next(stream for stream in streams if stream.type == 'audio')
-            except StopIteration:
-                pass
-            else:
-                notification.center.add_observer(self, sender=audio_stream)
-                self._make_audio_stream_echo(audio_stream)
-                log.msg(u'Session %s has added audio' % session.call_id)
-        elif notification.data.action == 'remove':
-            try:
-                chat_stream = next(stream for stream in streams if stream.type == 'chat')
-            except StopIteration:
-                pass
-            else:
-                notification.center.remove_observer(self, sender=chat_stream)
-                log.msg(u'Session %s has removed chat' % session.call_id)
-            try:
-                audio_stream = next(stream for stream in streams if stream.type == 'audio')
-            except StopIteration:
-                pass
-            else:
-                notification.center.remove_observer(self, sender=audio_stream)
-                log.msg(u'Session %s has removed audio' % session.call_id)
+        for stream in notification.data.added_streams:
+            notification.center.add_observer(self, sender=stream)
+            log.msg(u'Session %s has added %s' % (session.call_id, stream.type))
+            if stream.type == 'audio':
+                self._make_audio_stream_echo(stream)
+
+        for stream in notification.data.removed_streams:
+            notification.center.remove_observer(self, sender=stream)
+            log.msg(u'Session %s has removed %s' % (session.call_id, stream.type))
             if not session.streams:
                 log.msg(u'Session %s has removed all streams, session will be terminated' % session.call_id)
                 session.end()

@@ -312,7 +312,7 @@ class IRCRoom(object):
     @run_in_green_thread
     def play_audio_welcome(self, session, welcome_prompt=True):
         audio_stream = (stream for stream in session.streams if stream.type == 'audio').next()
-        player = WavePlayer(audio_stream.mixer, '', pause_time=1, initial_play=False, volume=50)
+        player = WavePlayer(audio_stream.mixer, '', pause_time=1, initial_delay=1, volume=50)
         audio_stream.bridge.add(player)
         if welcome_prompt:
             file = ResourcePath('sounds/co_welcome_conference.wav').normalized
@@ -370,63 +370,42 @@ class IRCRoom(object):
                 log.msg(u'%s has taken the audio session out of hold' % format_identity(session.remote_identity))
             self.get_conference_info()
 
-    def _NH_SIPSessionGotProposal(self, notification):
-        session = notification.sender
-        audio_streams = [stream for stream in notification.data.streams if stream.type=='audio']
-        chat_streams = [stream for stream in notification.data.streams if stream.type=='chat']
-        if not audio_streams and not chat_streams:
-            session.reject_proposal()
-            return
-        if chat_streams:
-            chat_streams[0].chatroom_capabilities = []
-        streams = [streams[0] for streams in (audio_streams, chat_streams) if streams]
-        self.sessions_with_proposals.append(session)
-        reactor.callLater(4, self.accept_proposal, session, streams)
+    def _NH_SIPSessionNewProposal(self, notification):
+        if notification.data.originator == 'remote':
+            session = notification.sender
+            audio_streams = [stream for stream in notification.data.proposed_streams if stream.type=='audio']
+            chat_streams = [stream for stream in notification.data.proposed_streams if stream.type=='chat']
+            if not audio_streams and not chat_streams:
+                session.reject_proposal()
+                return
+            if chat_streams:
+                chat_streams[0].chatroom_capabilities = []
+            streams = [streams[0] for streams in (audio_streams, chat_streams) if streams]
+            self.sessions_with_proposals.append(session)
+            reactor.callLater(4, self.accept_proposal, session, streams)
 
-    def _NH_SIPSessionGotRejectProposal(self, notification):
+    def _NH_SIPSessionProposalRejected(self, notification):
         session = notification.sender
         self.sessions_with_proposals.remove(session)
 
     def _NH_SIPSessionDidRenegotiateStreams(self, notification):
         session = notification.sender
-        streams = notification.data.streams
-        if notification.data.action == 'add':
-            try:
-                chat_stream = (stream for stream in streams if stream.type == 'chat').next()
-            except StopIteration:
-                pass
-            else:
-                notification.center.add_observer(self, sender=chat_stream)
-                log.msg(u'%s has added chat to %s' % (format_identity(session.remote_identity), self.uri))
-                self.dispatch_server_message('%s has added chat' % format_identity(session.remote_identity), exclude=session)
-            try:
-                audio_stream = (stream for stream in streams if stream.type == 'audio').next()
-            except StopIteration:
-                pass
-            else:
-                notification.center.add_observer(self, sender=audio_stream)
-                log.msg(u'Audio stream using %s/%sHz (%s), end-points: %s:%d <-> %s:%d' % (audio_stream.codec, audio_stream.sample_rate,
-                                                                                          'encrypted' if audio_stream.srtp_active else 'unencrypted',
-                                                                                          audio_stream.local_rtp_address, audio_stream.local_rtp_port,
-                                                                                          audio_stream.remote_rtp_address, audio_stream.remote_rtp_port))
-                log.msg(u'%s has added audio to %s' % (format_identity(session.remote_identity), self.uri))
-                self.dispatch_server_message('%s has added audio' % format_identity(session.remote_identity), exclude=session)
+        for stream in notification.data.added_streams:
+            notification.center.add_observer(self, sender=stream)
+            log.msg(u'%s has added %s to %s' % (format_identity(session.remote_identity), stream.type, self.uri))
+            self.dispatch_server_message('%s has added %s' % (format_identity(session.remote_identity), stream.type), exclude=session)
+            if stream.type == 'audio':
+                log.msg(u'Audio stream using %s/%sHz (%s), end-points: %s:%d <-> %s:%d' % (stream.codec, stream.sample_rate,
+                                                                                           'encrypted' if stream.srtp_active else 'unencrypted',
+                                                                                           stream.local_rtp_address, stream.local_rtp_port,
+                                                                                           stream.remote_rtp_address, stream.remote_rtp_port))
                 self.play_audio_welcome(session, False)
-        elif notification.data.action == 'remove':
-            try:
-                chat_stream = (stream for stream in streams if stream.type == 'chat').next()
-            except StopIteration:
-                pass
-            else:
-                notification.center.remove_observer(self, sender=chat_stream)
-                log.msg(u'%s has removed chat from %s' % (format_identity(session.remote_identity), self.uri))
-                self.dispatch_server_message('%s has removed chat' % format_identity(session.remote_identity), exclude=session)
-            try:
-                audio_stream = (stream for stream in streams if stream.type == 'audio').next()
-            except StopIteration:
-                pass
-            else:
-                notification.center.remove_observer(self, sender=audio_stream)
+
+        for stream in notification.data.removed_streams:
+            notification.center.remove_observer(self, sender=stream)
+            log.msg(u'%s has removed %s from %s' % (format_identity(session.remote_identity), stream.type, self.uri))
+            self.dispatch_server_message('%s has removed %s' % (format_identity(session.remote_identity), stream.type), exclude=session)
+            if stream.type == 'audio':
                 try:
                     self.audio_conference.remove(audio_stream)
                 except ValueError:
@@ -434,8 +413,6 @@ class IRCRoom(object):
                     pass
                 if len(self.audio_conference.streams) == 0:
                     self.audio_conference.hold()
-                log.msg(u'%s has removed audio from %s' % (format_identity(session.remote_identity), self.uri))
-                self.dispatch_server_message('%s has removed audio' % format_identity(session.remote_identity), exclude=session)
             if not session.streams:
                 log.msg(u'%s has removed all streams from %s, session will be terminated' % (format_identity(session.remote_identity), self.uri))
                 session.end()
