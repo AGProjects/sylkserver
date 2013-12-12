@@ -1,3 +1,16 @@
+sylkserver (2.5.1) UNRELEASED; urgency=medium
+
+  * Adapted to API changes in SIP SIMPLE SDK
+  * Added option to dump core in case of a crash
+  * Fixed dispatching messages when in bonjour mode
+  * Limit session in echo application to 10 minutes
+  * Skip broadcasting OTR messages
+  * Reworked server stop mechanism
+  * Removed obsolete sound files and fixed co_there_is prompt
+  * Fixed removing observer if notification is processed too late
+
+ -- Saul Ibarra <saul@ag-projects.com>  Thu, 12 Dec 2013 15:45:41 +0100
+
 sylkserver (2.5.0) unstable; urgency=low
 
   * Adapted to changes in latest SIP SIMPLE SDK
