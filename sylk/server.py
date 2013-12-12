@@ -38,6 +38,7 @@ class SylkServer(SIPApplication):
     def __init__(self):
         self.logger = None
         self.request_handler = None
+        self.stopping_event = Event()
         self.stop_event = Event()
 
     def start(self):
@@ -237,6 +238,7 @@ class SylkServer(SIPApplication):
 
     def _NH_SIPApplicationWillEnd(self, notification):
         self.request_handler.stop()
+        self.stopping_event.set()
 
     def _NH_SIPApplicationDidEnd(self, notification):
         self.logger.stop()
