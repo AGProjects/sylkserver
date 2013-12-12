@@ -36,6 +36,10 @@ if [ "$RUN_SYLKSERVER" != "yes" ]; then
     exit 0
 fi
 
+if [ "$DUMP_CORE" = "yes" ]; then
+    ulimit -c unlimited
+fi
+
 start() {
     log_daemon_msg "Starting $DESC: $NAME "
     start-stop-daemon --start --quiet --pidfile $PID \

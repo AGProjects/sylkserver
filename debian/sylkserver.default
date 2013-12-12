@@ -6,3 +6,6 @@
 # by editing /etc/sylkserver/config.ini
 RUN_SYLKSERVER=no
 
+# Set to yes to enable creating code dump files in case of a crash
+DUMP_CORE=no
+
