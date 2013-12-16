@@ -1,4 +1,4 @@
-sylkserver (2.5.1) UNRELEASED; urgency=medium
+sylkserver (2.5.1) unstable; urgency=medium
 
   * Adapted to API changes in SIP SIMPLE SDK
   * Added option to dump core in case of a crash
@@ -9,7 +9,7 @@ sylkserver (2.5.1) UNRELEASED; urgency=medium
   * Removed obsolete sound files and fixed co_there_is prompt
   * Fixed removing observer if notification is processed too late
 
- -- Saul Ibarra <saul@ag-projects.com>  Thu, 12 Dec 2013 15:45:41 +0100
+ -- Saul Ibarra <saul@ag-projects.com>  Mon, 16 Dec 2013 16:36:07 +0100
 
 sylkserver (2.5.0) unstable; urgency=low
 
