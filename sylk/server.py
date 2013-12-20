@@ -237,10 +237,12 @@ class SylkServer(SIPApplication):
         proc.spawn(self._start_sipthor)
 
     def _NH_SIPApplicationWillEnd(self, notification):
+        log.msg('SIP application will end: %s' % self.end_reason)
         self.request_handler.stop()
         self.stopping_event.set()
 
     def _NH_SIPApplicationDidEnd(self, notification):
+        log.msg('SIP application ended')
         self.logger.stop()
         self.stop_event.set()
 
