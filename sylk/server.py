@@ -244,6 +244,9 @@ class SylkServer(SIPApplication):
     def _NH_SIPApplicationDidEnd(self, notification):
         log.msg('SIP application ended')
         self.logger.stop()
+        if not self.stopping_event.is_set():
+            log.warning('SIP application ended without shutting down all subsystems')
+            self.stopping_event.set()
         self.stop_event.set()
 
     def _NH_SIPEngineGotException(self, notification):
