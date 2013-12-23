@@ -181,7 +181,7 @@ class ChatStream(MSRPStreamMixin, _ChatStream):
             raise ValueError('Invalid value for composing indication state')
         if message_id is None:
             message_id = '%x' % random.getrandbits(64)
-        content = IsComposingMessage.create(state=State(state), refresh=Refresh(refresh) is refresh is not None else None, last_active=LastActive(last_active) if last_active is not None else None, content_type=ContentType('text'))
+        content = IsComposingMessage.create(state=State(state), refresh=Refresh(refresh) if refresh is not None else None, last_active=LastActive(last_active) if last_active is not None else None, content_type=ContentType('text'))
         if recipients is None:
             recipients = [self.remote_identity]
         # Only use CPIM, it's the only type we accept
