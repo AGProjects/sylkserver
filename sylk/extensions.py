@@ -10,7 +10,7 @@ from msrplib.protocol import URI
 from msrplib.session import contains_mime_type
 from msrplib.transport import make_response
 from sipsimple.core import SDPAttribute
-from sipsimple.payloads.iscomposing import IsComposingDocument, IsComposingMessage, State, LastActive, Refresh, ContentType
+from sipsimple.payloads.iscomposing import IsComposingDocument, State, LastActive, Refresh, ContentType
 from sipsimple.streams.applications.chat import CPIMMessage, CPIMParserError
 from sipsimple.streams.msrp import ChatStream as _ChatStream, FileTransferStream as _FileTransferStream
 from sipsimple.streams.msrp import ChatStreamError, MSRPStreamError, NotificationProxyLogger
@@ -181,7 +181,7 @@ class ChatStream(MSRPStreamMixin, _ChatStream):
             raise ValueError('Invalid value for composing indication state')
         if message_id is None:
             message_id = '%x' % random.getrandbits(64)
-        content = IsComposingMessage.create(state=State(state), refresh=Refresh(refresh) if refresh is not None else None, last_active=LastActive(last_active) if last_active is not None else None, content_type=ContentType('text'))
+        content = IsComposingDocument.create(state=State(state), refresh=Refresh(refresh) if refresh is not None else None, last_active=LastActive(last_active) if last_active is not None else None, content_type=ContentType('text'))
         if recipients is None:
             recipients = [self.remote_identity]
         # Only use CPIM, it's the only type we accept
