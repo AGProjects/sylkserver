@@ -174,14 +174,14 @@ class ChatStream(MSRPStreamMixin, _ChatStream):
         self._enqueue_message(str(message_id), str(msg), 'message/cpim', failure_report=failure_report, success_report=success_report, notify_progress=notify_progress)
         return message_id
 
-    def send_composing_indication(self, state, refresh, last_active=None, recipients=None, local_identity=None, message_id=None, notify_progress=False, success_report='no', failure_report='partial'):
+    def send_composing_indication(self, state, refresh=None, last_active=None, recipients=None, local_identity=None, message_id=None, notify_progress=False, success_report='no', failure_report='partial'):
         if self.direction == 'recvonly':
             raise ChatStreamError('Cannot send message on recvonly stream')
         if state not in ('active', 'idle'):
             raise ValueError('Invalid value for composing indication state')
         if message_id is None:
             message_id = '%x' % random.getrandbits(64)
-        content = IsComposingMessage(state=State(state), refresh=Refresh(refresh), last_active=LastActive(last_active or ISOTimestamp.now()), content_type=ContentType('text')).toxml()
+        content = IsComposingMessage.create(state=State(state), refresh=Refresh(refresh) is refresh is not None else None, last_active=LastActive(last_active) if last_active is not None else None, content_type=ContentType('text'))
         if recipients is None:
             recipients = [self.remote_identity]
         # Only use CPIM, it's the only type we accept
