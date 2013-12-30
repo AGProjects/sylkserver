@@ -9,8 +9,7 @@ import shutil
 import string
 import weakref
 
-from collections import defaultdict
-from datetime import datetime
+from collections import defaultdict, deque
 from glob import glob
 from itertools import chain, count, cycle
 
@@ -32,10 +31,10 @@ from sipsimple.streams.applications.chat import CPIMIdentity
 from sipsimple.streams.msrp import ChatStreamError, FileSelector
 from sipsimple.threading import run_in_thread, run_in_twisted_thread
 from sipsimple.threading.green import run_in_green_thread
+from sipsimple.util import ISOTimestamp
 from twisted.internet import reactor
 from zope.interface import implements
 
-from sylk.applications.conference import database
 from sylk.applications.conference.configuration import get_room_config, ConferenceConfig
 from sylk.applications.conference.logger import log
 from sylk.bonjour import BonjourServices
@@ -149,6 +148,7 @@ class Room(object):
         self.session_nickname_map = {}
         self.last_nicknames_map = {}
         self.participants_counter = defaultdict(lambda: 0)
+        self.history = deque(maxlen=ConferenceConfig.history_size)
 
     @property
     def empty(self):
@@ -226,20 +226,15 @@ class Room(object):
                     continue
                 if message.body.startswith('?OTR:'):
                     continue
-                if message.timestamp is not None:
-                    value = message.timestamp
-                    timestamp = datetime(value.year, value.month, value.day, value.hour, value.minute, value.second, value.microsecond, value.tzinfo)
-                else:
-                    timestamp = datetime.utcnow()
+                if message.timestamp is None:
+                    message.timestamp = ISOTimestamp.utcnow()
+                message.sender.display_name = self.last_nicknames_map.get(str(session.remote_identity.uri), message.sender.display_name)
                 recipient = message.recipients[0]
-                sender = message.sender
-                sender.display_name = self.last_nicknames_map.get(str(session.remote_identity.uri), sender.display_name)
-                message.sender = sender
-                database.async_save_message(format_identity(session.remote_identity, True), self.uri, message.body, message.content_type, unicode(message.sender), unicode(recipient), timestamp)
                 private = len(message.recipients) == 1 and '%s@%s' % (recipient.uri.user, recipient.uri.host) != self.uri
                 if private:
                     self.dispatch_private_message(session, message)
                 else:
+                    self.history.append(message)
                     self.dispatch_message(session, message)
             elif message_type == 'composing_indication':
                 if data.sender.uri != session.remote_identity.uri:
@@ -308,8 +303,6 @@ class Room(object):
             except StopIteration:
                 continue
             chat_stream.send_message(body, content_type, local_identity=self.identity, recipients=[self.identity])
-        self_identity = format_identity(self.identity, cpim_format=True)
-        database.async_save_message(self_identity, self.uri, body, content_type, self_identity, self_identity, datetime.now())
 
     def dispatch_conference_info(self):
         data = self.build_conference_info_payload()
@@ -879,17 +872,10 @@ class WelcomeHandler(object):
             chat_stream = next(stream for stream in self.session.streams if stream.type == 'chat')
         except StopIteration:
             return
-        try:
-            welcome_text = self.render_chat_welcome_prompt()
-            chat_stream.send_message(welcome_text, 'text/plain', local_identity=self.room.identity, recipients=[self.room.identity])
-            remote_identity = CPIMIdentity.parse(format_identity(self.session.remote_identity, cpim_format=True))
-            for msg in database.get_last_messages(self.room.uri, ConferenceConfig.replay_history):
-                recipient = CPIMIdentity.parse(msg.cpim_recipient)
-                sender = CPIMIdentity.parse(msg.cpim_sender)
-                if recipient.uri in (self.room.identity.uri, remote_identity.uri) or sender.uri == remote_identity.uri:
-                    chat_stream.send_message(msg.cpim_body, msg.cpim_content_type, local_identity=sender, recipients=[recipient], timestamp=msg.cpim_timestamp)
-        except InterruptWelcome:
-            pass
+        welcome_text = self.render_chat_welcome_prompt()
+        chat_stream.send_message(welcome_text, 'text/plain', local_identity=self.room.identity, recipients=[self.room.identity])
+        for msg in self.room.history:
+            chat_stream.send_message(msg.body, msg.content_type, local_identity=msg.sender, recipients=[self.room.identity], timestamp=msg.timestamp)
 
     def handle_notification(self, notification):
         handler = getattr(self, '_NH_%s' % notification.name, Null)

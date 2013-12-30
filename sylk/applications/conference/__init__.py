@@ -20,7 +20,6 @@ from zope.interface import implements
 
 from sylk.applications import SylkApplication
 from sylk.applications.conference.configuration import get_room_config, ConferenceConfig
-from sylk.applications.conference.database import initialize as init_database
 from sylk.applications.conference.logger import log
 from sylk.applications.conference.room import Room
 from sylk.applications.conference.web import ScreenSharingWebServer
@@ -48,7 +47,6 @@ class ConferenceApplication(SylkApplication):
         self.screen_sharing_web_server = None
 
     def start(self):
-        init_database()
         if ServerConfig.enable_bonjour:
             self.bonjour_focus_service = BonjourServices(service='sipfocus')
             self.bonjour_focus_service.start()

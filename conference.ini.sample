@@ -2,16 +2,8 @@
 
 [Conference]
 
-; The following settings are the default used by the software, uncomment them
-; only if you want to make changes
-
-db_uri = sqlite:///var/lib/sylkserver/conference.sqlite
-
-; Database table name for storing messages history
-; history_table = message_history
-
 ; Replay last chat messages after joining a room
-; replay_history = 20
+; history_size = 20
 
 ; Directory for storing files transferred to rooms (a subdirectory for each room will be created)
 file_transfer_dir = /var/spool/sylkserver

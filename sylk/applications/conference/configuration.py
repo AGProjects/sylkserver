@@ -3,7 +3,6 @@
 
 __all__ = ['ConferenceConfig', 'get_room_config']
 
-import os
 import re
 
 from application.configuration import ConfigFile, ConfigSection, ConfigSetting
@@ -82,9 +81,7 @@ class ConferenceConfig(ConfigSection):
     __cfgfile__ = 'conference.ini'
     __section__ = 'Conference'
 
-    db_uri = ConfigSetting(type=str, value='sqlite://'+os.getcwd()+'/var/lib/sylkserver/conference.sqlite')
-    history_table = ConfigSetting(type=str, value='message_history')
-    replay_history = 20
+    history_size = 20
 
     access_policy = ConfigSetting(type=AccessPolicyValue, value=AccessPolicyValue('allow, deny'))
     allow = ConfigSetting(type=PolicySettingValue, value=PolicySettingValue('all'))
