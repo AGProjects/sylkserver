@@ -27,12 +27,10 @@ from sylk.applications.ircconference.logger import log
 from sylk.configuration.datatypes import ResourcePath
 
 
-def format_identity(identity, cpim_format=False):
+def format_identity(identity):
     uri = identity.uri
     if identity.display_name:
         return u'%s <sip:%s@%s>' % (identity.display_name, uri.user, uri.host)
-    elif cpim_format:
-        return u'<sip:%s@%s>' % (uri.user, uri.host)
     else:
         return u'sip:%s@%s' % (uri.user, uri.host)
 

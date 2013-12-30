@@ -43,12 +43,10 @@ from sylk.configuration.datatypes import ResourcePath, URL
 from sylk.session import Session
 
 
-def format_identity(identity, cpim_format=False):
+def format_identity(identity):
     uri = identity.uri
     if identity.display_name:
         return u'%s <sip:%s@%s>' % (identity.display_name, uri.user, uri.host)
-    elif cpim_format:
-        return u'<sip:%s@%s>' % (uri.user, uri.host)
     else:
         return u'sip:%s@%s' % (uri.user, uri.host)
 
@@ -102,7 +100,7 @@ class ScreenImage(object):
             self.timer = reactor.callLater(10, self.stop_advertising)
             room = self.room() or Null
             room.dispatch_conference_info()
-            txt = 'Room %s - %s is sharing the screen at %s' % (self.room_uri, format_identity(self.sender, cpim_format=True), self.url)
+            txt = 'Room %s - %s is sharing the screen at %s' % (self.room_uri, format_identity(self.sender), self.url)
             room.dispatch_server_message(txt)
             log.msg(txt)
 
@@ -115,7 +113,7 @@ class ScreenImage(object):
             self.timer = None
             room = self.room() or Null
             room.dispatch_conference_info()
-            txt = '%s stopped sharing the screen' % format_identity(self.sender, cpim_format=True)
+            txt = '%s stopped sharing the screen' % format_identity(self.sender)
             room.dispatch_server_message(txt)
             log.msg(txt)
 
@@ -349,11 +347,11 @@ class Room(object):
             if transfer_stream.direction == 'recvonly':
                 transfer_handler = IncomingFileTransferHandler(self, session)
                 transfer_handler.start()
-                txt = u'Room %s - %s is uploading file %s (%s)' % (self.uri, format_identity(session.remote_identity, cpim_format=True), transfer_stream.file_selector.name.decode('utf-8'), self.format_file_size(transfer_stream.file_selector.size))
+                txt = u'Room %s - %s is uploading file %s (%s)' % (self.uri, format_identity(session.remote_identity), transfer_stream.file_selector.name.decode('utf-8'), self.format_file_size(transfer_stream.file_selector.size))
             else:
                 transfer_handler = OutgoingFileTransferRequestHandler(self, session)
                 transfer_handler.start()
-                txt = u'Room %s - %s requested file %s' % (self.uri, format_identity(session.remote_identity, cpim_format=True), transfer_stream.file_selector.name.decode('utf-8'))
+                txt = u'Room %s - %s requested file %s' % (self.uri, format_identity(session.remote_identity), transfer_stream.file_selector.name.decode('utf-8'))
             log.msg(txt)
             self.dispatch_server_message(txt)
             if len(session.streams) == 1:
