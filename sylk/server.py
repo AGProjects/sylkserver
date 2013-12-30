@@ -259,6 +259,7 @@ class SylkServer(SIPApplication):
 
     def _NH_SIPEngineDidFail(self, notification):
         log.error('SIP engine failed')
+        super(SylkServer, self)._NH_SIPEngineDidFail(notification)
 
     def _NH_ThorNetworkGotFatalError(self, notification):
         log.error("All Thor Event Servers have unrecoverable errors.")
