@@ -95,7 +95,7 @@ class S2XPresenceHandler(object):
             self._pidf = None
             return None
         pidf_doc = pidf.PIDF(str(self.xmpp_identity))
-        uri = self._stanza_cache.iterkeys().next()
+        uri = next(self._stanza_cache.iterkeys())
         person = pidf.Person("PID-%s" % hashlib.md5("%s@%s" % (uri.user, uri.host)).hexdigest())
         person.activities = rpid.Activities()
         pidf_doc.add(person)
@@ -302,7 +302,7 @@ class X2SPresenceHandler(object):
             return
         # Build XML stanzas out of PIDF documents
         try:
-            person = (p for p in pidf_doc.persons).next()
+            person = next(p for p in pidf_doc.persons)
         except StopIteration:
             person = None
         for service in pidf_doc.services:

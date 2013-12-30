@@ -154,7 +154,7 @@ class IRCRoom(object):
         for s in (s for s in self.sessions if s is not session):
             try:
                 identity = CPIMIdentity.parse(format_identity(session.remote_identity, True))
-                chat_stream = (stream for stream in s.streams if stream.type == 'chat').next()
+                chat_stream = next(stream for stream in s.streams if stream.type == 'chat')
             except StopIteration:
                 pass
             else:
@@ -166,7 +166,7 @@ class IRCRoom(object):
     def dispatch_irc_message(self, message):
         for session in self.sessions:
             try:
-                chat_stream = (stream for stream in session.streams if stream.type == 'chat').next()
+                chat_stream = next(stream for stream in session.streams if stream.type == 'chat')
             except StopIteration:
                 pass
             else:
@@ -178,7 +178,7 @@ class IRCRoom(object):
     def dispatch_server_message(self, body, content_type='text/plain', exclude=None):
         for session in (session for session in self.sessions if session is not exclude):
             try:
-                chat_stream = (stream for stream in session.streams if stream.type == 'chat').next()
+                chat_stream = next(stream for stream in session.streams if stream.type == 'chat')
             except StopIteration:
                 pass
             else:
@@ -215,7 +215,7 @@ class IRCRoom(object):
         users = Users()
         for session in self.sessions:
             try:
-                user = (user for user in users if user.entity == str(session.remote_identity.uri)).next()
+                user = next(user for user in users if user.entity == str(session.remote_identity.uri))
             except StopIteration:
                 user = User(str(session.remote_identity.uri), display_text=session.remote_identity.display_name)
                 users.add(user)
@@ -242,13 +242,13 @@ class IRCRoom(object):
         notification_center.add_observer(self, sender=session)
         self.sessions.append(session)
         try:
-            chat_stream = (stream for stream in session.streams if stream.type == 'chat').next()
+            chat_stream = next(stream for stream in session.streams if stream.type == 'chat')
         except StopIteration:
             pass
         else:
             notification_center.add_observer(self, sender=chat_stream)
         try:
-            audio_stream = (stream for stream in session.streams if stream.type == 'audio').next()
+            audio_stream = next(stream for stream in session.streams if stream.type == 'audio')
         except StopIteration:
             pass
         else:
@@ -269,13 +269,13 @@ class IRCRoom(object):
     def remove_session(self, session):
         notification_center = NotificationCenter()
         try:
-            chat_stream = (stream for stream in session.streams or [] if stream.type == 'chat').next()
+            chat_stream = next(stream for stream in session.streams or [] if stream.type == 'chat')
         except StopIteration:
             pass
         else:
             notification_center.remove_observer(self, sender=chat_stream)
         try:
-            audio_stream = (stream for stream in session.streams or [] if stream.type == 'audio').next()
+            audio_stream = next(stream for stream in session.streams or [] if stream.type == 'audio')
         except StopIteration:
             pass
         else:
@@ -311,7 +311,7 @@ class IRCRoom(object):
 
     @run_in_green_thread
     def play_audio_welcome(self, session, welcome_prompt=True):
-        audio_stream = (stream for stream in session.streams if stream.type == 'audio').next()
+        audio_stream = next(stream for stream in session.streams if stream.type == 'audio')
         player = WavePlayer(audio_stream.mixer, '', pause_time=1, initial_delay=1, volume=50)
         audio_stream.bridge.add(player)
         if welcome_prompt:

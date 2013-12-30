@@ -98,7 +98,7 @@ class ChatSessionHandler(object):
     @run_in_green_thread
     def _start_incoming_sip_session(self, session):
         self.sip_session = session
-        self.msrp_stream = (stream for stream in session.proposed_streams if stream.type=='chat').next()
+        self.msrp_stream = next(stream for stream in session.proposed_streams if stream.type=='chat')
         notification_center = NotificationCenter()
         notification_center.add_observer(self, sender=self.sip_session)
         notification_center.add_observer(self, sender=self.msrp_stream)

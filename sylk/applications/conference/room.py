@@ -254,7 +254,7 @@ class Room(object):
     def dispatch_message(self, session, message):
         for s in (s for s in self.sessions if s is not session):
             try:
-                chat_stream = (stream for stream in s.streams if stream.type == 'chat').next()
+                chat_stream = next(stream for stream in s.streams if stream.type == 'chat')
             except StopIteration:
                 continue
             try:
@@ -268,7 +268,7 @@ class Room(object):
         recipient = message.recipients[0]
         for s in (s for s in self.sessions if s is not session and s.remote_identity.uri in (recipient.uri, session.remote_identity.uri)):
             try:
-                chat_stream = (stream for stream in s.streams if stream.type == 'chat').next()
+                chat_stream = next(stream for stream in s.streams if stream.type == 'chat')
             except StopIteration:
                 continue
             try:
@@ -279,7 +279,7 @@ class Room(object):
     def dispatch_iscomposing(self, session, data):
         for s in (s for s in self.sessions if s is not session):
             try:
-                chat_stream = (stream for stream in s.streams if stream.type == 'chat').next()
+                chat_stream = next(stream for stream in s.streams if stream.type == 'chat')
             except StopIteration:
                 continue
             identity = CPIMIdentity.parse(format_identity(session.remote_identity, True))
@@ -292,7 +292,7 @@ class Room(object):
         recipient_uri = data.recipients[0].uri
         for s in (s for s in self.sessions if s is not session and s.remote_identity.uri == recipient_uri):
             try:
-                chat_stream = (stream for stream in s.streams if stream.type == 'chat').next()
+                chat_stream = next(stream for stream in s.streams if stream.type == 'chat')
             except StopIteration:
                 continue
             identity = CPIMIdentity.parse(format_identity(session.remote_identity, True))
@@ -304,7 +304,7 @@ class Room(object):
     def dispatch_server_message(self, body, content_type='text/plain', exclude=None):
         for session in (session for session in self.sessions if session is not exclude):
             try:
-                chat_stream = (stream for stream in session.streams if stream.type == 'chat').next()
+                chat_stream = next(stream for stream in session.streams if stream.type == 'chat')
             except StopIteration:
                 continue
             chat_stream.send_message(body, content_type, local_identity=self.identity, recipients=[self.identity])
@@ -333,13 +333,13 @@ class Room(object):
         remote_uri = str(session.remote_identity.uri)
         self.participants_counter[remote_uri] += 1
         try:
-            chat_stream = (stream for stream in session.streams if stream.type == 'chat').next()
+            chat_stream = next(stream for stream in session.streams if stream.type == 'chat')
         except StopIteration:
             pass
         else:
             notification_center.add_observer(self, sender=chat_stream)
         try:
-            audio_stream = (stream for stream in session.streams if stream.type == 'audio').next()
+            audio_stream = next(stream for stream in session.streams if stream.type == 'audio')
         except StopIteration:
             pass
         else:
@@ -349,7 +349,7 @@ class Room(object):
                                                                                       audio_stream.local_rtp_address, audio_stream.local_rtp_port,
                                                                                       audio_stream.remote_rtp_address, audio_stream.remote_rtp_port))
         try:
-            transfer_stream = (stream for stream in session.streams if stream.type == 'file-transfer').next()
+            transfer_stream = next(stream for stream in session.streams if stream.type == 'file-transfer')
         except StopIteration:
             pass
         else:
@@ -398,13 +398,13 @@ class Room(object):
             if timer.active():
                 timer.cancel()
         try:
-            chat_stream = (stream for stream in session.streams or [] if stream.type == 'chat').next()
+            chat_stream = next(stream for stream in session.streams or [] if stream.type == 'chat')
         except StopIteration:
             pass
         else:
             notification_center.remove_observer(self, sender=chat_stream)
         try:
-            audio_stream = (stream for stream in session.streams or [] if stream.type == 'audio').next()
+            audio_stream = next(stream for stream in session.streams or [] if stream.type == 'audio')
         except StopIteration:
             pass
         else:
@@ -462,7 +462,7 @@ class Room(object):
         users = conference.Users()
         for session in (session for session in self.sessions if not (len(session.streams) == 1 and session.streams[0].type == 'file-transfer')):
             try:
-                user = (user for user in users if user.entity == str(session.remote_identity.uri)).next()
+                user = next(user for user in users if user.entity == str(session.remote_identity.uri))
             except StopIteration:
                 display_text = self.last_nicknames_map.get(str(session.remote_identity.uri), session.remote_identity.display_name)
                 user = conference.User(str(session.remote_identity.uri), display_text=display_text)
@@ -755,7 +755,7 @@ class MoHPlayer(object):
             self._player.stop()
 
     def _play_next_file(self):
-        self._player.filename = self.files.next()
+        self._player.filename = next(self.files)
         self._player.play()
 
     @run_in_twisted_thread
@@ -876,7 +876,7 @@ class WelcomeHandler(object):
 
     def render_chat_welcome(self, welcome_prompt):
         try:
-            chat_stream = (stream for stream in self.session.streams if stream.type == 'chat').next()
+            chat_stream = next(stream for stream in self.session.streams if stream.type == 'chat')
         except StopIteration:
             return
         try:
@@ -920,7 +920,7 @@ class IncomingFileTransferHandler(object):
         self.room = weakref.ref(room)
         self.room_uri = room.uri
         self.session = session
-        self.stream = (stream for stream in self.session.streams if stream.type == 'file-transfer' and stream.direction == 'recvonly').next()
+        self.stream = next(stream for stream in self.session.streams if stream.type == 'file-transfer' and stream.direction == 'recvonly')
         self.error = False
         self.ended = False
         self.file = None
@@ -1051,7 +1051,7 @@ class OutgoingFileTransferRequestHandler(object):
     def __init__(self, room, session):
         self.room = weakref.ref(room)
         self.session = session
-        self.stream = (stream for stream in self.session.streams if stream.type == 'file-transfer').next()
+        self.stream = next(stream for stream in self.session.streams if stream.type == 'file-transfer')
         self.timer = None
 
     def start(self):

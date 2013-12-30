@@ -218,7 +218,7 @@ class AvailabilityPresence(BasePresenceStanza):
         status = self.statuses.get(None)
         if status is None:
             try:
-                status = self.statuses.itervalues().next()
+                status = next(self.statuses.itervalues())
             except StopIteration:
                 pass
         return status

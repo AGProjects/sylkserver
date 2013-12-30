@@ -150,7 +150,7 @@ class IncomingRequestHandler(object):
                         application = self.application_map[prefix]
                         break
         try:
-            app = (app for app in ApplicationRegistry() if app.__appname__ == application).next()
+            app = next(app for app in ApplicationRegistry() if app.__appname__ == application)
         except StopIteration:
             log.error('Application %s is not loaded' % application)
             raise ApplicationNotLoadedError

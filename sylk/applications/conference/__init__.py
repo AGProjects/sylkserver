@@ -126,7 +126,7 @@ class ConferenceApplication(SylkApplication):
                 session.reject(404)
                 return
             try:
-                file = (file for file in room.files if file.hash == stream.file_selector.hash).next()
+                file = next(file for file in room.files if file.hash == stream.file_selector.hash)
             except StopIteration:
                 log.msg(u'Session rejected: requested file not found')
                 session.reject(404)

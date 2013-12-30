@@ -350,7 +350,7 @@ class Session(_Session):
                 replaced_dialog_id = DialogID(replaces_header.call_id, local_tag=replaces_header.to_tag, remote_tag=replaces_header.from_tag)
                 session_manager = SessionManager()
                 try:
-                    self.replaced_session = (session for session in session_manager.sessions if session._invitation is not None and session._invitation.dialog_id == replaced_dialog_id).next()
+                    self.replaced_session = next(session for session in session_manager.sessions if session._invitation is not None and session._invitation.dialog_id == replaced_dialog_id)
                 except StopIteration:
                     invitation.send_response(481)
                     return
