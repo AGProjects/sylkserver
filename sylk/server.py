@@ -53,7 +53,7 @@ class SylkServer(SIPApplication):
         SIPSimpleSettings.register_extension(SylkServerSettingsExtension)
 
         try:
-            SIPApplication.start(self, MemoryStorage())
+            super(SylkServer, self).start(MemoryStorage())
         except ConfigurationError, e:
             log.fatal("Error loading configuration: ",e)
             sys.exit(1)
