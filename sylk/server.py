@@ -182,10 +182,15 @@ class SylkServer(SIPApplication):
         # shutdown engine
         engine = Engine()
         engine.stop()
+        while True:
+            notification = self._channel.wait()
+            if notification.name == 'SIPEngineDidEnd':
+                break
 
         # stop threads
         thread_manager = ThreadManager()
         thread_manager.stop()
+
         # stop the reactor
         reactor.stop()
 
