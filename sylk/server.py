@@ -1,11 +1,10 @@
 # Copyright (C) 2010-2011 AG Projects. See LICENSE for details.
 #
 
-from __future__ import with_statement
-
 import sys
 
 from threading import Event
+from uuid import uuid4
 
 from application import log
 from application.notification import NotificationCenter, NotificationData
@@ -21,7 +20,6 @@ from sipsimple.storage import MemoryStorage
 from sipsimple.threading import ThreadManager
 from sipsimple.threading.green import run_in_green_thread
 from twisted.internet import reactor
-from uuid import uuid4
 
 # Load extensions needed for integration with SIP SIMPLE SDK
 import sylk.extensions
