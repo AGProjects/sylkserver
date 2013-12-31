@@ -26,6 +26,7 @@ from sipsimple.core import Engine, SIPCoreError, SIPCoreInvalidStateError, SIPUR
 from sipsimple.core import Header, ContactHeader, FromHeader, ToHeader
 from sipsimple.lookup import DNSLookup, DNSLookupError
 from sipsimple.payloads import conference
+from sipsimple.session import IllegalStateError
 from sipsimple.streams import FileTransferStream
 from sipsimple.streams.applications.chat import CPIMIdentity
 from sipsimple.streams.msrp import ChatStreamError, FileSelector
@@ -132,7 +133,6 @@ class Room(object):
         self.files = []
         self.screen_images = {}
         self.sessions = []
-        self.sessions_with_proposals = {}
         self.subscriptions = []
         self.transfer_handlers = weakref.WeakSet()
         self.state = 'stopped'
@@ -382,13 +382,6 @@ class Room(object):
             del self.participants_counter[remote_uri]
             self.last_nicknames_map.pop(remote_uri, None)
         try:
-            timer = self.sessions_with_proposals.pop(session)
-        except KeyError:
-            pass
-        else:
-            if timer.active():
-                timer.cancel()
-        try:
             chat_stream = next(stream for stream in session.streams or [] if stream.type == 'chat')
         except StopIteration:
             pass
@@ -491,8 +484,11 @@ class Room(object):
         subscribe_request.accept(conference.ConferenceDocument.content_type, data)
 
     def accept_proposal(self, session, streams):
-        self.sessions_with_proposals.pop(session)
-        session.accept_proposal(streams)
+        if session.state == 'received_proposal':
+            try:
+                session.accept_proposal(streams)
+            except IllegalStateError:
+                pass
 
     def add_file(self, file):
         if file.status == 'INCOMPLETE':
@@ -602,19 +598,7 @@ class Room(object):
                 session.reject_proposal()
                 return
             streams = [streams[0] for streams in (audio_streams, chat_streams) if streams]
-            timer = reactor.callLater(4, self.accept_proposal, session, streams)
-            self.sessions_with_proposals[session] = timer
-
-    def _NH_SIPSessionProposalRejected(self, notification):
-        session = notification.sender
-        try:
-            timer = self.sessions_with_proposals.pop(session)
-        except KeyError:
-            # If the proposal couldn't be accepted by us we will not add a timer
-            pass
-        else:
-            if timer.active():
-                timer.cancel()
+            reactor.callLater(4, self.accept_proposal, session, streams)
 
     def _NH_SIPSessionDidRenegotiateStreams(self, notification):
         session = notification.sender
