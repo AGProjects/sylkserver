@@ -100,7 +100,7 @@ class EchoApplication(SylkApplication):
 
     def _NH_SIPSessionDidFail(self, notification):
         session = notification.sender
-        log.msg('Session %s failed from %s' % session.call_id)
+        log.msg(u'Session %s failed from %s' % (session.call_id, format_identity(session.remote_identity)))
         self.pending.remove(session)
         notification.center.remove_observer(self, sender=session)
         if session._end_timer is not None and session._end_timer.active():
