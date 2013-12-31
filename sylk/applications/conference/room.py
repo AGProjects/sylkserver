@@ -164,6 +164,52 @@ class Room(object):
     def active_media(self):
         return set((stream.type for stream in chain(*(session.streams for session in self.sessions if session.streams))))
 
+    @property
+    def conference_info(self):
+        if self.conference_info_payload is None:
+            settings = SIPSimpleSettings()
+            conference_description = conference.ConferenceDescription(display_text='Ad-hoc conference', free_text='Hosted by %s' % settings.user_agent)
+            conference_description.conf_uris = conference.ConfUris()
+            conference_description.conf_uris.add(conference.ConfUrisEntry('sip:%s' % self.uri, purpose='participation'))
+            if self.config.advertise_xmpp_support:
+                conference_description.conf_uris.add(conference.ConfUrisEntry('xmpp:%s' % self.uri, purpose='participation'))
+                # TODO: add grouptextchat service uri
+            for number in self.config.pstn_access_numbers:
+                conference_description.conf_uris.add(conference.ConfUrisEntry('tel:%s' % number, purpose='participation'))
+            host_info = conference.HostInfo(web_page=conference.WebPage('http://sylkserver.com'))
+            self.conference_info_payload = conference.Conference(self.identity.uri, conference_description=conference_description, host_info=host_info, users=conference.Users())
+        self.conference_info_payload.version = next(self.conference_info_version)
+        user_count = len(self.participants_counter.keys())
+        self.conference_info_payload.conference_state = conference.ConferenceState(user_count=user_count, active=True)
+        users = conference.Users()
+        for session in (session for session in self.sessions if not (len(session.streams) == 1 and session.streams[0].type == 'file-transfer')):
+            try:
+                user = next(user for user in users if user.entity == str(session.remote_identity.uri))
+            except StopIteration:
+                display_text = self.last_nicknames_map.get(str(session.remote_identity.uri), session.remote_identity.display_name)
+                user = conference.User(str(session.remote_identity.uri), display_text=display_text)
+                user_uri = '%s@%s' % (session.remote_identity.uri.user, session.remote_identity.uri.host)
+                screen_image = self.screen_images.get(user_uri, None)
+                if screen_image is not None and screen_image.active:
+                    user.screen_image_url = screen_image.url
+                users.add(user)
+            joining_info = conference.JoiningInfo(when=session.start_time)
+            holdable_streams = [stream for stream in session.streams if stream.hold_supported]
+            session_on_hold = holdable_streams and all(stream.on_hold_by_remote for stream in holdable_streams)
+            hold_status = conference.EndpointStatus('on-hold' if session_on_hold else 'connected')
+            display_text = self.session_nickname_map.get(session, session.remote_identity.display_name)
+            endpoint = conference.Endpoint(str(session._invitation.remote_contact_header.uri), display_text=display_text, joining_info=joining_info, status=hold_status)
+            for stream in session.streams:
+                if stream.type == 'file-transfer':
+                    continue
+                endpoint.add(conference.Media(id(stream), media_type=self.format_conference_stream_type(stream)))
+            user.add(endpoint)
+        self.conference_info_payload.users = users
+        if self.files:
+            files = conference.FileResources(conference.FileResource(os.path.basename(file.name), file.hash, file.size, file.sender, file.status) for file in self.files)
+            self.conference_info_payload.conference_description.resources = conference.Resources(files=files)
+        return self.conference_info_payload.toxml()
+
     def start(self):
         if self.started:
             return
@@ -303,7 +349,7 @@ class Room(object):
             chat_stream.send_message(body, content_type, local_identity=self.identity, recipients=[self.identity])
 
     def dispatch_conference_info(self):
-        data = self.build_conference_info_payload()
+        data = self.conference_info
         for subscription in (subscription for subscription in self.subscriptions if subscription.state == 'active'):
             try:
                 subscription.push_content(conference.ConferenceDocument.content_type, data)
@@ -427,51 +473,6 @@ class Room(object):
         for session in (session for session in self.sessions if session.remote_identity.uri == uri):
             session.end()
 
-    def build_conference_info_payload(self):
-        if self.conference_info_payload is None:
-            settings = SIPSimpleSettings()
-            conference_description = conference.ConferenceDescription(display_text='Ad-hoc conference', free_text='Hosted by %s' % settings.user_agent)
-            conference_description.conf_uris = conference.ConfUris()
-            conference_description.conf_uris.add(conference.ConfUrisEntry('sip:%s' % self.uri, purpose='participation'))
-            if self.config.advertise_xmpp_support:
-                conference_description.conf_uris.add(conference.ConfUrisEntry('xmpp:%s' % self.uri, purpose='participation'))
-                # TODO: add grouptextchat service uri
-            for number in self.config.pstn_access_numbers:
-                conference_description.conf_uris.add(conference.ConfUrisEntry('tel:%s' % number, purpose='participation'))
-            host_info = conference.HostInfo(web_page=conference.WebPage('http://sylkserver.com'))
-            self.conference_info_payload = conference.Conference(self.identity.uri, conference_description=conference_description, host_info=host_info, users=conference.Users())
-        self.conference_info_payload.version = next(self.conference_info_version)
-        user_count = len(self.participants_counter.keys())
-        self.conference_info_payload.conference_state = conference.ConferenceState(user_count=user_count, active=True)
-        users = conference.Users()
-        for session in (session for session in self.sessions if not (len(session.streams) == 1 and session.streams[0].type == 'file-transfer')):
-            try:
-                user = next(user for user in users if user.entity == str(session.remote_identity.uri))
-            except StopIteration:
-                display_text = self.last_nicknames_map.get(str(session.remote_identity.uri), session.remote_identity.display_name)
-                user = conference.User(str(session.remote_identity.uri), display_text=display_text)
-                user_uri = '%s@%s' % (session.remote_identity.uri.user, session.remote_identity.uri.host)
-                screen_image = self.screen_images.get(user_uri, None)
-                if screen_image is not None and screen_image.active:
-                    user.screen_image_url = screen_image.url
-                users.add(user)
-            joining_info = conference.JoiningInfo(when=session.start_time)
-            holdable_streams = [stream for stream in session.streams if stream.hold_supported]
-            session_on_hold = holdable_streams and all(stream.on_hold_by_remote for stream in holdable_streams)
-            hold_status = conference.EndpointStatus('on-hold' if session_on_hold else 'connected')
-            display_text = self.session_nickname_map.get(session, session.remote_identity.display_name)
-            endpoint = conference.Endpoint(str(session._invitation.remote_contact_header.uri), display_text=display_text, joining_info=joining_info, status=hold_status)
-            for stream in session.streams:
-                if stream.type == 'file-transfer':
-                    continue
-                endpoint.add(conference.Media(id(stream), media_type=self.format_conference_stream_type(stream)))
-            user.add(endpoint)
-        self.conference_info_payload.users = users
-        if self.files:
-            files = conference.FileResources(conference.FileResource(os.path.basename(file.name), file.hash, file.size, file.sender, file.status) for file in self.files)
-            self.conference_info_payload.conference_description.resources = conference.Resources(files=files)
-        return self.conference_info_payload.toxml()
-
     def handle_incoming_subscription(self, subscribe_request, data):
         log.msg('Room %s - subscription from %s' % (self.uri, data.headers['From'].uri))
         if subscribe_request.event != 'conference':
@@ -480,8 +481,7 @@ class Room(object):
             return
         NotificationCenter().add_observer(self, sender=subscribe_request)
         self.subscriptions.append(subscribe_request)
-        data = self.build_conference_info_payload()
-        subscribe_request.accept(conference.ConferenceDocument.content_type, data)
+        subscribe_request.accept(conference.ConferenceDocument.content_type, self.conference_info)
 
     def accept_proposal(self, session, streams):
         if session.state == 'received_proposal':
