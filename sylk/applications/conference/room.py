@@ -745,28 +745,27 @@ class MoHPlayer(object):
     _NH_WavePlayerDidEnd = _NH_WavePlayerDidFail
 
 
-class InterruptWelcome(Exception): pass
-
 class WelcomeHandler(object):
     implements(IObserver)
 
     def __init__(self, room, session):
         self.room = room
         self.session = session
-        self.procs = proc.RunningProcSet()
+        self.proc = None
 
     @run_in_green_thread
     def start(self, welcome_prompt=True):
         notification_center = NotificationCenter()
         notification_center.add_observer(self, sender=self.session)
 
-        self.procs.spawn(self.play_audio_welcome, welcome_prompt)
-        self.procs.spawn(self.render_chat_welcome, welcome_prompt)
-        self.procs.waitall()
+        self.render_chat_welcome()
+        self.proc = proc.spawn(self.play_audio_welcome, welcome_prompt)
+        self.proc.wait()
 
         notification_center.remove_observer(self, sender=self.session)
         self.session = None
         self.room = None
+        self.proc = None
 
     def play_file_in_player(self, player, file, delay):
         player.filename = file
@@ -809,7 +808,7 @@ class WelcomeHandler(object):
                 self.play_file_in_player(player, file, 0)
             file = ResourcePath('sounds/connected_tone.wav').normalized
             self.play_file_in_player(player, file, 0.1)
-        except InterruptWelcome:
+        except proc.ProcExit:
             # No need to remove the bridge from the stream, it's done automatically
             pass
         else:
@@ -823,7 +822,11 @@ class WelcomeHandler(object):
         finally:
             player.stop()
 
-    def render_chat_welcome_prompt(self):
+    def render_chat_welcome(self):
+        try:
+            chat_stream = next(stream for stream in self.session.streams if stream.type == 'chat')
+        except StopIteration:
+            return
         txt = 'Welcome to SylkServer!'
         user_count = len(set(str(s.remote_identity.uri) for s in self.room.sessions) - set([str(self.session.remote_identity.uri)]))
         if user_count == 0:
@@ -847,15 +850,7 @@ class WelcomeHandler(object):
                     txt += '    - Using an XMPP client, connect to group chat room %s (chat)\n' % self.room.uri
                     txt += '    - Using an XMPP Jingle capable client, add contact %s and call it (audio)\n' % self.room.uri
                 txt += '    - Using a SIP client, initiate a session to %s (audio and chat)\n' % self.room.uri
-        return txt
-
-    def render_chat_welcome(self, welcome_prompt):
-        try:
-            chat_stream = next(stream for stream in self.session.streams if stream.type == 'chat')
-        except StopIteration:
-            return
-        welcome_text = self.render_chat_welcome_prompt()
-        chat_stream.send_message(welcome_text, 'text/plain', local_identity=self.room.identity, recipients=[self.room.identity])
+        chat_stream.send_message(txt, 'text/plain', local_identity=self.room.identity, recipients=[self.room.identity])
         for msg in self.room.history:
             chat_stream.send_message(msg.body, msg.content_type, local_identity=msg.sender, recipients=[self.room.identity], timestamp=msg.timestamp)
 
@@ -864,7 +859,7 @@ class WelcomeHandler(object):
         handler(notification)
 
     def _NH_SIPSessionWillEnd(self, notification):
-        self.procs.killall(InterruptWelcome)
+        self.proc.kill()
 
 
 class RoomFile(object):
