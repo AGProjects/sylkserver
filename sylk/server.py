@@ -8,6 +8,7 @@ from uuid import uuid4
 
 from application import log
 from application.notification import NotificationCenter, NotificationData
+from application.python import Null
 from eventlib import proc
 from sipsimple.account import Account, BonjourAccount, AccountManager
 from sipsimple.application import SIPApplication
@@ -34,8 +35,11 @@ from sylk.session import SessionManager
 class SylkServer(SIPApplication):
 
     def __init__(self):
-        self.logger = None
-        self.request_handler = None
+        self.request_handler = Null
+        self.thor_interface = Null
+
+        self.logger = Logger()
+
         self.stopping_event = Event()
         self.stop_event = Event()
 
@@ -43,8 +47,6 @@ class SylkServer(SIPApplication):
         notification_center = NotificationCenter()
         notification_center.add_observer(self, sender=self)
         notification_center.add_observer(self, name='ThorNetworkGotFatalError')
-
-        self.logger = Logger()
 
         Account.register_extension(AccountExtension)
         BonjourAccount.register_extension(BonjourAccountExtension)
@@ -159,6 +161,13 @@ class SylkServer(SIPApplication):
         self.state = 'started'
         notification_center.post_notification('SIPApplicationDidStart', sender=self)
 
+        # start SylkServer components
+        if ThorNodeConfig.enabled:
+            from sylk.interfaces.sipthor import ConferenceNode
+            self.thor_interface = ConferenceNode()
+        self.request_handler = IncomingRequestHandler()
+        self.request_handler.start()
+
     @run_in_green_thread
     def _shutdown_subsystems(self):
         # cleanup internals
@@ -166,9 +175,9 @@ class SylkServer(SIPApplication):
             self._wakeup_timer.cancel()
         self._wakeup_timer = None
 
-        # shutdown SIPThor interface
-        sipthor_proc = proc.spawn(self._stop_sipthor)
-        sipthor_proc.wait()
+        # shutdown SylkServer components
+        procs = [proc.spawn(self.request_handler.stop), proc.spawn(self.thor_interface.stop)]
+        proc.waitall(procs)
 
         # shutdown middleware components
         dns_manager = DNSManager()
@@ -191,16 +200,6 @@ class SylkServer(SIPApplication):
 
         # stop the reactor
         reactor.stop()
-
-    def _start_sipthor(self):
-        if ThorNodeConfig.enabled:
-            from sylk.interfaces.sipthor import ConferenceNode
-            ConferenceNode()
-
-    def _stop_sipthor(self):
-        if ThorNodeConfig.enabled:
-            from sylk.interfaces.sipthor import ConferenceNode
-            ConferenceNode().stop()
 
     def _NH_AudioDevicesDidChange(self, notification):
         pass
@@ -233,15 +232,9 @@ class SylkServer(SIPApplication):
                 log.msg("%s:%d (%s)" % (local_ip, getattr(engine, '%s_port' % transport), transport.upper()))
             except TypeError:
                 pass
-        # Start request handler
-        self.request_handler = IncomingRequestHandler()
-        self.request_handler.start()
-        # Start SIPThor interface
-        proc.spawn(self._start_sipthor)
 
     def _NH_SIPApplicationWillEnd(self, notification):
         log.msg('SIP application will end: %s' % self.end_reason)
-        self.request_handler.stop()
         self.stopping_event.set()
 
     def _NH_SIPApplicationDidEnd(self, notification):
