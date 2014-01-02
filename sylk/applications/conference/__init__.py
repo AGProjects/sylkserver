@@ -13,6 +13,7 @@ from sipsimple.account.bonjour import BonjourPresenceState
 from sipsimple.configuration.settings import SIPSimpleSettings
 from sipsimple.core import Engine, SIPURI, SIPCoreError, Header, ContactHeader, FromHeader, ToHeader
 from sipsimple.lookup import DNSLookup
+from sipsimple.session import IllegalStateError
 from sipsimple.streams import AudioStream
 from sipsimple.threading.green import run_in_green_thread
 from twisted.internet import reactor
@@ -40,7 +41,6 @@ class ConferenceApplication(SylkApplication):
 
     def __init__(self):
         self._rooms = {}
-        self.pending_sessions = []
         self.invited_participants_map = {}
         self.bonjour_focus_service = Null()
         self.bonjour_room_service = Null()
@@ -151,7 +151,6 @@ class ConferenceApplication(SylkApplication):
                 log.msg(u'Session rejected: requested file removed from the filesystem')
                 session.reject(404)
                 return
-        self.pending_sessions.append(session)
         NotificationCenter().add_observer(self, sender=session)
         if audio_streams:
             session.send_ring_indication()
@@ -221,8 +220,11 @@ class ConferenceApplication(SylkApplication):
         message_request.answer(405)
 
     def accept_session(self, session, streams):
-        if session in self.pending_sessions:
-            session.accept(streams, is_focus=True)
+        if session.state == 'incoming':
+            try:
+                session.accept(streams, is_focus=True)
+            except IllegalStateError:
+                pass
 
     def add_participant(self, session, room_uri):
         # Keep track of the invited participants, we must skip ACL policy
@@ -252,7 +254,6 @@ class ConferenceApplication(SylkApplication):
 
     def _NH_SIPSessionDidStart(self, notification):
         session = notification.sender
-        self.pending_sessions.remove(session)
         room = self.get_room(session._invitation.request_uri, True)    # FIXME
         room.start()
         room.add_session(session)
@@ -284,7 +285,6 @@ class ConferenceApplication(SylkApplication):
 
     def _NH_SIPSessionDidFail(self, notification):
         session = notification.sender
-        self.pending_sessions.remove(session)
         notification.center.remove_observer(self, sender=session)
         log.msg(u'Session from %s failed: %s' % (session.remote_identity.uri, notification.data.reason))
 
