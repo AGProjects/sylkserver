@@ -191,7 +191,7 @@ class XMPPGatewayApplication(SylkApplication):
     def incoming_referral(self, refer_request, data):
         refer_request.reject(405)
 
-    def incoming_sip_message(self, message_request, data):
+    def incoming_message(self, message_request, data):
         content_type = data.headers.get('Content-Type', Null).content_type
         from_header = data.headers.get('From', Null)
         to_header = data.headers.get('To', Null)

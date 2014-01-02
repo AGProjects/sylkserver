@@ -50,7 +50,7 @@ class PlaybackApplication(SylkApplication):
     def incoming_referral(self, request, data):
         request.reject(405)
 
-    def incoming_sip_message(self, request, data):
+    def incoming_message(self, request, data):
         request.reject(405)
 
     def handle_notification(self, notification):

@@ -55,11 +55,11 @@ class IRCConferenceApplication(SylkApplication):
                return
         room.handle_incoming_subscription(subscribe_request, data)
 
-    def incoming_referral(self, refer_request, data):
-        pass
+    def incoming_referral(self, request, data):
+        request.reject(405)
 
-    def incoming_sip_message(self, message_request, data):
-        pass
+    def incoming_message(self, request, data):
+        request.reject(405)
 
     def accept_session(self, session, streams):
         if session in self.pending_sessions:

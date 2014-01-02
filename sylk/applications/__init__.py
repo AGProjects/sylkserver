@@ -79,7 +79,7 @@ class SylkApplication(object):
         pass
 
     @abc.abstractmethod
-    def incoming_sip_message(self, message_request, data):
+    def incoming_message(self, message_request, data):
         pass
 
 
@@ -219,7 +219,7 @@ class IncomingRequestHandler(object):
         except ApplicationNotLoadedError:
             request.answer(404)
         else:
-            app.incoming_sip_message(request, notification.data)
+            app.incoming_message(request, notification.data)
 
 
 class UnauthorizedRequest(Exception):

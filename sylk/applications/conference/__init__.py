@@ -216,8 +216,8 @@ class ConferenceApplication(SylkApplication):
         referral_handler = IncomingReferralHandler(refer_request, data)
         referral_handler.start()
 
-    def incoming_sip_message(self, message_request, data):
-        log.msg(u'SIP Message is not supported, use MSRP media instead')
+    def incoming_message(self, message_request, data):
+        log.msg(u'SIP MESSAGE is not supported, use MSRP media instead')
         message_request.answer(405)
 
     def accept_session(self, session, streams):
