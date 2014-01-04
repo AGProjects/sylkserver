@@ -179,7 +179,7 @@ class S2XPresenceHandler(object):
         self._stanza_cache[stanza.sender.uri] = stanza
         stanza.timestamp = ISOTimestamp.now()    # TODO: mirror the one in the stanza, if present
         pidf_doc = self._build_pidf()
-        log.msg('XMPP NOTIFY from %s to %s for presence flow 0x%x' % (format_uri(self.xmpp_identity.uri, 'xmpp'), format_uri(self.sip_identity.uri, 'sip'), id(self)))
+        log.msg('XMPP notification from %s to %s for presence flow 0x%x' % (format_uri(self.xmpp_identity.uri, 'xmpp'), format_uri(self.sip_identity.uri, 'sip'), id(self)))
         for subscription in self._sip_subscriptions:
             try:
                 subscription.push_content(pidf.PIDFDocument.content_type, pidf_doc)
