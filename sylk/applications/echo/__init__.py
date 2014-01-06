@@ -13,7 +13,10 @@ log = ApplicationLogger.for_package(__package__)
 
 
 def format_identity(identity):
-    return u'%s <sip:%s@%s>' % (identity.display_name, identity.uri.user, identity.uri.host)
+    if identity.display_name:
+        return u'%s <sip:%s@%s>' % (identity.display_name, identity.uri.user, identity.uri.host)
+    else:
+        return u'sip:%s@%s' % (identity.uri.user, identity.uri.host)
 
 
 class EchoApplication(SylkApplication):
