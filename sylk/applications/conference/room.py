@@ -492,9 +492,9 @@ class Room(object):
 
     def add_file(self, file):
         if file.status == 'INCOMPLETE':
-            self.dispatch_server_message('%s has cancelled upload of file %s (%s)' % (file.sender, os.path.basename(file.name), self.format_file_size(file.size)))
+            self.dispatch_server_message('%s has cancelled upload of file %s (%s)' % (format_identity(file.sender), os.path.basename(file.name), self.format_file_size(file.size)))
         else:
-            self.dispatch_server_message('%s has uploaded file %s (%s)' % (file.sender, os.path.basename(file.name), self.format_file_size(file.size)))
+            self.dispatch_server_message('%s has uploaded file %s (%s)' % (format_identity(file.sender), os.path.basename(file.name), self.format_file_size(file.size)))
             self.files.append(file)
             self.dispatch_conference_info()
             if ConferenceConfig.push_file_transfer:
