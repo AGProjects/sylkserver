@@ -47,9 +47,9 @@ from sylk.session import Session
 def format_identity(identity):
     uri = identity.uri
     if identity.display_name:
-        return u'%s <sip:%s@%s>' % (identity.display_name, uri.user, uri.host)
+        return u'%s <%s@%s>' % (identity.display_name, uri.user, uri.host)
     else:
-        return u'sip:%s@%s' % (uri.user, uri.host)
+        return u'%s@%s' % (uri.user, uri.host)
 
 
 class ScreenImage(object):
