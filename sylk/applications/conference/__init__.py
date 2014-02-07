@@ -347,7 +347,7 @@ class IncomingReferralHandler(object):
         try:
             room = conference_application.get_room(self.room_uri)
         except RoomNotFoundError:
-            log.msg('Room %s - failed to add %s to %s' % (self.room_uri_str, self.refer_to_uri))
+            log.msg('Room %s - failed to add %s' % (self.room_uri_str, self.refer_to_uri))
             self._refer_request.end(500)
             return
         else:
