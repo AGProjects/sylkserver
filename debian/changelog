@@ -1,3 +1,20 @@
+sylkserver (2.6.0) UNRELEASED; urgency=medium
+
+  * Fixed issues when shutting down the Engine
+  * Fixed generating is-composing payload when refresh is not set
+  * Accept multiple PSTN numbers for a given conference room
+  * Use better API for building is-composing payload
+  * Avoid unnecessary processing when dealing with CPIMIdentity objects
+  * Simplified history storage in conference app
+  * Simplified code for handling proposal failures
+  * Simplified code for starting/stopping SylkServer
+  * Renamed incoming_sip_message to incoming_message
+  * Use the new NetworkConditionsDidChange notification
+  * Bumped Debian Standards-Version
+  * Raised python-sipsimple version dependency
+
+ -- Saul Ibarra <saul@ag-projects.com>  Tue, 18 Feb 2014 10:53:29 +0100
+
 sylkserver (2.5.1) unstable; urgency=medium
 
   * Adapted to API changes in SIP SIMPLE SDK
