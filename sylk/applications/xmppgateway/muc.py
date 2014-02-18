@@ -61,14 +61,11 @@ class X2SMucInvitationHandler(object):
         self.route = None
         self._channel = coros.queue()
         self._referral = None
-        self._wakeup_timer = None
         self._failure = None
 
     def start(self):
         notification_center = NotificationCenter()
-        notification_center.add_observer(self, name='DNSNameserversDidChange')
-        notification_center.add_observer(self, name='SystemIPAddressDidChange')
-        notification_center.add_observer(self, name='SystemDidWakeUpFromSleep')
+        notification_center.add_observer(self, name='NetworkConditionsDidChange')
         proc.spawn(self._run)
         notification_center.post_notification('X2SMucInvitationHandlerDidStart', sender=self)
 
@@ -157,12 +154,7 @@ class X2SMucInvitationHandler(object):
         except ReferralError, e:
             self._failure = MucInvitationFailure(e.code, e.error)
         finally:
-            if self._wakeup_timer is not None and self._wakeup_timer.active():
-                self._wakeup_timer.cancel()
-            self._wakeup_timer = None
-            notification_center.remove_observer(self, name='DNSNameserversDidChange')
-            notification_center.remove_observer(self, name='SystemIPAddressDidChange')
-            notification_center.remove_observer(self, name='SystemDidWakeUpFromSleep')
+            notification_center.remove_observer(self, name='NetworkConditionsDidChange')
             self._referral = None
             if self._failure is not None:
                 notification_center.post_notification('X2SMucInvitationHandlerDidFail', sender=self, data=NotificationData(failure=self._failure))
@@ -194,21 +186,9 @@ class X2SMucInvitationHandler(object):
     def _NH_SIPReferralGotNotify(self, notification):
         self._channel.send(notification)
 
-    def _NH_DNSNameserversDidChange(self, notification):
+    def _NH_NetworkConditionsDidChange(self, notification):
         if self.active:
             self._refresh()
-
-    def _NH_SystemIPAddressDidChange(self, notification):
-        if self.active:
-            self._refresh()
-
-    def _NH_SystemDidWakeUpFromSleep(self, notification):
-        if self._wakeup_timer is None:
-            def wakeup_action():
-                if self.active:
-                    self._refresh()
-                self._wakeup_timer = None
-            self._wakeup_timer = reactor.callLater(5, wakeup_action) # wait for system to stabilize
 
 
 class S2XMucInvitationHandler(object):

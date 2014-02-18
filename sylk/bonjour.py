@@ -34,15 +34,13 @@ class BonjourServices(object):
         self._select_proc = None
         self._register_timer = None
         self._update_timer = None
-        self._wakeup_timer = None
         self._lock = Lock()
         self.__dict__['presence_state'] = None
 
     @run_in_green_thread
     def start(self):
         notification_center = NotificationCenter()
-        notification_center.add_observer(self, name='SystemIPAddressDidChange')
-        notification_center.add_observer(self, name='SystemDidWakeUpFromSleep')
+        notification_center.add_observer(self, name='NetworkConditionsDidChange')
         self._select_proc = proc.spawn(self._process_files)
         proc.spawn(self._handle_commands)
         self._activate()
@@ -51,8 +49,7 @@ class BonjourServices(object):
     def stop(self):
         self._deactivate()
         notification_center = NotificationCenter()
-        notification_center.remove_observer(self, name='SystemIPAddressDidChange')
-        notification_center.remove_observer(self, name='SystemDidWakeUpFromSleep')
+        notification_center.remove_observer(self, name='NetworkConditionsDidChange')
         self._select_proc.kill()
         self._command_channel.send_exception(api.GreenletExit)
 
@@ -237,9 +234,6 @@ class BonjourServices(object):
         if self._update_timer is not None and self._update_timer.active():
             self._update_timer.cancel()
         self._update_timer = None
-        if self._wakeup_timer is not None and self._wakeup_timer.active():
-            self._wakeup_timer.cancel()
-        self._wakeup_timer = None
         old_files = self._files
         self._files = []
         self._select_proc.kill(RestartSelect)
@@ -255,15 +249,7 @@ class BonjourServices(object):
         handler = getattr(self, '_NH_%s' % notification.name, Null)
         handler(notification)
 
-    def _NH_SystemIPAddressDidChange(self, notification):
+    def _NH_NetworkConditionsDidChange(self, notification):
         if self._files:
             self.restart_registration()
-
-    def _NH_SystemDidWakeUpFromSleep(self, notification):
-        if self._wakeup_timer is None:
-            def wakeup_action():
-                if self._files:
-                    self.restart_registration()
-                self._wakeup_timer = None
-            self._wakeup_timer = reactor.callLater(5, wakeup_action) # wait for system to stabilize
 
