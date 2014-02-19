@@ -284,7 +284,7 @@ class Room(object):
                 if data.sender.uri != session.remote_identity.uri:
                     continue
                 recipient = data.recipients[0]
-                private = len(message.recipients) == 1 and '%s@%s' % (recipient.uri.user, recipient.uri.host) != self.uri
+                private = len(data.recipients) == 1 and '%s@%s' % (recipient.uri.user, recipient.uri.host) != self.uri
                 if private:
                     self.dispatch_private_iscomposing(session, data)
                 else:

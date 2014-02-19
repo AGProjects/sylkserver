@@ -405,7 +405,7 @@ class IRCRoom(object):
             self.dispatch_server_message('%s has removed %s' % (format_identity(session.remote_identity), stream.type), exclude=session)
             if stream.type == 'audio':
                 try:
-                    self.audio_conference.remove(audio_stream)
+                    self.audio_conference.remove(stream)
                 except ValueError:
                     # User may hangup before getting bridged into the conference
                     pass
