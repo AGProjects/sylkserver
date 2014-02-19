@@ -1,4 +1,4 @@
-sylkserver (2.6.0) UNRELEASED; urgency=medium
+sylkserver (2.6.0) unstable; urgency=medium
 
   * Fixed issues when shutting down the Engine
   * Fixed generating is-composing payload when refresh is not set
@@ -13,7 +13,7 @@ sylkserver (2.6.0) UNRELEASED; urgency=medium
   * Bumped Debian Standards-Version
   * Raised python-sipsimple version dependency
 
- -- Saul Ibarra <saul@ag-projects.com>  Tue, 18 Feb 2014 10:53:29 +0100
+ -- Saul Ibarra <saul@ag-projects.com>  Wed, 19 Feb 2014 16:54:21 +0100
 
 sylkserver (2.5.1) unstable; urgency=medium
 
