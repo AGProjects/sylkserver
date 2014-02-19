@@ -46,7 +46,7 @@ class ConferenceHandler(object):
         self._subscription_timer = None
         notification_center = NotificationCenter()
         notification_center.add_observer(self, sender=self.session)
-        notification_center.add_observer(self, name='NetworkConditionsdidChange')
+        notification_center.add_observer(self, name='NetworkConditionsDidChange')
         self._command_proc = proc.spawn(self._run)
 
     def _run(self):

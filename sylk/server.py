@@ -170,11 +170,6 @@ class SylkServer(SIPApplication):
 
     @run_in_green_thread
     def _shutdown_subsystems(self):
-        # cleanup internals
-        if self._wakeup_timer is not None and self._wakeup_timer.active():
-            self._wakeup_timer.cancel()
-        self._wakeup_timer = None
-
         # shutdown SylkServer components
         procs = [proc.spawn(self.request_handler.stop), proc.spawn(self.thor_interface.stop)]
         proc.waitall(procs)
