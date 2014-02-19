@@ -48,7 +48,7 @@ start() {
 
 stop () {
     log_daemon_msg "Stopping $DESC: $NAME "
-    start-stop-daemon --stop --quiet --oknodo --pidfile $PID
+    start-stop-daemon --stop --quiet --oknodo --retry=TERM/15/KILL/5 --pidfile $PID
 }
 
 case "$1" in
@@ -62,7 +62,6 @@ case "$1" in
         ;;
     restart|force-reload)
         stop
-        sleep 1
         start
         log_end_msg 0
         ;;
