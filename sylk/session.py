@@ -432,8 +432,6 @@ class Session(_Session):
                             elif notification.data.state == 'connected':
                                 if not connected:
                                     connected = True
-                                    notification_center.post_notification('SIPSessionDidProcessTransaction', self,
-                                                                          NotificationData(originator='local', method='INVITE', code=received_code, reason=received_reason))
                                 else:
                                     unhandled_notifications.append(notification)
                             elif notification.data.state == 'disconnected':
@@ -486,8 +484,6 @@ class Session(_Session):
                     elif notification.data.state == 'connected':
                         if not connected:
                             connected = True
-                            notification_center.post_notification('SIPSessionDidProcessTransaction', self,
-                                                                  NotificationData(originator='local', method='INVITE', code=received_code, reason=received_reason))
                         else:
                             unhandled_notifications.append(notification)
                     elif notification.data.state == 'disconnected':
@@ -512,13 +508,9 @@ class Session(_Session):
             # As it weird as it may sound, PJSIP accepts a BYE even without receiving a final response to the INVITE
             if e.data.prev_state in ('connecting', 'connected') or getattr(e.data, 'method', None) == 'BYE':
                 notification_center.post_notification('SIPSessionWillEnd', self, NotificationData(originator=e.data.originator))
-                if e.data.originator == 'remote':
-                    notification_center.post_notification('SIPSessionDidProcessTransaction', self, NotificationData(originator='remote', method=e.data.method, code=200, reason=sip_status_messages[200]))
                 self.end_time = datetime.now()
                 notification_center.post_notification('SIPSessionDidEnd', self, NotificationData(originator=e.data.originator, end_reason=e.data.disconnect_reason))
             else:
-                if e.data.originator == 'remote':
-                    notification_center.post_notification('SIPSessionDidProcessTransaction', self, NotificationData(originator='local', method='INVITE', code=e.data.code, reason=e.data.reason))
                 if e.data.originator == 'remote':
                     code = e.data.code
                     reason = e.data.reason
