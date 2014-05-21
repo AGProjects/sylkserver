@@ -346,11 +346,10 @@ class Session(_Session):
     @run_in_green_thread
     def connect(self, from_header, to_header, routes, streams, contact_header=None, is_focus=False, subject=None, extra_headers=[]):
         self.greenlet = api.getcurrent()
+        notification_center = NotificationCenter()
         settings = SIPSimpleSettings()
 
         connected = False
-        received_code = 0
-        received_reason = None
         unhandled_notifications = []
 
         self.direction = 'outgoing'
@@ -364,9 +363,8 @@ class Session(_Session):
         self.conference = ConferenceHandler(self)
         self.transfer_handler = Null
         self.__dict__['subject'] = subject
-        notification_center = NotificationCenter()
         notification_center.add_observer(self, sender=self._invitation)
-        notification_center.post_notification('SIPSessionNewOutgoing', self, NotificationData(streams=streams))
+        notification_center.post_notification('SIPSessionNewOutgoing', self, NotificationData(streams=streams[:]))
         for stream in self.proposed_streams:
             notification_center.add_observer(self, sender=stream)
             stream.initialize(self, direction='outgoing')
@@ -391,14 +389,10 @@ class Session(_Session):
                     contact_header = ContactHeader(contact_uri)
             local_ip = contact_header.uri.host
             local_sdp = SDPSession(local_ip, connection=SDPConnection(local_ip), name=settings.user_agent)
-            stun_addresses = []
             for index, stream in enumerate(self.proposed_streams):
                 stream.index = index
                 media = stream.get_local_media(for_offer=True)
                 local_sdp.media.append(media)
-                stun_addresses.extend((value.split(' ', 5)[4] for value in media.attributes.getall('candidate') if value.startswith('S ')))
-            if stun_addresses:
-                local_sdp.connection.address = stun_addresses[0]
             route_header = RouteHeader(self.route.uri)
             if is_focus:
                 contact_header.parameters['isfocus'] = None
@@ -419,16 +413,13 @@ class Session(_Session):
                                     notification_center.remove_observer(self, sender=stream)
                                     stream.deactivate()
                                     stream.end()
-                                self._fail(originator='remote', code=received_code, reason=received_reason, error='SDP negotiation failed: %s' % notification.data.error)
+                                self._fail(originator='remote', code=0, reason=None, error='SDP negotiation failed: %s' % notification.data.error)
                                 return
                         elif notification.name == 'SIPInvitationChangedState':
                             if notification.data.state == 'early':
                                 if notification.data.code == 180:
                                     notification_center.post_notification('SIPSessionGotRingIndication', self, )
                                 notification_center.post_notification('SIPSessionGotProvisionalResponse', self, NotificationData(code=notification.data.code, reason=notification.data.reason))
-                            elif notification.data.state == 'connecting':
-                                received_code = notification.data.code
-                                received_reason = notification.data.reason
                             elif notification.data.state == 'connected':
                                 if not connected:
                                     connected = True
@@ -437,7 +428,6 @@ class Session(_Session):
                             elif notification.data.state == 'disconnected':
                                 raise InvitationDisconnectedError(notification.sender, notification.data)
             except api.TimeoutError:
-                self.greenlet = None
                 self.end()
                 return
 
@@ -478,9 +468,6 @@ class Session(_Session):
                         if notification.data.code == 180:
                             notification_center.post_notification('SIPSessionGotRingIndication', self)
                         notification_center.post_notification('SIPSessionGotProvisionalResponse', self, NotificationData(code=notification.data.code, reason=notification.data.reason))
-                    elif notification.data.state == 'connecting':
-                        received_code = notification.data.code
-                        received_reason = notification.data.reason
                     elif notification.data.state == 'connected':
                         if not connected:
                             connected = True
@@ -497,7 +484,7 @@ class Session(_Session):
                 error = 'media stream timed out while starting'
             else:
                 error = 'media stream failed: %s' % e.data.reason
-            self._fail(originator='local', code=received_code, reason=received_reason, error=error)
+            self._fail(originator='local', code=0, reason=None, error=error)
         except InvitationDisconnectedError, e:
             notification_center.remove_observer(self, sender=self._invitation)
             for stream in self.proposed_streams:
@@ -505,7 +492,7 @@ class Session(_Session):
                 stream.deactivate()
                 stream.end()
             self.state = 'terminated'
-            # As it weird as it may sound, PJSIP accepts a BYE even without receiving a final response to the INVITE
+            # As weird as it may sound, PJSIP accepts a BYE even without receiving a final response to the INVITE
             if e.data.prev_state in ('connecting', 'connected') or getattr(e.data, 'method', None) == 'BYE':
                 notification_center.post_notification('SIPSessionWillEnd', self, NotificationData(originator=e.data.originator))
                 self.end_time = datetime.now()
@@ -517,6 +504,9 @@ class Session(_Session):
                 elif e.data.disconnect_reason == 'timeout':
                     code = 408
                     reason = 'timeout'
+                elif e.data.originator == 'local' and e.data.code == 408:
+                    code = e.data.code
+                    reason = e.data.reason
                 else:
                     code = 0
                     reason = None
@@ -531,14 +521,14 @@ class Session(_Session):
                 notification_center.remove_observer(self, sender=stream)
                 stream.deactivate()
                 stream.end()
-            self._fail(originator='local', code=received_code, reason=received_reason, error='SIP core error: %s' % str(e))
+            self._fail(originator='local', code=0, reason=None, error='SIP core error: %s' % str(e))
         else:
             self.greenlet = None
             self.state = 'connected'
             self.streams = self.proposed_streams
             self.proposed_streams = None
             self.start_time = datetime.now()
-            notification_center.post_notification('SIPSessionDidStart', self, NotificationData(streams=self.streams))
+            notification_center.post_notification('SIPSessionDidStart', self, NotificationData(streams=self.streams[:]))
             for notification in unhandled_notifications:
                 self.handle_notification(notification)
             if self._hold_in_progress:
