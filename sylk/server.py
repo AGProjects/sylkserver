@@ -7,15 +7,14 @@ from threading import Event
 from uuid import uuid4
 
 from application import log
-from application.notification import NotificationCenter, NotificationData
+from application.notification import NotificationCenter
 from application.python import Null
 from eventlib import proc
 from sipsimple.account import Account, BonjourAccount, AccountManager
 from sipsimple.application import SIPApplication
 from sipsimple.audio import AudioDevice, RootAudioBridge
-from sipsimple.configuration import ConfigurationError
 from sipsimple.configuration.settings import SIPSimpleSettings
-from sipsimple.core import AudioMixer, Engine, SIPCoreError
+from sipsimple.core import AudioMixer
 from sipsimple.lookup import DNSManager
 from sipsimple.storage import MemoryStorage
 from sipsimple.threading import ThreadManager
@@ -54,8 +53,8 @@ class SylkServer(SIPApplication):
 
         try:
             super(SylkServer, self).start(MemoryStorage())
-        except ConfigurationError, e:
-            log.fatal("Error loading configuration: ",e)
+        except Exception, e:
+            log.fatal("Error starting SIP Application: %s" % e)
             sys.exit(1)
 
     def _load_configuration(self):
@@ -72,11 +71,47 @@ class SylkServer(SIPApplication):
         account.save()
         account_manager.sylkserver_account = account
 
+    def _initialize_core(self):
+        # SylkServer needs to listen for extra events and request types
+
+        notification_center = NotificationCenter()
+        settings = SIPSimpleSettings()
+
+        # initialize core
+        options = dict(# general
+                       user_agent=settings.user_agent,
+                       # SIP
+                       detect_sip_loops=True,
+                       udp_port=settings.sip.udp_port if 'udp' in settings.sip.transport_list else None,
+                       tcp_port=settings.sip.tcp_port if 'tcp' in settings.sip.transport_list else None,
+                       tls_port=None,
+                       # TLS
+                       tls_verify_server=False,
+                       tls_ca_file=None,
+                       tls_cert_file=None,
+                       tls_privkey_file=None,
+                       # rtp
+                       rtp_port_range=(settings.rtp.port_range.start, settings.rtp.port_range.end),
+                       # audio
+                       codecs=list(settings.rtp.audio_codec_list),
+                       # logging
+                       log_level=settings.logs.pjsip_level if settings.logs.trace_pjsip else 0,
+                       trace_sip=settings.logs.trace_sip,
+                       # events and requests to handle
+                       events={'conference': ['application/conference-info+xml'],
+                               'presence': ['application/pidf+xml'],
+                               'refer': ['message/sipfrag;version=2.0']},
+                       incoming_events=set(['conference', 'presence']),
+                       incoming_requests=set(['MESSAGE']))
+        with self.engine._lock:
+            # make sure we add the observer before the engine thread actually runs
+            self.engine.start(**options)
+            notification_center.add_observer(self, sender=self.engine)
+
     @run_in_green_thread
     def _initialize_subsystems(self):
         account_manager = AccountManager()
         dns_manager = DNSManager()
-        engine = Engine()
         notification_center = NotificationCenter()
         session_manager = SessionManager()
         settings = SIPSimpleSettings()
@@ -88,57 +123,13 @@ class SylkServer(SIPApplication):
             return
 
         account = account_manager.sylkserver_account
-
-        # initialize core
-        notification_center.add_observer(self, sender=engine)
-        options = dict(# general
-                       ip_address=SIPConfig.local_ip,
-                       user_agent=settings.user_agent,
-                       # SIP
-                       detect_sip_loops=False,
-                       udp_port=settings.sip.udp_port if 'udp' in settings.sip.transport_list else None,
-                       tcp_port=settings.sip.tcp_port if 'tcp' in settings.sip.transport_list else None,
-                       tls_port=None,
-                       # TLS
-                       tls_verify_server=False,
-                       tls_ca_file=None,
-                       tls_cert_file=None,
-                       tls_privkey_file=None,
-                       tls_timeout=3000,
-                       # rtp
-                       rtp_port_range=(settings.rtp.port_range.start, settings.rtp.port_range.end),
-                       # audio
-                       codecs=list(settings.rtp.audio_codec_list),
-                       # logging
-                       trace_sip=settings.logs.trace_sip,
-                       log_level=settings.logs.pjsip_level if settings.logs.trace_pjsip else 0,
-                       # events and requests to handle
-                       events={'conference': ['application/conference-info+xml'],
-                               'presence': ['application/pidf+xml'],
-                               'refer': ['message/sipfrag;version=2.0']},
-                       incoming_events=set(['conference', 'presence']),
-                       incoming_requests=set(['MESSAGE'])
-                      )
-        try:
-            engine.start(**options)
-        except SIPCoreError:
-            self.end_reason = 'engine failed'
-            reactor.stop()
-            return
+        account_manager.default_account = account
 
         # initialize TLS
-        try:
-            engine.set_tls_options(port=settings.sip.tls_port if 'tls' in settings.sip.transport_list else None,
-                                   verify_server=account.tls.verify_server,
-                                   ca_file=settings.tls.ca_list.normalized if settings.tls.ca_list else None,
-                                   cert_file=account.tls.certificate.normalized if account.tls.certificate else None,
-                                   privkey_file=account.tls.certificate.normalized if account.tls.certificate else None,
-                                   timeout=settings.tls.timeout)
-        except Exception, e:
-            notification_center.post_notification('SIPApplicationFailedToStartTLS', sender=self, data=NotificationData(error=e))
+        self._initialize_tls()
 
         # initialize PJSIP internal resolver
-        engine.set_nameservers(dns_manager.nameservers)
+        self.engine.set_nameservers(dns_manager.nameservers)
 
         # initialize audio objects
         voice_mixer = AudioMixer(None, None, settings.audio.sample_rate, 0, 9999)
@@ -147,9 +138,8 @@ class SylkServer(SIPApplication):
         self.voice_audio_bridge.add(self.voice_audio_device)
 
         # initialize instance id
-        if not settings.instance_id:
-            settings.instance_id = uuid4().urn
-            settings.save()
+        settings.instance_id = uuid4().urn
+        settings.save()
 
         # initialize middleware components
         dns_manager.start()
@@ -182,12 +172,8 @@ class SylkServer(SIPApplication):
         proc.waitall(procs)
 
         # shutdown engine
-        engine = Engine()
-        engine.stop()
-        while True:
-            notification = self._channel.wait()
-            if notification.name == 'SIPEngineDidEnd':
-                break
+        self.engine.stop()
+        self.engine.join()
 
         # stop threads
         thread_manager = ThreadManager()
@@ -218,13 +204,12 @@ class SylkServer(SIPApplication):
             log.msg('Logging notifications trace to file "%s"' % self.logger._notifications_filename)
 
     def _NH_SIPApplicationDidStart(self, notification):
-        engine = Engine()
         settings = SIPSimpleSettings()
         local_ip = SIPConfig.local_ip
         log.msg("SylkServer started, listening on:")
         for transport in settings.sip.transport_list:
             try:
-                log.msg("%s:%d (%s)" % (local_ip, getattr(engine, '%s_port' % transport), transport.upper()))
+                log.msg("%s:%d (%s)" % (local_ip, getattr(self.engine, '%s_port' % transport), transport.upper()))
             except TypeError:
                 pass
 
