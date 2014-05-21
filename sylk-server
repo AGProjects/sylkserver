@@ -83,7 +83,7 @@ def main():
     process.signals.add_handler(signal.SIGINT, stop_server)
 
     try:
-        server.start()
+        server.start(options)
         while not server.stopping_event.wait(9999):
             pass
         server.stop_event.wait(5)

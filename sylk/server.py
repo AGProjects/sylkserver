@@ -42,7 +42,9 @@ class SylkServer(SIPApplication):
         self.stopping_event = Event()
         self.stop_event = Event()
 
-    def start(self):
+    def start(self, options):
+        self.options = options
+
         notification_center = NotificationCenter()
         notification_center.add_observer(self, sender=self)
         notification_center.add_observer(self, name='ThorNetworkGotFatalError')
@@ -58,7 +60,7 @@ class SylkServer(SIPApplication):
             sys.exit(1)
 
     def _load_configuration(self):
-        if '--enable-bonjour' in sys.argv:
+        if self.options.enable_bonjour:
             ServerConfig.enable_bonjour = True
         account_manager = AccountManager()
         account = Account("account@example.com")     # an account is required by AccountManager
