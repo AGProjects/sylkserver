@@ -123,10 +123,10 @@ class ChatStream(MSRPStreamMixin, _ChatStream):
         if message.content_type.lower() == IsComposingDocument.content_type:
             data = IsComposingDocument.parse(message.body)
             ndata = NotificationData(state=data.state.value,
-                                                refresh=data.refresh.value if data.refresh is not None else None,
-                                                content_type=data.content_type.value if data.content_type is not None else None,
-                                                last_active=data.last_active.value if data.last_active is not None else None,
-                                                sender=message.sender, recipients=message.recipients, private=private, chunk=chunk)
+                                     refresh=data.refresh.value if data.refresh is not None else 120,
+                                     content_type=data.content_type.value if data.content_type is not None else None,
+                                     last_active=data.last_active.value if data.last_active is not None else None,
+                                     sender=message.sender, recipients=message.recipients, private=private, chunk=chunk)
             notification_center.post_notification('ChatStreamGotComposingIndication', self, ndata)
         else:
             notification_center.post_notification('ChatStreamGotMessage', self, NotificationData(message=message, private=private, chunk=chunk))
