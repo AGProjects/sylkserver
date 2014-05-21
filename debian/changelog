@@ -1,3 +1,13 @@
+sylkserver (2.6.1) unstable; urgency=medium
+
+  * Adjust Session to changes in SIP SIMPLE SDK
+  * Adapted server startup to changes in SIP SIMPLE SDK
+  * Send REPORT chunks automatically for keep-alive chunks
+  * Log SIP SIMPLE SDK version
+  * Raised python-sipsimple version dependency
+
+ -- Saul Ibarra <saul@ag-projects.com>  Wed, 21 May 2014 15:13:43 +0200
+
 sylkserver (2.6.0) unstable; urgency=medium
 
   * Fixed issues when shutting down the Engine
