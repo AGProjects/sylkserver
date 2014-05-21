@@ -11,6 +11,7 @@ from optparse import OptionParser
 
 from application import log
 from application.process import process, ProcessError
+from sipsimple import __version__ as sipsimple_version
 
 import sylk
 
@@ -61,6 +62,7 @@ def main():
         log.msg("Starting %s %s, config=%s" % (fullname, sylk.__version__, sylk.configuration_filename))
     else:
         log.msg("Starting %s %s, with no configuration file" % (fullname, sylk.__version__))
+    log.msg("Using SIP SIMPLE SDK version %s" % sipsimple_version)
 
     try:
         if not options.fork and DEBUG:
