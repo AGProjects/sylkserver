@@ -59,16 +59,12 @@ class MSRPStreamMixin(object):
                     self.local_role = 'actpass' if outgoing else 'passive'
             full_local_path = self.msrp_connector.prepare(self.local_uri)
             self.local_media = self._create_local_media(full_local_path)
-        except api.GreenletExit:
-            raise
         except Exception, ex:
             ndata = NotificationData(context='initialize', failure=Failure(), reason=str(ex))
             notification_center.post_notification('MediaStreamDidFail', self, ndata)
         else:
             notification_center.post_notification('MediaStreamDidInitialize', self)
         finally:
-            if self.msrp_session is None and self.msrp is None and self.msrp_connector is None:
-                notification_center.remove_observer(self, sender=self)
             self.greenlet = None
 
 
