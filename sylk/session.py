@@ -289,21 +289,23 @@ class Session(_Session):
 
     def init_incoming(self, invitation, data):
         remote_sdp = invitation.sdp.proposed_remote
+        if not remote_sdp:
+            invitation.send_response(488)
+            return
         self.proposed_streams = []
-        if remote_sdp:
-            for index, media_stream in enumerate(remote_sdp.media):
-                if media_stream.port != 0:
-                    for stream_type in MediaStreamRegistry():
-                        try:
-                            stream = stream_type.new_from_sdp(self, remote_sdp, index)
-                        except InvalidStreamError:
-                            break
-                        except UnknownStreamError:
-                            continue
-                        else:
-                            stream.index = index
-                            self.proposed_streams.append(stream)
-                            break
+        for index, media_stream in enumerate(remote_sdp.media):
+            if media_stream.port != 0:
+                for stream_type in MediaStreamRegistry():
+                    try:
+                        stream = stream_type.new_from_sdp(self, remote_sdp, index)
+                    except InvalidStreamError:
+                        break
+                    except UnknownStreamError:
+                        continue
+                    else:
+                        stream.index = index
+                        self.proposed_streams.append(stream)
+                        break
         if not self.proposed_streams:
             invitation.send_response(488)
             return
