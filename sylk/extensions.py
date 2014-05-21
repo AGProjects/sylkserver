@@ -90,11 +90,12 @@ class ChatStream(MSRPStreamMixin, _ChatStream):
 
     def _handle_SEND(self, chunk):
         # This ChatStream doesn't send MSRP REPORT chunks automatically, the developer needs to manually send them
+        if chunk.size == 0:
+            # keep-alive
+            self.msrp_session.send_report(chunk, 200, 'OK')
+            return
         if self.direction=='sendonly':
             self.msrp_session.send_report(chunk, 413, 'Unwanted Message')
-            return
-        if not chunk.data:
-            self.msrp_session.send_report(chunk, 200, 'OK')
             return
         if chunk.segment is not None:
             self.incoming_queue.setdefault(chunk.message_id, []).append(chunk.data)
