@@ -134,7 +134,6 @@ class IRCRoom(object):
         self.irc_connector.disconnect()
         self.irc_connector = None
         self.message_dispatcher.kill(proc.ProcExit)
-        self.moh_player = None
         self.audio_conference = None
 
     def _message_dispatcher(self):
