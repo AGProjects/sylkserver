@@ -254,7 +254,8 @@ class IRCRoom(object):
                                                                                       'encrypted' if audio_stream.srtp_active else 'unencrypted',
                                                                                       audio_stream.local_rtp_address, audio_stream.local_rtp_port,
                                                                                       audio_stream.remote_rtp_address, audio_stream.remote_rtp_port))
-            self.play_audio_welcome(session)
+            welcome_handler = WelcomeHandler(self, session)
+            welcome_handler.start()
         self.get_conference_info()
         if len(self.sessions) == 1:
             log.msg(u'%s started conference %s %s' % (format_identity(session.remote_identity), self.uri, format_stream_types(session.streams)))
@@ -297,46 +298,6 @@ class IRCRoom(object):
         if session in self.sessions_with_proposals:
             session.accept_proposal(streams)
             self.sessions_with_proposals.remove(session)
-
-    def _play_file_in_player(self, player, file, delay):
-        player.filename = file
-        player.pause_time = delay
-        try:
-            player.play().wait()
-        except WavePlayerError, e:
-            log.warning(u"Error playing file %s: %s" % (file, e))
-
-    @run_in_green_thread
-    def play_audio_welcome(self, session, welcome_prompt=True):
-        audio_stream = next(stream for stream in session.streams if stream.type == 'audio')
-        player = WavePlayer(audio_stream.mixer, '', pause_time=1, initial_delay=1, volume=50)
-        audio_stream.bridge.add(player)
-        if welcome_prompt:
-            file = ResourcePath('sounds/co_welcome_conference.wav').normalized
-            self._play_file_in_player(player, file, 1)
-        user_count = len(set(str(s.remote_identity.uri) for s in self.sessions if any(stream for stream in s.streams if stream.type == 'audio')) - set([str(session.remote_identity.uri)]))
-        if user_count == 0:
-            file = ResourcePath('sounds/co_only_one.wav').normalized
-            self._play_file_in_player(player, file, 0.5)
-        elif user_count == 1:
-            file = ResourcePath('sounds/co_there_is.wav').normalized
-            self._play_file_in_player(player, file, 0.5)
-        elif user_count < 100:
-            file = ResourcePath('sounds/co_there_are.wav').normalized
-            self._play_file_in_player(player, file, 0.2)
-            if user_count <= 24:
-                file = ResourcePath('sounds/bi_%d.wav' % user_count).normalized
-                self._play_file_in_player(player, file, 0.1)
-            else:
-                file = ResourcePath('sounds/bi_%d0.wav' % (user_count / 10)).normalized
-                self._play_file_in_player(player, file, 0.1)
-                file = ResourcePath('sounds/bi_%d.wav' % (user_count % 10)).normalized
-                self._play_file_in_player(player, file, 0.1)
-            file = ResourcePath('sounds/co_more_participants.wav').normalized
-            self._play_file_in_player(player, file, 0)
-        audio_stream.bridge.remove(player)
-        self.audio_conference.add(audio_stream)
-        self.audio_conference.unhold()
 
     def handle_incoming_subscription(self, subscribe_request, data):
         if subscribe_request.event != 'conference':
@@ -396,7 +357,8 @@ class IRCRoom(object):
                                                                                            'encrypted' if stream.srtp_active else 'unencrypted',
                                                                                            stream.local_rtp_address, stream.local_rtp_port,
                                                                                            stream.remote_rtp_address, stream.remote_rtp_port))
-                self.play_audio_welcome(session, False)
+                welcome_handler = WelcomeHandler(self, session)
+                welcome_handler.start(welcome_prompt=False)
 
         for stream in notification.data.removed_streams:
             notification.center.remove_observer(self, sender=stream)
@@ -488,6 +450,86 @@ class IRCRoom(object):
 
     def _NH_IRCBotUserAction(self, notification):
         self.dispatch_server_message('%s %s' % (notification.data.user, notification.data.action))
+
+
+class WelcomeHandler(object):
+    implements(IObserver)
+
+    def __init__(self, room, session):
+        self.room = room
+        self.session = session
+        self.proc = None
+
+    @run_in_green_thread
+    def start(self, welcome_prompt=True):
+        notification_center = NotificationCenter()
+        notification_center.add_observer(self, sender=self.session)
+
+        self.proc = proc.spawn(self.play_audio_welcome, welcome_prompt)
+        self.proc.wait()
+
+        notification_center.remove_observer(self, sender=self.session)
+        self.session = None
+        self.room = None
+        self.proc = None
+
+    def play_file_in_player(self, player, file, delay):
+        player.filename = file
+        player.pause_time = delay
+        try:
+            player.play().wait()
+        except WavePlayerError, e:
+            log.warning(u"Error playing file %s: %s" % (file, e))
+
+    def play_audio_welcome(self, welcome_prompt):
+        try:
+            audio_stream = next(stream for stream in self.session.streams if stream.type == 'audio')
+        except StopIteration:
+            return
+        player = WavePlayer(audio_stream.mixer, '', pause_time=1, initial_delay=1, volume=50)
+        audio_stream.bridge.add(player)
+        try:
+            if welcome_prompt:
+                file = ResourcePath('sounds/co_welcome_conference.wav').normalized
+                self.play_file_in_player(player, file, 1)
+            user_count = len(set(str(s.remote_identity.uri) for s in self.room.sessions if any(stream for stream in s.streams if stream.type == 'audio')) - set([str(self.session.remote_identity.uri)]))
+            if user_count == 0:
+                file = ResourcePath('sounds/co_only_one.wav').normalized
+                self.play_file_in_player(player, file, 0.5)
+            elif user_count == 1:
+                file = ResourcePath('sounds/co_there_is_one.wav').normalized
+                self.play_file_in_player(player, file, 0.5)
+            elif user_count < 100:
+                file = ResourcePath('sounds/co_there_are.wav').normalized
+                self.play_file_in_player(player, file, 0.2)
+                if user_count <= 24:
+                    file = ResourcePath('sounds/bi_%d.wav' % user_count).normalized
+                    self.play_file_in_player(player, file, 0.1)
+                else:
+                    file = ResourcePath('sounds/bi_%d0.wav' % (user_count / 10)).normalized
+                    self.play_file_in_player(player, file, 0.1)
+                    file = ResourcePath('sounds/bi_%d.wav' % (user_count % 10)).normalized
+                    self.play_file_in_player(player, file, 0.1)
+                file = ResourcePath('sounds/co_more_participants.wav').normalized
+                self.play_file_in_player(player, file, 0)
+            file = ResourcePath('sounds/connected_tone.wav').normalized
+            self.play_file_in_player(player, file, 0.1)
+        except proc.ProcExit:
+            # No need to remove the bridge from the stream, it's done automatically
+            pass
+        else:
+            audio_stream.bridge.remove(player)
+            self.room.audio_conference.add(audio_stream)
+            self.room.audio_conference.unhold()
+        finally:
+            player.stop()
+
+    def handle_notification(self, notification):
+        handler = getattr(self, '_NH_%s' % notification.name, Null)
+        handler(notification)
+
+    def _NH_SIPSessionWillEnd(self, notification):
+        self.proc.kill()
 
 
 class IRCBot(irc.IRCClient):
