@@ -108,6 +108,7 @@ class PlaybackHandler(object):
         except InterruptPlayback:
             pass
         finally:
+            player.stop()
             self.proc = None
             audio_stream.bridge.remove(player)
             self.session.end()
