@@ -1,3 +1,10 @@
+sylkserver (2.6.2) unstable; urgency=medium
+
+  * Fixed resource leak in playback application
+  * Refactored welcome prompt playback for ircconference application
+
+ -- Saul Ibarra <saul@ag-projects.com>  Thu, 12 Jun 2014 09:26:23 +0200
+
 sylkserver (2.6.1) unstable; urgency=medium
 
   * Adjust Session to changes in SIP SIMPLE SDK
