@@ -5,7 +5,8 @@
 ; Replay last chat messages after joining a room
 ; history_size = 20
 
-; Directory for storing files transferred to rooms (a subdirectory for each room will be created)
+; Directory for storing files transferred to rooms (a subdirectory for each
+; room will be created)
 file_transfer_dir = /var/spool/sylkserver
 
 ; File transfer push support. If enabled files will be pushed to all active
@@ -15,8 +16,9 @@ file_transfer_dir = /var/spool/sylkserver
 ; Directory where images used by the Screen Sharing functionality will be stored
 screen_sharing_dir = /var/spool/sylkserver/screensharing
 
-; IP address used for serving Screen Sharing HTTP requests, empty string means listen on interface used
-; by the default route
+; IP address used for serving Screen Sharing HTTP requests, empty string
+; means listen on interface used by the default route
+
 ; screen_sharing_ip =
 
 ; Port where Screen Sharing HTTP server will listen on, set to 0 for random
@@ -25,8 +27,14 @@ screen_sharing_dir = /var/spool/sylkserver/screensharing
 ; Use HTTPS instead of HTTP
 ; screen_sharing_use_https = True
 
-; Server certificate for HTTPS connections
+; X.509 server certificate for HTTPS connections, the certificate private
+; key must be concatenated inside the same file
 ; screen_sharing_certificate = /etc/sylkserver/tls/default.crt
+
+; Hostname published in conference-info payload. Must match the common name
+; of server X.509 certificate set above, otherwise clients will raise
+; warning. If not set the listening IP address will be used
+; screen_sharing_hostname =
 
 ; Advertise XMPP support in conference URIs and welcome (text) message
 ; advertise_xmpp_support = True
@@ -48,4 +56,3 @@ screen_sharing_dir = /var/spool/sylkserver/screensharing
 ; access_policy = allow, deny
 ; allow = example.com, test@domain.com
 ; deny = all
-

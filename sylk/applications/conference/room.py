@@ -61,7 +61,8 @@ class ScreenImage(object):
         from sylk.applications.conference import ConferenceApplication
         port = ConferenceApplication().screen_sharing_web_server.port
         scheme = 'https' if ConferenceConfig.screen_sharing_use_https else 'http'
-        self.url = URL('%s://%s:%s/' % (scheme, ConferenceConfig.screen_sharing_ip.normalized, port))
+        host = ConferenceConfig.screen_sharing_hostname or ConferenceConfig.screen_sharing_ip.normalized
+        self.url = URL('%s://%s:%s/' % (scheme, host, port))
         self.url.query_items['image'] = os.path.join(room.uri, os.path.basename(self.filename))
         self.state = None
         self.timer = None
@@ -1117,4 +1118,3 @@ class OutgoingFileTransferHandler(object):
         self.stream = None
 
     _NH_SIPSessionDidFail = _NH_SIPSessionDidEnd
-

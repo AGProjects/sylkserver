@@ -6,7 +6,7 @@ __all__ = ['ConferenceConfig', 'get_room_config']
 import re
 
 from application.configuration import ConfigFile, ConfigSection, ConfigSetting
-from application.configuration.datatypes import StringList
+from application.configuration.datatypes import StringList, Hostname
 from application.system import host
 
 from sylk.configuration.datatypes import IPAddress, NillablePath, Path, Port
@@ -92,6 +92,7 @@ class ConferenceConfig(ConfigSection):
 
     screen_sharing_dir = ConfigSetting(type=Path, value=Path('var/spool/sylkserver/screensharing'))
     screen_sharing_ip = ConfigSetting(type=IPAddress, value=IPAddress(host.default_ip))
+    screen_sharing_hostname = ConfigSetting(type=Hostname, value=IPAddress(host.default_ip))
     screen_sharing_port = ConfigSetting(type=Port, value=0)
     screen_sharing_use_https = True
     screen_sharing_certificate = ConfigSetting(type=NillablePath, value=NillablePath('tls/default.crt'))
@@ -127,4 +128,3 @@ def get_room_config(room):
         # Apply general policy
         config = Configuration(dict((attr, getattr(ConferenceConfig, attr)) for attr in ('access_policy', 'allow', 'deny', 'pstn_access_numbers', 'advertise_xmpp_support')))
     return config
-
