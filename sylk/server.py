@@ -73,6 +73,23 @@ class SylkServer(SIPApplication):
         account.save()
         account_manager.sylkserver_account = account
 
+    def _initialize_tls(self):
+        # Take our sylkserver_account, because there is a race condition: since our account is created on the fly,
+        # it's possible that the account manager doesn't know about it yet, because saving happens in another thread.
+        settings = SIPSimpleSettings()
+        account_manager = AccountManager()
+        account = account_manager.sylkserver_account
+        assert account is not None
+        try:
+            self.engine.set_tls_options(port=settings.sip.tls_port,
+                                        verify_server=account.tls.verify_server,
+                                        ca_file=settings.tls.ca_list.normalized if settings.tls.ca_list else None,
+                                        cert_file=account.tls.certificate.normalized if account.tls.certificate else None,
+                                        privkey_file=account.tls.certificate.normalized if account.tls.certificate else None)
+        except Exception, e:
+            notification_center = NotificationCenter()
+            notification_center.post_notification('SIPApplicationFailedToStartTLS', sender=self, data=NotificationData(error=e))
+
     def _initialize_core(self):
         # SylkServer needs to listen for extra events and request types
 
