@@ -7,7 +7,7 @@ from threading import Event
 from uuid import uuid4
 
 from application import log
-from application.notification import NotificationCenter
+from application.notification import NotificationCenter, NotificationData
 from application.python import Null
 from eventlib import proc
 from sipsimple.account import Account, BonjourAccount, AccountManager
