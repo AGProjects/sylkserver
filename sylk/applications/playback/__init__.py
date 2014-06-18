@@ -30,7 +30,7 @@ class PlaybackApplication(SylkApplication):
         try:
             audio_stream = next(stream for stream in session.proposed_streams if stream.type=='audio')
         except StopIteration:
-            log.msg(u'Session %s rejected: invalid media, only RTP audio is supported' % session.call_id)
+            log.msg(u'Session %s rejected: invalid media, only RTP audio is supported' % session._invitation.call_id)
             session.reject(488)
             return
         else:
