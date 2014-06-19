@@ -128,5 +128,6 @@ def get_room_config(room):
         RoomConfig.reset()
     else:
         # Apply general policy
-        config = Configuration(dict((attr, getattr(ConferenceConfig, attr)) for attr in ('access_policy', 'allow', 'deny', 'pstn_access_numbers', 'advertise_xmpp_support')))
+        config = Configuration(dict(RoomConfig))
     return config
+
