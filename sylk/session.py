@@ -388,10 +388,13 @@ class Session(_Session):
                 else:
                     contact_header = ContactHeader(contact_uri)
             local_ip = contact_header.uri.host
-            local_sdp = SDPSession(local_ip, connection=SDPConnection(local_ip), name=settings.user_agent)
+            connection = SDPConnection(local_ip)
+            local_sdp = SDPSession(local_ip, name=settings.user_agent)
             for index, stream in enumerate(self.proposed_streams):
                 stream.index = index
-                media = stream.get_local_media(for_offer=True)
+                media = stream.get_local_media(remote_sdp=None, index=index)
+                if media.connection is None or (media.connection is not None and not media.has_ice_attributes and not media.has_ice_candidates):
+                    media.connection = connection
                 local_sdp.media.append(media)
             route_header = RouteHeader(self.route.uri)
             if is_focus:
