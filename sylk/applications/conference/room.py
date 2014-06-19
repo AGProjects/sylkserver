@@ -1109,7 +1109,7 @@ class OutgoingFileTransferHandler(object):
         notification_center.add_observer(self, sender=self.session)
         notification_center.add_observer(self, sender=self.stream)
         subject = u'File uploaded by %s' % self.file.sender
-        from_header = FromHeader(SIPURI.new(self.room_uri), u'Conference File Transfer')
+        from_header = FromHeader(SIPURI.new(self.room_uri), room.config.display_name)
         to_header = ToHeader(SIPURI.new(self.destination))
         transport = routes[0].transport
         parameters = {} if transport=='udp' else {'transport': transport}
