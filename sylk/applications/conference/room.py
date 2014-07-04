@@ -484,12 +484,12 @@ class Room(object):
         self.subscriptions.append(subscribe_request)
         subscribe_request.accept(conference.ConferenceDocument.content_type, self.conference_info)
 
-    def accept_proposal(self, session, streams):
-        if session.state == 'received_proposal':
-            try:
-                session.accept_proposal(streams)
-            except IllegalStateError:
-                pass
+    def _accept_proposal(self, session, streams):
+        try:
+            session.accept_proposal(streams)
+        except IllegalStateError:
+            pass
+        session.proposal_timer = None
 
     def add_file(self, file):
         if file.status == 'INCOMPLETE':
@@ -599,7 +599,26 @@ class Room(object):
                 session.reject_proposal()
                 return
             streams = [streams[0] for streams in (audio_streams, chat_streams) if streams]
-            reactor.callLater(4, self.accept_proposal, session, streams)
+            timer = reactor.callLater(3, self._accept_proposal, session, streams)
+            old_timer = getattr(session, 'proposal_timer', None)
+            assert old_timer is None
+            session.proposal_timer = timer
+
+    def _NH_SIPSessionProposalRejected(self, notification):
+        if notification.data.originator == 'remote':
+            session = notification.sender
+            timer = getattr(session, 'proposal_timer', None)
+            assert timer is not None
+            timer.cancel()
+            session.proposal_timer = None
+
+    def _NH_SIPSessionHadProposalFailure(self, notification):
+        if notification.data.originator == 'remote':
+            session = notification.sender
+            timer = getattr(session, 'proposal_timer', None)
+            assert timer is not None
+            timer.cancel()
+            session.proposal_timer = None
 
     def _NH_SIPSessionDidRenegotiateStreams(self, notification):
         session = notification.sender
@@ -640,6 +659,13 @@ class Room(object):
     def _NH_SIPSessionTransferNewIncoming(self, notification):
         log.msg(u'Room %s - Call transfer request rejected, REFER must be out of dialog (RFC4579 5.5)' % self.uri)
         notification.sender.reject_transfer(403)
+
+    def _NH_SIPSessionWillEnd(self, notification):
+        notification = notification.sender
+        timer = getattr(session, 'proposal_timer', None)
+        if timer is not None and timer.isActive():
+            timer.cancel()
+        session.proposal_timer = None
 
     @staticmethod
     def format_stream_types(streams):
