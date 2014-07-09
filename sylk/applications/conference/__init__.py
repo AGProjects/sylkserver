@@ -4,6 +4,7 @@
 import mimetypes
 import os
 import re
+import shutil
 
 from application.notification import IObserver, NotificationCenter
 from application.python import Null
@@ -47,6 +48,13 @@ class ConferenceApplication(SylkApplication):
         self.screen_sharing_web_server = None
 
     def start(self):
+        # cleanup old files
+        for path in (ConferenceConfig.file_transfer_dir, ConferenceConfig.screen_sharing_dir):
+            try:
+                shutil.rmtree(path)
+            except EnvironmentError:
+                pass
+
         if ServerConfig.enable_bonjour:
             self.bonjour_focus_service = BonjourServices(service='sipfocus')
             self.bonjour_focus_service.start()
