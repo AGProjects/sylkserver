@@ -1,3 +1,17 @@
+sylkserver (2.7.0) unstable; urgency=medium
+
+  * Added setting to set the hostname for conference room screen sharing URL
+  * Fix race condition when initializing TLS transport
+  * Fixed streams API usage after changes in SIPSIMPLE SDK
+  * Fix handling cancelled proposals
+  * Added display_name attribute to conference rooms
+  * Simplify loading room configuration
+  * Cleanup old room files on startup
+  * Use '.log' as the extension for log files
+  * Added logrotate file
+
+ -- Saul Ibarra <saul@ag-projects.com>  Wed, 09 Jul 2014 16:12:45 +0200
+
 sylkserver (2.6.2) unstable; urgency=medium
 
   * Fixed resource leak in playback application
