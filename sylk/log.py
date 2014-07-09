@@ -263,22 +263,22 @@ class Logger(object):
             self._log_directory_error = False
             # sip trace
             if self._siptrace_filename is None:
-                self._siptrace_filename = os.path.join(log_directory, 'sip_trace.txt')
+                self._siptrace_filename = os.path.join(log_directory, 'sip_trace.log')
                 self._siptrace_error = False
 
             # msrp trace
             if self._msrptrace_filename is None:
-                self._msrptrace_filename = os.path.join(log_directory, 'msrp_trace.txt')
+                self._msrptrace_filename = os.path.join(log_directory, 'msrp_trace.log')
                 self._msrptrace_error = False
 
             # pjsip trace
             if self._pjsiptrace_filename is None:
-                self._pjsiptrace_filename = os.path.join(log_directory, 'core_trace.txt')
+                self._pjsiptrace_filename = os.path.join(log_directory, 'core_trace.log')
                 self._pjsiptrace_error = False
 
             # notifications trace
             if self._notifications_filename is None:
-                self._notifications_filename = os.path.join(log_directory, 'notifications_trace.txt')
+                self._notifications_filename = os.path.join(log_directory, 'notifications_trace.log')
                 self._notifications_error = False
 
     def _init_log_file(self, type):

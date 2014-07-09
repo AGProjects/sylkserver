@@ -82,7 +82,7 @@ class Logger(object):
         else:
             self._log_directory_error = False
             if self._xmpptrace_filename is None:
-                self._xmpptrace_filename = os.path.join(log_directory, 'xmpp_trace.txt')
+                self._xmpptrace_filename = os.path.join(log_directory, 'xmpp_trace.log')
                 self._xmpptrace_error = False
 
     def _init_log_file(self):
