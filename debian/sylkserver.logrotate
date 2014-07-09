@@ -1,0 +1,11 @@
+/var/log/sylkserver/*.log
+{
+  rotate 7
+  daily
+  delaycompress
+  compress
+  missingok
+  copytruncate
+  nocreate
+}
+

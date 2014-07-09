@@ -1,6 +1,6 @@
 recursive-include debian  changelog compat control copyright rules
 recursive-include debian  pycompat pyversions
-recursive-include debian  *.init *.dirs *.default *.install
+recursive-include debian  *.init *.dirs *.default *.install *.logrotate
 recursive-include debian/source format
 recursive-include resources/sounds *.wav
 recursive-include resources/sounds/moh *.wav
