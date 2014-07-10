@@ -9,6 +9,7 @@ sylkserver (2.7.0) unstable; urgency=medium
   * Cleanup old room files on startup
   * Use '.log' as the extension for log files
   * Added logrotate file
+  * Raised python-sipsimple version dependency
 
  -- Saul Ibarra <saul@ag-projects.com>  Wed, 09 Jul 2014 16:12:45 +0200
 
