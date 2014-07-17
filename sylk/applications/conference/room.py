@@ -661,7 +661,7 @@ class Room(object):
         notification.sender.reject_transfer(403)
 
     def _NH_SIPSessionWillEnd(self, notification):
-        notification = notification.sender
+        session = notification.sender
         timer = getattr(session, 'proposal_timer', None)
         if timer is not None and timer.isActive():
             timer.cancel()
