@@ -1,3 +1,9 @@
+sylkserver (2.7.1) unstable; urgency=medium
+
+  * Fix variable name
+
+ -- Saul Ibarra <saul@ag-projects.com>  Fri, 18 Jul 2014 13:07:13 +0200
+
 sylkserver (2.7.0) unstable; urgency=medium
 
   * Added setting to set the hostname for conference room screen sharing URL
