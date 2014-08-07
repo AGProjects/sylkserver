@@ -143,7 +143,7 @@ class Room(object):
         self.moh_player = None
         self.conference_info_payload = None
         self.conference_info_version = count(1)
-        self.bonjour_services = Null()
+        self.bonjour_services = Null
         self.session_nickname_map = {}
         self.last_nicknames_map = {}
         self.participants_counter = defaultdict(lambda: 0)

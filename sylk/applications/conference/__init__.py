@@ -43,8 +43,8 @@ class ConferenceApplication(SylkApplication):
     def __init__(self):
         self._rooms = {}
         self.invited_participants_map = {}
-        self.bonjour_focus_service = Null()
-        self.bonjour_room_service = Null()
+        self.bonjour_focus_service = Null
+        self.bonjour_room_service = Null
         self.screen_sharing_web_server = None
 
     def start(self):
