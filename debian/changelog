@@ -1,3 +1,10 @@
+sylkserver (2.7.2) unstable; urgency=medium
+
+  * Fix setting local IP address
+  * Null doesn't need to be instantiated
+
+ -- Saul Ibarra <saul@ag-projects.com>  Tue, 12 Aug 2014 14:34:21 +0200
+
 sylkserver (2.7.1) unstable; urgency=medium
 
   * Fix variable name
