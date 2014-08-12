@@ -98,6 +98,7 @@ class SylkServer(SIPApplication):
 
         # initialize core
         options = dict(# general
+                       ip_address=SIPConfig.local_ip,
                        user_agent=settings.user_agent,
                        # SIP
                        detect_sip_loops=True,
