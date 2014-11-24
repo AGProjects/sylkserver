@@ -33,6 +33,12 @@ class ApplicationRegistry(object):
     def __iter__(self):
         return iter(self.applications)
 
+    def find_application(self, name):
+        try:
+            return next(app for app in self.applications if app.__appname__ == name)
+        except StopIteration:
+            return None
+
     def add(self, app):
         if app not in self.applications:
             self.applications.append(app)
