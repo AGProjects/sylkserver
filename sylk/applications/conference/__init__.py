@@ -55,7 +55,7 @@ class ConferenceApplication(SylkApplication):
             except EnvironmentError:
                 pass
 
-        if ServerConfig.enable_bonjour:
+        if ServerConfig.enable_bonjour and ServerConfig.default_application == 'conference':
             self.bonjour_focus_service = BonjourServices(service='sipfocus')
             self.bonjour_focus_service.start()
             log.msg("Bonjour publication started for service 'sipfocus'")
