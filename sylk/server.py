@@ -7,7 +7,7 @@ from threading import Event
 from uuid import uuid4
 
 from application import log
-from application.notification import NotificationCenter, NotificationData
+from application.notification import NotificationCenter
 from application.python import Null
 from eventlib import proc
 from sipsimple.account import Account, BonjourAccount, AccountManager
@@ -114,6 +114,8 @@ class SylkServer(SIPApplication):
                        rtp_port_range=(settings.rtp.port_range.start, settings.rtp.port_range.end),
                        # audio
                        codecs=list(settings.rtp.audio_codec_list),
+                       # video
+                       video_codecs=list(settings.rtp.video_codec_list),
                        # logging
                        log_level=settings.logs.pjsip_level if settings.logs.trace_pjsip else 0,
                        trace_sip=settings.logs.trace_sip,
@@ -123,10 +125,8 @@ class SylkServer(SIPApplication):
                                'refer': ['message/sipfrag;version=2.0']},
                        incoming_events=set(['conference', 'presence']),
                        incoming_requests=set(['MESSAGE']))
-        with self.engine._lock:
-            # make sure we add the observer before the engine thread actually runs
-            self.engine.start(**options)
-            notification_center.add_observer(self, sender=self.engine)
+        notification_center.add_observer(self, sender=self.engine)
+        self.engine.start(**options)
 
     @run_in_green_thread
     def _initialize_subsystems(self):
