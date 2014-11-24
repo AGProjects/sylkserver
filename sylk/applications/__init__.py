@@ -122,7 +122,14 @@ class IncomingRequestHandler(object):
 
     def __init__(self):
         load_applications()
-        log.msg('Loaded applications: %s' % ', '.join([app.__appname__ for app in ApplicationRegistry()]))
+        registry = ApplicationRegistry()
+        log.msg('Loaded applications: %s' % ', '.join([app.__appname__ for app in registry]))
+        default_application = registry.find_application(ServerConfig.default_application)
+        if default_application is None:
+            log.warning('Default application "%s" does not exist, falling back to "conference"' % ServerConfig.default_application)
+            ServerConfig.default_application = 'conference'
+        else:
+            log.msg('Default application: %s' % ServerConfig.default_application)
         self.application_map = dict((item.split(':')) for item in ServerConfig.application_map)
         self.authorization_handler = AuthorizationHandler()
 
