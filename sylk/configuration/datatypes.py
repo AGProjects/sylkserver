@@ -38,7 +38,7 @@ class IPAddress(str):
     @property
     def normalized(self):
         if self == '0.0.0.0':
-            return host.default_ip
+            return host.default_ip or '127.0.0.1'
         return str(self)
 
 class ResourcePath(object):
