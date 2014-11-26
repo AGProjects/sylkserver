@@ -155,7 +155,7 @@ class MediaSessionHandler(object):
         contact_header = ContactHeader(contact_uri)
         self.sip_session = Session(account)
         notification_center.add_observer(self, sender=self.sip_session)
-        self.sip_session.connect(from_header, to_header, contact_header=contact_header, routes=[route], streams=streams)
+        self.sip_session.connect(from_header, to_header, contact_header=contact_header, route=route, streams=streams)
 
     @run_in_green_thread
     def _start_outgoing_jingle_session(self, streams):

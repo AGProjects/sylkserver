@@ -331,7 +331,7 @@ class X2SMucHandler(object):
         notification_center = NotificationCenter()
         notification_center.add_observer(self, sender=self._sip_session)
         notification_center.add_observer(self, sender=self._msrp_stream)
-        self._sip_session.connect(from_header, to_header, contact_header=contact_header, routes=[route], streams=[self._msrp_stream])
+        self._sip_session.connect(from_header, to_header, contact_header=contact_header, route=route, streams=[self._msrp_stream])
 
     def handle_notification(self, notification):
         handler = getattr(self, '_NH_%s' % notification.name, Null)

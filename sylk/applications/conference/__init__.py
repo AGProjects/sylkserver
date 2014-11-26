@@ -11,7 +11,8 @@ from application.python import Null
 from gnutls.interfaces.twisted import X509Credentials
 from sipsimple.account.bonjour import BonjourPresenceState
 from sipsimple.configuration.settings import SIPSimpleSettings
-from sipsimple.core import Engine, SIPURI, SIPCoreError, Header, ContactHeader, FromHeader, ToHeader
+from sipsimple.core import Engine, SIPURI, SIPCoreError
+from sipsimple.core import Header, ContactHeader, FromHeader, ToHeader, SubjectHeader
 from sipsimple.lookup import DNSLookup
 from sipsimple.session import IllegalStateError
 from sipsimple.streams import AudioStream
@@ -388,8 +389,9 @@ class IncomingReferralHandler(object):
         if ThorNodeConfig.enabled:
             extra_headers.append(Header('Thor-Scope', 'conference-invitation'))
         extra_headers.append(Header('X-Originator-From', str(original_from_header.uri)))
-        subject = u'Join conference request from %s' % original_identity
-        self.session.connect(from_header, to_header, contact_header=contact_header, routes=notification.data.result, streams=self.streams, is_focus=True, subject=subject, extra_headers=extra_headers)
+        extra_headers.append(SubjectHeader(u'Join conference request from %s' % original_identity))
+        route = notification.data.result[0]
+        self.session.connect(from_header, to_header, contact_header=contact_header, route=route, streams=self.streams, is_focus=True, extra_headers=extra_headers)
 
     def _NH_DNSLookupDidFail(self, notification):
         notification.center.remove_observer(self, sender=notification.sender)

@@ -22,7 +22,7 @@ from sipsimple.application import SIPApplication
 from sipsimple.audio import AudioConference, WavePlayer, WavePlayerError
 from sipsimple.configuration.settings import SIPSimpleSettings
 from sipsimple.core import Engine, SIPCoreError, SIPCoreInvalidStateError, SIPURI
-from sipsimple.core import Header, ContactHeader, FromHeader, ToHeader
+from sipsimple.core import Header, ContactHeader, FromHeader, ToHeader, SubjectHeader
 from sipsimple.lookup import DNSLookup, DNSLookupError
 from sipsimple.payloads import conference
 from sipsimple.session import IllegalStateError
@@ -1108,7 +1108,6 @@ class OutgoingFileTransferHandler(object):
         self.stream = FileTransferStream(self.file.file_selector, 'sendonly')
         notification_center.add_observer(self, sender=self.session)
         notification_center.add_observer(self, sender=self.stream)
-        subject = u'File uploaded by %s' % self.file.sender
         from_header = FromHeader(SIPURI.new(self.room_uri), room.config.display_name)
         to_header = ToHeader(SIPURI.new(self.destination))
         transport = routes[0].transport
@@ -1118,7 +1117,8 @@ class OutgoingFileTransferHandler(object):
         if ThorNodeConfig.enabled:
             extra_headers.append(Header('Thor-Scope', 'conference-invitation'))
         extra_headers.append(Header('X-Originator-From', str(self.file.sender.uri)))
-        self.session.connect(from_header, to_header, contact_header=contact_header, routes=routes, streams=[self.stream], is_focus=True, subject=subject, extra_headers=extra_headers)
+        extra_headers.append(SubjectHeader(u'File uploaded by %s' % self.file.sender))
+        self.session.connect(from_header, to_header, contact_header=contact_header, routes=routes, streams=[self.stream], is_focus=True, extra_headers=extra_headers)
 
     def stop(self):
         if self.session is not None:

@@ -136,7 +136,7 @@ class ChatSessionHandler(object):
         self.sip_session = Session(account)
         notification_center.add_observer(self, sender=self.sip_session)
         notification_center.add_observer(self, sender=self.msrp_stream)
-        self.sip_session.connect(from_header, to_header, contact_header=contact_header, routes=[route], streams=[self.msrp_stream])
+        self.sip_session.connect(from_header, to_header, contact_header=contact_header, route=route, streams=[self.msrp_stream])
 
     def end(self):
         if self.ended:
