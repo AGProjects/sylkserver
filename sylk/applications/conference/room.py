@@ -25,7 +25,6 @@ from sipsimple.core import Engine, SIPCoreError, SIPCoreInvalidStateError, SIPUR
 from sipsimple.core import Header, ContactHeader, FromHeader, ToHeader, SubjectHeader
 from sipsimple.lookup import DNSLookup, DNSLookupError
 from sipsimple.payloads import conference
-from sipsimple.streams import FileTransferStream
 from sipsimple.streams.applications.chat import CPIMIdentity
 from sipsimple.streams.msrp import ChatStreamError, FileSelector
 from sipsimple.threading import run_in_thread, run_in_twisted_thread
@@ -41,6 +40,7 @@ from sylk.bonjour import BonjourServices
 from sylk.configuration import ServerConfig, SIPConfig, ThorNodeConfig
 from sylk.configuration.datatypes import ResourcePath, URL
 from sylk.session import Session, IllegalStateError
+from sylk.streams import FileTransferStream
 
 
 def format_identity(identity):
