@@ -404,8 +404,8 @@ class Room(object):
             if len(session.streams) == 1:
                 return
 
-        welcome_handler = WelcomeHandler(self, session)
-        welcome_handler.start()
+        welcome_handler = WelcomeHandler(self, initial=True, session=session, streams=session.streams)
+        welcome_handler.run()
         self.dispatch_conference_info()
 
         if len(self.sessions) == 1:
@@ -632,8 +632,9 @@ class Room(object):
                                                                                                'encrypted' if stream.srtp_active else 'unencrypted',
                                                                                                stream.local_rtp_address, stream.local_rtp_port,
                                                                                                stream.remote_rtp_address, stream.remote_rtp_port))
-            welcome_handler = WelcomeHandler(self, session)
-            welcome_handler.start(welcome_prompt=False)
+        if notification.data.added_streams:
+            welcome_handler = WelcomeHandler(self, initial=False, session=session, streams=notification.data.added_streams)
+            welcome_handler.run()
 
         for stream in notification.data.removed_streams:
             notification.center.remove_observer(self, sender=stream)
@@ -775,24 +776,30 @@ class MoHPlayer(object):
 class WelcomeHandler(object):
     implements(IObserver)
 
-    def __init__(self, room, session):
+    def __init__(self, room, initial, session, streams):
         self.room = room
+        self.initial = initial
         self.session = session
-        self.proc = None
+        self.streams = streams
+        self.procs = proc.RunningProcSet()
 
     @run_in_green_thread
-    def start(self, welcome_prompt=True):
+    def run(self):
         notification_center = NotificationCenter()
         notification_center.add_observer(self, sender=self.session)
 
-        self.render_chat_welcome()
-        self.proc = proc.spawn(self.play_audio_welcome, welcome_prompt)
-        self.proc.wait()
+        for stream in self.streams:
+            if stream.type == 'audio':
+                self.procs.spawn(self.audio_welcome, stream)
+            elif stream.type == 'chat':
+                self.procs.spawn(self.chat_welcome, stream)
+        self.procs.waitall()
 
         notification_center.remove_observer(self, sender=self.session)
         self.session = None
+        self.streams = None
         self.room = None
-        self.proc = None
+        self.procs = None
 
     def play_file_in_player(self, player, file, delay):
         player.filename = file
@@ -802,15 +809,11 @@ class WelcomeHandler(object):
         except WavePlayerError, e:
             log.warning(u"Error playing file %s: %s" % (file, e))
 
-    def play_audio_welcome(self, welcome_prompt):
+    def audio_welcome(self, stream):
+        player = WavePlayer(stream.mixer, '', pause_time=1, initial_delay=1, volume=50)
+        stream.bridge.add(player)
         try:
-            audio_stream = next(stream for stream in self.session.streams if stream.type == 'audio')
-        except StopIteration:
-            return
-        player = WavePlayer(audio_stream.mixer, '', pause_time=1, initial_delay=1, volume=50)
-        audio_stream.bridge.add(player)
-        try:
-            if welcome_prompt:
+            if self.initial:
                 file = ResourcePath('sounds/co_welcome_conference.wav').normalized
                 self.play_file_in_player(player, file, 1)
             user_count = len(set(str(s.remote_identity.uri) for s in self.room.sessions if any(stream for stream in s.streams if stream.type == 'audio')) - set([str(self.session.remote_identity.uri)]))
@@ -839,8 +842,8 @@ class WelcomeHandler(object):
             # No need to remove the bridge from the stream, it's done automatically
             pass
         else:
-            audio_stream.bridge.remove(player)
-            self.room.audio_conference.add(audio_stream)
+            stream.bridge.remove(player)
+            self.room.audio_conference.add(stream)
             self.room.audio_conference.unhold()
             if len(self.room.audio_conference.streams) == 1:
                 self.room.moh_player.play()
@@ -849,12 +852,11 @@ class WelcomeHandler(object):
         finally:
             player.stop()
 
-    def render_chat_welcome(self):
-        try:
-            chat_stream = next(stream for stream in self.session.streams if stream.type == 'chat')
-        except StopIteration:
-            return
-        txt = 'Welcome to SylkServer!'
+    def chat_welcome(self, stream):
+        if self.initial:
+            txt = 'Welcome to SylkServer!'
+        else:
+            txt = ''
         user_count = len(set(str(s.remote_identity.uri) for s in self.room.sessions) - set([str(self.session.remote_identity.uri)]))
         if user_count == 0:
             txt += ' You are the first participant'
@@ -877,16 +879,16 @@ class WelcomeHandler(object):
                     txt += '    - Using an XMPP client, connect to group chat room %s (chat)\n' % self.room.uri
                     txt += '    - Using an XMPP Jingle capable client, add contact %s and call it (audio)\n' % self.room.uri
                 txt += '    - Using a SIP client, initiate a session to %s (audio and chat)\n' % self.room.uri
-        chat_stream.send_message(txt, 'text/plain', local_identity=self.room.identity, recipients=[self.room.identity])
+        stream.send_message(txt, 'text/plain', local_identity=self.room.identity, recipients=[self.room.identity])
         for msg in self.room.history:
-            chat_stream.send_message(msg.body, msg.content_type, local_identity=msg.sender, recipients=[self.room.identity], timestamp=msg.timestamp)
+            stream.send_message(msg.body, msg.content_type, local_identity=msg.sender, recipients=[self.room.identity], timestamp=msg.timestamp)
 
     def handle_notification(self, notification):
         handler = getattr(self, '_NH_%s' % notification.name, Null)
         handler(notification)
 
     def _NH_SIPSessionWillEnd(self, notification):
-        self.proc.kill()
+        self.procs.killall()
 
 
 class RoomFile(object):
