@@ -14,7 +14,6 @@ from sipsimple.configuration.settings import SIPSimpleSettings
 from sipsimple.core import Engine, SIPURI, SIPCoreError
 from sipsimple.core import Header, ContactHeader, FromHeader, ToHeader, SubjectHeader
 from sipsimple.lookup import DNSLookup
-from sipsimple.session import IllegalStateError
 from sipsimple.streams import AudioStream
 from sipsimple.threading.green import run_in_green_thread
 from twisted.internet import reactor
@@ -28,7 +27,7 @@ from sylk.applications.conference.room import Room
 from sylk.applications.conference.web import ScreenSharingWebServer
 from sylk.bonjour import BonjourServices
 from sylk.configuration import ServerConfig, SIPConfig, ThorNodeConfig
-from sylk.session import Session
+from sylk.session import Session, IllegalStateError
 from sylk.streams import ChatStream
 from sylk.tls import Certificate, PrivateKey
 
