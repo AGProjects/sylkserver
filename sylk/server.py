@@ -21,8 +21,9 @@ from sipsimple.threading import ThreadManager
 from sipsimple.threading.green import run_in_green_thread
 from twisted.internet import reactor
 
-# Load extensions needed for integration with SIP SIMPLE SDK
-import sylk.extensions
+# Load stream extensions needed for integration with SIP SIMPLE SDK
+import sylk.streams
+del sylk.streams
 
 from sylk.accounts import DefaultAccount
 from sylk.applications import IncomingRequestHandler

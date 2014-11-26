@@ -27,8 +27,8 @@ from sylk.applications.xmppgateway.xmpp import XMPPManager
 from sylk.applications.xmppgateway.xmpp.session import XMPPIncomingMucSession
 from sylk.applications.xmppgateway.xmpp.stanzas import MUCAvailabilityPresence, MUCErrorPresence, OutgoingInvitationMessage, STANZAS_NS
 from sylk.configuration import SIPConfig
-from sylk.extensions import ChatStream
 from sylk.session import Session
+from sylk.streams import ChatStream
 
 
 class ReferralError(Exception):

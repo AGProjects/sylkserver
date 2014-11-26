@@ -28,8 +28,8 @@ from sylk.applications.conference.room import Room
 from sylk.applications.conference.web import ScreenSharingWebServer
 from sylk.bonjour import BonjourServices
 from sylk.configuration import ServerConfig, SIPConfig, ThorNodeConfig
-from sylk.extensions import ChatStream
 from sylk.session import Session
+from sylk.streams import ChatStream
 from sylk.tls import Certificate, PrivateKey
 
 

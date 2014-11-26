@@ -24,8 +24,8 @@ from sylk.applications.xmppgateway.logger import log
 from sylk.applications.xmppgateway.xmpp import XMPPManager
 from sylk.applications.xmppgateway.xmpp.session import XMPPChatSession
 from sylk.applications.xmppgateway.xmpp.stanzas import ChatMessage
-from sylk.extensions import ChatStream
 from sylk.session import Session
+from sylk.streams import ChatStream
 
 
 __all__ = ['ChatSessionHandler', 'SIPMessageSender', 'SIPMessageError']
