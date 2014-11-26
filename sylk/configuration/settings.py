@@ -31,7 +31,6 @@ class AccountMSRPSettingsExtension(AccountMSRPSettings):
 
 
 class AccountNATTraversalSettingsExtension(AccountNATTraversalSettings):
-    use_msrp_relay_for_inbound = Setting(type=bool, default=False)
     use_msrp_relay_for_outbound = Setting(type=bool, default=False)
 
 
