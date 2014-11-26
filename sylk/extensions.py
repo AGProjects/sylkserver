@@ -59,9 +59,8 @@ class MSRPStreamMixin(object):
                     self.local_role = 'actpass' if outgoing else 'passive'
             full_local_path = self.msrp_connector.prepare(self.local_uri)
             self.local_media = self._create_local_media(full_local_path)
-        except Exception, ex:
-            ndata = NotificationData(context='initialize', failure=Failure(), reason=str(ex))
-            notification_center.post_notification('MediaStreamDidFail', self, ndata)
+        except Exception, e:
+            notification_center.post_notification('MediaStreamDidNotInitialize', self, NotificationData(reason=str(e)))
         else:
             notification_center.post_notification('MediaStreamDidInitialize', self)
         finally:
@@ -192,7 +191,7 @@ class FileTransferStream(MSRPStreamMixin, _FileTransferStream):
 
     def initialize(self, session, direction):
         if self.direction == 'sendonly' and self.file_selector.fd is None:
-            NotificationCenter().post_notification('MediaStreamDidFail', sender=self, data=NotificationData(context='initialize', failure=None, reason='file descriptor not specified'))
+            NotificationCenter().post_notification('MediaStreamDidNotInitialize', sender=self, data=NotificationData(reason='file descriptor not specified'))
             return
         super(FileTransferStream, self).initialize(session, direction)
 
