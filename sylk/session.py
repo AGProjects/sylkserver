@@ -28,6 +28,7 @@ from sipsimple.threading.green import Command, run_in_green_thread
 from twisted.internet import reactor
 from zope.interface import implements
 
+from sylk.accounts import DefaultAccount
 from sylk.configuration import SIPConfig
 
 
@@ -578,7 +579,10 @@ class SessionManager(object):
     @run_in_twisted_thread
     def handle_notification(self, notification):
         if notification.name == 'SIPInvitationChangedState' and notification.data.state == 'incoming':
-            account = AccountManager().sylkserver_account
+            account_manager = AccountManager()
+            account = account_manager.find_account(notification.data.request_uri)
+            if account is None:
+                account = DefaultAccount()
             notification.sender.send_response(100)
             session = Session(account)
             session.init_incoming(notification.sender, notification.data)

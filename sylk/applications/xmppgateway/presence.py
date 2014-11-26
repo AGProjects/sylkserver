@@ -8,7 +8,6 @@ from application.notification import IObserver, NotificationCenter
 from application.python import Null, limit
 from application.python.descriptor import WriteOnceAttribute
 from eventlib import coros, proc
-from sipsimple.account import AccountManager
 from sipsimple.configuration.settings import SIPSimpleSettings
 from sipsimple.core import Engine, SIPURI, SIPCoreError
 from sipsimple.core import ContactHeader, FromHeader, RouteHeader, ToHeader
@@ -23,6 +22,7 @@ from time import time
 from twisted.internet import reactor
 from zope.interface import implements
 
+from sylk.accounts import DefaultAccount
 from sylk.applications.xmppgateway.datatypes import Identity, FrozenURI, encode_resource
 from sylk.applications.xmppgateway.logger import log
 from sylk.applications.xmppgateway.util import format_uri
@@ -338,7 +338,7 @@ class X2SPresenceHandler(object):
         notification_center = NotificationCenter()
         settings = SIPSimpleSettings()
 
-        account = AccountManager().sylkserver_account
+        account = DefaultAccount()
         refresh_interval =  getattr(command, 'refresh_interval', None) or account.sip.subscribe_interval
 
         try:

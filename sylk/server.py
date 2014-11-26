@@ -24,6 +24,7 @@ from twisted.internet import reactor
 # Load extensions needed for integration with SIP SIMPLE SDK
 import sylk.extensions
 
+from sylk.accounts import DefaultAccount
 from sylk.applications import IncomingRequestHandler
 from sylk.configuration import ServerConfig, SIPConfig, ThorNodeConfig
 from sylk.configuration.settings import AccountExtension, BonjourAccountExtension, SylkServerSettingsExtension
@@ -44,6 +45,8 @@ class SylkServer(SIPApplication):
 
     def start(self, options):
         self.options = options
+        if self.options.enable_bonjour:
+            ServerConfig.enable_bonjour = True
 
         notification_center = NotificationCenter()
         notification_center.add_observer(self, sender=self)
@@ -58,37 +61,6 @@ class SylkServer(SIPApplication):
         except Exception, e:
             log.fatal("Error starting SIP Application: %s" % e)
             sys.exit(1)
-
-    def _load_configuration(self):
-        if self.options.enable_bonjour:
-            ServerConfig.enable_bonjour = True
-        account_manager = AccountManager()
-        account = Account("account@example.com")     # an account is required by AccountManager
-        account.message_summary.enabled = False
-        account.presence.enabled = False
-        account.sip.register = False
-        account.xcap.enabled = False
-        # Disable MSRP ACM if we are using Bonjour
-        account.msrp.connection_model = 'relay' if ServerConfig.enable_bonjour else 'acm'
-        account.save()
-        account_manager.sylkserver_account = account
-
-    def _initialize_tls(self):
-        # Take our sylkserver_account, because there is a race condition: since our account is created on the fly,
-        # it's possible that the account manager doesn't know about it yet, because saving happens in another thread.
-        settings = SIPSimpleSettings()
-        account_manager = AccountManager()
-        account = account_manager.sylkserver_account
-        assert account is not None
-        try:
-            self.engine.set_tls_options(port=settings.sip.tls_port,
-                                        verify_server=account.tls.verify_server,
-                                        ca_file=settings.tls.ca_list.normalized if settings.tls.ca_list else None,
-                                        cert_file=account.tls.certificate.normalized if account.tls.certificate else None,
-                                        privkey_file=account.tls.certificate.normalized if account.tls.certificate else None)
-        except Exception, e:
-            notification_center = NotificationCenter()
-            notification_center.post_notification('SIPApplicationFailedToStartTLS', sender=self, data=NotificationData(error=e))
 
     def _initialize_core(self):
         # SylkServer needs to listen for extra events and request types
@@ -135,15 +107,15 @@ class SylkServer(SIPApplication):
         notification_center = NotificationCenter()
         session_manager = SessionManager()
         settings = SIPSimpleSettings()
-        self._load_configuration()
 
         notification_center.post_notification('SIPApplicationWillStart', sender=self)
         if self.state == 'stopping':
             reactor.stop()
             return
 
-        account = account_manager.sylkserver_account
-        account_manager.default_account = account
+        # Initialize default account
+        default_account = DefaultAccount()
+        account_manager.default_account = default_account
 
         # initialize TLS
         self._initialize_tls()

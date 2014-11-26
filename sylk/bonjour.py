@@ -8,7 +8,6 @@ from application.notification import IObserver, NotificationCenter, Notification
 from application.python import Null
 from eventlib import api, coros, proc
 from eventlib.green import select
-from sipsimple.account import AccountManager
 from sipsimple.account.bonjour import _bonjour, BonjourPresenceState, BonjourRegistrationFile
 from sipsimple.configuration.settings import SIPSimpleSettings
 from sipsimple.threading import call_in_twisted_thread, run_in_twisted_thread
@@ -17,6 +16,8 @@ from threading import Lock
 from twisted.internet import reactor
 from zope.interface import implements
 
+from sylk.accounts import DefaultAccount
+
 
 class RestartSelect(Exception): pass
 
@@ -24,7 +25,7 @@ class BonjourServices(object):
     implements(IObserver)
 
     def __init__(self, service='sipfocus', name='SylkServer', uri_user=None):
-        self.account = AccountManager().sylkserver_account
+        self.account = DefaultAccount()
         self.service = service
         self.name = name
         self.uri_user = uri_user

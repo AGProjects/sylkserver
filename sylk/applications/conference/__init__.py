@@ -9,7 +9,6 @@ import shutil
 from application.notification import IObserver, NotificationCenter
 from application.python import Null
 from gnutls.interfaces.twisted import X509Credentials
-from sipsimple.account import AccountManager
 from sipsimple.account.bonjour import BonjourPresenceState
 from sipsimple.configuration.settings import SIPSimpleSettings
 from sipsimple.core import Engine, SIPURI, SIPCoreError, Header, ContactHeader, FromHeader, ToHeader
@@ -20,6 +19,7 @@ from sipsimple.threading.green import run_in_green_thread
 from twisted.internet import reactor
 from zope.interface import implements
 
+from sylk.accounts import DefaultAccount
 from sylk.applications import SylkApplication
 from sylk.applications.conference.configuration import get_room_config, ConferenceConfig
 from sylk.applications.conference.logger import log
@@ -324,7 +324,7 @@ class IncomingReferralHandler(object):
         if self.method == 'INVITE':
             self._refer_request.accept()
             settings = SIPSimpleSettings()
-            account = AccountManager().sylkserver_account
+            account = DefaultAccount()
             if account.sip.outbound_proxy is not None:
                 uri = SIPURI(host=account.sip.outbound_proxy.host,
                              port=account.sip.outbound_proxy.port,
@@ -350,7 +350,7 @@ class IncomingReferralHandler(object):
     def _NH_DNSLookupDidSucceed(self, notification):
         notification_center = NotificationCenter()
         notification_center.remove_observer(self, sender=notification.sender)
-        account = AccountManager().sylkserver_account
+        account = DefaultAccount()
         conference_application = ConferenceApplication()
         try:
             room = conference_application.get_room(self.room_uri)

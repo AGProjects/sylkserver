@@ -6,7 +6,6 @@ from application.python import Null
 from application.python.descriptor import WriteOnceAttribute
 from collections import deque
 from eventlib import coros
-from sipsimple.account import AccountManager
 from sipsimple.configuration.settings import SIPSimpleSettings
 from sipsimple.core import SIPURI
 from sipsimple.core import ContactHeader, FromHeader, RouteHeader, ToHeader
@@ -18,6 +17,7 @@ from sipsimple.threading.green import run_in_green_thread, run_in_waitable_green
 from twisted.internet import reactor
 from zope.interface import implements
 
+from sylk.accounts import DefaultAccount
 from sylk.applications.xmppgateway.configuration import XMPPGatewayConfig
 from sylk.applications.xmppgateway.datatypes import Identity, FrozenURI, generate_sylk_resource, encode_resource
 from sylk.applications.xmppgateway.logger import log
@@ -115,7 +115,7 @@ class ChatSessionHandler(object):
         to_uri = target_uri.as_sip_uri()
         lookup = DNSLookup()
         settings = SIPSimpleSettings()
-        account = AccountManager().sylkserver_account
+        account = DefaultAccount()
         if account.sip.outbound_proxy is not None:
             uri = SIPURI(host=account.sip.outbound_proxy.host,
                          port=account.sip.outbound_proxy.port,
@@ -400,7 +400,7 @@ class SIPMessageSender(object):
     def send(self):
         lookup = DNSLookup()
         settings = SIPSimpleSettings()
-        account = AccountManager().sylkserver_account
+        account = DefaultAccount()
         if account.sip.outbound_proxy is not None:
             uri = SIPURI(host=account.sip.outbound_proxy.host,
                          port=account.sip.outbound_proxy.port,

@@ -17,7 +17,6 @@ from application.notification import IObserver, NotificationCenter, Notification
 from application.python import Null
 from application.system import makedirs
 from eventlib import api, coros, proc
-from sipsimple.account import AccountManager
 from sipsimple.account.bonjour import BonjourPresenceState
 from sipsimple.application import SIPApplication
 from sipsimple.audio import AudioConference, WavePlayer, WavePlayerError
@@ -36,6 +35,7 @@ from sipsimple.util import ISOTimestamp
 from twisted.internet import reactor
 from zope.interface import implements
 
+from sylk.accounts import DefaultAccount
 from sylk.applications.conference.configuration import get_room_config, ConferenceConfig
 from sylk.applications.conference.logger import log
 from sylk.bonjour import BonjourServices
@@ -1090,7 +1090,7 @@ class OutgoingFileTransferHandler(object):
     def start(self):
         self.greenlet = api.getcurrent()
         settings = SIPSimpleSettings()
-        account = AccountManager().sylkserver_account
+        account = DefaultAccount()
         if account.sip.outbound_proxy is not None:
             uri = SIPURI(host=account.sip.outbound_proxy.host,
                             port=account.sip.outbound_proxy.port,

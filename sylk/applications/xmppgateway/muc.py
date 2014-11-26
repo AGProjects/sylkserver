@@ -8,7 +8,6 @@ from application.notification import IObserver, NotificationCenter, Notification
 from application.python import Null, limit
 from application.python.descriptor import WriteOnceAttribute
 from eventlib import coros, proc
-from sipsimple.account import AccountManager, BonjourAccount
 from sipsimple.configuration.settings import SIPSimpleSettings
 from sipsimple.core import Engine, SIPURI, SIPCoreError, Referral, sip_status_messages
 from sipsimple.core import ContactHeader, FromHeader, ToHeader, ReferToHeader, RouteHeader
@@ -21,6 +20,7 @@ from time import time
 from twisted.internet import reactor
 from zope.interface import implements
 
+from sylk.accounts import DefaultAccount
 from sylk.applications.xmppgateway.datatypes import Identity, FrozenURI, encode_resource
 from sylk.applications.xmppgateway.logger import log
 from sylk.applications.xmppgateway.xmpp import XMPPManager
@@ -79,10 +79,8 @@ class X2SMucInvitationHandler(object):
 
         try:
             # Lookup routes
-            account = AccountManager().sylkserver_account
-            if account is BonjourAccount():
-                raise ReferralError(error='Bonjour account is not supported')
-            elif account.sip.outbound_proxy is not None and account.sip.outbound_proxy.transport in settings.sip.transport_list:
+            account = DefaultAccount()
+            if account.sip.outbound_proxy is not None and account.sip.outbound_proxy.transport in settings.sip.transport_list:
                 uri = SIPURI(host=account.sip.outbound_proxy.host, port=account.sip.outbound_proxy.port, parameters={'transport': account.sip.outbound_proxy.transport})
             elif account.sip.always_use_my_proxy:
                 uri = SIPURI(host=account.id.domain)
@@ -162,7 +160,7 @@ class X2SMucInvitationHandler(object):
                 notification_center.post_notification('X2SMucInvitationHandlerDidEnd', sender=self)
 
     def _refresh(self):
-        account = AccountManager().sylkserver_account
+        account = DefaultAccount()
         transport = self.route.transport
         parameters = {} if transport=='udp' else {'transport': transport}
         contact_uri = SIPURI(user=account.contact.username, host=SIPConfig.local_ip.normalized, port=getattr(Engine(), '%s_port' % transport), parameters=parameters)
@@ -311,7 +309,7 @@ class X2SMucHandler(object):
         to_uri = self.sip_identity.uri.as_sip_uri()
         lookup = DNSLookup()
         settings = SIPSimpleSettings()
-        account = AccountManager().sylkserver_account
+        account = DefaultAccount()
         if account.sip.outbound_proxy is not None:
             uri = SIPURI(host=account.sip.outbound_proxy.host,
                          port=account.sip.outbound_proxy.port,

@@ -9,6 +9,7 @@ __all__ = ['AccountExtension', 'BonjourAccountExtension', 'SylkServerSettingsExt
 
 from sipsimple.account import MSRPSettings as AccountMSRPSettings, NATTraversalSettings as AccountNATTraversalSettings
 from sipsimple.account import RTPSettings as AccountRTPSettings, SIPSettings as AccountSIPSettings, TLSSettings as AccountTLSSettings
+from sipsimple.account import MessageSummarySettings as AccountMessageSummarySettings, PresenceSettings as AccountPresenceSettingss, XCAPSettings as AccountXCAPSettings
 from sipsimple.configuration import CorrelatedSetting, Setting, SettingsObjectExtension
 from sipsimple.configuration.datatypes import MSRPConnectionModel, MSRPTransport, NonNegativeInteger, PortRange, SampleRate, SIPTransportList, SRTPEncryption
 from sipsimple.configuration.settings import AudioSettings, EchoCancellerSettings, LogsSettings, RTPSettings, SIPSettings, TLSSettings
@@ -20,14 +21,22 @@ from sylk.configuration.datatypes import AudioCodecs, NillablePath, Path, Port, 
 
 # Account settings extensions
 
+class AccountMessageSummarySettingsExtension(AccountMessageSummarySettings):
+    enabled = Setting(type=bool, default=False)
+
+
 class AccountMSRPSettingsExtension(AccountMSRPSettings):
     transport = Setting(type=MSRPTransport, default='tls' if MSRPConfig.use_tls else 'tcp')
-    connection_model = Setting(type=MSRPConnectionModel, default='acm')
+    connection_model = Setting(type=MSRPConnectionModel, default='relay' if ServerConfig.enable_bonjour else 'acm')
 
 
 class AccountNATTraversalSettingsExtension(AccountNATTraversalSettings):
     use_msrp_relay_for_inbound = Setting(type=bool, default=False)
     use_msrp_relay_for_outbound = Setting(type=bool, default=False)
+
+
+class AccountPresenceSettingssExtension(AccountPresenceSettingss):
+    enabled = Setting(type=bool, default=False)
 
 
 class AccountRTPSettingsExtension(AccountRTPSettings):
@@ -37,6 +46,7 @@ class AccountRTPSettingsExtension(AccountRTPSettings):
 
 
 class AccountSIPSettingsExtension(AccountSIPSettings):
+    register = Setting(type=bool, default=False)
     outbound_proxy = Setting(type=SIPProxyAddress, default=SIPConfig.outbound_proxy, nillable=True)
 
 
@@ -45,14 +55,21 @@ class AccountTLSSettingsExtension(AccountTLSSettings):
     verify_server = Setting(type=bool, default=ServerConfig.verify_server)
 
 
+class AccountXCAPSettingsExtension(AccountXCAPSettings):
+    enabled = Setting(type=bool, default=False)
+
+
 class AccountExtension(SettingsObjectExtension):
     enabled = Setting(type=bool, default=True)
 
+    message_summary = AccountMessageSummarySettingsExtension
     msrp = AccountMSRPSettingsExtension
     nat_traversal = AccountNATTraversalSettingsExtension
+    presence = AccountPresenceSettingssExtension
     rtp = AccountRTPSettingsExtension
     sip = AccountSIPSettingsExtension
     tls = AccountTLSSettingsExtension
+    xcap = AccountXCAPSettingsExtension
 
 
 class BonjourAccountExtension(SettingsObjectExtension):

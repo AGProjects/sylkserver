@@ -12,7 +12,6 @@ from datetime import datetime
 from eventlib import api, coros, proc
 from eventlib.twistedutil import block_on
 from lxml import etree
-from sipsimple.account import AccountManager
 from sipsimple.configuration.settings import SIPSimpleSettings
 from sipsimple.core import SDPSession, SDPMediaStream, SDPConnection, SDPNegotiator
 from sipsimple.core import SIPCoreError
@@ -22,6 +21,7 @@ from twisted.words.protocols.jabber.error import StanzaError
 from twisted.words.protocols.jabber.xmlstream import TimeoutError as IqTimeoutError
 from zope.interface import implements
 
+from sylk.accounts import DefaultAccount
 from sylk.applications.xmppgateway.datatypes import Identity, FrozenURI
 from sylk.applications.xmppgateway.xmpp.jingle.streams import MediaStreamRegistry, InvalidStreamError, UnknownStreamError
 from sylk.applications.xmppgateway.xmpp.jingle.util import jingle_to_sdp, sdp_to_jingle
@@ -93,7 +93,7 @@ class JingleSession(object):
     media_stream_timeout = 15
 
     def __init__(self, protocol):
-        self.account = AccountManager().sylkserver_account
+        self.account = DefaultAccount()
         self._protocol = protocol
 
         self._id = None

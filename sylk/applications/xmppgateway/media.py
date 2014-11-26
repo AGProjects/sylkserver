@@ -4,7 +4,6 @@
 from application.notification import IObserver, NotificationCenter, NotificationData
 from application.python import Null
 from eventlib.twistedutil import block_on
-from sipsimple.account import AccountManager
 from sipsimple.audio import AudioConference
 from sipsimple.configuration.settings import SIPSimpleSettings
 from sipsimple.core import ContactHeader, FromHeader, ToHeader
@@ -15,6 +14,7 @@ from sipsimple.threading import run_in_twisted_thread
 from sipsimple.threading.green import run_in_green_thread
 from zope.interface import implements
 
+from sylk.accounts import DefaultAccount
 from sylk.applications.xmppgateway.datatypes import Identity, FrozenURI, generate_sylk_resource, encode_resource, decode_resource
 from sylk.applications.xmppgateway.logger import log
 from sylk.applications.xmppgateway.xmpp import XMPPManager
@@ -133,7 +133,7 @@ class MediaSessionHandler(object):
         #contact_uri.parameters['gr'] = encode_resource(contact_uri.parameters['gr'].decode('utf-8'))
         lookup = DNSLookup()
         settings = SIPSimpleSettings()
-        account = AccountManager().sylkserver_account
+        account = DefaultAccount()
         if account.sip.outbound_proxy is not None:
             uri = SIPURI(host=account.sip.outbound_proxy.host,
                          port=account.sip.outbound_proxy.port,
