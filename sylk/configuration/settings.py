@@ -31,6 +31,7 @@ class AccountMSRPSettingsExtension(AccountMSRPSettings):
 
 
 class AccountNATTraversalSettingsExtension(AccountNATTraversalSettings):
+    use_ice = Setting(type=bool, default=SIPConfig.enable_ice)
     use_msrp_relay_for_outbound = Setting(type=bool, default=False)
 
 

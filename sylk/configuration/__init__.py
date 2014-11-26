@@ -41,6 +41,7 @@ class SIPConfig(ConfigSection):
     local_tls_port = ConfigSetting(type=Port, value=5061)
     outbound_proxy = ConfigSetting(type=SIPProxyAddress, value=None)
     trusted_peers = ConfigSetting(type=NetworkRangeList, value=NetworkRangeList('any'))
+    enable_ice = False
 
 
 class MSRPConfig(ConfigSection):

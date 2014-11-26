@@ -68,6 +68,9 @@ certificate = /etc/sylkserver/tls/default.crt
 ; respectively). It defaults to 'any'.
 ; trusted_peers =
 
+; Toggle ICE support (RFC 5245)
+; enable_ice = False
+
 
 [MSRP]
 
