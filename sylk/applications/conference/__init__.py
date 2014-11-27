@@ -118,7 +118,7 @@ class ConferenceApplication(SylkApplication):
             session.reject(488)
             return
         try:
-            self.validate_acl(session._invitation.request_uri, session.remote_identity.uri)
+            self.validate_acl(session.request_uri, session.remote_identity.uri)
         except ACLValidationError:
             log.msg(u'Session rejected: unauthorized by access list')
             session.reject(403)
@@ -126,7 +126,7 @@ class ConferenceApplication(SylkApplication):
         # Check if requested files belong to this room
         for stream in (stream for stream in transfer_streams if stream.direction == 'sendonly'):
             try:
-                room = self.get_room(session._invitation.request_uri)
+                room = self.get_room(session.request_uri)
             except RoomNotFoundError:
                 log.msg(u'Session rejected: room not found')
                 session.reject(404)
@@ -262,7 +262,7 @@ class ConferenceApplication(SylkApplication):
 
     def _NH_SIPSessionDidStart(self, notification):
         session = notification.sender
-        room = self.get_room(session._invitation.request_uri, True)    # FIXME
+        room = self.get_room(session.request_uri, True)
         room.start()
         room.add_session(session)
 
@@ -271,7 +271,7 @@ class ConferenceApplication(SylkApplication):
         session = notification.sender
         notification.center.remove_observer(self, sender=session)
         if session.direction == 'incoming':
-            room_uri = session._invitation.request_uri               # FIXME
+            room_uri = session.request_uri
         else:
             # Clear invited participants mapping
             room_uri_str = '%s@%s' % (session.local_identity.uri.user, session.local_identity.uri.host)

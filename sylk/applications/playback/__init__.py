@@ -27,10 +27,9 @@ class PlaybackApplication(SylkApplication):
 
     def incoming_session(self, session):
         log.msg('Incoming session %s from %s to %s' % (session.call_id, session.remote_identity.uri, session.local_identity.uri))
-        ruri = session._invitation.request_uri
-        config = get_config('%s@%s' % (ruri.user, ruri.host))
+        config = get_config('%s@%s' % (session.request_uri.user, session.request_uri.host))
         if config is None:
-            log.msg(u'Session %s rejected: no configuration found for %s' % (session.call_id, ruri))
+            log.msg(u'Session %s rejected: no configuration found for %s' % (session.call_id, session.request_uri))
             session.reject(488)
             return
         stream_types = {'audio'}
@@ -99,8 +98,7 @@ class PlaybackHandler(object):
         self.proc = proc.spawn(self._play)
 
     def _play(self):
-        ruri = self.session._invitation.request_uri
-        config = get_config('%s@%s' % (ruri.user, ruri.host))
+        config = get_config('%s@%s' % (self.session.request_uri.user, self.session.request_uri.host))
         audio_stream = self.session.streams[0]
         player = WavePlayer(audio_stream.mixer, config.file)
         audio_stream.bridge.add(player)

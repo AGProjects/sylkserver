@@ -183,7 +183,7 @@ class IncomingRequestHandler(object):
             session.reject(403)
             return
         try:
-            app = self.get_application(session._invitation.request_uri, notification.data.headers)
+            app = self.get_application(session.request_uri, notification.data.headers)
         except ApplicationNotLoadedError:
             session.reject(404)
         else:

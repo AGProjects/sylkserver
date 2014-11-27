@@ -1421,6 +1421,10 @@ class Session(object):
     def call_id(self):
         return self._invitation.call_id if self._invitation is not None else None
 
+    @property
+    def request_uri(self):
+        return self._invitation.request_uri if self._invitation is not None else None
+
     def _cancel_hold(self):
         notification_center = NotificationCenter()
         try:

@@ -107,7 +107,7 @@ class XMPPGatewayApplication(SylkApplication):
             sip_leg_uri = FrozenURI(tmp.user, tmp.host, generate_sylk_resource())
 
         # Get URI representing the XMPP side
-        request_uri = session._invitation.request_uri
+        request_uri = session.request_uri
         remote_resource = request_uri.parameters.get('gr', None)
         if remote_resource is not None:
             try:

@@ -67,7 +67,7 @@ class MediaSessionHandler(object):
             sip_leg_uri = FrozenURI(tmp.user, tmp.host, generate_sylk_resource())
         instance._sip_identity = Identity(sip_leg_uri)
         # Get URI representing the XMPP side
-        request_uri = session._invitation.request_uri
+        request_uri = session.request_uri
         remote_resource = request_uri.parameters.get('gr', None)
         if remote_resource is not None:
             try:

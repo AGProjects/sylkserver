@@ -72,7 +72,7 @@ class IRCConferenceApplication(SylkApplication):
     def _NH_SIPSessionDidStart(self, notification):
         session = notification.sender
         self.pending_sessions.remove(session)
-        room = IRCRoom.get_room(session._invitation.request_uri)    # FIXME
+        room = IRCRoom.get_room(session.request_uri)
         room.start()
         room.add_session(session)
         self.rooms.add(room)
@@ -81,7 +81,7 @@ class IRCConferenceApplication(SylkApplication):
         session = notification.sender
         log.msg('Session from %s ended' % session.remote_identity.uri)
         NotificationCenter().remove_observer(self, sender=session)
-        room = IRCRoom.get_room(session._invitation.request_uri)    # FIXME
+        room = IRCRoom.get_room(session.request_uri)
         if session in room.sessions:
             # We could get this notifiction even if we didn't get SIPSessionDidStart
             room.remove_session(session)
