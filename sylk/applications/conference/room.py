@@ -607,8 +607,8 @@ class Room(object):
         if notification.data.originator == 'remote':
             session = notification.sender
             timer = getattr(session, 'proposal_timer', None)
-            assert timer is not None
-            timer.cancel()
+            if timer is not None:
+                timer.cancel()
             session.proposal_timer = None
 
     def _NH_SIPSessionHadProposalFailure(self, notification):
