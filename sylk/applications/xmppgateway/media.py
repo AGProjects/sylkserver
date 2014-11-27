@@ -242,7 +242,7 @@ class MediaSessionHandler(object):
         handler(notification)
 
     def _NH_SIPSessionDidStart(self, notification):
-        log.msg("SIP session %s started" % notification.sender._invitation.call_id)
+        log.msg("SIP session %s started" % self.sip_session.call_id)
         if self.sip_session.direction == 'outgoing':
             # Time to accept the Jingle session and bridge them together
             try:
@@ -263,13 +263,13 @@ class MediaSessionHandler(object):
                 self._audio_bidge.add(audio_stream)
 
     def _NH_SIPSessionDidEnd(self, notification):
-        log.msg("SIP session %s ended" % notification.sender._invitation.call_id)
+        log.msg("SIP session %s ended" % self.sip_session.call_id)
         notification.center.remove_observer(self, sender=self.sip_session)
         self.sip_session = None
         self.end()
 
     def _NH_SIPSessionDidFail(self, notification):
-        log.msg("SIP session %s failed (%s)" % (notification.sender._invitation.call_id, notification.data.reason))
+        log.msg("SIP session %s failed (%s)" % (self.sip_session.call_id, notification.data.reason))
         notification.center.remove_observer(self, sender=self.sip_session)
         self.sip_session = None
         self.end()

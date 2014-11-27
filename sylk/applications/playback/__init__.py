@@ -26,11 +26,11 @@ class PlaybackApplication(SylkApplication):
         pass
 
     def incoming_session(self, session):
-        log.msg('Incoming session %s from %s to %s' % (session._invitation.call_id, session.remote_identity.uri, session.local_identity.uri))
+        log.msg('Incoming session %s from %s to %s' % (session.call_id, session.remote_identity.uri, session.local_identity.uri))
         try:
             audio_stream = next(stream for stream in session.proposed_streams if stream.type=='audio')
         except StopIteration:
-            log.msg(u'Session %s rejected: invalid media, only RTP audio is supported' % session._invitation.call_id)
+            log.msg(u'Session %s rejected: invalid media, only RTP audio is supported' % session.call_id)
             session.reject(488)
             return
         else:
@@ -60,18 +60,18 @@ class PlaybackApplication(SylkApplication):
     @run_in_green_thread
     def _NH_SIPSessionDidStart(self, notification):
         session = notification.sender
-        log.msg('Session %s started' % session._invitation.call_id)
+        log.msg('Session %s started' % session.call_id)
         handler = PlaybackHandler(session)
         handler.run()
 
     def _NH_SIPSessionDidFail(self, notification):
         session = notification.sender
-        log.msg('Session %s failed' % session._invitation.call_id)
+        log.msg('Session %s failed' % session.call_id)
         NotificationCenter().remove_observer(self, sender=session)
 
     def _NH_SIPSessionDidEnd(self, notification):
         session = notification.sender
-        log.msg('Session %s ended' % session._invitation.call_id)
+        log.msg('Session %s ended' % session.call_id)
         NotificationCenter().remove_observer(self, sender=session)
 
     def _NH_SIPSessionNewProposal(self, notification):
@@ -100,7 +100,7 @@ class PlaybackHandler(object):
         audio_stream = self.session.streams[0]
         player = WavePlayer(audio_stream.mixer, file)
         audio_stream.bridge.add(player)
-        log.msg(u"Playing file %s for session %s" % (file, self.session._invitation.call_id))
+        log.msg(u"Playing file %s for session %s" % (file, self.session.call_id))
         try:
             player.play().wait()
         except (ValueError, WavePlayerError), e:

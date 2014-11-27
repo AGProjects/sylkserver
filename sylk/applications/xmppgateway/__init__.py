@@ -69,7 +69,7 @@ class XMPPGatewayApplication(SylkApplication):
             try:
                 referred_by_uri = SIPURI.parse(session.transfer_info.referred_by)
             except SIPCoreError:
-                log.msg("SIP multiparty session invitation %s failed: invalid Referred-By header" % session._invitation.call_id)
+                log.msg("SIP multiparty session invitation %s failed: invalid Referred-By header" % session.call_id)
                 session.reject(488)
                 return
             muc_uri = FrozenURI(session.remote_identity.uri.user, session.remote_identity.uri.host)
@@ -86,7 +86,7 @@ class XMPPGatewayApplication(SylkApplication):
                 NotificationCenter().add_observer(self, sender=handler)
                 handler.start()
             else:
-                log.msg("SIP multiparty session invitation %s failed: there is another invitation in progress from %s to %s" % (session._invitation.call_id,
+                log.msg("SIP multiparty session invitation %s failed: there is another invitation in progress from %s to %s" % (session.call_id,
                                                                                                                                 format_uri(inviter_uri, 'sip'),
                                                                                                                                 format_uri(recipient_uri, 'xmpp')))
                 session.reject(480)

@@ -185,7 +185,7 @@ class ChatSessionHandler(object):
             self.msrp_stream.send_composing_indication('idle', 30, local_identity=sender)
 
     def _inactivity_timeout(self):
-        log.msg("Ending SIP session %s due to inactivity" % self.sip_session._invitation.call_id)
+        log.msg("Ending SIP session %s due to inactivity" % self.sip_session.call_id)
         self.sip_session.end()
 
     def handle_notification(self, notification):
@@ -193,7 +193,7 @@ class ChatSessionHandler(object):
         handler(notification)
 
     def _NH_SIPSessionDidStart(self, notification):
-        log.msg("SIP session %s started" % notification.sender._invitation.call_id)
+        log.msg("SIP session %s started" % self.sip_session.call_id)
         self._sip_session_timer = reactor.callLater(SESSION_TIMEOUT, self._inactivity_timeout)
 
         if self.sip_session.direction == 'outgoing':
@@ -231,7 +231,7 @@ class ChatSessionHandler(object):
                 self._send_queued_messages()
 
     def _NH_SIPSessionDidEnd(self, notification):
-        log.msg("SIP session %s ended" % notification.sender._invitation.call_id)
+        log.msg("SIP session %s ended" % self.sip_session.call_id)
         notification.center.remove_observer(self, sender=self.sip_session)
         notification.center.remove_observer(self, sender=self.msrp_stream)
         self.sip_session = None
@@ -239,7 +239,7 @@ class ChatSessionHandler(object):
         self.end()
 
     def _NH_SIPSessionDidFail(self, notification):
-        log.msg("SIP session %s failed" % notification.sender._invitation.call_id)
+        log.msg("SIP session %s failed" % self.sip_session.call_id)
         notification.center.remove_observer(self, sender=self.sip_session)
         notification.center.remove_observer(self, sender=self.msrp_stream)
         self.sip_session = None

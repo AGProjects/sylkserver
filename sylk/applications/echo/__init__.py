@@ -31,7 +31,6 @@ class EchoApplication(SylkApplication):
         self.sessions.clear()
 
     def incoming_session(self, session):
-        session.call_id = session._invitation.call_id
         log.msg(u'New incoming session %s from %s' % (session.call_id, format_identity(session.remote_identity)))
         audio_streams = [stream for stream in session.proposed_streams if stream.type=='audio']
         chat_streams = [stream for stream in session.proposed_streams if stream.type=='chat']
