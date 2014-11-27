@@ -3,7 +3,14 @@
 [Playback]
 ; files_dir = /usr/share/sylkserver/sounds/playback
 
+; Toggle video support (SylkServer will send a color bar)
+: enable_video = False
+
+; Delay for answering sessions
+; answer_delay = 1
+
 
 ; [test@conference.example.com]
 ; file = test.wav
 
+; enable_video and answer_delay can be overridden here

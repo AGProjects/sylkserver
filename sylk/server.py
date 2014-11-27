@@ -90,6 +90,7 @@ class SylkServer(SIPApplication):
                        codecs=list(settings.rtp.audio_codec_list),
                        # video
                        video_codecs=list(settings.rtp.video_codec_list),
+                       enable_colorbar_device=True,
                        # logging
                        log_level=settings.logs.pjsip_level if settings.logs.trace_pjsip else 0,
                        trace_sip=settings.logs.trace_sip,
@@ -132,7 +133,7 @@ class SylkServer(SIPApplication):
         self.voice_audio_bridge.add(self.voice_audio_device)
 
         # initialize video objects
-        self.video_device = VideoDevice(None, settings.video.resolution, settings.video.framerate)
+        self.video_device = VideoDevice(u'Colorbar generator', settings.video.resolution, settings.video.framerate)
 
         # initialize instance id
         settings.instance_id = uuid4().urn

@@ -10,7 +10,7 @@ from twisted.internet import reactor
 from zope.interface import implements
 
 from sylk.applications import SylkApplication, ApplicationLogger
-from sylk.applications.playback.configuration import get_file_for_uri
+from sylk.applications.playback.configuration import get_config
 
 
 log = ApplicationLogger.for_package(__package__)
@@ -27,22 +27,28 @@ class PlaybackApplication(SylkApplication):
 
     def incoming_session(self, session):
         log.msg('Incoming session %s from %s to %s' % (session.call_id, session.remote_identity.uri, session.local_identity.uri))
-        try:
-            audio_stream = next(stream for stream in session.proposed_streams if stream.type=='audio')
-        except StopIteration:
-            log.msg(u'Session %s rejected: invalid media, only RTP audio is supported' % session.call_id)
+        ruri = session._invitation.request_uri
+        config = get_config('%s@%s' % (ruri.user, ruri.host))
+        if config is None:
+            log.msg(u'Session %s rejected: no configuration found for %s' % (session.call_id, ruri))
             session.reject(488)
             return
-        else:
-            notification_center = NotificationCenter()
-            notification_center.add_observer(self, sender=session)
-            session.send_ring_indication()
-            # TODO: configurable answer delay
-            reactor.callLater(1, self._accept_session, session, audio_stream)
+        stream_types = {'audio'}
+        if config.enable_video:
+            stream_types.add('video')
+        streams = [stream for stream in session.proposed_streams if stream.type in stream_types]
+        if not streams:
+            log.msg(u'Session %s rejected: invalid media, only RTP audio and video is supported' % session.call_id)
+            session.reject(488)
+            return
+        notification_center = NotificationCenter()
+        notification_center.add_observer(self, sender=session)
+        session.send_ring_indication()
+        reactor.callLater(config.answer_delay, self._accept_session, session, streams)
 
-    def _accept_session(self, session, audio_stream):
+    def _accept_session(self, session, streams):
         if session.state == 'incoming':
-            session.accept([audio_stream])
+            session.accept(streams)
 
     def incoming_subscription(self, request, data):
         request.reject(405)
@@ -80,8 +86,6 @@ class PlaybackApplication(SylkApplication):
             session.reject_proposal()
 
 
-class InterruptPlayback(Exception): pass
-
 class PlaybackHandler(object):
     implements(IObserver)
 
@@ -96,16 +100,16 @@ class PlaybackHandler(object):
 
     def _play(self):
         ruri = self.session._invitation.request_uri
-        file = get_file_for_uri('%s@%s' % (ruri.user, ruri.host))
+        config = get_config('%s@%s' % (ruri.user, ruri.host))
         audio_stream = self.session.streams[0]
-        player = WavePlayer(audio_stream.mixer, file)
+        player = WavePlayer(audio_stream.mixer, config.file)
         audio_stream.bridge.add(player)
-        log.msg(u"Playing file %s for session %s" % (file, self.session.call_id))
+        log.msg(u"Playing file %s for session %s" % (config.file, self.session.call_id))
         try:
             player.play().wait()
         except (ValueError, WavePlayerError), e:
-            log.warning(u"Error playing file %s: %s" % (file, e))
-        except InterruptPlayback:
+            log.warning(u"Error playing file %s: %s" % (config.file, e))
+        except proc.ProcExit:
             pass
         finally:
             player.stop()
@@ -121,5 +125,5 @@ class PlaybackHandler(object):
     def _NH_SIPSessionWillEnd(self, notification):
         notification.center.remove_observer(self, sender=notification.sender)
         if self.proc:
-            self.proc.kill(InterruptPlayback)
+            self.proc.kill()
 

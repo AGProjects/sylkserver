@@ -1,7 +1,7 @@
 # Copyright (C) 2010-2011 AG Projects. See LICENSE for details.
 #
 
-__all__ = ['get_file_for_uri']
+__all__ = ['get_config']
 
 import os
 
@@ -15,24 +15,32 @@ class GeneralConfig(ConfigSection):
     __section__ = 'Playback'
 
     files_dir = ConfigSetting(type=Path, value=ResourcePath('sounds/playback').normalized)
+    enable_video = False
+    answer_delay = 1
 
 
 class PlaybackConfig(ConfigSection):
     __cfgfile__ = 'playback.ini'
 
     file = ConfigSetting(type=Path, value=None)
+    enable_video = GeneralConfig.enable_video
+    answer_delay = GeneralConfig.answer_delay
 
 
-def get_file_for_uri(uri):
+class Configuration(object):
+    def __init__(self, data):
+        self.__dict__.update(data)
+
+
+def get_config(uri):
     config_file = ConfigFile(PlaybackConfig.__cfgfile__)
     section = config_file.get_section(uri)
     if section is not None:
         PlaybackConfig.read(section=uri)
         if not os.path.isabs(PlaybackConfig.file):
-            f = os.path.join(GeneralConfig.files_dir, PlaybackConfig.file)
-        else:
-            f = PlaybackConfig.file
+            PlaybackConfig.file = os.path.join(GeneralConfig.files_dir, PlaybackConfig.file)
+        config = Configuration(dict(PlaybackConfig))
         PlaybackConfig.reset()
-        return f
+        return config
     return None
 
