@@ -19,6 +19,7 @@ from sipsimple.lookup import DNSManager
 from sipsimple.storage import MemoryStorage
 from sipsimple.threading import ThreadManager
 from sipsimple.threading.green import run_in_green_thread
+from sipsimple.video import VideoDevice
 from twisted.internet import reactor
 
 # Load stream extensions needed for integration with SIP SIMPLE SDK
@@ -129,6 +130,9 @@ class SylkServer(SIPApplication):
         self.voice_audio_device = AudioDevice(voice_mixer)
         self.voice_audio_bridge = RootAudioBridge(voice_mixer)
         self.voice_audio_bridge.add(self.voice_audio_device)
+
+        # initialize video objects
+        self.video_device = VideoDevice(None, settings.video.resolution, settings.video.framerate)
 
         # initialize instance id
         settings.instance_id = uuid4().urn
