@@ -44,8 +44,8 @@ certificate = /etc/sylkserver/tls/default.crt
 [SIP]
 
 ; SIP transport settings
-; IP address used for SIP signaling; empty string or any means listen on interface used
-; by the default route
+; IP address used for SIP signaling and RTP media; an empty string or 'any' means listening on
+; the interface used by the default route
 ; local_ip =
 
 ; Ports used for SIP transports, if not set to any value the transport will be disabled

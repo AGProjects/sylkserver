@@ -28,6 +28,7 @@ from twisted.internet import reactor
 from zope.interface import implements
 
 from sylk.accounts import DefaultAccount
+from sylk.configuration import SIPConfig
 
 
 class InvitationDisconnectedError(Exception):
@@ -453,7 +454,10 @@ class Session(object):
                     return
                 else:
                     contact_header = ContactHeader(contact_uri)
-            local_ip = contact_header.uri.host
+            if SIPConfig.local_ip not in (None, '0.0.0.0'):
+                local_ip = SIPConfig.local_ip.normalized
+            else:
+                local_ip = contact_header.uri.host
             connection = SDPConnection(local_ip)
             local_sdp = SDPSession(local_ip, name=settings.user_agent)
             for index, stream in enumerate(self.proposed_streams):
@@ -681,8 +685,11 @@ class Session(object):
                     wait_count -= 1
 
             remote_sdp = self._invitation.sdp.proposed_remote
-            sdp_connection = remote_sdp.connection or next(media.connection for media in remote_sdp.media if media.connection is not None)
-            local_ip = host.outgoing_ip_for(sdp_connection.address) if sdp_connection.address != '0.0.0.0' else sdp_connection.address
+            if SIPConfig.local_ip not in (None, '0.0.0.0'):
+                local_ip = SIPConfig.local_ip.normalized
+            else:
+                sdp_connection = remote_sdp.connection or next(media.connection for media in remote_sdp.media if media.connection is not None)
+                local_ip = host.outgoing_ip_for(sdp_connection.address) if sdp_connection.address != '0.0.0.0' else sdp_connection.address
             if local_ip is None:
                 for stream in self.proposed_streams:
                     notification_center.remove_observer(self, sender=stream)

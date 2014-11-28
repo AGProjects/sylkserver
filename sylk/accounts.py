@@ -27,7 +27,12 @@ class DefaultContactURIFactory(object):
 
         transport = key if isinstance(key, basestring) else key.transport
         parameters = {} if transport=='udp' else {'transport': transport}
-        ip = SIPConfig.local_ip.normalized if isinstance(key, basestring) else host.outgoing_ip_for(key.address)
+        if SIPConfig.local_ip not in (None, '0.0.0.0'):
+            ip = SIPConfig.local_ip.normalized
+        elif isinstance(key, basestring):
+            ip = host.default_ip
+        else:
+            ip = host.outgoing_ip_for(key.address)
         if ip is None:
             raise KeyError("could not get outgoing IP address")
         port = getattr(Engine(), '%s_port' % transport, None)
