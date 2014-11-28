@@ -16,7 +16,6 @@ from sipsimple.streams.msrp import ChatStream as _ChatStream, FileTransferStream
 from sipsimple.streams.msrp import ChatStreamError, MSRPStreamError, NotificationProxyLogger
 from sipsimple.threading.green import run_in_green_thread
 from sipsimple.util import ISOTimestamp
-from twisted.python.failure import Failure
 
 from sylk.configuration import SIPConfig, ServerConfig
 
