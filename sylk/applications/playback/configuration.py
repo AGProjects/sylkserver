@@ -34,6 +34,7 @@ class Configuration(object):
 
 def get_config(uri):
     config_file = ConfigFile(PlaybackConfig.__cfgfile__)
+    GeneralConfig.read(cfgfile=config_file)
     section = config_file.get_section(uri)
     if section is not None:
         PlaybackConfig.read(section=uri)
