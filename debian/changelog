@@ -1,3 +1,22 @@
+sylkserver (2.8.0) UNRELEASED; urgency=medium
+
+  * Add a custom Session class
+  * Added setting for toggling ICE support
+  * Enhance playback application
+  * Adapt to latest SDK API changes
+  * Don't advertise the default conference on Bonjour if it's not the default
+    application
+  * Add ability to find applications by name to ApplicationRegistry
+  * Log default application on start
+  * Use 127.0.0.1 if the local address could not be determined
+  * Refactor managing the single account SylkServer currently uses
+  * Rename sylk.extensions to sylk.streams
+  * Refactored WelcomeHandler in conference application
+  * Use the specified IP address both for signaling and media
+  * Allow user-part only matching on playback application
+
+ -- Saul Ibarra <saul@ag-projects.com>  Mon, 01 Dec 2014 12:36:30 +0100
+
 sylkserver (2.7.2) unstable; urgency=medium
 
   * Fix setting local IP address
