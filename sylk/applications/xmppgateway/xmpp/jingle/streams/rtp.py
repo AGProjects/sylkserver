@@ -19,7 +19,6 @@ from sipsimple.configuration.settings import SIPSimpleSettings
 from sipsimple.core import AudioTransport, PJSIPError, RTPTransport, SIPCoreError
 
 from sylk.applications.xmppgateway.xmpp.jingle.streams import IMediaStream, InvalidStreamError, MediaStreamRegistrar, UnknownStreamError
-from sylk.configuration import SIPConfig
 
 
 class AudioStream(object):
@@ -397,7 +396,6 @@ class AudioStream(object):
         self._rtp_args["use_srtp"] = self._use_srtp
         self._rtp_args["srtp_forced"] = self._use_srtp and self._try_forced_srtp
         self._rtp_args["use_ice"] = self._try_ice
-        self._rtp_args["local_rtp_address"] = SIPConfig.local_ip.normalized
         self._stun_servers = [(None, None)]
         if stun_servers:
             self._stun_servers.extend(reversed(stun_servers))
