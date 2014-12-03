@@ -39,6 +39,12 @@ class MediaStreamDidFailError(Exception):
         self.data = data
 
 
+class MediaStreamDidNotInitializeError(Exception):
+    def __init__(self, stream, data):
+        self.stream = stream
+        self.data = data
+
+
 class Operation(object):
     __params__ = ()
 
@@ -228,6 +234,10 @@ class JingleSession(object):
         if self._current_operation is not None:
             self._current_operation.channel.send(notification)
 
+    def _NH_MediaStreamDidNotInitialize(self, notification):
+        if self._current_operation is not None:
+            self._current_operation.channel.send_exception(MediaStreamDidNotInitializeError(notification.sender, notification.data))
+
     def _NH_MediaStreamDidStart(self, notification):
         if self._current_operation is not None:
             self._current_operation.channel.send(notification)
@@ -298,7 +308,7 @@ class JingleSession(object):
             for index, media in enumerate(remote_sdp.media):
                 stream = stream_map.get(index, None)
                 if stream is not None:
-                    media = stream.get_local_media(for_offer=False)
+                    media = stream.get_local_media(remote_sdp=remote_sdp, index=index)
                 else:
                     media = SDPMediaStream.new(media)
                     media.port = 0
@@ -355,7 +365,7 @@ class JingleSession(object):
                     notification = operation.channel.wait()
                     if notification.name == 'MediaStreamDidStart':
                         wait_count -= 1
-        except (MediaStreamDidFailError, api.TimeoutError, IqTimeoutError, StanzaError), e:
+        except (MediaStreamDidNotInitializeError, MediaStreamDidFailError, api.TimeoutError, IqTimeoutError, StanzaError), e:
             for stream in self.proposed_streams:
                 notification_center.remove_observer(self, sender=stream)
                 stream.deactivate()
@@ -410,7 +420,7 @@ class JingleSession(object):
             local_sdp = SDPSession(local_ip, connection=SDPConnection(local_ip), name=settings.user_agent)
             for index, stream in enumerate(self.proposed_streams):
                 stream.index = index
-                media = stream.get_local_media(for_offer=True)
+                media = stream.get_local_media(remote_sdp=None, index=index)
                 local_sdp.media.append(media)
             self._sdp_negotiator = SDPNegotiator.create_with_local_offer(local_sdp)
             # Build the payload and send it over
@@ -421,7 +431,7 @@ class JingleSession(object):
             stanza = self._protocol.sessionInitiate(self._local_jid, self._remote_jid, payload)
             d = self._send_stanza(stanza)
             block_on(d)
-        except (MediaStreamDidFailError, IqTimeoutError, StanzaError, SIPCoreError), e:
+        except (MediaStreamDidNotInitializeError, MediaStreamDidFailError, IqTimeoutError, StanzaError, SIPCoreError), e:
             for stream in self.proposed_streams:
                 notification_center.remove_observer(self, sender=stream)
                 stream.deactivate()
