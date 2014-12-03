@@ -39,6 +39,7 @@ class SIPConfig(ConfigSection):
     local_udp_port = ConfigSetting(type=Port, value=5060)
     local_tcp_port = ConfigSetting(type=Port, value=5060)
     local_tls_port = ConfigSetting(type=Port, value=5061)
+    advertised_ip = ConfigSetting(type=IPAddress, value=None)
     outbound_proxy = ConfigSetting(type=SIPProxyAddress, value=None)
     trusted_peers = ConfigSetting(type=NetworkRangeList, value=NetworkRangeList('any'))
     enable_ice = False

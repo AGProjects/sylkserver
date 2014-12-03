@@ -42,11 +42,14 @@ certificate = /etc/sylkserver/tls/default.crt
 
 
 [SIP]
-
 ; SIP transport settings
+
 ; IP address used for SIP signaling and RTP media; an empty string or 'any' means listening on
 ; the interface used by the default route
 ; local_ip =
+
+; IP address to be advertised in the SDP, useful in 1-to-1 NAT scenarios such as Amazon EC2
+; advertised_ip =
 
 ; Ports used for SIP transports, if not set to any value the transport will be disabled
 ; local_udp_port = 5060

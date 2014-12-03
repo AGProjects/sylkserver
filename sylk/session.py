@@ -454,7 +454,9 @@ class Session(object):
                     return
                 else:
                     contact_header = ContactHeader(contact_uri)
-            if SIPConfig.local_ip not in (None, '0.0.0.0'):
+            if SIPConfig.advertised_ip not in (None, '0.0.0.0'):
+                local_ip = SIPConfig.advertised_ip.normalized
+            elif SIPConfig.local_ip not in (None, '0.0.0.0'):
                 local_ip = SIPConfig.local_ip.normalized
             else:
                 local_ip = contact_header.uri.host
@@ -685,7 +687,9 @@ class Session(object):
                     wait_count -= 1
 
             remote_sdp = self._invitation.sdp.proposed_remote
-            if SIPConfig.local_ip not in (None, '0.0.0.0'):
+            if SIPConfig.advertised_ip not in (None, '0.0.0.0'):
+                local_ip = SIPConfig.advertised_ip.normalized
+            elif SIPConfig.local_ip not in (None, '0.0.0.0'):
                 local_ip = SIPConfig.local_ip.normalized
             else:
                 sdp_connection = remote_sdp.connection or next(media.connection for media in remote_sdp.media if media.connection is not None)
