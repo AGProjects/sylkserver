@@ -5,7 +5,6 @@ from application.python import Null
 from application.notification import IObserver, NotificationCenter
 from eventlib import proc
 from sipsimple.audio import WavePlayer, WavePlayerError
-from sipsimple.threading.green import run_in_green_thread
 from twisted.internet import reactor
 from zope.interface import implements
 
@@ -17,7 +16,6 @@ log = ApplicationLogger.for_package(__package__)
 
 
 class PlaybackApplication(SylkApplication):
-    implements(IObserver)
 
     def start(self):
         pass
@@ -42,14 +40,8 @@ class PlaybackApplication(SylkApplication):
             log.msg(u'Session %s rejected: invalid media, only RTP audio and video is supported' % session.call_id)
             session.reject(488)
             return
-        notification_center = NotificationCenter()
-        notification_center.add_observer(self, sender=session)
-        session.send_ring_indication()
-        reactor.callLater(config.answer_delay, self._accept_session, session, streams)
-
-    def _accept_session(self, session, streams):
-        if session.state == 'incoming':
-            session.accept(streams)
+        handler = PlaybackHandler(config, session)
+        handler.run()
 
     def incoming_subscription(self, request, data):
         request.reject(405)
@@ -60,50 +52,38 @@ class PlaybackApplication(SylkApplication):
     def incoming_message(self, request, data):
         request.reject(405)
 
-    def handle_notification(self, notification):
-        handler = getattr(self, '_NH_%s' % notification.name, Null)
-        handler(notification)
-
-    @run_in_green_thread
-    def _NH_SIPSessionDidStart(self, notification):
-        session = notification.sender
-        log.msg('Session %s started' % session.call_id)
-        handler = PlaybackHandler(session)
-        handler.run()
-
-    def _NH_SIPSessionDidFail(self, notification):
-        session = notification.sender
-        log.msg('Session %s failed' % session.call_id)
-        NotificationCenter().remove_observer(self, sender=session)
-
-    def _NH_SIPSessionDidEnd(self, notification):
-        session = notification.sender
-        log.msg('Session %s ended' % session.call_id)
-        NotificationCenter().remove_observer(self, sender=session)
-
-    def _NH_SIPSessionNewProposal(self, notification):
-        if notification.data.originator == 'remote':
-            session = notification.sender
-            session.reject_proposal()
-
 
 class PlaybackHandler(object):
     implements(IObserver)
 
-    def __init__(self, session):
+    def __init__(self, config, session):
+        self.config = config
         self.session = session
         self.proc = None
-        notification_center = NotificationCenter()
-        notification_center.add_observer(self, sender=session)
 
     def run(self):
-        self.proc = proc.spawn(self._play)
+        notification_center = NotificationCenter()
+        notification_center.add_observer(self, sender=self.session)
+        self.session.send_ring_indication()
+        stream_types = {'audio'}
+        if self.config.enable_video:
+            stream_types.add('video')
+        streams = [stream for stream in self.session.proposed_streams if stream.type in stream_types]
+        reactor.callLater(self.config.answer_delay, self._accept_session, self.session, streams)
+
+    def _accept_session(self, session, streams):
+        if session.state == 'incoming':
+            session.accept(streams)
 
     def _play(self):
         config = get_config('%s@%s' % (self.session.request_uri.user, self.session.request_uri.host))
         if config is None:
             config = get_config('%s' % self.session.request_uri.user)
-        audio_stream = self.session.streams[0]
+        try:
+            audio_stream = next(stream for stream in self.session.streams if stream.type=='audio')
+        except StopIteration:
+            self.proc = None
+            return
         player = WavePlayer(audio_stream.mixer, config.file)
         audio_stream.bridge.add(player)
         log.msg(u"Playing file %s for session %s" % (config.file, self.session.call_id))
@@ -124,8 +104,49 @@ class PlaybackHandler(object):
         handler = getattr(self, '_NH_%s' % notification.name, Null)
         handler(notification)
 
+    def _NH_SIPSessionNewProposal(self, notification):
+        if notification.data.originator == 'remote':
+            session = notification.sender
+            stream_types = {'audio'}
+            if self.config.enable_video:
+                stream_types.add('video')
+            streams = [stream for stream in session.proposed_streams if stream.type in stream_types]
+            if not streams:
+                session.reject_proposal()
+                return
+            session.accept_proposal(streams)
+
+    def _NH_SIPSessionDidRenegotiateStreams(self, notification):
+        session = notification.sender
+
+        for stream in notification.data.added_streams:
+            log.msg('Session %s added %s' % (session.call_id, stream.type))
+
+        for stream in notification.data.removed_streams:
+            log.msg('Session %s removed %s' % (session.call_id, stream.type))
+
+        if notification.data.added_streams and self.proc is None:
+            self.proc = proc.spawn(self._play)
+
+        if notification.data.removed_streams and not session.streams:
+            session.end()
+
+    def _NH_SIPSessionDidStart(self, notification):
+        session = notification.sender
+        log.msg('Session %s started' % session.call_id)
+        self.proc = proc.spawn(self._play)
+
+    def _NH_SIPSessionDidFail(self, notification):
+        session = notification.sender
+        log.msg('Session %s failed' % session.call_id)
+        notification.center.remove_observer(self, sender=session)
+
     def _NH_SIPSessionWillEnd(self, notification):
-        notification.center.remove_observer(self, sender=notification.sender)
         if self.proc:
             self.proc.kill()
+
+    def _NH_SIPSessionDidEnd(self, notification):
+        session = notification.sender
+        log.msg('Session %s ended' % session.call_id)
+        notification.center.remove_observer(self, sender=session)
 
