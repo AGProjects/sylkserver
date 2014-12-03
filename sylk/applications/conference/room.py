@@ -1100,8 +1100,8 @@ class OutgoingFileTransferHandler(object):
             uri = SIPURI.new(self.destination)
         lookup = DNSLookup()
         try:
-            routes = lookup.lookup_sip_proxy(uri, settings.sip.transport_list).wait()
-        except DNSLookupError:
+            route = lookup.lookup_sip_proxy(uri, settings.sip.transport_list).wait()[0]
+        except (DNSLookupError, IndexError):
             return
 
         notification_center = NotificationCenter()
@@ -1116,7 +1116,7 @@ class OutgoingFileTransferHandler(object):
             extra_headers.append(Header('Thor-Scope', 'conference-invitation'))
         extra_headers.append(Header('X-Originator-From', str(self.file.sender.uri)))
         extra_headers.append(SubjectHeader(u'File uploaded by %s' % self.file.sender))
-        self.session.connect(from_header, to_header, routes=routes, streams=[self.stream], is_focus=True, extra_headers=extra_headers)
+        self.session.connect(from_header, to_header, route=route, streams=[self.stream], is_focus=True, extra_headers=extra_headers)
 
     def stop(self):
         if self.session is not None:
