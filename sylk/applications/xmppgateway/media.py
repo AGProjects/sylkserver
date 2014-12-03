@@ -6,8 +6,8 @@ from application.python import Null
 from eventlib.twistedutil import block_on
 from sipsimple.audio import AudioConference
 from sipsimple.configuration.settings import SIPSimpleSettings
-from sipsimple.core import ContactHeader, FromHeader, ToHeader
-from sipsimple.core import Engine, SIPURI, SIPCoreError
+from sipsimple.core import FromHeader, ToHeader
+from sipsimple.core import SIPURI, SIPCoreError
 from sipsimple.lookup import DNSLookup, DNSLookupError
 from sipsimple.streams import MediaStreamRegistry as SIPMediaStreamRegistry
 from sipsimple.threading import run_in_twisted_thread
@@ -15,13 +15,12 @@ from sipsimple.threading.green import run_in_green_thread
 from zope.interface import implements
 
 from sylk.accounts import DefaultAccount
-from sylk.applications.xmppgateway.datatypes import Identity, FrozenURI, generate_sylk_resource, encode_resource, decode_resource
+from sylk.applications.xmppgateway.datatypes import Identity, FrozenURI, generate_sylk_resource, decode_resource
 from sylk.applications.xmppgateway.logger import log
 from sylk.applications.xmppgateway.xmpp import XMPPManager
 from sylk.applications.xmppgateway.xmpp.jingle.session import JingleSession
 from sylk.applications.xmppgateway.xmpp.jingle.streams import MediaStreamRegistry as JingleMediaStreamRegistry
 from sylk.applications.xmppgateway.xmpp.stanzas import jingle
-from sylk.configuration import SIPConfig
 from sylk.session import Session
 
 
@@ -149,13 +148,9 @@ class MediaSessionHandler(object):
         route = routes.pop(0)
         from_header = FromHeader(from_uri)
         to_header = ToHeader(to_uri)
-        transport = route.transport
-        parameters = {} if transport=='udp' else {'transport': transport}
-        contact_uri = SIPURI(user=account.contact.username, host=SIPConfig.local_ip.normalized, port=getattr(Engine(), '%s_port' % transport), parameters=parameters)
-        contact_header = ContactHeader(contact_uri)
         self.sip_session = Session(account)
         notification_center.add_observer(self, sender=self.sip_session)
-        self.sip_session.connect(from_header, to_header, contact_header=contact_header, route=route, streams=streams)
+        self.sip_session.connect(from_header, to_header, route=route, streams=streams)
 
     @run_in_green_thread
     def _start_outgoing_jingle_session(self, streams):

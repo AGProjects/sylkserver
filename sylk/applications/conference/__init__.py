@@ -11,8 +11,8 @@ from application.python import Null
 from gnutls.interfaces.twisted import X509Credentials
 from sipsimple.account.bonjour import BonjourPresenceState
 from sipsimple.configuration.settings import SIPSimpleSettings
-from sipsimple.core import Engine, SIPURI, SIPCoreError
-from sipsimple.core import Header, ContactHeader, FromHeader, ToHeader, SubjectHeader
+from sipsimple.core import SIPURI, SIPCoreError
+from sipsimple.core import Header, FromHeader, ToHeader, SubjectHeader
 from sipsimple.lookup import DNSLookup
 from sipsimple.streams import AudioStream
 from sipsimple.threading.green import run_in_green_thread
@@ -26,7 +26,7 @@ from sylk.applications.conference.logger import log
 from sylk.applications.conference.room import Room
 from sylk.applications.conference.web import ScreenSharingWebServer
 from sylk.bonjour import BonjourServices
-from sylk.configuration import ServerConfig, SIPConfig, ThorNodeConfig
+from sylk.configuration import ServerConfig, ThorNodeConfig
 from sylk.session import Session, IllegalStateError
 from sylk.streams import ChatStream
 from sylk.tls import Certificate, PrivateKey
@@ -377,9 +377,6 @@ class IncomingReferralHandler(object):
             original_identity = "%s@%s" % (original_from_header.uri.user, original_from_header.uri.host)
         from_header = FromHeader(SIPURI.new(self.room_uri), u'Conference Call')
         to_header = ToHeader(self.refer_to_uri)
-        transport = notification.data.result[0].transport
-        parameters = {} if transport=='udp' else {'transport': transport}
-        contact_header = ContactHeader(SIPURI(user=self.room_uri.user, host=SIPConfig.local_ip.normalized, port=getattr(Engine(), '%s_port' % transport), parameters=parameters))
         extra_headers = []
         if self._refer_headers.get('Referred-By', None) is not None:
             extra_headers.append(Header.new(self._refer_headers.get('Referred-By')))
@@ -390,7 +387,7 @@ class IncomingReferralHandler(object):
         extra_headers.append(Header('X-Originator-From', str(original_from_header.uri)))
         extra_headers.append(SubjectHeader(u'Join conference request from %s' % original_identity))
         route = notification.data.result[0]
-        self.session.connect(from_header, to_header, contact_header=contact_header, route=route, streams=self.streams, is_focus=True, extra_headers=extra_headers)
+        self.session.connect(from_header, to_header, route=route, streams=self.streams, is_focus=True, extra_headers=extra_headers)
 
     def _NH_DNSLookupDidFail(self, notification):
         notification.center.remove_observer(self, sender=notification.sender)

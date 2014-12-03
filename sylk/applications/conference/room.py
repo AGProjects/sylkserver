@@ -21,8 +21,8 @@ from sipsimple.account.bonjour import BonjourPresenceState
 from sipsimple.application import SIPApplication
 from sipsimple.audio import AudioConference, WavePlayer, WavePlayerError
 from sipsimple.configuration.settings import SIPSimpleSettings
-from sipsimple.core import Engine, SIPCoreError, SIPCoreInvalidStateError, SIPURI
-from sipsimple.core import Header, ContactHeader, FromHeader, ToHeader, SubjectHeader
+from sipsimple.core import SIPCoreError, SIPCoreInvalidStateError, SIPURI
+from sipsimple.core import Header, FromHeader, ToHeader, SubjectHeader
 from sipsimple.lookup import DNSLookup, DNSLookupError
 from sipsimple.payloads import conference
 from sipsimple.streams.applications.chat import CPIMIdentity
@@ -37,7 +37,7 @@ from sylk.accounts import DefaultAccount
 from sylk.applications.conference.configuration import get_room_config, ConferenceConfig
 from sylk.applications.conference.logger import log
 from sylk.bonjour import BonjourServices
-from sylk.configuration import ServerConfig, SIPConfig, ThorNodeConfig
+from sylk.configuration import ServerConfig, ThorNodeConfig
 from sylk.configuration.datatypes import ResourcePath, URL
 from sylk.session import Session, IllegalStateError
 from sylk.streams import FileTransferStream
@@ -1111,15 +1111,12 @@ class OutgoingFileTransferHandler(object):
         notification_center.add_observer(self, sender=self.stream)
         from_header = FromHeader(SIPURI.new(self.room_uri), room.config.display_name)
         to_header = ToHeader(SIPURI.new(self.destination))
-        transport = routes[0].transport
-        parameters = {} if transport=='udp' else {'transport': transport}
-        contact_header = ContactHeader(SIPURI(user=self.room_uri.user, host=SIPConfig.local_ip.normalized, port=getattr(Engine(), '%s_port' % transport), parameters=parameters))
         extra_headers = []
         if ThorNodeConfig.enabled:
             extra_headers.append(Header('Thor-Scope', 'conference-invitation'))
         extra_headers.append(Header('X-Originator-From', str(self.file.sender.uri)))
         extra_headers.append(SubjectHeader(u'File uploaded by %s' % self.file.sender))
-        self.session.connect(from_header, to_header, contact_header=contact_header, routes=routes, streams=[self.stream], is_focus=True, extra_headers=extra_headers)
+        self.session.connect(from_header, to_header, routes=routes, streams=[self.stream], is_focus=True, extra_headers=extra_headers)
 
     def stop(self):
         if self.session is not None:
