@@ -1109,7 +1109,7 @@ class OutgoingFileTransferHandler(object):
         self.stream = FileTransferStream(self.file.file_selector, 'sendonly')
         notification_center.add_observer(self, sender=self.session)
         notification_center.add_observer(self, sender=self.stream)
-        from_header = FromHeader(SIPURI.new(self.room_uri), room.config.display_name)
+        from_header = FromHeader(SIPURI.new(self.room_uri), u'Conference File Transfer')
         to_header = ToHeader(SIPURI.new(self.destination))
         extra_headers = []
         if ThorNodeConfig.enabled:

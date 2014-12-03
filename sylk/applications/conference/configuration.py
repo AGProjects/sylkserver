@@ -83,7 +83,6 @@ class ConferenceConfig(ConfigSection):
 
     history_size = 20
 
-    display_name = ConfigSetting(type=unicode, value='Conference Call')
     access_policy = ConfigSetting(type=AccessPolicyValue, value=AccessPolicyValue('allow, deny'))
     allow = ConfigSetting(type=PolicySettingValue, value=PolicySettingValue('all'))
     deny = ConfigSetting(type=PolicySettingValue, value=PolicySettingValue('none'))
@@ -105,7 +104,6 @@ class ConferenceConfig(ConfigSection):
 class RoomConfig(ConfigSection):
     __cfgfile__ = 'conference.ini'
 
-    display_name = ConferenceConfig.display_name
     access_policy = ConfigSetting(type=AccessPolicyValue, value=AccessPolicyValue('allow, deny'))
     allow = ConfigSetting(type=PolicySettingValue, value=PolicySettingValue('all'))
     deny = ConfigSetting(type=PolicySettingValue, value=PolicySettingValue('none'))
