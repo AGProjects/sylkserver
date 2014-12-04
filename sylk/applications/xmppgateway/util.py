@@ -1,24 +1,20 @@
 # Copyright (C) 2012 AG Projects. See LICENSE for details
 #
 
-from cStringIO import StringIO
-from formatter import AbstractFormatter, DumbWriter
-from htmllib import HTMLParser, HTMLParseError
+import lxml.html
+import lxml.html.clean
 
 __all__ = ['html2text', 'text2html', 'format_uri']
 
 
 def html2text(data):
-    # Based on http://stackoverflow.com/questions/328356/extracting-text-from-html-file-using-python
-    f = StringIO()
-    parser = HTMLParser(AbstractFormatter(DumbWriter(f)))
     try:
-        parser.feed(data)
-    except HTMLParseError:
+        doc = lxml.html.document_fromstring(data)
+        cleaner = lxml.html.clean.Cleaner(style=True)
+        doc = cleaner.clean_html(doc)
+        return doc.text_content().strip('\n')
+    except Exception:
         return ''
-    else:
-        parser.close()
-        return f.getvalue()
 
 
 xhtml_im_template = """<html xmlns='http://jabber.org/protocol/xhtml-im'>
