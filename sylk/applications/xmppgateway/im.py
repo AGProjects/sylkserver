@@ -162,9 +162,9 @@ class ChatSessionHandler(object):
             notification_center.post_notification('ChatSessionDidFail', sender=self, data=NotificationData(reason='Ended before actually started'))
 
     def enqueue_xmpp_message(self, message):
-        if self.started:
-            raise RuntimeError('session is already started')
         self._xmpp_message_queue.append(message)
+        if self.started:
+            self._send_queued_messages()
 
     def _send_queued_messages(self):
         if self._xmpp_message_queue:
