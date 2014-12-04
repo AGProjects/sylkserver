@@ -4,6 +4,9 @@
 import random
 import urllib
 
+import lxml.html
+import lxml.html.clean
+
 from itertools import count
 
 from application.notification import IObserver, NotificationCenter, NotificationData
@@ -65,6 +68,15 @@ def format_conference_stream_type(stream):
     if stream.type == 'chat':
         return 'message'
     return stream.type
+
+def html2text(data):
+    try:
+        doc = lxml.html.document_fromstring(data)
+        cleaner = lxml.html.clean.Cleaner(style=True)
+        doc = cleaner.clean_html(doc)
+        return doc.text_content().strip('\n')
+    except Exception:
+        return ''
 
 
 class IRCMessage(object):
@@ -392,7 +404,13 @@ class IRCRoom(object):
         session = notification.sender.session
         self.incoming_message_queue.send((session, 'msrp_message', message))
         # Send MSRP chat message to IRC chat room
-        body = message.body
+        if message.content_type == 'text/html':
+            body = html2text(message.body)
+        elif message.content_type == 'text/plain':
+            body = message.body
+        else:
+            log.msg(u'Unsupported content type: %s, ignoreing message' % message.content_type)
+            return
         sender = message.sender
         irc_message = '%s: %s' % (format_identity(sender), body)
         if self.irc_protocol is not None:
