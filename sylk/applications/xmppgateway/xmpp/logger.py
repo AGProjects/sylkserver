@@ -31,16 +31,13 @@ class Logger(object):
         # try to create the log directory
         try:
             self._init_log_directory()
+            self._init_log_file()
         except Exception:
             pass
         self.stopped = False
 
     def stop(self):
         self.stopped = True
-        self._close_file()
-
-    @run_in_thread('log-io')
-    def _close_file(self):
         if self._xmpptrace_file is not None:
             self._xmpptrace_file.close()
             self._xmpptrace_file = None
