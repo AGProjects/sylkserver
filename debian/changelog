@@ -1,7 +1,9 @@
-sylkserver (2.8.0) UNRELEASED; urgency=medium
+sylkserver (2.8.0) unstable; urgency=medium
 
   * Add a custom Session class
   * Added setting for toggling ICE support
+  * Add advertised_ip setting
+  * Use the specified IP address both for signaling and media
   * Enhance playback application
   * Adapt to latest SDK API changes
   * Don't advertise the default conference on Bonjour if it's not the default
@@ -14,8 +16,12 @@ sylkserver (2.8.0) UNRELEASED; urgency=medium
   * Refactored WelcomeHandler in conference application
   * Use the specified IP address both for signaling and media
   * Allow user-part only matching on playback application
+  * Don't manually create the Contact header when not needed
+  * Fix JingleSession and adapt audio streams to API changes
+  * Strip HTML in IRCconference application
+  * Fix handling XMPP stanzas sent to a bare JID when the session was bound
 
- -- Saul Ibarra <saul@ag-projects.com>  Mon, 01 Dec 2014 12:36:30 +0100
+ -- Saul Ibarra <saul@ag-projects.com>  Fri, 05 Dec 2014 13:21:10 +0100
 
 sylkserver (2.7.2) unstable; urgency=medium
 
