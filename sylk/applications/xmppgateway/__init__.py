@@ -275,11 +275,11 @@ class XMPPGatewayApplication(SylkApplication):
                     handler.enqueue_xmpp_message(message)
                 except KeyError:
                     # Check if we have any already open chat session and dispatch it there
-                    xmpp_identity = Identity(xmpp_leg_uri)
                     try:
-                        handler = next(h for h in self.chat_sessions if h.xmpp_identity == xmpp_identity and h.sip_identity.uri.user == sip_leg_uri.user and h.sip_identity.uri.host == sip_leg_uri.host)
+                        handler = next(h for h in self.chat_sessions if h.xmpp_identity.uri.user == xmpp_leg_uri.user and h.xmpp_identity.uri.host == xmpp_leg_uri.host and h.sip_identity.uri.user == sip_leg_uri.user and h.sip_identity.uri.host == sip_leg_uri.host)
                     except StopIteration:
                         # Not found, need to create a new handler and a outgoing SIP session
+                        xmpp_identity = Identity(xmpp_leg_uri)
                         handler = ChatSessionHandler.new_from_xmpp_stanza(xmpp_identity, sip_leg_uri)
                         key = (sip_leg_uri, xmpp_leg_uri)
                         self.pending_sessions[key] = handler
