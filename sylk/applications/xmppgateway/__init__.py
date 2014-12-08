@@ -298,12 +298,16 @@ class XMPPGatewayApplication(SylkApplication):
                     try:
                         handler = self.pending_sessions[(sip_leg_uri, xmpp_leg_uri)]
                     except KeyError:
-                        # It's a new XMPP session to a full JID, disregard the full JID and start a new SIP session to the bare JID
-                        xmpp_identity = Identity(xmpp_leg_uri)
-                        handler = ChatSessionHandler.new_from_xmpp_stanza(xmpp_identity, sip_leg_uri)
-                        key = (sip_leg_uri, xmpp_leg_uri)
-                        self.pending_sessions[key] = handler
-                        NotificationCenter().add_observer(self, sender=handler)
+                        # Try harder, maybe the XMPP client changed his from
+                        try:
+                            handler = next(h for h in self.chat_sessions if h.xmpp_identity.uri.user == xmpp_leg_uri.user and h.xmpp_identity.uri.host == xmpp_leg_uri.host and h.sip_identity.uri.user == sip_leg_uri.user and h.sip_identity.uri.host == sip_leg_uri.host)
+                        except StopIteration:
+                            # It's a new XMPP session to a full JID, disregard the full JID and start a new SIP session to the bare JID
+                            xmpp_identity = Identity(xmpp_leg_uri)
+                            handler = ChatSessionHandler.new_from_xmpp_stanza(xmpp_identity, sip_leg_uri)
+                            key = (sip_leg_uri, xmpp_leg_uri)
+                            self.pending_sessions[key] = handler
+                            NotificationCenter().add_observer(self, sender=handler)
                     handler.enqueue_xmpp_message(message)
                 else:
                     # Found handle, create XMPP session and establish session
