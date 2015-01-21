@@ -112,12 +112,8 @@ class EchoApplication(SylkApplication):
     def _NH_ChatStreamGotMessage(self, notification):
         stream = notification.sender
         message = notification.data.message
-        content_type = message.content_type.lower()
-        if content_type.startswith('text/'):
-            stream.msrp_session.send_report(notification.data.chunk, 200, 'OK')
-            stream.send_message(message.body, message.content_type)
-        else:
-            stream.msrp_session.send_report(notification.data.chunk, 413, 'Unwanted message')
+        stream.msrp_session.send_report(notification.data.chunk, 200, 'OK')
+        stream.send_message(message.body, message.content_type)
 
     def _NH_SIPSessionNewProposal(self, notification):
         if notification.data.originator == 'remote':
