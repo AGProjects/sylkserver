@@ -538,15 +538,18 @@ class Room(object):
 
     def _NH_ChatStreamGotMessage(self, notification):
         stream = notification.sender
-        stream.msrp_session.send_report(notification.data.chunk, 200, 'OK')
         data = notification.data
         session = notification.sender.session
         message = data.message
         content_type = message.content_type.lower()
-        if content_type.startswith('text/'):
+        if content_type.startswith(('text/', 'image/')):
+            stream.msrp_session.send_report(notification.data.chunk, 200, 'OK')
             self.incoming_message_queue.send((session, 'message', data))
         elif content_type == 'application/blink-screensharing':
+            stream.msrp_session.send_report(notification.data.chunk, 200, 'OK')
             self.add_screen_image(message.sender, message.body)
+        else:
+            stream.msrp_session.send_report(notification.data.chunk, 413, 'Unwanted message')
 
     def _NH_ChatStreamGotComposingIndication(self, notification):
         stream = notification.sender
