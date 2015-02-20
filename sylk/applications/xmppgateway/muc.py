@@ -454,7 +454,7 @@ class X2SMucHandler(object):
         sender_uri = message.sender.uri.as_sip_uri()
         del sender_uri.parameters['gr']    # no GRUU in CPIM From header
         sender = CPIMIdentity(sender_uri, display_name=self.nickname)
-        message_id = self._msrp_stream.send_message(message.body, 'text/plain', local_identity=sender)
+        message_id = self._msrp_stream.send_message(message.body, 'text/plain', sender=sender)
         self._pending_messages_map[message_id] = message
         # Message will be echoed back to the sender on ChatStreamDidDeliverMessage
 

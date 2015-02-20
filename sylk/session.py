@@ -1867,11 +1867,36 @@ class Session(object):
     def _NH_SIPInvitationTransferNewIncoming(self, notification):
         self._invitation.notify_transfer_progress(500)
 
-    def _NH_MediaStreamDidInitialize(self, notification):
+    def _NH_RTPStreamDidEnableEncryption(self, notification):
+        if notification.sender.type != 'audio':
+            return
+        audio_stream = notification.sender
+        if audio_stream.encryption.type == 'ZRTP':
+            # start ZRTP on the video stream, if applicable
+            try:
+                video_stream = next(stream for stream in self.streams or [] if stream.type=='video')
+            except StopIteration:
+                return
+            if video_stream.encryption.type == 'ZRTP' and not video_stream.encryption.active:
+                video_stream.encryption.zrtp._enable(audio_stream)
+
+    def _NH_MediaStreamDidStart(self, notification):
+        stream = notification.sender
+        if stream.type == 'audio' and stream.encryption.type == 'ZRTP':
+            stream.encryption.zrtp._enable()
+        elif stream.type == 'video' and stream.encryption.type == 'ZRTP':
+            # start ZRTP on the video stream, if applicable
+            try:
+                audio_stream = next(stream for stream in self.streams or [] if stream.type=='audio')
+            except StopIteration:
+                pass
+            else:
+                if audio_stream.encryption.type == 'ZRTP' and audio_stream.encryption.active:
+                    stream.encryption.zrtp._enable(audio_stream)
         if self.greenlet is not None:
             self._channel.send(notification)
 
-    def _NH_MediaStreamDidStart(self, notification):
+    def _NH_MediaStreamDidInitialize(self, notification):
         if self.greenlet is not None:
             self._channel.send(notification)
 

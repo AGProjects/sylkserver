@@ -94,12 +94,15 @@ certificate = /etc/sylkserver/tls/default.crt
 ; Port range used for RTP
 ; port_range = 50000:50500
 
-; SRTP valid values: disabled, mandatory, optional
-; srtp_encryption = optional
+; SRTP valid values: disabled, sdes, zrtp, opportunistic
+; srtp_encryption = opportunistic
 
 ; RTP stream timeout, session will be disconnected after this value
 ; timeout = 30
 
 ; Audio sampling rate
 ; sample_rate = 32000
+
+; ZRTP cache location
+; zrtp_cache_dir = /var/spool/sylkserver
 

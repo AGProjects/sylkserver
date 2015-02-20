@@ -4,10 +4,10 @@
 from application.configuration import ConfigSection, ConfigSetting
 from application.configuration.datatypes import NetworkRangeList, StringList
 from application.system import host
-from sipsimple.configuration.datatypes import NonNegativeInteger, SampleRate, SRTPEncryption
+from sipsimple.configuration.datatypes import NonNegativeInteger, SampleRate
 
 from sylk import configuration_filename
-from sylk.configuration.datatypes import AudioCodecs, IPAddress, NillablePath, Path, Port, PortRange, SIPProxyAddress
+from sylk.configuration.datatypes import AudioCodecs, IPAddress, NillablePath, Path, Port, PortRange, SIPProxyAddress, SRTPEncryption
 from sylk.tls import Certificate, PrivateKey
 
 
@@ -58,9 +58,10 @@ class RTPConfig(ConfigSection):
 
     audio_codecs = ConfigSetting(type=AudioCodecs, value=['opus', 'speex', 'G722', 'PCMA', 'PCMU'])
     port_range = ConfigSetting(type=PortRange, value=PortRange('50000:50500'))
-    srtp_encryption = ConfigSetting(type=SRTPEncryption, value='optional')
+    srtp_encryption = ConfigSetting(type=SRTPEncryption, value='opportunistic')
     timeout = ConfigSetting(type=NonNegativeInteger, value=30)
     sample_rate = ConfigSetting(type=SampleRate, value=32000)
+    zrtp_cache_dir = ConfigSetting(type=Path, value=Path('var/spool/sylkserver'))
 
 
 class ThorNodeConfig(ConfigSection):

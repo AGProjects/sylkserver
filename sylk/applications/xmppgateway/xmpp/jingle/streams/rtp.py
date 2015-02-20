@@ -17,6 +17,7 @@ from zope.interface import implements
 from sipsimple.audio import AudioBridge, AudioDevice, IAudioPort
 from sipsimple.configuration.settings import SIPSimpleSettings
 from sipsimple.core import AudioTransport, PJSIPError, RTPTransport, SIPCoreError
+from sipsimple.streams.rtp import RTPStreamEncryption
 
 from sylk.applications.xmppgateway.xmpp.jingle.streams import IMediaStream, InvalidStreamError, MediaStreamRegistrar, UnknownStreamError
 
@@ -25,8 +26,6 @@ class AudioStream(object):
     __metaclass__ = MediaStreamRegistrar
 
     implements(IMediaStream, IAudioPort, IObserver)
-
-    _streams = []
 
     type = 'audio'
     priority = 1
@@ -38,20 +37,25 @@ class AudioStream(object):
         self.mixer = SIPApplication.voice_audio_mixer
         self.bridge = AudioBridge(self.mixer)
         self.device = AudioDevice(self.mixer)
+
         self.notification_center = NotificationCenter()
+
         self.on_hold_by_local = False
         self.on_hold_by_remote = False
         self.direction = None
         self.state = "NULL"
-        self._audio_transport = None
+
+        self._transport = None
         self._hold_request = None
         self._ice_state = "NULL"
         self._lock = RLock()
         self._rtp_transport = None
+
         self.session = None
+        self.encryption = RTPStreamEncryption(self)
+
+        self._srtp_encryption = None
         self._try_ice = False
-        self._try_forced_srtp = False
-        self._use_srtp = False
 
         self._initialized = False
         self._done = False
@@ -64,23 +68,23 @@ class AudioStream(object):
 
     @property
     def codec(self):
-        return self._audio_transport.codec if self._audio_transport else None
+        return self._transport.codec if self._transport else None
 
     @property
     def consumer_slot(self):
-        return self._audio_transport.slot if self._audio_transport else None
+        return self._transport.slot if self._transport else None
 
     @property
     def producer_slot(self):
-        return self._audio_transport.slot if self._audio_transport and not self.muted else None
+        return self._transport.slot if self._transport and not self.muted else None
 
     @property
     def sample_rate(self):
-        return self._audio_transport.sample_rate if self._audio_transport else None
+        return self._transport.sample_rate if self._transport else None
 
     @property
     def statistics(self):
-        return self._audio_transport.statistics if self._audio_transport else None
+        return self._transport.statistics if self._transport else None
 
     def _get_muted(self):
         return self.__dict__.get('muted', False)
@@ -131,10 +135,6 @@ class AudioStream(object):
         return self._rtp_transport.remote_rtp_candidate_type if self._rtp_transport else None
 
     @property
-    def srtp_active(self):
-        return self._rtp_transport.srtp_active if self._rtp_transport else False
-
-    @property
     def ice_active(self):
         return self._ice_state == "IN_USE"
 
@@ -157,43 +157,45 @@ class AudioStream(object):
             raise UnknownStreamError
         if remote_stream.transport not in ('RTP/AVP', 'RTP/SAVP'):
             raise InvalidStreamError("expected RTP/AVP or RTP/SAVP transport in audio stream, got %s" % remote_stream.transport)
-        if session.account.rtp.srtp_encryption == "mandatory" and not remote_stream.has_srtp:
-            raise InvalidStreamError("SRTP is locally mandatory but it's not remotely enabled")
+        local_encryption_policy = session.account.rtp.encryption.key_negotiation if session.account.rtp.encryption.enabled else None
+        if local_encryption_policy == "sdes_mandatory" and not "crypto" in remote_stream.attributes:
+            raise InvalidStreamError("SRTP/SDES is locally mandatory but it's not remotely enabled")
+        if remote_stream.transport == 'RTP/SAVP' and "crypto" in remote_stream.attributes and local_encryption_policy not in ("opportunistic", "sdes_optional", "sdes_mandatory"):
+            raise InvalidStreamError("SRTP/SDES is remotely mandatory but it's not locally enabled")
         supported_codecs = session.account.rtp.audio_codec_list or settings.rtp.audio_codec_list
         if not any(codec for codec in remote_stream.codec_list if codec in supported_codecs):
             raise InvalidStreamError("no compatible codecs found")
         stream = cls()
         stream._incoming_remote_sdp = remote_sdp
         stream._incoming_stream_index = stream_index
-        stream._incoming_stream_has_srtp = remote_stream.has_srtp
-        stream._incoming_stream_has_srtp_forced = remote_stream.transport == 'RTP/SAVP'
+        if "zrtp-hash" in remote_stream.attributes:
+            stream._incoming_stream_encryption = 'zrtp'
+        elif "crypto" in remote_stream.attributes:
+            stream._incoming_stream_encryption = 'sdes_mandatory' if remote_stream.transport=='RTP/SAVP' else 'sdes_optional'
+        else:
+            stream._incoming_stream_encryption = None
         return stream
 
     def initialize(self, session, direction):
         with self._lock:
-            self._streams.append(self)
             if self.state != "NULL":
                 raise RuntimeError("AudioStream.initialize() may only be called in the NULL state")
             self.state = "INITIALIZING"
             self.session = session
+            local_encryption_policy = session.account.rtp.encryption.key_negotiation if session.account.rtp.encryption.enabled else None
             if hasattr(self, "_incoming_remote_sdp"):
                 # ICE attributes could come at the session level or at the media level
                 remote_stream = self._incoming_remote_sdp.media[self._incoming_stream_index]
                 self._try_ice = (remote_stream.has_ice_attributes or self._incoming_remote_sdp.has_ice_attributes) and remote_stream.has_ice_candidates
-                self._use_srtp = self._incoming_stream_has_srtp
-                self._try_forced_srtp = self._incoming_stream_has_srtp_forced
-                if self._incoming_stream_has_srtp_forced and not self._use_srtp:
-                    self.state = "ENDED"
-                    self.notification_center.post_notification('MediaStreamDidNotInitialize', sender=self, data=NotificationData(reason="SRTP is remotely mandatory but it's not locally enabled"))
-                    return
-                del self._incoming_stream_has_srtp
-                del self._incoming_stream_has_srtp_forced
+                if self._incoming_stream_encryption is not None and local_encryption_policy == 'opportunistic':
+                    self._srtp_encryption = self._incoming_stream_encryption
+                else:
+                    self._srtp_encryption = 'zrtp' if local_encryption_policy == 'opportunistic' else local_encryption_policy
+                del self._incoming_stream_encryption
             else:
-                # TODO: Always use ICE? New settings object?
-                #self._try_ice = self.session.account.nat_traversal.use_ice
                 self._try_ice = True
-                self._use_srtp = self.session.account.rtp.srtp_encryption != "disabled"
-                self._try_forced_srtp = self.session.account.rtp.srtp_encryption == "mandatory"
+                self._srtp_encryption = 'zrtp' if local_encryption_policy == 'opportunistic' else local_encryption_policy
+
             self._init_rtp_transport()
 
     def get_local_media(self, remote_sdp=None, index=0):
@@ -202,7 +204,7 @@ class AudioStream(object):
                 raise RuntimeError("AudioStream.get_local_media() may only be called in the INITIALIZED, WAIT_ICE  or ESTABLISHED states")
             if remote_sdp is None:
                 # offer
-                old_direction = self._audio_transport.direction
+                old_direction = self._transport.direction
                 if old_direction is None:
                     new_direction = "sendrecv"
                 elif "send" in old_direction:
@@ -211,16 +213,16 @@ class AudioStream(object):
                     new_direction = ("inactive" if (self._hold_request == 'hold' or (self._hold_request is None and self.on_hold_by_local)) else "recvonly")
             else:
                 new_direction = None
-            return self._audio_transport.get_local_media(remote_sdp, index, new_direction)
+            return self._transport.get_local_media(remote_sdp, index, new_direction)
 
     def start(self, local_sdp, remote_sdp, stream_index):
         with self._lock:
             if self.state != "INITIALIZED":
                 raise RuntimeError("AudioStream.start() may only be called in the INITIALIZED state")
             settings = SIPSimpleSettings()
-            self._audio_transport.start(local_sdp, remote_sdp, stream_index, no_media_timeout=settings.rtp.timeout,
+            self._transport.start(local_sdp, remote_sdp, stream_index, no_media_timeout=settings.rtp.timeout,
                                         media_check_interval=settings.rtp.timeout)
-            self._check_hold(self._audio_transport.direction, True)
+            self._check_hold(self._transport.direction, True)
             if self._try_ice:
                 self.state = 'WAIT_ICE'
             else:
@@ -239,27 +241,27 @@ class AudioStream(object):
                 settings = SIPSimpleSettings()
                 old_consumer_slot = self.consumer_slot
                 old_producer_slot = self.producer_slot
-                self.notification_center.remove_observer(self, sender=self._audio_transport)
-                self._audio_transport.stop()
+                self.notification_center.remove_observer(self, sender=self._transport)
+                self._transport.stop()
                 try:
-                    self._audio_transport = AudioTransport(self.mixer, self._rtp_transport, remote_sdp, stream_index, codecs=list(self.session.account.rtp.audio_codec_list or settings.rtp.audio_codec_list))
+                    self._transport = AudioTransport(self.mixer, self._rtp_transport, remote_sdp, stream_index, codecs=list(self.session.account.rtp.audio_codec_list or settings.rtp.audio_codec_list))
                 except SIPCoreError, e:
                     self.state = "ENDED"
                     self._failure_reason = e.args[0]
                     self.notification_center.post_notification('MediaStreamDidFail', sender=self, data=NotificationData(reason=self._failure_reason))
                     return
-                self.notification_center.add_observer(self, sender=self._audio_transport)
-                self._audio_transport.start(local_sdp, remote_sdp, stream_index, no_media_timeout=settings.rtp.timeout, media_check_interval=settings.rtp.timeout)
+                self.notification_center.add_observer(self, sender=self._transport)
+                self._transport.start(local_sdp, remote_sdp, stream_index, no_media_timeout=settings.rtp.timeout, media_check_interval=settings.rtp.timeout)
                 self.notification_center.post_notification('AudioPortDidChangeSlots', sender=self, data=NotificationData(consumer_slot_changed=True, producer_slot_changed=True,
                                                                                                                          old_consumer_slot=old_consumer_slot, new_consumer_slot=self.consumer_slot,
                                                                                                                          old_producer_slot=old_producer_slot, new_producer_slot=self.producer_slot))
                 if connection.address == '0.0.0.0' and remote_sdp.media[stream_index].direction == 'sendrecv':
-                    self._audio_transport.update_direction('recvonly')
-                self._check_hold(self._audio_transport.direction, False)
-                self.notification_center.post_notification('AudioStreamDidChangeRTPParameters', sender=self)
+                    self._transport.update_direction('recvonly')
+                self._check_hold(self._transport.direction, False)
+                self.notification_center.post_notification('RTPStreamDidChangeRTPParameters', sender=self)
             else:
                 new_direction = local_sdp.media[stream_index].direction
-                self._audio_transport.update_direction(new_direction)
+                self._transport.update_direction(new_direction)
                 self._check_hold(new_direction, False)
             self._hold_request = None
 
@@ -289,10 +291,11 @@ class AudioStream(object):
                 return
             self._done = True
             self.notification_center.post_notification('MediaStreamWillEnd', sender=self)
-            if self._audio_transport is not None:
-                self._audio_transport.stop()
-                self.notification_center.remove_observer(self, sender=self._audio_transport)
-                self._audio_transport = None
+            if self._transport is not None:
+                self._transport.stop()
+                self.notification_center.remove_observer(self, sender=self._transport)
+                self._transport = None
+                self.notification_center.remove_observer(self, sender=self._rtp_transport)
                 self._rtp_transport = None
             self.state = "ENDED"
             self.notification_center.post_notification('MediaStreamDidEnd', sender=self, data=NotificationData(error=self._failure_reason))
@@ -302,7 +305,7 @@ class AudioStream(object):
         with self._lock:
             if self.direction == "inactive" and not self.on_hold_by_local:
                 new_direction = "sendrecv"
-                self._audio_transport.update_direction(new_direction)
+                self._transport.update_direction(new_direction)
                 self._check_hold(new_direction, False)
                 # TODO: do a full reset, re-creating the AudioTransport, so that a new offer
                 # would contain all codecs and ICE would be renegotiated -Saul
@@ -312,7 +315,7 @@ class AudioStream(object):
             if self.state != "ESTABLISHED":
                 raise RuntimeError("AudioStream.send_dtmf() cannot be used in %s state" % self.state)
             try:
-                self._audio_transport.send_dtmf(digit)
+                self._transport.send_dtmf(digit)
             except PJSIPError, e:
                 if not e.args[0].endswith("(PJ_ETOOMANY)"):
                     raise
@@ -335,8 +338,6 @@ class AudioStream(object):
         settings = SIPSimpleSettings()
         rtp_transport = notification.sender
         with self._lock:
-            if not rtp_transport.use_ice:
-                self.notification_center.remove_observer(self, sender=rtp_transport)
             if self.state == "ENDED":
                 return
             del self._rtp_args
@@ -356,7 +357,7 @@ class AudioStream(object):
                 self.notification_center.post_notification('MediaStreamDidNotInitialize', sender=self, data=NotificationData(reason=e.args[0]))
                 return
             self._rtp_transport = rtp_transport
-            self._audio_transport = audio_transport
+            self._transport = audio_transport
             self.notification_center.add_observer(self, sender=audio_transport)
             self._initialized = True
             self.state = "INITIALIZED"
@@ -366,40 +367,38 @@ class AudioStream(object):
         self.notification_center.post_notification('AudioStreamGotDTMF', sender=self, data=NotificationData(digit=notification.data.digit))
 
     def _NH_RTPAudioTransportDidTimeout(self, notification):
-        self.notification_center.post_notification('AudioStreamDidTimeout', sender=self)
+        self.notification_center.post_notification('RTPStreamDidTimeout', sender=self)
 
     def _NH_RTPTransportICENegotiationStateDidChange(self, notification):
-        self.notification_center.post_notification('AudioStreamICENegotiationStateDidChange', sender=self, data=notification.data)
+        with self._lock:
+            if self._ice_state != "NULL" or self.state not in ("INITIALIZING", "INITIALIZED", "WAIT_ICE"):
+                return
+        self.notification_center.post_notification('RTPStreamICENegotiationStateDidChange', sender=self, data=notification.data)
 
     def _NH_RTPTransportICENegotiationDidSucceed(self, notification):
-        rtp_transport = notification.sender
-        self.notification_center.remove_observer(self, sender=rtp_transport)
         with self._lock:
             if self.state != "WAIT_ICE":
                 return
             self._ice_state = "IN_USE"
-            self.notification_center.post_notification('AudioStreamICENegotiationDidSucceed', sender=self, data=notification.data)
             self.state = 'ESTABLISHED'
-            self.notification_center.post_notification('MediaStreamDidStart', sender=self)
+        self.notification_center.post_notification('RTPStreamICENegotiationDidSucceed', sender=self, data=notification.data)
+        self.notification_center.post_notification('MediaStreamDidStart', sender=self)
 
     def _NH_RTPTransportICENegotiationDidFail(self, notification):
-        rtp_transport = notification.sender
-        self.notification_center.remove_observer(self, sender=rtp_transport)
         with self._lock:
             if self.state != "WAIT_ICE":
                 return
             self._ice_state = "FAILED"
-            self.notification_center.post_notification('AudioStreamICENegotiationDidFail', sender=self, data=notification.data)
             self.state = 'ESTABLISHED'
-            self.notification_center.post_notification('MediaStreamDidStart', sender=self)
+        self.notification_center.post_notification('RTPStreamICENegotiationDidFail', sender=self, data=notification.data)
+        self.notification_center.post_notification('MediaStreamDidStart', sender=self)
 
     # Private methods
     #
 
     def _init_rtp_transport(self, stun_servers=None):
         self._rtp_args = dict()
-        self._rtp_args["use_srtp"] = self._use_srtp
-        self._rtp_args["srtp_forced"] = self._use_srtp and self._try_forced_srtp
+        self._rtp_args["encryption"] = self._srtp_encryption
         self._rtp_args["use_ice"] = self._try_ice
         self._stun_servers = [(None, None)]
         if stun_servers:
@@ -434,11 +433,11 @@ class AudioStream(object):
         if (is_initial or was_on_hold_by_local or was_inactive) and not inactive and not self.on_hold_by_local and self._hold_request != 'hold':
             self.bridge.add(self)
         if not was_on_hold_by_local and self.on_hold_by_local:
-            self.notification_center.post_notification('AudioStreamDidChangeHoldState', sender=self, data=NotificationData(originator="local", on_hold=True))
+            self.notification_center.post_notification('RTPStreamDidChangeHoldState', sender=self, data=NotificationData(originator="local", on_hold=True))
         if was_on_hold_by_local and not self.on_hold_by_local:
-            self.notification_center.post_notification('AudioStreamDidChangeHoldState', sender=self, data=NotificationData(originator="local", on_hold=False))
+            self.notification_center.post_notification('RTPStreamDidChangeHoldState', sender=self, data=NotificationData(originator="local", on_hold=False))
         if not was_on_hold_by_remote and self.on_hold_by_remote:
-            self.notification_center.post_notification('AudioStreamDidChangeHoldState', sender=self, data=NotificationData(originator="remote", on_hold=True))
+            self.notification_center.post_notification('RTPStreamDidChangeHoldState', sender=self, data=NotificationData(originator="remote", on_hold=True))
         if was_on_hold_by_remote and not self.on_hold_by_remote:
-            self.notification_center.post_notification('AudioStreamDidChangeHoldState', sender=self, data=NotificationData(originator="remote", on_hold=False))
+            self.notification_center.post_notification('RTPStreamDidChangeHoldState', sender=self, data=NotificationData(originator="remote", on_hold=False))
 

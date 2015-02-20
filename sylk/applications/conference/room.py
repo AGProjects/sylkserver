@@ -297,7 +297,7 @@ class Room(object):
             except StopIteration:
                 continue
             try:
-                chat_stream.send_message(message.body, message.content_type, local_identity=message.sender, recipients=[self.identity], timestamp=message.timestamp, additional_headers=message.additional_headers)
+                chat_stream.send_message(message.body, message.content_type, sender=message.sender, recipients=[self.identity], timestamp=message.timestamp, additional_headers=message.additional_headers)
             except ChatStreamError, e:
                 log.error(u'Error dispatching message to %s: %s' % (s.remote_identity.uri, e))
 
@@ -311,7 +311,7 @@ class Room(object):
             except StopIteration:
                 continue
             try:
-                chat_stream.send_message(message.body, message.content_type, local_identity=message.sender, recipients=[recipient], timestamp=message.timestamp, additional_headers=message.additional_headers)
+                chat_stream.send_message(message.body, message.content_type, sender=message.sender, recipients=[recipient], timestamp=message.timestamp, additional_headers=message.additional_headers)
             except ChatStreamError, e:
                 log.error(u'Error dispatching private message to %s: %s' % (s.remote_identity.uri, e))
 
@@ -323,7 +323,7 @@ class Room(object):
                 continue
             identity = CPIMIdentity(session.remote_identity.uri, session.remote_identity.display_name)
             try:
-                chat_stream.send_composing_indication(data.state, data.refresh, local_identity=identity, recipients=[self.identity])
+                chat_stream.send_composing_indication(data.state, data.refresh, sender=identity, recipients=[self.identity])
             except ChatStreamError, e:
                 log.error(u'Error dispatching composing indication to %s: %s' % (s.remote_identity.uri, e))
 
@@ -336,7 +336,7 @@ class Room(object):
                 continue
             identity = CPIMIdentity(session.remote_identity.uri, session.remote_identity.display_name)
             try:
-                chat_stream.send_composing_indication(data.state, data.refresh, local_identity=identity)
+                chat_stream.send_composing_indication(data.state, data.refresh, sender=identity)
             except ChatStreamError, e:
                 log.error(u'Error dispatching private composing indication to %s: %s' % (s.remote_identity.uri, e))
 
@@ -346,7 +346,7 @@ class Room(object):
                 chat_stream = next(stream for stream in session.streams if stream.type == 'chat')
             except StopIteration:
                 continue
-            chat_stream.send_message(body, content_type, local_identity=self.identity, recipients=[self.identity])
+            chat_stream.send_message(body, content_type, sender=self.identity, recipients=[self.identity])
 
     def dispatch_conference_info(self):
         data = self.conference_info
@@ -381,10 +381,18 @@ class Room(object):
             pass
         else:
             notification_center.add_observer(self, sender=audio_stream)
-            log.msg(u'Room %s - audio stream %s/%sHz (%s), end-points: %s:%d <-> %s:%d' % (self.uri, audio_stream.codec, audio_stream.sample_rate,
-                                                                                      'encrypted' if audio_stream.srtp_active else 'unencrypted',
+            log.msg(u'Room %s - audio stream %s/%sHz, end-points: %s:%d <-> %s:%d' % (self.uri, audio_stream.codec, audio_stream.sample_rate,
                                                                                       audio_stream.local_rtp_address, audio_stream.local_rtp_port,
                                                                                       audio_stream.remote_rtp_address, audio_stream.remote_rtp_port))
+            if audio_stream.encryption.type != 'ZRTP':
+                # We don't listen for stream notifications early enough
+                if audio_stream.encryption.active:
+                    log.msg(u'Room %s - %s audio stream enabled %s encryption' % (self.uri,
+                                                                                  format_identity(session.remote_identity),
+                                                                                  audio_stream.encryption.type))
+                else:
+                    log.msg(u'Room %s - %s audio stream did not enable encryption' % (self.uri,
+                                                                                      format_identity(session.remote_identity)))
         try:
             transfer_stream = next(stream for stream in session.streams if stream.type == 'file-transfer')
         except StopIteration:
@@ -529,8 +537,26 @@ class Room(object):
         handler = getattr(self, '_NH_%s' % notification.name, Null)
         handler(notification)
 
-    def _NH_AudioStreamDidTimeout(self, notification):
+    def _NH_RTPStreamDidEnableEncryption(self, notification):
         stream = notification.sender
+        session = stream.session
+        log.msg(u'Room %s - %s %s stream enabled %s encryption' % (self.uri,
+                                                                   format_identity(session.remote_identity),
+                                                                   stream.type,
+                                                                   stream.encryption.type))
+
+    def _NH_RTPStreamDidNotEnableEncryption(self, notification):
+        stream = notification.sender
+        session = stream.session
+        log.msg(u'Room %s - %s %s stream did not enable encryption: %s' % (self.uri,
+                                                                           format_identity(session.remote_identity),
+                                                                           stream.type,
+                                                                           notification.data.reason))
+
+    def _NH_RTPStreamDidTimeout(self, notification):
+        stream = notification.sender
+        if stream.type != 'audio':
+            return
         session = stream.session
         log.msg(u'Room %s - audio stream for session %s timed out' % (self.uri, format_identity(session.remote_identity)))
         if session.streams == [stream]:
@@ -630,10 +656,20 @@ class Room(object):
             log.msg(u'Room %s - %s' % (self.uri, txt))
             self.dispatch_server_message(txt, exclude=session)
             if stream.type == 'audio':
-                log.msg(u'Room %s - audio stream %s/%sHz (%s), end-points: %s:%d <-> %s:%d' % (self.uri, stream.codec, stream.sample_rate,
-                                                                                               'encrypted' if stream.srtp_active else 'unencrypted',
-                                                                                               stream.local_rtp_address, stream.local_rtp_port,
-                                                                                               stream.remote_rtp_address, stream.remote_rtp_port))
+                log.msg(u'Room %s - audio stream %s/%sHz, end-points: %s:%d <-> %s:%d' % (self.uri, stream.codec, stream.sample_rate,
+                                                                                          stream.local_rtp_address, stream.local_rtp_port,
+                                                                                          stream.remote_rtp_address, stream.remote_rtp_port))
+                if stream.encryption.type != 'ZRTP':
+                    # We don't listen for stream notifications early enough
+                    if stream.encryption.active:
+                        log.msg(u'Room %s - %s %s stream enabled %s encryption' % (self.uri,
+                                                                                   format_identity(session.remote_identity),
+                                                                                   stream.type,
+                                                                                   stream.encryption.type))
+                    else:
+                        log.msg(u'Room %s - %s %s stream did not enable encryption' % (self.uri,
+                                                                                       format_identity(session.remote_identity),
+                                                                                       stream.type))
         if notification.data.added_streams:
             welcome_handler = WelcomeHandler(self, initial=False, session=session, streams=notification.data.added_streams)
             welcome_handler.run()
@@ -881,9 +917,9 @@ class WelcomeHandler(object):
                     txt += '    - Using an XMPP client, connect to group chat room %s (chat)\n' % self.room.uri
                     txt += '    - Using an XMPP Jingle capable client, add contact %s and call it (audio)\n' % self.room.uri
                 txt += '    - Using a SIP client, initiate a session to %s (audio and chat)\n' % self.room.uri
-        stream.send_message(txt, 'text/plain', local_identity=self.room.identity, recipients=[self.room.identity])
+        stream.send_message(txt, 'text/plain', sender=self.room.identity, recipients=[self.room.identity])
         for msg in self.room.history:
-            stream.send_message(msg.body, msg.content_type, local_identity=msg.sender, recipients=[self.room.identity], timestamp=msg.timestamp)
+            stream.send_message(msg.body, msg.content_type, sender=msg.sender, recipients=[self.room.identity], timestamp=msg.timestamp)
 
     def handle_notification(self, notification):
         handler = getattr(self, '_NH_%s' % notification.name, Null)

@@ -181,8 +181,8 @@ class ChatSessionHandler(object):
                 sender_uri = message.sender.uri.as_sip_uri()
                 sender_uri.parameters['gr'] = encode_resource(sender_uri.parameters['gr'].decode('utf-8'))
                 sender = CPIMIdentity(sender_uri)
-                self.msrp_stream.send_message(message.body, 'text/plain', local_identity=sender, message_id=message.id, notify_progress=True, success_report=success_report, failure_report=failure_report)
-            self.msrp_stream.send_composing_indication('idle', 30, local_identity=sender)
+                self.msrp_stream.send_message(message.body, 'text/plain', sender=sender, message_id=message.id, notify_progress=True, success_report=success_report, failure_report=failure_report)
+            self.msrp_stream.send_composing_indication('idle', 30, sender=sender)
 
     def _inactivity_timeout(self):
         log.msg("Ending SIP session %s due to inactivity" % self.sip_session.call_id)
@@ -337,8 +337,8 @@ class ChatSessionHandler(object):
             failure_report = 'yes'
             self._pending_xmpp_stanzas[message.id] = message
         # Prefer plaintext
-        self.msrp_stream.send_message(message.body, 'text/plain', local_identity=sender, message_id=message.id, notify_progress=True, success_report=success_report, failure_report=failure_report)
-        self.msrp_stream.send_composing_indication('idle', 30, local_identity=sender)
+        self.msrp_stream.send_message(message.body, 'text/plain', sender=sender, message_id=message.id, notify_progress=True, success_report=success_report, failure_report=failure_report)
+        self.msrp_stream.send_composing_indication('idle', 30, sender=sender)
 
     def _NH_XMPPChatSessionGotComposingIndication(self, notification):
         if self.sip_session is None or self.sip_session.state != 'connected':
@@ -355,7 +355,7 @@ class ChatSessionHandler(object):
             sender_uri = message.sender.uri.as_sip_uri()
             del sender_uri.parameters['gr']    # no GRUU in CPIM From header
             sender = CPIMIdentity(sender_uri)
-            self.msrp_stream.send_composing_indication(state, 30, local_identity=sender)
+            self.msrp_stream.send_composing_indication(state, 30, sender=sender)
             if message.use_receipt:
                 self.xmpp_session.send_receipt_acknowledgement(message.id)
 

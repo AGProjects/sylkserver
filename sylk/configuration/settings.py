@@ -8,10 +8,10 @@ SIP SIMPLE SDK settings extensions.
 __all__ = ['AccountExtension', 'BonjourAccountExtension', 'SylkServerSettingsExtension']
 
 from sipsimple.account import MSRPSettings as AccountMSRPSettings, NATTraversalSettings as AccountNATTraversalSettings
-from sipsimple.account import RTPSettings as AccountRTPSettings, SIPSettings as AccountSIPSettings, TLSSettings as AccountTLSSettings
+from sipsimple.account import RTPSettings as AccountRTPSettings, SIPSettings as AccountSIPSettings, TLSSettings as AccountTLSSettings, SRTPEncryptionSettings as AccountSRTPEncryptionSettings
 from sipsimple.account import MessageSummarySettings as AccountMessageSummarySettings, PresenceSettings as AccountPresenceSettingss, XCAPSettings as AccountXCAPSettings
 from sipsimple.configuration import CorrelatedSetting, Setting, SettingsObjectExtension
-from sipsimple.configuration.datatypes import MSRPConnectionModel, MSRPTransport, NonNegativeInteger, PortRange, SampleRate, SIPTransportList, SRTPEncryption
+from sipsimple.configuration.datatypes import MSRPConnectionModel, MSRPTransport, NonNegativeInteger, PortRange, SampleRate, SIPTransportList, SRTPKeyNegotiation
 from sipsimple.configuration.settings import AudioSettings, EchoCancellerSettings, LogsSettings, RTPSettings, SIPSettings, TLSSettings
 
 from sylk import __version__ as server_version
@@ -39,10 +39,22 @@ class AccountPresenceSettingssExtension(AccountPresenceSettingss):
     enabled = Setting(type=bool, default=False)
 
 
+if RTPConfig.srtp_encryption == 'disabled':
+    # doesn't matter because it's disabled
+    srtp_key_negotiation = 'opportunistic'
+elif RTPConfig.srtp_encryption == 'sdes':
+    srtp_key_negotiation = 'sdes_optional'
+else:
+    srtp_key_negotiation = RTPConfig.srtp_encryption
+
+class AccountSRTPEncryptionSettingsExtension(AccountSRTPEncryptionSettings):
+    enabled = Setting(type=bool, default=RTPConfig.srtp_encryption!='disabled')
+    key_negotiation = Setting(type=SRTPKeyNegotiation, default=srtp_key_negotiation)
+
+
 class AccountRTPSettingsExtension(AccountRTPSettings):
     audio_codec_list = Setting(type=AudioCodecs, default=None, nillable=True)
-    srtp_encryption = Setting(type=SRTPEncryption, default=RTPConfig.srtp_encryption)
-    use_srtp_without_tls = Setting(type=bool, default=True)
+    encryption = AccountSRTPEncryptionSettingsExtension
 
 
 class AccountSIPSettingsExtension(AccountSIPSettings):

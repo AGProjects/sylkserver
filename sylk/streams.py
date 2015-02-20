@@ -13,7 +13,7 @@ from sipsimple.core import SDPAttribute
 from sipsimple.payloads.iscomposing import IsComposingDocument, State, LastActive, Refresh, ContentType
 from sipsimple.streams.applications.chat import CPIMMessage, CPIMParserError
 from sipsimple.streams.msrp import ChatStream as _ChatStream, FileTransferStream as _FileTransferStream
-from sipsimple.streams.msrp import ChatStreamError, MSRPStreamError, NotificationProxyLogger
+from sipsimple.streams.msrp import ChatStreamError, Message, MSRPStreamError, NotificationProxyLogger
 from sipsimple.threading.green import run_in_green_thread
 from sipsimple.util import ISOTimestamp
 
@@ -67,7 +67,7 @@ class MSRPStreamMixin(object):
 
 
 class ChatStream(MSRPStreamMixin, _ChatStream):
-    priority = 2
+    priority = _ChatStream.priority + 1
 
     accept_types = ['message/cpim']
     accept_wrapped_types = ['*']
@@ -76,6 +76,11 @@ class ChatStream(MSRPStreamMixin, _ChatStream):
     @property
     def local_uri(self):
         return URI(host=SIPConfig.local_ip.normalized, port=0, use_tls=self.transport=='tls', credentials=self.session.account.tls_credentials)
+
+    @property
+    def private_messages_allowed(self):
+        # As a server, we always support sending private messages
+        return True
 
     def _create_local_media(self, uri_path):
         local_media = super(ChatStream, self)._create_local_media(uri_path)
@@ -111,12 +116,14 @@ class ChatStream(MSRPStreamMixin, _ChatStream):
             self.msrp_session.send_report(chunk, 400, 'CPIM Parser Error')
             return
         else:
+            if not contains_mime_type(self.accept_wrapped_types, message.content_type):
+                self.msrp_session.send_report(chunk, 413, 'Unwanted Message')
+                return
             if message.timestamp is None:
                 message.timestamp = ISOTimestamp.now()
             if message.sender is None:
                 message.sender = self.remote_identity
             private = self.session.remote_focus and len(message.recipients) == 1 and message.recipients[0] != self.remote_identity
-        # TODO: check wrapped content-type and issue a report if it's invalid
         notification_center = NotificationCenter()
         if message.content_type.lower() == IsComposingDocument.content_type:
             data = IsComposingDocument.parse(message.body)
@@ -134,7 +141,7 @@ class ChatStream(MSRPStreamMixin, _ChatStream):
         NotificationCenter().post_notification('ChatStreamGotNicknameRequest', self, NotificationData(nickname=nickname, chunk=chunk))
 
     @run_in_green_thread
-    def _send_response(self, response):
+    def _send_nickname_response(self, response):
         try:
             self.msrp_session.send_chunk(response)
         except Exception:
@@ -144,49 +151,36 @@ class ChatStream(MSRPStreamMixin, _ChatStream):
         if chunk.method != 'NICKNAME':
             raise ValueError('Incorrect chunk method for accept_nickname: %s' % chunk.method)
         response = make_response(chunk, 200, 'OK')
-        self._send_response(response)
+        self._send_nickname_response(response)
 
     def reject_nickname(self, chunk, code, reason):
         if chunk.method != 'NICKNAME':
             raise ValueError('Incorrect chunk method for accept_nickname: %s' % chunk.method)
         response = make_response(chunk, code, reason)
-        self._send_response(response)
+        self._send_nickname_response(response)
 
-    def send_message(self, content, content_type='text/plain', local_identity=None, recipients=None, courtesy_recipients=None, subject=None, timestamp=None, required=None, additional_headers=None, message_id=None, notify_progress=True, success_report='yes', failure_report='yes'):
+    def send_message(self, content, content_type='text/plain', sender=None, recipients=None, courtesy_recipients=None, subject=None, timestamp=None, required=None, additional_headers=None, message_id=None, notify_progress=True, success_report='yes', failure_report='yes'):
         if self.direction=='recvonly':
             raise ChatStreamError('Cannot send message on recvonly stream')
         if message_id is None:
             message_id = '%x' % random.getrandbits(64)
-        if not contains_mime_type(self.accept_wrapped_types, content_type):
-            raise ChatStreamError('Invalid content_type for outgoing message: %r' % content_type)
-        if not recipients:
-            recipients = [self.remote_identity]
-        if timestamp is None:
-            timestamp = ISOTimestamp.now()
-        # Only use CPIM, it's the only type we accept
-        msg = CPIMMessage(content, content_type, sender=local_identity or self.local_identity, recipients=recipients, courtesy_recipients=courtesy_recipients,
-                            subject=subject, timestamp=timestamp, required=required, additional_headers=additional_headers)
-        self._enqueue_message(str(message_id), str(msg), 'message/cpim', failure_report=failure_report, success_report=success_report, notify_progress=notify_progress)
+        message = Message(message_id, content, content_type, sender=sender, recipients=recipients, courtesy_recipients=courtesy_recipients, subject=subject, timestamp=timestamp, required=required, additional_headers=additional_headers, failure_report=failure_report, success_report=success_report, notify_progress=notify_progress)
+        self._enqueue_message(message)
         return message_id
 
-    def send_composing_indication(self, state, refresh=None, last_active=None, recipients=None, local_identity=None, message_id=None, notify_progress=False, success_report='no', failure_report='partial'):
+    def send_composing_indication(self, state, refresh=None, last_active=None, sender=None, recipients=None, message_id=None, notify_progress=False, success_report='no', failure_report='partial'):
         if self.direction == 'recvonly':
             raise ChatStreamError('Cannot send message on recvonly stream')
-        if state not in ('active', 'idle'):
-            raise ValueError('Invalid value for composing indication state')
         if message_id is None:
             message_id = '%x' % random.getrandbits(64)
         content = IsComposingDocument.create(state=State(state), refresh=Refresh(refresh) if refresh is not None else None, last_active=LastActive(last_active) if last_active is not None else None, content_type=ContentType('text'))
-        if recipients is None:
-            recipients = [self.remote_identity]
-        # Only use CPIM, it's the only type we accept
-        msg = CPIMMessage(content, IsComposingDocument.content_type, sender=local_identity or self.local_identity, recipients=recipients, timestamp=ISOTimestamp.now())
-        self._enqueue_message(str(message_id), str(msg), 'message/cpim', failure_report='partial', success_report='no')
+        message = Message(message_id, content, IsComposingDocument.content_type, sender=sender, recipients=recipients, failure_report=failure_report, success_report=success_report, notify_progress=notify_progress)
+        self._enqueue_message(message)
         return message_id
 
 
 class FileTransferStream(MSRPStreamMixin, _FileTransferStream):
-    priority = 11
+    priority = _FileTransferStream.priority + 1
 
     def initialize(self, session, direction):
         if self.direction == 'sendonly' and self.file_selector.fd is None:

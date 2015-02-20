@@ -24,6 +24,7 @@ class AudioCodecs(list):
         else:
             raise TypeError("value must be a string, list or tuple")
 
+
 class IPAddress(str):
     """An IP address in quad dotted number notation"""
     def __new__(cls, value):
@@ -40,6 +41,7 @@ class IPAddress(str):
         if self == '0.0.0.0':
             return host.default_ip or '127.0.0.1'
         return str(self)
+
 
 class ResourcePath(object):
     def __init__(self, path):
@@ -88,6 +90,7 @@ class ResourcePath(object):
     def __unicode__(self):
         return unicode(self.path)
 
+
 class Port(int):
     def __new__(cls, value):
         try:
@@ -98,6 +101,7 @@ class Port(int):
             raise ValueError("illegal port value: %s" % value)
         return value
 
+
 class PortRange(object):
     """A port range in the form start:end with start and end being even numbers in the [1024, 65536] range"""
     def __init__(self, value):
@@ -105,6 +109,7 @@ class PortRange(object):
         allowed = xrange(1024, 65537, 2)
         if not (self.start in allowed and self.end in allowed and self.start < self.end):
             raise ValueError("bad range: %r: ports must be even numbers in the range [1024, 65536] with start < end" % value)
+
 
 class SIPProxyAddress(object):
     _description_re = re.compile(r"^(?P<host>(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})|([a-zA-Z0-9\-_]+(\.[a-zA-Z0-9\-_]+)*))(:(?P<port>\d+))?(;transport=(?P<transport>.+))?$")
@@ -151,6 +156,7 @@ class SIPProxyAddress(object):
     def __unicode__(self):
         return u'%s:%d;transport=%s' % (self.host, self.port, self.transport)
 
+
 class NillablePath(unicode):
     def __new__(cls, path):
         path = os.path.normpath(path)
@@ -162,6 +168,7 @@ class NillablePath(unicode):
     def normalized(self):
         return os.path.expanduser(self)
 
+
 class Path(unicode):
     def __new__(cls, path):
         path = os.path.normpath(path)
@@ -170,6 +177,7 @@ class Path(unicode):
     @property
     def normalized(self):
         return os.path.expanduser(self)
+
 
 class URL(object):
     """A class describing an URL and providing access to its elements"""
@@ -220,4 +228,12 @@ class URL(object):
         hostport = ':'.join(str(x) for x in (self.host or '', self.port) if x is not None)
         return '@'.join(x for x in (authinfo, hostport) if x is not None)
 
+
+class SRTPEncryption(str):
+    available_values = ('opportunistic', 'sdes', 'zrtp', 'disabled')
+    def __new__(cls, value):
+        value = str(value)
+        if value not in cls.available_values:
+            raise ValueError("illegal value for SRTP encryption: %s" % value)
+        return value
 

@@ -168,7 +168,7 @@ class IRCRoom(object):
                 pass
             else:
                 try:
-                    chat_stream.send_message(message.body, message.content_type, local_identity=identity, recipients=[self.identity], timestamp=message.timestamp)
+                    chat_stream.send_message(message.body, message.content_type, sender=identity, recipients=[self.identity], timestamp=message.timestamp)
                 except ChatStreamError, e:
                     log.error(u'Error dispatching message to %s: %s' % (s.remote_identity.uri, e))
 
@@ -180,7 +180,7 @@ class IRCRoom(object):
                 pass
             else:
                 try:
-                    chat_stream.send_message(message.body, message.content_type, local_identity=message.sender, recipients=[self.identity])
+                    chat_stream.send_message(message.body, message.content_type, sender=message.sender, recipients=[self.identity])
                 except ChatStreamError, e:
                     log.error(u'Error dispatching message to %s: %s' % (session.remote_identity.uri, e))
 
@@ -192,7 +192,7 @@ class IRCRoom(object):
                 pass
             else:
                 try:
-                    chat_stream.send_message(body, content_type, local_identity=self.identity, recipients=[self.identity])
+                    chat_stream.send_message(body, content_type, sender=self.identity, recipients=[self.identity])
                 except ChatStreamError, e:
                     log.error(u'Error dispatching message to %s: %s' % (session.remote_identity.uri, e))
 
@@ -263,9 +263,8 @@ class IRCRoom(object):
         else:
             notification_center.add_observer(self, sender=audio_stream)
             log.msg(u'Audio stream using %s/%sHz (%s), end-points: %s:%d <-> %s:%d' % (audio_stream.codec, audio_stream.sample_rate,
-                                                                                      'encrypted' if audio_stream.srtp_active else 'unencrypted',
-                                                                                      audio_stream.local_rtp_address, audio_stream.local_rtp_port,
-                                                                                      audio_stream.remote_rtp_address, audio_stream.remote_rtp_port))
+                                                                                       audio_stream.local_rtp_address, audio_stream.local_rtp_port,
+                                                                                       audio_stream.remote_rtp_address, audio_stream.remote_rtp_port))
             welcome_handler = WelcomeHandler(self, session)
             welcome_handler.start()
         self.get_conference_info()
@@ -365,10 +364,9 @@ class IRCRoom(object):
             log.msg(u'%s has added %s to %s' % (format_identity(session.remote_identity), stream.type, self.uri))
             self.dispatch_server_message('%s has added %s' % (format_identity(session.remote_identity), stream.type), exclude=session)
             if stream.type == 'audio':
-                log.msg(u'Audio stream using %s/%sHz (%s), end-points: %s:%d <-> %s:%d' % (stream.codec, stream.sample_rate,
-                                                                                           'encrypted' if stream.srtp_active else 'unencrypted',
-                                                                                           stream.local_rtp_address, stream.local_rtp_port,
-                                                                                           stream.remote_rtp_address, stream.remote_rtp_port))
+                log.msg(u'Audio stream using %s/%sHz, end-points: %s:%d <-> %s:%d' % (stream.codec, stream.sample_rate,
+                                                                                      stream.local_rtp_address, stream.local_rtp_port,
+                                                                                      stream.remote_rtp_address, stream.remote_rtp_port))
                 welcome_handler = WelcomeHandler(self, session)
                 welcome_handler.start(welcome_prompt=False)
 
@@ -389,8 +387,10 @@ class IRCRoom(object):
                 session.end()
         self.get_conference_info()
 
-    def _NH_AudioStreamDidTimeout(self, notification):
+    def _NH_RTPStreamDidTimeout(self, notification):
         stream = notification.sender
+        if stream.type != 'audio':
+            return
         session = stream.session
         log.msg(u'Audio stream for session %s timed out' % format_identity(session.remote_identity))
         if session.streams == [stream]:
@@ -398,10 +398,14 @@ class IRCRoom(object):
 
     def _NH_ChatStreamGotMessage(self, notification):
         stream = notification.sender
+        message = notification.data.message
+        if message.content_type not in ('text/html', 'text/plain'):
+            log.msg(u'Unsupported content type: %s, ignoring message' % message.content_type)
+            stream.msrp_session.send_report(notification.data.chunk, 413, 'Unwanted message')
+            return
         stream.msrp_session.send_report(notification.data.chunk, 200, 'OK')
         # Send MSRP chat message to other participants
-        message = notification.data.message
-        session = notification.sender.session
+        session = stream.session
         self.incoming_message_queue.send((session, 'msrp_message', message))
         # Send MSRP chat message to IRC chat room
         if message.content_type == 'text/html':
@@ -409,8 +413,7 @@ class IRCRoom(object):
         elif message.content_type == 'text/plain':
             body = message.body
         else:
-            log.msg(u'Unsupported content type: %s, ignoreing message' % message.content_type)
-            return
+            raise RuntimeError('unexpected message type: %s' % message.content_type)
         sender = message.sender
         irc_message = '%s: %s' % (format_identity(sender), body)
         if self.irc_protocol is not None:

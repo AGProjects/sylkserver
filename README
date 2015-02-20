@@ -65,7 +65,7 @@ Audio
 
  - Wideband (Opus, G722 and Speex)
  - Narrowband (G711 and GSM)
- - sRTP encryption
+ - SRTP encryption (SDES and ZRTP key-exchanges)
  - Hold/Unhold
  - RTP timeout
  - DTMF handling

@@ -1,6 +1,7 @@
 # Copyright (C) 2010-2011 AG Projects. See LICENSE for details.
 #
 
+import os
 import sys
 
 from threading import Event
@@ -9,6 +10,7 @@ from uuid import uuid4
 from application import log
 from application.notification import NotificationCenter
 from application.python import Null
+from application.system import makedirs
 from eventlib import proc
 from sipsimple.account import Account, BonjourAccount, AccountManager
 from sipsimple.application import SIPApplication
@@ -28,7 +30,7 @@ del sylk.streams
 
 from sylk.accounts import DefaultAccount
 from sylk.applications import IncomingRequestHandler
-from sylk.configuration import ServerConfig, SIPConfig, ThorNodeConfig
+from sylk.configuration import RTPConfig, ServerConfig, SIPConfig, ThorNodeConfig
 from sylk.configuration.settings import AccountExtension, BonjourAccountExtension, SylkServerSettingsExtension
 from sylk.log import Logger
 from sylk.session import SessionManager
@@ -138,6 +140,10 @@ class SylkServer(SIPApplication):
         # initialize instance id
         settings.instance_id = uuid4().urn
         settings.save()
+
+        # initialize ZRTP cache
+        makedirs(RTPConfig.zrtp_cache_dir)
+        self.engine.zrtp_cache = os.path.join(RTPConfig.zrtp_cache_dir, 'zrtp.db')
 
         # initialize middleware components
         dns_manager.start()
