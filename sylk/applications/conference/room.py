@@ -38,7 +38,8 @@ from sylk.applications.conference.configuration import get_room_config, Conferen
 from sylk.applications.conference.logger import log
 from sylk.bonjour import BonjourServices
 from sylk.configuration import ServerConfig, ThorNodeConfig
-from sylk.configuration.datatypes import ResourcePath, URL
+from sylk.configuration.datatypes import URL
+from sylk.resources import Resources
 from sylk.session import Session, IllegalStateError
 from sylk.streams import FileTransferStream
 
@@ -765,7 +766,7 @@ class MoHPlayer(object):
         self._player = None
 
     def start(self):
-        files = glob('%s/*.wav' % ResourcePath('sounds/moh').normalized)
+        files = glob('%s/*.wav' % Resources.get('sounds/moh'))
         if not files:
             log.error(u'No files found, MoH is disabled')
             return
@@ -852,29 +853,29 @@ class WelcomeHandler(object):
         stream.bridge.add(player)
         try:
             if self.initial:
-                file = ResourcePath('sounds/co_welcome_conference.wav').normalized
+                file = Resources.get('sounds/co_welcome_conference.wav')
                 self.play_file_in_player(player, file, 1)
             user_count = len(set(str(s.remote_identity.uri) for s in self.room.sessions if any(stream for stream in s.streams if stream.type == 'audio')) - set([str(self.session.remote_identity.uri)]))
             if user_count == 0:
-                file = ResourcePath('sounds/co_only_one.wav').normalized
+                file = Resources.get('sounds/co_only_one.wav')
                 self.play_file_in_player(player, file, 0.5)
             elif user_count == 1:
-                file = ResourcePath('sounds/co_there_is_one.wav').normalized
+                file = Resources.get('sounds/co_there_is_one.wav')
                 self.play_file_in_player(player, file, 0.5)
             elif user_count < 100:
-                file = ResourcePath('sounds/co_there_are.wav').normalized
+                file = Resources.get('sounds/co_there_are.wav')
                 self.play_file_in_player(player, file, 0.2)
                 if user_count <= 24:
-                    file = ResourcePath('sounds/bi_%d.wav' % user_count).normalized
+                    file = Resources.get('sounds/bi_%d.wav' % user_count)
                     self.play_file_in_player(player, file, 0.1)
                 else:
-                    file = ResourcePath('sounds/bi_%d0.wav' % (user_count / 10)).normalized
+                    file = Resources.get('sounds/bi_%d0.wav' % (user_count / 10))
                     self.play_file_in_player(player, file, 0.1)
-                    file = ResourcePath('sounds/bi_%d.wav' % (user_count % 10)).normalized
+                    file = Resources.get('sounds/bi_%d.wav' % (user_count % 10))
                     self.play_file_in_player(player, file, 0.1)
-                file = ResourcePath('sounds/co_more_participants.wav').normalized
+                file = Resources.get('sounds/co_more_participants.wav')
                 self.play_file_in_player(player, file, 0)
-            file = ResourcePath('sounds/connected_tone.wav').normalized
+            file = Resources.get('sounds/connected_tone.wav')
             self.play_file_in_player(player, file, 0.1)
         except proc.ProcExit:
             # No need to remove the bridge from the stream, it's done automatically

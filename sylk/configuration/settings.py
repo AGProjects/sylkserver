@@ -7,6 +7,9 @@ SIP SIMPLE SDK settings extensions.
 
 __all__ = ['AccountExtension', 'BonjourAccountExtension', 'SylkServerSettingsExtension']
 
+import os
+
+from application import log
 from sipsimple.account import MSRPSettings as AccountMSRPSettings, NATTraversalSettings as AccountNATTraversalSettings
 from sipsimple.account import RTPSettings as AccountRTPSettings, SIPSettings as AccountSIPSettings, TLSSettings as AccountTLSSettings, SRTPEncryptionSettings as AccountSRTPEncryptionSettings
 from sipsimple.account import MessageSummarySettings as AccountMessageSummarySettings, PresenceSettings as AccountPresenceSettingss, XCAPSettings as AccountXCAPSettings
@@ -16,7 +19,7 @@ from sipsimple.configuration.settings import AudioSettings, EchoCancellerSetting
 
 from sylk import __version__ as server_version
 from sylk.configuration import ServerConfig, SIPConfig, MSRPConfig, RTPConfig
-from sylk.configuration.datatypes import AudioCodecs, NillablePath, Path, Port, SIPProxyAddress
+from sylk.configuration.datatypes import AudioCodecs, Path, Port, SIPProxyAddress
 
 
 # Account settings extensions
@@ -62,8 +65,12 @@ class AccountSIPSettingsExtension(AccountSIPSettings):
     outbound_proxy = Setting(type=SIPProxyAddress, default=SIPConfig.outbound_proxy, nillable=True)
 
 
+account_cert = ServerConfig.certificate
+if account_cert is not None and not os.path.isfile(account_cert):
+    account_cert = None
+
 class AccountTLSSettingsExtension(AccountTLSSettings):
-    certificate = Setting(type=NillablePath, default=ServerConfig.certificate, nillable=True)
+    certificate = Setting(type=Path, default=account_cert, nillable=True)
     verify_server = Setting(type=bool, default=ServerConfig.verify_server)
 
 
@@ -116,6 +123,14 @@ class RTPSettingsExtension(RTPSettings):
     timeout = Setting(type=NonNegativeInteger, default=RTPConfig.timeout)
 
 
+ca_file = ServerConfig.ca_file
+if ca_file is not None and not os.path.isfile(ca_file):
+    ca_file = None
+
+class TLSSettingsExtension(TLSSettings):
+    ca_list = Setting(type=Path, default=ca_file, nillable=True)
+
+
 def sip_port_validator(port, sibling_port):
     if port == sibling_port != 0:
         raise ValueError("the TCP and TLS ports must be different")
@@ -125,22 +140,18 @@ if SIPConfig.local_udp_port is not None:
     transport_list.append('udp')
 if SIPConfig.local_tcp_port is not None:
     transport_list.append('tcp')
-if SIPConfig.local_tls_port is not None:
+tls_port = SIPConfig.local_tls_port
+if tls_port is not None and None in (ca_file, account_cert):
+    log.warning('Cannot enable TLS because the CA or the certificate are not specified')
+    tls_port = None
+if tls_port is not None:
     transport_list.append('tls')
 
-udp_port = SIPConfig.local_udp_port or 0
-tcp_port = SIPConfig.local_tcp_port or 0
-tls_port = SIPConfig.local_tls_port or 0
-
 class SIPSettingsExtension(SIPSettings):
-    udp_port = Setting(type=Port, default=udp_port)
-    tcp_port = CorrelatedSetting(type=Port, sibling='tls_port', validator=sip_port_validator, default=tcp_port)
-    tls_port = CorrelatedSetting(type=Port, sibling='tcp_port', validator=sip_port_validator, default=tls_port)
+    udp_port = Setting(type=Port, default=SIPConfig.local_udp_port, nillable=True)
+    tcp_port = CorrelatedSetting(type=Port, sibling='tls_port', validator=sip_port_validator, default=SIPConfig.local_tcp_port, nillable=True)
+    tls_port = CorrelatedSetting(type=Port, sibling='tcp_port', validator=sip_port_validator, default=tls_port, nillable=True)
     transport_list = Setting(type=SIPTransportList, default=transport_list)
-
-
-class TLSSettingsExtension(TLSSettings):
-    ca_list = Setting(type=NillablePath, default=ServerConfig.ca_file, nillable=True)
 
 
 class SylkServerSettingsExtension(SettingsObjectExtension):

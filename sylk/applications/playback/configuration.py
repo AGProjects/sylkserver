@@ -7,14 +7,15 @@ import os
 
 from application.configuration import ConfigFile, ConfigSection, ConfigSetting
 
-from sylk.configuration.datatypes import Path, ResourcePath
+from sylk.configuration.datatypes import Path
+from sylk.resources import Resources
 
 
 class GeneralConfig(ConfigSection):
     __cfgfile__ = 'playback.ini'
     __section__ = 'Playback'
 
-    files_dir = ConfigSetting(type=Path, value=ResourcePath('sounds/playback').normalized)
+    files_dir = ConfigSetting(type=Path, value=Path(Resources.get('sounds/playback')))
     enable_video = False
     answer_delay = 1
 

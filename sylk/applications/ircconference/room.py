@@ -27,7 +27,7 @@ from zope.interface import implements
 
 from sylk.applications.ircconference.configuration import get_room_configuration
 from sylk.applications.ircconference.logger import log
-from sylk.configuration.datatypes import ResourcePath
+from sylk.resources import Resources
 
 
 def format_identity(identity):
@@ -511,29 +511,29 @@ class WelcomeHandler(object):
         audio_stream.bridge.add(player)
         try:
             if welcome_prompt:
-                file = ResourcePath('sounds/co_welcome_conference.wav').normalized
+                file = Resources.get('sounds/co_welcome_conference.wav')
                 self.play_file_in_player(player, file, 1)
             user_count = len(set(str(s.remote_identity.uri) for s in self.room.sessions if any(stream for stream in s.streams if stream.type == 'audio')) - set([str(self.session.remote_identity.uri)]))
             if user_count == 0:
-                file = ResourcePath('sounds/co_only_one.wav').normalized
+                file = Resources.get('sounds/co_only_one.wav')
                 self.play_file_in_player(player, file, 0.5)
             elif user_count == 1:
-                file = ResourcePath('sounds/co_there_is_one.wav').normalized
+                file = Resources.get('sounds/co_there_is_one.wav')
                 self.play_file_in_player(player, file, 0.5)
             elif user_count < 100:
-                file = ResourcePath('sounds/co_there_are.wav').normalized
+                file = Resources.get('sounds/co_there_are.wav')
                 self.play_file_in_player(player, file, 0.2)
                 if user_count <= 24:
-                    file = ResourcePath('sounds/bi_%d.wav' % user_count).normalized
+                    file = Resources.get('sounds/bi_%d.wav' % user_count)
                     self.play_file_in_player(player, file, 0.1)
                 else:
-                    file = ResourcePath('sounds/bi_%d0.wav' % (user_count / 10)).normalized
+                    file = Resources.get('sounds/bi_%d0.wav' % (user_count / 10))
                     self.play_file_in_player(player, file, 0.1)
-                    file = ResourcePath('sounds/bi_%d.wav' % (user_count % 10)).normalized
+                    file = Resources.get('sounds/bi_%d.wav' % (user_count % 10))
                     self.play_file_in_player(player, file, 0.1)
-                file = ResourcePath('sounds/co_more_participants.wav').normalized
+                file = Resources.get('sounds/co_more_participants.wav')
                 self.play_file_in_player(player, file, 0)
-            file = ResourcePath('sounds/connected_tone.wav').normalized
+            file = Resources.get('sounds/connected_tone.wav')
             self.play_file_in_player(player, file, 0.1)
         except proc.ProcExit:
             # No need to remove the bridge from the stream, it's done automatically

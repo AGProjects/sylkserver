@@ -9,7 +9,8 @@ from application.configuration import ConfigFile, ConfigSection, ConfigSetting
 from application.configuration.datatypes import StringList, Hostname
 from application.system import host
 
-from sylk.configuration.datatypes import IPAddress, NillablePath, Path, Port
+from sylk.configuration.datatypes import IPAddress, Path, Port
+from sylk.resources import Resources
 
 
 # Datatypes
@@ -95,7 +96,7 @@ class ConferenceConfig(ConfigSection):
     screen_sharing_hostname = ConfigSetting(type=Hostname, value=IPAddress(host.default_ip))
     screen_sharing_port = ConfigSetting(type=Port, value=0)
     screen_sharing_use_https = True
-    screen_sharing_certificate = ConfigSetting(type=NillablePath, value=NillablePath('tls/default.crt'))
+    screen_sharing_certificate = ConfigSetting(type=Path, value=Path(Resources.get('tls/default.crt')))
 
     advertise_xmpp_support = True
     pstn_access_numbers = ConfigSetting(type=StringList, value='')

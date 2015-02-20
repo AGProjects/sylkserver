@@ -64,15 +64,17 @@ class ConferenceApplication(SylkApplication):
             self.bonjour_room_service.presence_state = BonjourPresenceState('available', u'No participants')
             log.msg("Bonjour publication started for service 'sipuri'")
         self.screen_sharing_web_server = ScreenSharingWebServer(ConferenceConfig.screen_sharing_dir)
-        if ConferenceConfig.screen_sharing_use_https and ConferenceConfig.screen_sharing_certificate is not None:
+        if ConferenceConfig.screen_sharing_use_https and os.path.isfile(ConferenceConfig.screen_sharing_certificate):
             cert = Certificate(ConferenceConfig.screen_sharing_certificate.normalized)
             key = PrivateKey(ConferenceConfig.screen_sharing_certificate.normalized)
             credentials = X509Credentials(cert, key)
+            transport = 'https'
         else:
             credentials = None
+            transport = 'http'
         self.screen_sharing_web_server.start(ConferenceConfig.screen_sharing_ip, ConferenceConfig.screen_sharing_port, credentials)
         listen_address = self.screen_sharing_web_server.listener.getHost()
-        log.msg("ScreenSharing listener started on %s:%d" % (listen_address.host, listen_address.port))
+        log.msg("ScreenSharing listener started on %s://%s:%d" % (transport, listen_address.host, listen_address.port))
 
     def stop(self):
         self.bonjour_focus_service.stop()

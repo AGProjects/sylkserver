@@ -43,54 +43,6 @@ class IPAddress(str):
         return str(self)
 
 
-class ResourcePath(object):
-    def __init__(self, path):
-        self.path = os.path.normpath(str(path))
-
-    def __getstate__(self):
-        return unicode(self.path)
-
-    def __setstate__(self, state):
-        self.__init__(state)
-
-    @property
-    def normalized(self):
-        path = os.path.expanduser(self.path)
-        if os.path.isabs(path):
-            return os.path.realpath(path)
-        return os.path.realpath(os.path.join(self.resources_directory, path))
-
-    @classproperty
-    def resources_directory(cls):
-        from sylk.configuration import ServerConfig
-        if ServerConfig.resources_dir is not None:
-            return os.path.realpath(ServerConfig.resources_dir)
-        else:
-            binary_directory = os.path.dirname(os.path.realpath(sys.argv[0]))
-            if os.path.basename(binary_directory) == 'bin':
-                application_directory = os.path.dirname(binary_directory)
-                resources_component = 'share/sylkserver'
-            else:
-                application_directory = binary_directory
-                resources_component = 'resources'
-            return os.path.realpath(os.path.join(application_directory, resources_component))
-
-    def __eq__(self, other):
-        try:
-            return self.path == other.path
-        except AttributeError:
-            return False
-
-    def __hash__(self):
-        return hash(self.path)
-
-    def __repr__(self):
-        return '%s(%r)' % (self.__class__.__name__, self.path)
-
-    def __unicode__(self):
-        return unicode(self.path)
-
-
 class Port(int):
     def __new__(cls, value):
         try:
@@ -155,18 +107,6 @@ class SIPProxyAddress(object):
 
     def __unicode__(self):
         return u'%s:%d;transport=%s' % (self.host, self.port, self.transport)
-
-
-class NillablePath(unicode):
-    def __new__(cls, path):
-        path = os.path.normpath(path)
-        if not os.path.exists(path):
-            return None
-        return unicode.__new__(cls, path)
-
-    @property
-    def normalized(self):
-        return os.path.expanduser(self)
 
 
 class Path(unicode):

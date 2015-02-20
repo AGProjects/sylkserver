@@ -7,7 +7,8 @@ from application.system import host
 from sipsimple.configuration.datatypes import NonNegativeInteger, SampleRate
 
 from sylk import configuration_filename
-from sylk.configuration.datatypes import AudioCodecs, IPAddress, NillablePath, Path, Port, PortRange, SIPProxyAddress, SRTPEncryption
+from sylk.configuration.datatypes import AudioCodecs, IPAddress, Path, Port, PortRange, SIPProxyAddress, SRTPEncryption
+from sylk.resources import Resources
 from sylk.tls import Certificate, PrivateKey
 
 
@@ -15,15 +16,14 @@ class ServerConfig(ConfigSection):
     __cfgfile__ = configuration_filename
     __section__ = 'Server'
 
-    ca_file = ConfigSetting(type=NillablePath, value=NillablePath('tls/ca.crt'))
-    certificate = ConfigSetting(type=NillablePath, value=NillablePath('tls/default.crt'))
+    ca_file = ConfigSetting(type=Path, value=Path(Resources.get('tls/ca.crt')))
+    certificate = ConfigSetting(type=Path, value=Path(Resources.get('tls/default.crt')))
     verify_server = False
     enable_bonjour = False
     default_application = 'conference'
     application_map = ConfigSetting(type=StringList, value=['echo:echo'])
     disabled_applications = ConfigSetting(type=StringList, value='')
-    extra_applications_dir = ConfigSetting(type=NillablePath, value=None)
-    resources_dir = ConfigSetting(type=Path, value=None)
+    extra_applications_dir = ConfigSetting(type=Path, value=None)
     trace_dir = ConfigSetting(type=Path, value=Path('var/log/sylkserver'))
     trace_core = False
     trace_sip = False
