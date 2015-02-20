@@ -63,13 +63,13 @@ NAT Traversal
 
 Audio
 
- - Wideband (G722 and Speex)
+ - Wideband (Opus, G722 and Speex)
  - Narrowband (G711 and GSM)
  - sRTP encryption
  - Hold/Unhold
  - RTP timeout
  - DTMF handling
- 
+
 Instant Messaging
 
  - MSRP protocol
