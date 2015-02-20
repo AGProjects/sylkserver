@@ -157,7 +157,7 @@ class AudioStream(object):
             raise UnknownStreamError
         if remote_stream.transport not in ('RTP/AVP', 'RTP/SAVP'):
             raise InvalidStreamError("expected RTP/AVP or RTP/SAVP transport in audio stream, got %s" % remote_stream.transport)
-        local_encryption_policy = session.account.rtp.encryption.key_negotiation if session.account.rtp.encryption.enabled else None
+        local_encryption_policy = 'sdes_optional'
         if local_encryption_policy == "sdes_mandatory" and not "crypto" in remote_stream.attributes:
             raise InvalidStreamError("SRTP/SDES is locally mandatory but it's not remotely enabled")
         if remote_stream.transport == 'RTP/SAVP' and "crypto" in remote_stream.attributes and local_encryption_policy not in ("opportunistic", "sdes_optional", "sdes_mandatory"):
@@ -182,7 +182,7 @@ class AudioStream(object):
                 raise RuntimeError("AudioStream.initialize() may only be called in the NULL state")
             self.state = "INITIALIZING"
             self.session = session
-            local_encryption_policy = session.account.rtp.encryption.key_negotiation if session.account.rtp.encryption.enabled else None
+            local_encryption_policy = 'sdes_optional'
             if hasattr(self, "_incoming_remote_sdp"):
                 # ICE attributes could come at the session level or at the media level
                 remote_stream = self._incoming_remote_sdp.media[self._incoming_stream_index]
