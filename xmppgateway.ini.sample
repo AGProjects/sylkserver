@@ -35,3 +35,5 @@ domains = example.com
 ; Enable verbose logging of XMPP stantzas
 ; trace_xmpp = False
 
+; Log presence activity (can get very verbose)
+; log_presence = False
