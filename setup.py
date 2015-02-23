@@ -31,8 +31,8 @@ setup(name         = "sylkserver",
                      ],
       packages     = find_packages('sylk'),
       scripts      = ['sylk-server'],
-      data_files   = [('/etc/sylkserver/tls', []),
-                      ('/var/lib/sylkserver', []),
+      data_files   = [('/var/lib/sylkserver', []),
+                      ('share/sylkserver/tls', glob.glob(os.path.join('resources', 'tls', '*.crt'))),
                       ('share/sylkserver/sounds', glob.glob(os.path.join('resources', 'sounds', '*.wav'))),
                       ('share/sylkserver/sounds/moh', glob.glob(os.path.join('resources', 'sounds', 'moh','*.wav')))]
       )
