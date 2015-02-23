@@ -3,10 +3,13 @@
 
 from application.notification import IObserver, NotificationCenter
 from application.python import Null
+from sipsimple.account.bonjour import BonjourPresenceState
 from twisted.internet import reactor
 from zope.interface import implements
 
 from sylk.applications import SylkApplication, ApplicationLogger
+from sylk.bonjour import BonjourServices
+from sylk.configuration import ServerConfig
 
 
 log = ApplicationLogger.for_package(__package__)
@@ -25,10 +28,22 @@ class EchoApplication(SylkApplication):
     def start(self):
         self.pending = set()
         self.sessions = set()
+        self.bonjour_services = []
+
+        if ServerConfig.enable_bonjour:
+            application_map = dict((item.split(':')) for item in ServerConfig.application_map)
+            for uri, app in application_map.iteritems():
+                if app == 'echo':
+                    service = BonjourServices(service='sipuri', name='Echo Service', uri_user=uri, is_focus=False)
+                    service.start()
+                    service.presence_state = BonjourPresenceState('available', u'I echo audio and chat!')
+                    self.bonjour_services.append(service)
 
     def stop(self):
         self.pending.clear()
         self.sessions.clear()
+        for service in self.bonjour_services:
+            service.stop()
 
     def incoming_session(self, session):
         log.msg(u'New incoming session %s from %s' % (session.call_id, format_identity(session.remote_identity)))
