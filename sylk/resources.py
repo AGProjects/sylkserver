@@ -15,8 +15,7 @@ class Resources(object):
     @classproperty
     def directory(cls):
         if cls._cached_directory is None:
-            script = sys.argv[0]
-            binary_directory = os.path.dirname(os.path.realpath(script))
+            binary_directory = os.path.dirname(os.path.realpath(sys.argv[0]))
             if os.path.basename(binary_directory) == 'bin':
                 application_directory = os.path.dirname(binary_directory)
                 resources_component = 'share/sylkserver'
@@ -24,6 +23,27 @@ class Resources(object):
                 application_directory = binary_directory
                 resources_component = 'resources'
             cls._cached_directory = os.path.join(application_directory, resources_component).decode(sys.getfilesystemencoding())
+        return cls._cached_directory
+
+    @classmethod
+    def get(cls, resource):
+        return os.path.join(cls.directory, resource or u'')
+
+
+class VarResources(object):
+    """Provide access to SylkServer's resources that should go in /var"""
+
+    _cached_directory = None
+
+    @classproperty
+    def directory(cls):
+        if cls._cached_directory is None:
+            binary_directory = os.path.dirname(os.path.realpath(sys.argv[0]))
+            if os.path.basename(binary_directory) == 'bin':
+                path = '/var'
+            else:
+                path = 'var'
+            cls._cached_directory = os.path.abspath(path).decode(sys.getfilesystemencoding())
         return cls._cached_directory
 
     @classmethod

@@ -10,7 +10,7 @@ from application.configuration.datatypes import StringList, Hostname
 from application.system import host
 
 from sylk.configuration.datatypes import IPAddress, Path, Port
-from sylk.resources import Resources
+from sylk.resources import Resources, VarResources
 
 
 # Datatypes
@@ -88,10 +88,10 @@ class ConferenceConfig(ConfigSection):
     allow = ConfigSetting(type=PolicySettingValue, value=PolicySettingValue('all'))
     deny = ConfigSetting(type=PolicySettingValue, value=PolicySettingValue('none'))
 
-    file_transfer_dir = ConfigSetting(type=Path, value=Path('var/spool/sylkserver'))
+    file_transfer_dir = ConfigSetting(type=Path, value=Path(VarResources.get('spool/sylkserver')))
     push_file_transfer = False
 
-    screen_sharing_dir = ConfigSetting(type=Path, value=Path('var/spool/sylkserver/screensharing'))
+    screen_sharing_dir = ConfigSetting(type=Path, value=Path(VarResources.get('spool/sylkserver/screensharing')))
     screen_sharing_ip = ConfigSetting(type=IPAddress, value=IPAddress(host.default_ip))
     screen_sharing_hostname = ConfigSetting(type=Hostname, value=IPAddress(host.default_ip))
     screen_sharing_port = ConfigSetting(type=Port, value=0)

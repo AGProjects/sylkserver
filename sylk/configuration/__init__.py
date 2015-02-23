@@ -8,7 +8,7 @@ from sipsimple.configuration.datatypes import NonNegativeInteger, SampleRate
 
 from sylk import configuration_filename
 from sylk.configuration.datatypes import AudioCodecs, IPAddress, Path, Port, PortRange, SIPProxyAddress, SRTPEncryption
-from sylk.resources import Resources
+from sylk.resources import Resources, VarResources
 from sylk.tls import Certificate, PrivateKey
 
 
@@ -24,7 +24,7 @@ class ServerConfig(ConfigSection):
     application_map = ConfigSetting(type=StringList, value=['echo:echo'])
     disabled_applications = ConfigSetting(type=StringList, value='')
     extra_applications_dir = ConfigSetting(type=Path, value=None)
-    trace_dir = ConfigSetting(type=Path, value=Path('var/log/sylkserver'))
+    trace_dir = ConfigSetting(type=Path, value=Path(VarResources.get('log/sylkserver')))
     trace_core = False
     trace_sip = False
     trace_msrp = False
@@ -61,7 +61,7 @@ class RTPConfig(ConfigSection):
     srtp_encryption = ConfigSetting(type=SRTPEncryption, value='opportunistic')
     timeout = ConfigSetting(type=NonNegativeInteger, value=30)
     sample_rate = ConfigSetting(type=SampleRate, value=32000)
-    zrtp_cache_dir = ConfigSetting(type=Path, value=Path('var/spool/sylkserver'))
+    zrtp_cache_dir = ConfigSetting(type=Path, value=Path(VarResources.get('spool/sylkserver')))
 
 
 class ThorNodeConfig(ConfigSection):
