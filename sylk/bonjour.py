@@ -24,11 +24,12 @@ class RestartSelect(Exception): pass
 class BonjourServices(object):
     implements(IObserver)
 
-    def __init__(self, service='sipfocus', name='SylkServer', uri_user=None):
+    def __init__(self, service='sipfocus', name='SylkServer', uri_user=None, is_focus=True):
         self.account = DefaultAccount()
         self.service = service
         self.name = name
         self.uri_user = uri_user
+        self.is_focus = is_focus
         self._stopped = True
         self._files = []
         self._command_channel = coros.queue()
@@ -154,7 +155,8 @@ class BonjourServices(object):
             try:
                 contact_uri = self.account.contact[transport]
                 contact_uri.user = self.uri_user
-                contact_uri.parameters['isfocus'] = None
+                if self.is_focus:
+                    contact_uri.parameters['isfocus'] = None
                 instance_id = str(uuid.UUID(settings.instance_id))
                 txtdata = dict(txtvers=1, name=self.name, contact="<%s>" % str(contact_uri), instance_id=instance_id)
                 state = self.presence_state
@@ -198,7 +200,8 @@ class BonjourServices(object):
             try:
                 contact_uri = self.account.contact[file.transport]
                 contact_uri.user = self.uri_user
-                contact_uri.parameters['isfocus'] = None
+                if self.is_focus:
+                    contact_uri.parameters['isfocus'] = None
                 instance_id = str(uuid.UUID(settings.instance_id))
                 txtdata = dict(txtvers=1, name=self.name, contact="<%s>" % str(contact_uri), instance_id=instance_id)
                 state = self.presence_state
