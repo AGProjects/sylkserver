@@ -42,6 +42,15 @@ screen_sharing_dir = /var/spool/sylkserver/screensharing
 ; Comma separated list of PSTN numbers to advertise as a conference URI
 ; pstn_access_numbers =
 
+; Automatically verify ZRTP endpoints if the following conditions are met:
+;  - The session also has a chat stream with no relay in between
+;  - A MSRP message of type application/blink-zrtp-sas is received with the
+;    remote SAS
+;  - The remote and the local SAS match
+; If this setting is set to True, SylkServer will send the ZRTP SAS to the
+; connected endpoints via a private chat message
+; zrtp_auto_verify = True
+
 ; Access Lists Default Policy
 ; Apache-style access lists for the caller using SIP domains or SIP URIs
 ; https://httpd.apache.org/docs/2.2/mod/mod_authz_host.html#order

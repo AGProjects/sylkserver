@@ -101,6 +101,8 @@ class ConferenceConfig(ConfigSection):
     advertise_xmpp_support = True
     pstn_access_numbers = ConfigSetting(type=StringList, value='')
 
+    zrtp_auto_verify = True
+
 
 class RoomConfig(ConfigSection):
     __cfgfile__ = 'conference.ini'
@@ -111,6 +113,8 @@ class RoomConfig(ConfigSection):
 
     pstn_access_numbers = ConferenceConfig.pstn_access_numbers
     advertise_xmpp_support = ConferenceConfig.advertise_xmpp_support
+
+    zrtp_auto_verify = ConferenceConfig.zrtp_auto_verify
 
 
 class Configuration(object):

@@ -554,6 +554,26 @@ class Room(object):
                                                                            stream.type,
                                                                            notification.data.reason))
 
+    def _NH_RTPStreamZRTPReceivedSAS(self, notification):
+        if not self.config.zrtp_auto_verify:
+            return
+
+        stream = notification.sender
+        session = stream.session
+        sas = notification.data.sas
+        # Send ZRTP SAS over the chat stream, if available
+        try:
+            chat_stream = next(stream for stream in session.streams if stream.type=='chat')
+        except StopIteration:
+            return
+        # Only send the message if there are no relays in between
+        full_local_path = chat_stream.msrp.full_local_path
+        full_remote_path = chat_stream.msrp.full_remote_path
+        if all(len(path)==1 for path in (full_local_path, full_remote_path)):
+            txt = 'Received ZRTP Short Authentication String: %s' % sas
+            # Don't set the remote identity, that way it will appear as a private message
+            chat_stream.send_message(txt, 'text/plain', sender=self.identity)
+
     def _NH_RTPStreamDidTimeout(self, notification):
         stream = notification.sender
         if stream.type != 'audio':
@@ -575,6 +595,22 @@ class Room(object):
         elif content_type == 'application/blink-screensharing':
             stream.msrp_session.send_report(notification.data.chunk, 200, 'OK')
             self.add_screen_image(message.sender, message.body)
+        elif content_type == 'application/blink-zrtp-sas':
+            if not self.config.zrtp_auto_verify:
+                stream.msrp_session.send_report(notification.data.chunk, 413, 'Unwanted message')
+                return
+            stream.msrp_session.send_report(notification.data.chunk, 200, 'OK')
+            try:
+                audio_stream = next(stream for stream in session.streams if stream.type=='audio' and stream.encryption.active and stream.encryption.type=='ZRTP')
+            except StopIteration:
+                pass
+            else:
+                # Only trust it if there was a direct path
+                full_local_path = stream.msrp.full_local_path
+                full_remote_path = stream.msrp.full_remote_path
+                remote_sas = str(message.body)
+                if remote_sas == audio_stream.encryption.zrtp.sas and all(len(path)==1 for path in (full_local_path, full_remote_path)):
+                    audio_stream.encryption.zrtp.verified = True
         else:
             stream.msrp_session.send_report(notification.data.chunk, 413, 'Unwanted message')
 
