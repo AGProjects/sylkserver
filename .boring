@@ -12,3 +12,9 @@
 (^|/)dist($|/)
 (^|/)\.komodotools($|/)
 ^MANIFEST$
+# Test ini files
+\.ini$
+# vim backup biles
+\.swp$
+# Default output directory for testing
+^var$
