@@ -44,6 +44,7 @@ class EchoApplication(SylkApplication):
         self.sessions.clear()
         for service in self.bonjour_services:
             service.stop()
+        del self.bonjour_services[:]
 
     def incoming_session(self, session):
         log.msg(u'New incoming session %s from %s' % (session.call_id, format_identity(session.remote_identity)))
