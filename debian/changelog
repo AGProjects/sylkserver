@@ -1,3 +1,22 @@
+sylkserver (2.9.0) UNRELEASED; urgency=medium
+
+  * Added ZRTP and opportunistic encryption support
+  * Adapt to changes in SIP SIMPLE SDK
+  * Add python-lxml as a direct dependency
+  * Relax XMPP - SIP URI marching
+  * Accept any content type in echo application
+  * Support inlined images in the conference application
+  * Add setting for toggling presence activity logging (xmppgateway)
+  * Refactored path handling and TLS certificate location
+  * Simplify default paths for resources in /var
+  * Add ability to skip the isfocus parameter when publishing a Bonjour
+    service
+  * Publish echo application on Bonjour if enabled
+  * Publish playback application on Bonjour if enabled
+  * Change default directory for conference file transfers
+
+ -- Saul Ibarra <saul@ag-projects.com>  Tue, 24 Feb 2015 15:47:54 +0100
+
 sylkserver (2.8.0) unstable; urgency=medium
 
   * Add a custom Session class
