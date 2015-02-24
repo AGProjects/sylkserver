@@ -1,15 +1,20 @@
 # Copyright (C) 2013 AG Projects. See LICENSE for details
 #
 
+import os
+
 from application.python import Null
 from application.notification import IObserver, NotificationCenter
 from eventlib import proc
+from sipsimple.account.bonjour import BonjourPresenceState
 from sipsimple.audio import WavePlayer, WavePlayerError
 from twisted.internet import reactor
 from zope.interface import implements
 
 from sylk.applications import SylkApplication, ApplicationLogger
 from sylk.applications.playback.configuration import get_config
+from sylk.bonjour import BonjourServices
+from sylk.configuration import ServerConfig
 
 
 log = ApplicationLogger.for_package(__package__)
@@ -18,10 +23,24 @@ log = ApplicationLogger.for_package(__package__)
 class PlaybackApplication(SylkApplication):
 
     def start(self):
-        pass
+        self.bonjour_services = []
+        if ServerConfig.enable_bonjour:
+            application_map = dict((item.split(':')) for item in ServerConfig.application_map)
+            for uri, app in application_map.iteritems():
+                if app == 'playback':
+                    config = get_config('%s' % uri)
+                    if config is None:
+                        continue
+                    if os.path.isfile(config.file) and os.access(config.file, os.R_OK):
+                        service = BonjourServices(service='sipuri', name='Playback Test', uri_user=uri, is_focus=False)
+                        service.start()
+                        service.presence_state = BonjourPresenceState('available', u'File: %s' % os.path.basename(config.file))
+                        self.bonjour_services.append(service)
 
     def stop(self):
-        pass
+        for service in self.bonjour_services:
+            service.stop()
+        del self.bonjour_services[:]
 
     def incoming_session(self, session):
         log.msg('Incoming session %s from %s to %s' % (session.call_id, session.remote_identity.uri, session.local_identity.uri))
