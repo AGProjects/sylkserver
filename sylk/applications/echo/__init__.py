@@ -34,9 +34,9 @@ class EchoApplication(SylkApplication):
             application_map = dict((item.split(':')) for item in ServerConfig.application_map)
             for uri, app in application_map.iteritems():
                 if app == 'echo':
-                    service = BonjourServices(service='sipuri', name='Echo Service', uri_user=uri, is_focus=False)
+                    service = BonjourServices(service='sipuri', name='Echo Test', uri_user=uri, is_focus=False)
                     service.start()
-                    service.presence_state = BonjourPresenceState('available', u'I echo audio and chat!')
+                    service.presence_state = BonjourPresenceState('available', u'Call me to test your client')
                     self.bonjour_services.append(service)
 
     def stop(self):
