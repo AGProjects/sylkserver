@@ -88,7 +88,7 @@ class ConferenceConfig(ConfigSection):
     allow = ConfigSetting(type=PolicySettingValue, value=PolicySettingValue('all'))
     deny = ConfigSetting(type=PolicySettingValue, value=PolicySettingValue('none'))
 
-    file_transfer_dir = ConfigSetting(type=Path, value=Path(VarResources.get('spool/sylkserver')))
+    file_transfer_dir = ConfigSetting(type=Path, value=Path(VarResources.get('spool/sylkserver/files')))
     push_file_transfer = False
 
     screen_sharing_dir = ConfigSetting(type=Path, value=Path(VarResources.get('spool/sylkserver/screensharing')))
