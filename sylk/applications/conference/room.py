@@ -599,12 +599,13 @@ class Room(object):
             if not self.config.zrtp_auto_verify:
                 stream.msrp_session.send_report(notification.data.chunk, 413, 'Unwanted message')
                 return
-            stream.msrp_session.send_report(notification.data.chunk, 200, 'OK')
             try:
                 audio_stream = next(stream for stream in session.streams if stream.type=='audio' and stream.encryption.active and stream.encryption.type=='ZRTP')
             except StopIteration:
-                pass
+                stream.msrp_session.send_report(notification.data.chunk, 413, 'Unwanted message')
+                return
             else:
+                stream.msrp_session.send_report(notification.data.chunk, 200, 'OK')
                 # Only trust it if there was a direct path
                 full_local_path = stream.msrp.full_local_path
                 full_remote_path = stream.msrp.full_remote_path
