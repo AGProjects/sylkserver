@@ -71,7 +71,7 @@ class ChatStream(MSRPStreamMixin, _ChatStream):
 
     accept_types = ['message/cpim']
     accept_wrapped_types = ['*']
-    chatroom_capabilities = ['nickname', 'private-messages', 'com.ag-projects.screen-sharing']
+    chatroom_capabilities = ['nickname', 'private-messages', 'com.ag-projects.screen-sharing', 'com.ag-projects.zrtp-sas']
 
     @property
     def local_uri(self):
