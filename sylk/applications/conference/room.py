@@ -707,6 +707,7 @@ class Room(object):
                         log.msg(u'Room %s - %s %s stream did not enable encryption' % (self.uri,
                                                                                        format_identity(session.remote_identity),
                                                                                        stream.type))
+
         if notification.data.added_streams:
             welcome_handler = WelcomeHandler(self, initial=False, session=session, streams=notification.data.added_streams)
             welcome_handler.run()
@@ -957,6 +958,24 @@ class WelcomeHandler(object):
         stream.send_message(txt, 'text/plain', sender=self.room.identity, recipients=[self.room.identity])
         for msg in self.room.history:
             stream.send_message(msg.body, msg.content_type, sender=msg.sender, recipients=[self.room.identity], timestamp=msg.timestamp)
+
+        # Send ZRTP SAS over the chat stream, if applicable
+        if self.room.config.zrtp_auto_verify:
+            session = stream.session
+            try:
+                audio_stream = next(stream for stream in session.streams if stream.type=='audio')
+            except StopIteration:
+                pass
+            else:
+                if audio_stream.encryption.type == 'ZRTP' and audio_stream.encryption.active:
+                    # Only send the message if there are no relays in between
+                    full_local_path = stream.msrp.full_local_path
+                    full_remote_path = stream.msrp.full_remote_path
+                    sas = audio_stream.encryption.zrtp.sas
+                    if sas is not None and all(len(path)==1 for path in (full_local_path, full_remote_path)):
+                        txt = 'Received ZRTP Short Authentication String: %s' % sas
+                        # Don't set the remote identity, that way it will appear as a private message
+                        stream.send_message(txt, 'text/plain', sender=self.room.identity)
 
     def handle_notification(self, notification):
         handler = getattr(self, '_NH_%s' % notification.name, Null)
