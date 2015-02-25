@@ -155,17 +155,20 @@ class XMPPGatewayApplication(SylkApplication):
             subscribe_request.reject(400)
             return
 
-        log.msg('SIP subscription from %s to %s' % (format_uri(from_header.uri, 'sip'), format_uri(to_header.uri, 'xmpp')))
+        if XMPPGatewayConfig.log_presence:
+            log.msg('SIP subscription from %s to %s' % (format_uri(from_header.uri, 'sip'), format_uri(to_header.uri, 'xmpp')))
 
         if subscribe_request.event != 'presence':
-            log.msg('SIP subscription rejected: only presence event is supported')
+            if XMPPGatewayConfig.log_presence:
+                log.msg('SIP subscription rejected: only presence event is supported')
             subscribe_request.reject(489)
             return
 
         # Check domain
         remote_identity_uri = data.headers['From'].uri
         if remote_identity_uri.host not in XMPPGatewayConfig.domains:
-            log.msg('SIP subscription rejected: From domain is not a local XMPP domain')
+            if XMPPGatewayConfig.log_presence:
+                log.msg('SIP subscription rejected: From domain is not a local XMPP domain')
             subscribe_request.reject(606)
             return
 
