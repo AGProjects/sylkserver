@@ -218,7 +218,6 @@ class SylkServer(SIPApplication):
                 pass
 
     def _NH_SIPApplicationWillEnd(self, notification):
-        log.msg('SIP application will end: %s' % self.end_reason)
         self.stopping_event.set()
 
     def _NH_SIPApplicationDidEnd(self, notification):
