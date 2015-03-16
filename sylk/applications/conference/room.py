@@ -25,7 +25,7 @@ from sipsimple.core import SIPCoreError, SIPCoreInvalidStateError, SIPURI
 from sipsimple.core import Header, FromHeader, ToHeader, SubjectHeader
 from sipsimple.lookup import DNSLookup, DNSLookupError
 from sipsimple.payloads import conference
-from sipsimple.streams.applications.chat import CPIMIdentity
+from sipsimple.streams.applications.chat import CPIMIdentity, CPIMHeader, Namespace
 from sipsimple.streams.msrp import ChatStreamError, FileSelector
 from sipsimple.threading import run_in_thread, run_in_twisted_thread
 from sipsimple.threading.green import run_in_green_thread
@@ -572,7 +572,9 @@ class Room(object):
         if all(len(path)==1 for path in (full_local_path, full_remote_path)):
             txt = 'Received ZRTP Short Authentication String: %s' % sas
             # Don't set the remote identity, that way it will appear as a private message
-            chat_stream.send_message(txt, 'text/plain', sender=self.identity)
+            ns = Namespace('urn:ag-projects:xml:ns:cpim', prefix='agp')
+            content_disposition = CPIMHeader('Message-Type', ns, 'status')
+            chat_stream.send_message(txt, 'text/plain', sender=self.identity, additional_headers=[content_disposition])
 
     def _NH_RTPStreamDidTimeout(self, notification):
         stream = notification.sender
@@ -976,7 +978,9 @@ class WelcomeHandler(object):
                     if sas is not None and all(len(path)==1 for path in (full_local_path, full_remote_path)):
                         txt = 'Received ZRTP Short Authentication String: %s' % sas
                         # Don't set the remote identity, that way it will appear as a private message
-                        stream.send_message(txt, 'text/plain', sender=self.room.identity)
+                        ns = Namespace('urn:ag-projects:xml:ns:cpim', prefix='agp')
+                        content_disposition = CPIMHeader('Message-Type', ns, 'status')
+                        stream.send_message(txt, 'text/plain', sender=self.room.identity, additional_headers=[content_disposition])
 
     def handle_notification(self, notification):
         handler = getattr(self, '_NH_%s' % notification.name, Null)
