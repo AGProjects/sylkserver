@@ -567,9 +567,8 @@ class Room(object):
         except StopIteration:
             return
         # Only send the message if there are no relays in between
-        full_local_path = chat_stream.msrp.full_local_path
-        full_remote_path = chat_stream.msrp.full_remote_path
-        if all(len(path)==1 for path in (full_local_path, full_remote_path)):
+        secure_chat = chat_stream.transport == 'tls' and all(len(path)==1 for path in (chat_stream.msrp.full_local_path, chat_stream.msrp.full_remote_path))
+        if secure_chat:
             txt = 'Received ZRTP Short Authentication String: %s' % sas
             # Don't set the remote identity, that way it will appear as a private message
             ns = Namespace('urn:ag-projects:xml:ns:cpim', prefix='agp')
@@ -606,14 +605,14 @@ class Room(object):
             except StopIteration:
                 stream.msrp_session.send_report(notification.data.chunk, 413, 'Unwanted message')
                 return
-            else:
+            # Only trust it if there was a direct path and the transport is TLS
+            secure_chat = stream.transport == 'tls' and all(len(path)==1 for path in (stream.msrp.full_local_path, stream.msrp.full_remote_path))
+            remote_sas = str(message.body)
+            if remote_sas == audio_stream.encryption.zrtp.sas and secure_chat:
+                audio_stream.encryption.zrtp.verified = True
                 stream.msrp_session.send_report(notification.data.chunk, 200, 'OK')
-                # Only trust it if there was a direct path
-                full_local_path = stream.msrp.full_local_path
-                full_remote_path = stream.msrp.full_remote_path
-                remote_sas = str(message.body)
-                if remote_sas == audio_stream.encryption.zrtp.sas and all(len(path)==1 for path in (full_local_path, full_remote_path)):
-                    audio_stream.encryption.zrtp.verified = True
+            else:
+                stream.msrp_session.send_report(notification.data.chunk, 413, 'Unwanted message')
         else:
             stream.msrp_session.send_report(notification.data.chunk, 413, 'Unwanted message')
 
@@ -972,10 +971,9 @@ class WelcomeHandler(object):
             else:
                 if audio_stream.encryption.type == 'ZRTP' and audio_stream.encryption.active:
                     # Only send the message if there are no relays in between
-                    full_local_path = stream.msrp.full_local_path
-                    full_remote_path = stream.msrp.full_remote_path
+                    secure_chat = stream.transport == 'tls' and all(len(path)==1 for path in (stream.msrp.full_local_path, stream.msrp.full_remote_path))
                     sas = audio_stream.encryption.zrtp.sas
-                    if sas is not None and all(len(path)==1 for path in (full_local_path, full_remote_path)):
+                    if sas is not None and secure_chat:
                         txt = 'Received ZRTP Short Authentication String: %s' % sas
                         # Don't set the remote identity, that way it will appear as a private message
                         ns = Namespace('urn:ag-projects:xml:ns:cpim', prefix='agp')
