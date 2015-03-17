@@ -1,4 +1,4 @@
-sylkserver (2.9.0) UNRELEASED; urgency=medium
+sylkserver (2.9.0) unstable; urgency=medium
 
   * Added ZRTP and opportunistic encryption support
   * Adapt to changes in SIP SIMPLE SDK
@@ -14,8 +14,10 @@ sylkserver (2.9.0) UNRELEASED; urgency=medium
   * Publish echo application on Bonjour if enabled
   * Publish playback application on Bonjour if enabled
   * Change default directory for conference file transfers
+  * Tag all messages sent by the room as status messages
+  * Publish every Bonjour service with a different id
 
- -- Saul Ibarra <saul@ag-projects.com>  Tue, 24 Feb 2015 15:47:54 +0100
+ -- Saul Ibarra <saul@ag-projects.com>  Tue, 17 Mar 2015 09:28:54 +0100
 
 sylkserver (2.8.0) unstable; urgency=medium
 
