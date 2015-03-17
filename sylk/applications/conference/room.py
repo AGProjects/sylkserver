@@ -335,7 +335,9 @@ class Room(object):
                 chat_stream = next(stream for stream in session.streams if stream.type == 'chat')
             except StopIteration:
                 continue
-            chat_stream.send_message(body, content_type, sender=self.identity, recipients=[self.identity])
+            ns = Namespace('urn:ag-projects:xml:ns:cpim', prefix='agp')
+            message_type = CPIMHeader('Message-Type', ns, 'status')
+            chat_stream.send_message(body, content_type, sender=self.identity, recipients=[self.identity], additional_headers=[message_type])
 
     def dispatch_conference_info(self):
         data = self.conference_info
@@ -560,8 +562,8 @@ class Room(object):
             txt = 'Received ZRTP Short Authentication String: %s' % sas
             # Don't set the remote identity, that way it will appear as a private message
             ns = Namespace('urn:ag-projects:xml:ns:cpim', prefix='agp')
-            content_disposition = CPIMHeader('Message-Type', ns, 'status')
-            chat_stream.send_message(txt, 'text/plain', sender=self.identity, additional_headers=[content_disposition])
+            message_type = CPIMHeader('Message-Type', ns, 'status')
+            chat_stream.send_message(txt, 'text/plain', sender=self.identity, additional_headers=[message_type])
 
     def _NH_RTPStreamDidTimeout(self, notification):
         stream = notification.sender
@@ -965,8 +967,8 @@ class WelcomeHandler(object):
                         txt = 'Received ZRTP Short Authentication String: %s' % sas
                         # Don't set the remote identity, that way it will appear as a private message
                         ns = Namespace('urn:ag-projects:xml:ns:cpim', prefix='agp')
-                        content_disposition = CPIMHeader('Message-Type', ns, 'status')
-                        stream.send_message(txt, 'text/plain', sender=self.room.identity, additional_headers=[content_disposition])
+                        message_type = CPIMHeader('Message-Type', ns, 'status')
+                        stream.send_message(txt, 'text/plain', sender=self.room.identity, additional_headers=[message_type])
 
     def handle_notification(self, notification):
         handler = getattr(self, '_NH_%s' % notification.name, Null)
