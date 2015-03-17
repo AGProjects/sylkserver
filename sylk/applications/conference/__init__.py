@@ -25,7 +25,7 @@ from sylk.applications.conference.configuration import get_room_config, Conferen
 from sylk.applications.conference.logger import log
 from sylk.applications.conference.room import Room
 from sylk.applications.conference.web import ScreenSharingWebServer
-from sylk.bonjour import BonjourServices
+from sylk.bonjour import BonjourService
 from sylk.configuration import ServerConfig, ThorNodeConfig
 from sylk.session import Session, IllegalStateError
 from sylk.streams import ChatStream
@@ -56,10 +56,10 @@ class ConferenceApplication(SylkApplication):
                 pass
 
         if ServerConfig.enable_bonjour and ServerConfig.default_application == 'conference':
-            self.bonjour_focus_service = BonjourServices(service='sipfocus')
+            self.bonjour_focus_service = BonjourService(service='sipfocus')
             self.bonjour_focus_service.start()
             log.msg("Bonjour publication started for service 'sipfocus'")
-            self.bonjour_room_service = BonjourServices(service='sipuri', name='Conference Room', uri_user='conference')
+            self.bonjour_room_service = BonjourService(service='sipuri', name='Conference Room', uri_user='conference')
             self.bonjour_room_service.start()
             self.bonjour_room_service.presence_state = BonjourPresenceState('available', u'No participants')
             log.msg("Bonjour publication started for service 'sipuri'")

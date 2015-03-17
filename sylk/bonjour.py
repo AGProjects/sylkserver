@@ -21,7 +21,7 @@ from sylk.accounts import DefaultAccount
 
 class RestartSelect(Exception): pass
 
-class BonjourServices(object):
+class BonjourService(object):
     implements(IObserver)
 
     def __init__(self, service='sipfocus', name='SylkServer', uri_user=None, is_focus=True):

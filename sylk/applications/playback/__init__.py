@@ -13,7 +13,7 @@ from zope.interface import implements
 
 from sylk.applications import SylkApplication, ApplicationLogger
 from sylk.applications.playback.configuration import get_config
-from sylk.bonjour import BonjourServices
+from sylk.bonjour import BonjourService
 from sylk.configuration import ServerConfig
 
 
@@ -32,7 +32,7 @@ class PlaybackApplication(SylkApplication):
                     if config is None:
                         continue
                     if os.path.isfile(config.file) and os.access(config.file, os.R_OK):
-                        service = BonjourServices(service='sipuri', name='Playback Test', uri_user=uri, is_focus=False)
+                        service = BonjourService(service='sipuri', name='Playback Test', uri_user=uri, is_focus=False)
                         service.start()
                         service.presence_state = BonjourPresenceState('available', u'File: %s' % os.path.basename(config.file))
                         self.bonjour_services.append(service)

@@ -8,7 +8,7 @@ from twisted.internet import reactor
 from zope.interface import implements
 
 from sylk.applications import SylkApplication, ApplicationLogger
-from sylk.bonjour import BonjourServices
+from sylk.bonjour import BonjourService
 from sylk.configuration import ServerConfig
 
 
@@ -34,7 +34,7 @@ class EchoApplication(SylkApplication):
             application_map = dict((item.split(':')) for item in ServerConfig.application_map)
             for uri, app in application_map.iteritems():
                 if app == 'echo':
-                    service = BonjourServices(service='sipuri', name='Echo Test', uri_user=uri, is_focus=False)
+                    service = BonjourService(service='sipuri', name='Echo Test', uri_user=uri, is_focus=False)
                     service.start()
                     service.presence_state = BonjourPresenceState('available', u'Call me to test your client')
                     self.bonjour_services.append(service)

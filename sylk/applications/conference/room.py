@@ -36,7 +36,7 @@ from zope.interface import implements
 from sylk.accounts import DefaultAccount
 from sylk.applications.conference.configuration import get_room_config, ConferenceConfig
 from sylk.applications.conference.logger import log
-from sylk.bonjour import BonjourServices
+from sylk.bonjour import BonjourService
 from sylk.configuration import ServerConfig, ThorNodeConfig
 from sylk.configuration.datatypes import URL
 from sylk.resources import Resources
@@ -216,7 +216,7 @@ class Room(object):
             return
         if ServerConfig.enable_bonjour and self.identity.uri.user != 'conference':
             room_user = self.identity.uri.user
-            self.bonjour_services = BonjourServices(service='sipuri', name='Conference Room %s' % room_user, uri_user=room_user)
+            self.bonjour_services = BonjourService(service='sipuri', name='Conference Room %s' % room_user, uri_user=room_user)
             self.bonjour_services.start()
         self.message_dispatcher = proc.spawn(self._message_dispatcher)
         self.audio_conference = AudioConference()
