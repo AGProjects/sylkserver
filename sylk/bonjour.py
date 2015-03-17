@@ -30,6 +30,7 @@ class BonjourService(object):
         self.name = name
         self.uri_user = uri_user
         self.is_focus = is_focus
+        self.id = str(uuid.uuid4())
         self._stopped = True
         self._files = []
         self._command_channel = coros.queue()
@@ -157,8 +158,7 @@ class BonjourService(object):
                 contact_uri.user = self.uri_user
                 if self.is_focus:
                     contact_uri.parameters['isfocus'] = None
-                instance_id = str(uuid.UUID(settings.instance_id))
-                txtdata = dict(txtvers=1, name=self.name, contact="<%s>" % str(contact_uri), instance_id=instance_id)
+                txtdata = dict(txtvers=1, name=self.name, contact="<%s>" % str(contact_uri), instance_id=self.id)
                 state = self.presence_state
                 if state is not None:
                     txtdata['state'] = state.state
@@ -202,8 +202,7 @@ class BonjourService(object):
                 contact_uri.user = self.uri_user
                 if self.is_focus:
                     contact_uri.parameters['isfocus'] = None
-                instance_id = str(uuid.UUID(settings.instance_id))
-                txtdata = dict(txtvers=1, name=self.name, contact="<%s>" % str(contact_uri), instance_id=instance_id)
+                txtdata = dict(txtvers=1, name=self.name, contact="<%s>" % str(contact_uri), instance_id=self.id)
                 state = self.presence_state
                 if state is not None:
                     txtdata['state'] = state.state
