@@ -12,6 +12,7 @@ from sipsimple.configuration.settings import SIPSimpleSettings
 from sipsimple.core import Engine, SIPURI, SIPCoreError, Referral, sip_status_messages
 from sipsimple.core import ContactHeader, FromHeader, ToHeader, ReferToHeader, RouteHeader
 from sipsimple.lookup import DNSLookup, DNSLookupError
+from sipsimple.streams import MediaStreamRegistry
 from sipsimple.streams.msrp import ChatStreamError
 from sipsimple.streams.applications.chat import CPIMIdentity
 from sipsimple.threading import run_in_twisted_thread
@@ -28,7 +29,6 @@ from sylk.applications.xmppgateway.xmpp.session import XMPPIncomingMucSession
 from sylk.applications.xmppgateway.xmpp.stanzas import MUCAvailabilityPresence, MUCErrorPresence, OutgoingInvitationMessage, STANZAS_NS
 from sylk.configuration import SIPConfig
 from sylk.session import Session
-from sylk.streams import ChatStream
 
 
 class ReferralError(Exception):
@@ -322,7 +322,7 @@ class X2SMucHandler(object):
             log.warning('DNS lookup error while looking for %s proxy' % uri)
             self.end()
             return
-        self._msrp_stream = ChatStream()
+        self._msrp_stream = MediaStreamRegistry().get('chat')()
         route = routes.pop(0)
         from_header = FromHeader(from_uri)
         to_header = ToHeader(to_uri)

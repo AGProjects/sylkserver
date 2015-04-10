@@ -14,7 +14,7 @@ from sipsimple.configuration.settings import SIPSimpleSettings
 from sipsimple.core import SIPURI, SIPCoreError
 from sipsimple.core import Header, FromHeader, ToHeader, SubjectHeader
 from sipsimple.lookup import DNSLookup
-from sipsimple.streams import AudioStream
+from sipsimple.streams import MediaStreamRegistry
 from sipsimple.threading.green import run_in_green_thread
 from twisted.internet import reactor
 from zope.interface import implements
@@ -28,7 +28,6 @@ from sylk.applications.conference.web import ScreenSharingWebServer
 from sylk.bonjour import BonjourService
 from sylk.configuration import ServerConfig, ThorNodeConfig
 from sylk.session import Session, IllegalStateError
-from sylk.streams import ChatStream
 from sylk.tls import Certificate, PrivateKey
 
 
@@ -360,16 +359,14 @@ class IncomingReferralHandler(object):
             log.msg('Room %s - failed to add %s' % (self.room_uri_str, self.refer_to_uri))
             self._refer_request.end(500)
             return
-        else:
-            active_media = room.active_media
+        active_media = set(room.active_media).intersection(('audio', 'chat'))
         if not active_media:
             log.msg('Room %s - failed to add %s' % (self.room_uri_str, self.refer_to_uri))
             self._refer_request.end(500)
             return
-        if 'audio' in active_media:
-            self.streams.append(AudioStream())
-        if 'chat' in active_media:
-            self.streams.append(ChatStream())
+        registry = MediaStreamRegistry()
+        for stream_type in active_media:
+            self.streams.append(registry.get(stream_type)())
         self.session = Session(account)
         notification_center.add_observer(self, sender=self.session)
         original_from_header = self._refer_headers.get('From')

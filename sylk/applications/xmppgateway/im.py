@@ -11,6 +11,7 @@ from sipsimple.core import SIPURI
 from sipsimple.core import ContactHeader, FromHeader, RouteHeader, ToHeader
 from sipsimple.core import Message as SIPMessageRequest
 from sipsimple.lookup import DNSLookup, DNSLookupError
+from sipsimple.streams import MediaStreamRegistry
 from sipsimple.streams.applications.chat import CPIMIdentity
 from sipsimple.threading import run_in_twisted_thread
 from sipsimple.threading.green import run_in_green_thread, run_in_waitable_green_thread
@@ -25,7 +26,6 @@ from sylk.applications.xmppgateway.xmpp import XMPPManager
 from sylk.applications.xmppgateway.xmpp.session import XMPPChatSession
 from sylk.applications.xmppgateway.xmpp.stanzas import ChatMessage
 from sylk.session import Session
-from sylk.streams import ChatStream
 
 
 __all__ = ['ChatSessionHandler', 'SIPMessageSender', 'SIPMessageError']
@@ -128,7 +128,7 @@ class ChatSessionHandler(object):
             log.warning('DNS lookup error while looking for %s proxy' % uri)
             notification_center.post_notification('ChatSessionDidFail', sender=self, data=NotificationData(reason='DNS lookup error'))
             return
-        self.msrp_stream = ChatStream()
+        self.msrp_stream = MediaStreamRegistry().get('chat')()
         route = routes.pop(0)
         from_header = FromHeader(from_uri)
         to_header = ToHeader(to_uri)

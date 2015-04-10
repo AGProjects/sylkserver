@@ -12,7 +12,7 @@ from msrplib.transport import make_response
 from sipsimple.core import SDPAttribute
 from sipsimple.payloads.iscomposing import IsComposingDocument, State, LastActive, Refresh, ContentType
 from sipsimple.streams.applications.chat import CPIMMessage, CPIMParserError
-from sipsimple.streams.msrp import ChatStream as _ChatStream, FileTransferStream as _FileTransferStream
+from sipsimple.streams.msrp import ChatStream as _ChatStream, MSRPStreamBase as _MSRPStreamBase
 from sipsimple.streams.msrp import ChatStreamError, Message, MSRPStreamError, NotificationProxyLogger
 from sipsimple.threading.green import run_in_green_thread
 from sipsimple.util import ISOTimestamp
@@ -20,53 +20,55 @@ from sipsimple.util import ISOTimestamp
 from sylk.configuration import SIPConfig, ServerConfig
 
 
-class MSRPStreamMixin(object):
-
-    @run_in_green_thread
-    def initialize(self, session, direction):
-        self.greenlet = api.getcurrent()
-        notification_center = NotificationCenter()
-        notification_center.add_observer(self, sender=self)
-        try:
-            self.session = session
-            self.transport = self.session.account.msrp.transport
-            outgoing = direction=='outgoing'
-            logger = NotificationProxyLogger()
-            if self.session.account.msrp.connection_model == 'relay':
-                if not outgoing and self.remote_role in ('actpass', 'passive'):
-                    # 'passive' not allowed by the RFC but play nice for interoperability. -Saul
-                    self.msrp_connector = DirectConnector(logger=logger, use_sessmatch=True)
-                    self.local_role = 'active'
-                elif not outgoing:
-                    if self.transport=='tls' and None in (self.session.account.tls_credentials.cert, self.session.account.tls_credentials.key):
-                        raise MSRPStreamError("Cannot accept MSRP connection without a TLS certificate")
-                    self.msrp_connector = DirectAcceptor(logger=logger)
-                    self.local_role = 'passive'
-                else:
-                    # outgoing
-                    self.msrp_connector = DirectConnector(logger=logger, use_sessmatch=True)
-                    self.local_role = 'active'
+@run_in_green_thread
+def MSRPStreamBase_initialize(self, session, direction):
+    self.greenlet = api.getcurrent()
+    notification_center = NotificationCenter()
+    notification_center.add_observer(self, sender=self)
+    try:
+        self.session = session
+        self.transport = self.session.account.msrp.transport
+        outgoing = direction=='outgoing'
+        logger = NotificationProxyLogger()
+        if self.session.account.msrp.connection_model == 'relay':
+            if not outgoing and self.remote_role in ('actpass', 'passive'):
+                # 'passive' not allowed by the RFC but play nice for interoperability. -Saul
+                self.msrp_connector = DirectConnector(logger=logger, use_sessmatch=True)
+                self.local_role = 'active'
+            elif not outgoing:
+                if self.transport=='tls' and None in (self.session.account.tls_credentials.cert, self.session.account.tls_credentials.key):
+                    raise MSRPStreamError("Cannot accept MSRP connection without a TLS certificate")
+                self.msrp_connector = DirectAcceptor(logger=logger)
+                self.local_role = 'passive'
             else:
-                if not outgoing and self.remote_role in ('actpass', 'passive'):
-                    # 'passive' not allowed by the RFC but play nice for interoperability. -Saul
-                    self.msrp_connector = DirectConnector(logger=logger, use_sessmatch=True)
-                    self.local_role = 'active'
-                else:
-                    if not outgoing and self.transport=='tls' and None in (self.session.account.tls_credentials.cert, self.session.account.tls_credentials.key):
-                        raise MSRPStreamError("Cannot accept MSRP connection without a TLS certificate")
-                    self.msrp_connector = DirectAcceptor(logger=logger, use_sessmatch=True)
-                    self.local_role = 'actpass' if outgoing else 'passive'
-            full_local_path = self.msrp_connector.prepare(self.local_uri)
-            self.local_media = self._create_local_media(full_local_path)
-        except Exception, e:
-            notification_center.post_notification('MediaStreamDidNotInitialize', self, NotificationData(reason=str(e)))
+                # outgoing
+                self.msrp_connector = DirectConnector(logger=logger, use_sessmatch=True)
+                self.local_role = 'active'
         else:
-            notification_center.post_notification('MediaStreamDidInitialize', self)
-        finally:
-            self.greenlet = None
+            if not outgoing and self.remote_role in ('actpass', 'passive'):
+                # 'passive' not allowed by the RFC but play nice for interoperability. -Saul
+                self.msrp_connector = DirectConnector(logger=logger, use_sessmatch=True)
+                self.local_role = 'active'
+            else:
+                if not outgoing and self.transport=='tls' and None in (self.session.account.tls_credentials.cert, self.session.account.tls_credentials.key):
+                    raise MSRPStreamError("Cannot accept MSRP connection without a TLS certificate")
+                self.msrp_connector = DirectAcceptor(logger=logger, use_sessmatch=True)
+                self.local_role = 'actpass' if outgoing else 'passive'
+        full_local_path = self.msrp_connector.prepare(self.local_uri)
+        self.local_media = self._create_local_media(full_local_path)
+    except Exception, e:
+        notification_center.post_notification('MediaStreamDidNotInitialize', self, NotificationData(reason=str(e)))
+    else:
+        self._initialized = True
+        notification_center.post_notification('MediaStreamDidInitialize', self)
+    finally:
+        self.greenlet = None
+
+# Monkey-patch the initialize method
+_MSRPStreamBase.initialize = MSRPStreamBase_initialize
 
 
-class ChatStream(MSRPStreamMixin, _ChatStream):
+class ChatStream(_ChatStream):
     priority = _ChatStream.priority + 1
 
     accept_types = ['message/cpim']
@@ -177,14 +179,4 @@ class ChatStream(MSRPStreamMixin, _ChatStream):
         message = Message(message_id, content, IsComposingDocument.content_type, sender=sender, recipients=recipients, failure_report=failure_report, success_report=success_report, notify_progress=notify_progress)
         self._enqueue_message(message)
         return message_id
-
-
-class FileTransferStream(MSRPStreamMixin, _FileTransferStream):
-    priority = _FileTransferStream.priority + 1
-
-    def initialize(self, session, direction):
-        if self.direction == 'sendonly' and self.file_selector.fd is None:
-            NotificationCenter().post_notification('MediaStreamDidNotInitialize', sender=self, data=NotificationData(reason='file descriptor not specified'))
-            return
-        super(FileTransferStream, self).initialize(session, direction)
 

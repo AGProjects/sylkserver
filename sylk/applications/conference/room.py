@@ -25,6 +25,7 @@ from sipsimple.core import SIPCoreError, SIPCoreInvalidStateError, SIPURI
 from sipsimple.core import Header, FromHeader, ToHeader, SubjectHeader
 from sipsimple.lookup import DNSLookup, DNSLookupError
 from sipsimple.payloads import conference
+from sipsimple.streams import MediaStreamRegistry
 from sipsimple.streams.applications.chat import CPIMIdentity, CPIMHeader, Namespace
 from sipsimple.streams.msrp import FileSelector
 from sipsimple.threading import run_in_thread, run_in_twisted_thread
@@ -41,7 +42,6 @@ from sylk.configuration import ServerConfig, ThorNodeConfig
 from sylk.configuration.datatypes import URL
 from sylk.resources import Resources
 from sylk.session import Session, IllegalStateError
-from sylk.streams import FileTransferStream
 
 
 def format_identity(identity):
@@ -1194,7 +1194,7 @@ class OutgoingFileTransferHandler(object):
 
         notification_center = NotificationCenter()
         self.session = Session(account)
-        self.stream = FileTransferStream(self.file.file_selector, 'sendonly')
+        self.stream = MediaStreamRegistry().get('file-transfer')(self.file.file_selector, 'sendonly')
         notification_center.add_observer(self, sender=self.session)
         notification_center.add_observer(self, sender=self.stream)
         from_header = FromHeader(SIPURI.new(self.room_uri), u'Conference File Transfer')
