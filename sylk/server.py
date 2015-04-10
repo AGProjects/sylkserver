@@ -164,15 +164,20 @@ class SylkServer(SIPApplication):
 
     @run_in_green_thread
     def _shutdown_subsystems(self):
+        dns_manager = DNSManager()
+        account_manager = AccountManager()
+        session_manager = SessionManager()
+
+        # terminate all sessions
+        p = proc.spawn(session_manager.stop)
+        p.wait()
+
         # shutdown SylkServer components
         procs = [proc.spawn(self.request_handler.stop), proc.spawn(self.thor_interface.stop)]
         proc.waitall(procs)
 
-        # shutdown middleware components
-        dns_manager = DNSManager()
-        account_manager = AccountManager()
-        session_manager = SessionManager()
-        procs = [proc.spawn(dns_manager.stop), proc.spawn(account_manager.stop), proc.spawn(session_manager.stop)]
+        # shutdown other middleware components
+        procs = [proc.spawn(dns_manager.stop), proc.spawn(account_manager.stop)]
         proc.waitall(procs)
 
         # shutdown engine
