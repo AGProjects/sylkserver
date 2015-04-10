@@ -29,6 +29,7 @@ class ServerConfig(ConfigSection):
     trace_sip = False
     trace_msrp = False
     trace_notifications = False
+    spool_dir = ConfigSetting(type=Path, value=Path(VarResources.get('spool/sylkserver')))
 
 
 class SIPConfig(ConfigSection):
@@ -61,7 +62,6 @@ class RTPConfig(ConfigSection):
     srtp_encryption = ConfigSetting(type=SRTPEncryption, value='opportunistic')
     timeout = ConfigSetting(type=NonNegativeInteger, value=30)
     sample_rate = ConfigSetting(type=SampleRate, value=32000)
-    zrtp_cache_dir = ConfigSetting(type=Path, value=Path(VarResources.get('spool/sylkserver')))
 
 
 class ThorNodeConfig(ConfigSection):

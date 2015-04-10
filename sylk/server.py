@@ -30,7 +30,7 @@ del sylk.streams
 
 from sylk.accounts import DefaultAccount
 from sylk.applications import IncomingRequestHandler
-from sylk.configuration import RTPConfig, ServerConfig, SIPConfig, ThorNodeConfig
+from sylk.configuration import ServerConfig, SIPConfig, ThorNodeConfig
 from sylk.configuration.settings import AccountExtension, BonjourAccountExtension, SylkServerSettingsExtension
 from sylk.log import Logger
 from sylk.session import SessionManager
@@ -142,8 +142,8 @@ class SylkServer(SIPApplication):
         settings.save()
 
         # initialize ZRTP cache
-        makedirs(RTPConfig.zrtp_cache_dir)
-        self.engine.zrtp_cache = os.path.join(RTPConfig.zrtp_cache_dir, 'zrtp.db')
+        makedirs(ServerConfig.spool_dir.normalized)
+        self.engine.zrtp_cache = os.path.join(ServerConfig.spool_dir.normalized, 'zrtp.db')
 
         # initialize middleware components
         dns_manager.start()

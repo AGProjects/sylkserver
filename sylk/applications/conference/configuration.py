@@ -3,14 +3,16 @@
 
 __all__ = ['ConferenceConfig', 'get_room_config']
 
+import os
 import re
 
 from application.configuration import ConfigFile, ConfigSection, ConfigSetting
 from application.configuration.datatypes import StringList, Hostname
 from application.system import host
 
+from sylk.configuration import ServerConfig
 from sylk.configuration.datatypes import IPAddress, Path, Port
-from sylk.resources import Resources, VarResources
+from sylk.resources import Resources
 
 
 # Datatypes
@@ -88,10 +90,10 @@ class ConferenceConfig(ConfigSection):
     allow = ConfigSetting(type=PolicySettingValue, value=PolicySettingValue('all'))
     deny = ConfigSetting(type=PolicySettingValue, value=PolicySettingValue('none'))
 
-    file_transfer_dir = ConfigSetting(type=Path, value=Path(VarResources.get('spool/sylkserver/files')))
+    file_transfer_dir = ConfigSetting(type=Path, value=Path(os.path.join(ServerConfig.spool_dir.normalized, 'conference', 'files')))
     push_file_transfer = False
 
-    screen_sharing_dir = ConfigSetting(type=Path, value=Path(VarResources.get('spool/sylkserver/screensharing')))
+    screen_sharing_dir = ConfigSetting(type=Path, value=Path(os.path.join(ServerConfig.spool_dir.normalized, 'conference', 'screensharing')))
     screen_sharing_ip = ConfigSetting(type=IPAddress, value=IPAddress(host.default_ip))
     screen_sharing_hostname = ConfigSetting(type=Hostname, value=IPAddress(host.default_ip))
     screen_sharing_port = ConfigSetting(type=Port, value=0)
