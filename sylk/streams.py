@@ -102,30 +102,33 @@ class ChatStream(_ChatStream):
         if self.direction=='sendonly':
             self.msrp_session.send_report(chunk, 413, 'Unwanted Message')
             return
-        if chunk.segment is not None:
-            self.incoming_queue.setdefault(chunk.message_id, []).append(chunk.data)
-            if chunk.final:
-                chunk.data = ''.join(self.incoming_queue.pop(chunk.message_id))
-            else:
-                self.msrp_session.send_report(chunk, 200, 'OK')
-                return
         if chunk.content_type.lower() != 'message/cpim':
+            self.incoming_queue.pop(chunk.message_id, None)
             self.msrp_session.send_report(chunk, 415, 'Invalid Content-Type')
             return
+        if chunk.contflag == '#':
+            self.incoming_queue.pop(chunk.message_id, None)
+            self.msrp_session.send_report(chunk, 200, 'OK')
+            return
+        elif chunk.contflag == '+':
+            self.incoming_queue[chunk.message_id].append(chunk.data)
+            self.msrp_session.send_report(chunk, 200, 'OK')
+            return
+        else:
+            data = ''.join(self.incoming_queue.pop(chunk.message_id, [])) + chunk.data
         try:
-            message = CPIMMessage.parse(chunk.data)
+            message = CPIMMessage.parse(data)
         except CPIMParserError:
             self.msrp_session.send_report(chunk, 400, 'CPIM Parser Error')
             return
-        else:
-            if not contains_mime_type(self.accept_wrapped_types, message.content_type):
-                self.msrp_session.send_report(chunk, 413, 'Unwanted Message')
-                return
-            if message.timestamp is None:
-                message.timestamp = ISOTimestamp.now()
-            if message.sender is None:
-                message.sender = self.remote_identity
-            private = self.session.remote_focus and len(message.recipients) == 1 and message.recipients[0] != self.remote_identity
+        if not contains_mime_type(self.accept_wrapped_types, message.content_type):
+            self.msrp_session.send_report(chunk, 415, 'Invalid Content-Type')
+            return
+        if message.timestamp is None:
+            message.timestamp = ISOTimestamp.now()
+        if message.sender is None:
+            message.sender = self.remote_identity
+        private = self.session.remote_focus and len(message.recipients) == 1 and message.recipients[0] != self.remote_identity
         notification_center = NotificationCenter()
         if message.content_type.lower() == IsComposingDocument.content_type:
             data = IsComposingDocument.parse(message.body)
