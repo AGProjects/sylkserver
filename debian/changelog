@@ -1,3 +1,13 @@
+sylkserver (2.9.1) unstable; urgency=medium
+
+  * Add spool_dir setting
+  * Simplify SylkServer's stream subclasses
+  * Stop the session manager first when shutting down
+  * Adapt to API changes in MSRPlib
+  * Refactor file transfers to match API changes in SIP SIMPLE SDK
+
+ -- Saul Ibarra <saul@ag-projects.com>  Wed, 29 Apr 2015 14:17:42 +0200
+
 sylkserver (2.9.0) unstable; urgency=medium
 
   * Added ZRTP and opportunistic encryption support
