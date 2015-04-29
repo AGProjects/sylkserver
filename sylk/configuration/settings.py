@@ -15,7 +15,7 @@ from sipsimple.account import RTPSettings as AccountRTPSettings, SIPSettings as 
 from sipsimple.account import MessageSummarySettings as AccountMessageSummarySettings, PresenceSettings as AccountPresenceSettingss, XCAPSettings as AccountXCAPSettings
 from sipsimple.configuration import CorrelatedSetting, Setting, SettingsObjectExtension
 from sipsimple.configuration.datatypes import MSRPConnectionModel, MSRPTransport, NonNegativeInteger, PortRange, SampleRate, SIPTransportList, SRTPKeyNegotiation
-from sipsimple.configuration.settings import AudioSettings, EchoCancellerSettings, LogsSettings, RTPSettings, SIPSettings, TLSSettings
+from sipsimple.configuration.settings import AudioSettings, EchoCancellerSettings, FileTransferSettings, LogsSettings, RTPSettings, SIPSettings, TLSSettings
 
 from sylk import __version__ as server_version
 from sylk.configuration import ServerConfig, SIPConfig, MSRPConfig, RTPConfig
@@ -109,6 +109,10 @@ class AudioSettingsExtension(AudioSettings):
     echo_canceller = EchoCancellerSettings
 
 
+class FileTransferSettingsExtension(FileTransferSettings):
+    directory = Setting(type=Path, default=Path(os.path.join(ServerConfig.spool_dir.normalized, 'file_transfers')))
+
+
 class LogsSettingsExtension(LogsSettings):
     directory = Setting(type=Path, default=ServerConfig.trace_dir)
     trace_sip = Setting(type=bool, default=ServerConfig.trace_sip)
@@ -158,6 +162,7 @@ class SylkServerSettingsExtension(SettingsObjectExtension):
     user_agent = Setting(type=str, default='SylkServer-%s' % server_version)
 
     audio = AudioSettingsExtension
+    file_transfer = FileTransferSettingsExtension
     logs = LogsSettingsExtension
     rtp = RTPSettingsExtension
     sip = SIPSettingsExtension

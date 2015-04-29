@@ -1,7 +1,6 @@
 # Copyright (C) 2010-2011 AG Projects. See LICENSE for details
 #
 
-import mimetypes
 import os
 import re
 import shutil
@@ -118,53 +117,46 @@ class ConferenceApplication(SylkApplication):
             log.msg(u'Session rejected: invalid media, only RTP audio and MSRP chat are supported')
             session.reject(488)
             return
+        audio_stream = audio_streams[0] if audio_streams else None
+        chat_stream = chat_streams[0] if chat_streams else None
+        transfer_stream = transfer_streams[0] if transfer_streams else None
+
         try:
             self.validate_acl(session.request_uri, session.remote_identity.uri)
         except ACLValidationError:
             log.msg(u'Session rejected: unauthorized by access list')
             session.reject(403)
             return
-        # Check if requested files belong to this room
-        for stream in (stream for stream in transfer_streams if stream.direction == 'sendonly'):
+
+        if transfer_stream is not None:
             try:
                 room = self.get_room(session.request_uri)
             except RoomNotFoundError:
                 log.msg(u'Session rejected: room not found')
                 session.reject(404)
                 return
-            try:
-                file = next(file for file in room.files if file.hash == stream.file_selector.hash)
-            except StopIteration:
-                log.msg(u'Session rejected: requested file not found')
-                session.reject(404)
-                return
-            filename = os.path.basename(file.name)
-            for dirpath, dirnames, filenames in os.walk(os.path.join(ConferenceConfig.file_transfer_dir, room.uri)):
-                if filename in filenames:
-                    path = os.path.join(dirpath, filename)
-                    stream.file_selector.fd = open(path, 'r')
-                    if stream.file_selector.size is None:
-                        stream.file_selector.size = os.fstat(stream.file_selector.fd.fileno()).st_size
-                    if stream.file_selector.type is None:
-                        mime_type, encoding = mimetypes.guess_type(filename)
-                        if encoding is not None:
-                            type = 'application/x-%s' % encoding
-                        elif mime_type is not None:
-                            type = mime_type
-                        else:
-                            type = 'application/octet-stream'
-                        stream.file_selector.type = type
-                    break
+            if transfer_stream.direction == 'sendonly':
+                # file transfer 'pull'
+                try:
+                    file = next(file for file in room.files if file.hash == transfer_stream.file_selector.hash)
+                except StopIteration:
+                    log.msg(u'Session rejected: requested file not found')
+                    session.reject(404)
+                    return
+                try:
+                    transfer_stream.file_selector = file.file_selector
+                except EnvironmentError, e:
+                    log.msg(u'Session rejected: error opening requested file: %s' % e)
+                    session.reject(404)
+                    return
             else:
-                # File got removed from the filesystem
-                log.msg(u'Session rejected: requested file removed from the filesystem')
-                session.reject(404)
-                return
+                transfer_stream.handler.save_directory = os.path.join(ConferenceConfig.file_transfer_dir.normalized, room.uri)
+
         NotificationCenter().add_observer(self, sender=session)
-        if audio_streams:
+        if audio_stream:
             session.send_ring_indication()
-        streams = [streams[0] for streams in (audio_streams, chat_streams, transfer_streams) if streams]
-        reactor.callLater(4 if audio_streams else 0, self.accept_session, session, streams)
+        streams = [stream for stream in (audio_stream, chat_stream, transfer_stream) if stream]
+        reactor.callLater(4 if audio_stream is not None else 0, self.accept_session, session, streams)
 
     def incoming_subscription(self, subscribe_request, data):
         from_header = data.headers.get('From', Null)
