@@ -93,7 +93,10 @@ def load_builtin_applications():
     toplevel = os.path.dirname(__file__)
     app_list = [item for item in os.listdir(toplevel) if os.path.isdir(os.path.join(toplevel, item)) and '__init__.py' in os.listdir(os.path.join(toplevel, item))]
     for module in ['sylk.applications.%s' % item for item in set(app_list).difference(ServerConfig.disabled_applications)]:
-        __import__(module)
+        try:
+            __import__(module)
+        except ImportError, e:
+            log.warning('Error loading builtin "%s" application: %s' % (module, e))
 
 def load_extra_applications():
     if ServerConfig.extra_applications_dir:
@@ -102,12 +105,19 @@ def load_extra_applications():
             app_list = [item for item in os.listdir(toplevel) if os.path.isdir(os.path.join(toplevel, item)) and '__init__.py' in os.listdir(os.path.join(toplevel, item))]
             sys.path.append(toplevel)
             for module in (item for item in set(app_list).difference(ServerConfig.disabled_applications)):
-                __import__(module)
+                try:
+                    __import__(module)
+                except ImportError:
+                    log.warning('Error loading extra "%s" application: %s' % (module, e))
 
 def load_applications():
     load_builtin_applications()
     load_extra_applications()
-    [app() for app in ApplicationRegistry()]
+    for app in ApplicationRegistry():
+        try:
+            app()
+        except Exception, e:
+            log.warning('Error loading application: %s' % e)
 
 
 class ApplicationNotLoadedError(Exception):
@@ -134,7 +144,11 @@ class IncomingRequestHandler(object):
         self.authorization_handler = AuthorizationHandler()
 
     def start(self):
-        [app().start() for app in ApplicationRegistry()]
+        for app in ApplicationRegistry():
+            try:
+                app().start()
+            except Exception, e:
+                log.warning('Error starting application: %s' % e)
         self.authorization_handler.start()
         notification_center = NotificationCenter()
         notification_center.add_observer(self, name='SIPSessionNewIncoming')
@@ -149,7 +163,11 @@ class IncomingRequestHandler(object):
         notification_center.remove_observer(self, name='SIPIncomingSubscriptionGotSubscribe')
         notification_center.remove_observer(self, name='SIPIncomingReferralGotRefer')
         notification_center.remove_observer(self, name='SIPIncomingRequestGotRequest')
-        [app().stop() for app in ApplicationRegistry()]
+        for app in ApplicationRegistry():
+            try:
+                app().stop()
+            except Exception, e:
+                log.warning('Error stopping application: %s' % e)
 
     def get_application(self, ruri, headers):
         if SYLK_APP_HEADER in headers:
