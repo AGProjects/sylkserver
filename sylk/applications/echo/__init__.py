@@ -25,11 +25,12 @@ def format_identity(identity):
 class EchoApplication(SylkApplication):
     implements(IObserver)
 
-    def start(self):
+    def __init__(self):
         self.pending = set()
         self.sessions = set()
-        self.bonjour_services = []
+        self.bonjour_services = set()
 
+    def start(self):
         if ServerConfig.enable_bonjour:
             application_map = dict((item.split(':')) for item in ServerConfig.application_map)
             for uri, app in application_map.iteritems():
@@ -37,14 +38,14 @@ class EchoApplication(SylkApplication):
                     service = BonjourService(service='sipuri', name='Echo Test', uri_user=uri, is_focus=False)
                     service.start()
                     service.presence_state = BonjourPresenceState('available', u'Call me to test your client')
-                    self.bonjour_services.append(service)
+                    self.bonjour_services.add(service)
 
     def stop(self):
         self.pending.clear()
         self.sessions.clear()
         for service in self.bonjour_services:
             service.stop()
-        del self.bonjour_services[:]
+        self.bonjour_services.clear()
 
     def incoming_session(self, session):
         log.msg(u'New incoming session %s from %s' % (session.call_id, format_identity(session.remote_identity)))
