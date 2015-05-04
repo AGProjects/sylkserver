@@ -20,7 +20,7 @@ from zope.interface import implements
 
 from sylk.accounts import DefaultAccount
 from sylk.applications import SylkApplication
-from sylk.applications.conference.configuration import get_room_config, ConferenceConfig
+from sylk.applications.conference.configuration import get_room_config, ConferenceConfig, ScreenSharingConfig
 from sylk.applications.conference.logger import log
 from sylk.applications.conference.room import Room
 from sylk.applications.conference.web import ScreenSharingWebServer
@@ -47,7 +47,7 @@ class ConferenceApplication(SylkApplication):
 
     def start(self):
         # cleanup old files
-        for path in (ConferenceConfig.file_transfer_dir, ConferenceConfig.screen_sharing_dir):
+        for path in (ConferenceConfig.file_transfer_dir, ScreenSharingConfig.directory):
             try:
                 shutil.rmtree(path)
             except EnvironmentError:
@@ -61,18 +61,15 @@ class ConferenceApplication(SylkApplication):
             self.bonjour_room_service.start()
             self.bonjour_room_service.presence_state = BonjourPresenceState('available', u'No participants')
             log.msg("Bonjour publication started for service 'sipuri'")
-        self.screen_sharing_web_server = ScreenSharingWebServer(ConferenceConfig.screen_sharing_dir)
-        if ConferenceConfig.screen_sharing_use_https and os.path.isfile(ConferenceConfig.screen_sharing_certificate):
-            cert = Certificate(ConferenceConfig.screen_sharing_certificate.normalized)
-            key = PrivateKey(ConferenceConfig.screen_sharing_certificate.normalized)
+        self.screen_sharing_web_server = ScreenSharingWebServer(ScreenSharingConfig.directory)
+        if os.path.isfile(ScreenSharingConfig.certificate):
+            cert = Certificate(ScreenSharingConfig.certificate.normalized)
+            key = PrivateKey(ScreenSharingConfig.certificate.normalized)
             credentials = X509Credentials(cert, key)
-            transport = 'https'
         else:
             credentials = None
-            transport = 'http'
-        self.screen_sharing_web_server.start(ConferenceConfig.screen_sharing_ip, ConferenceConfig.screen_sharing_port, credentials)
-        listen_address = self.screen_sharing_web_server.listener.getHost()
-        log.msg("ScreenSharing listener started on %s://%s:%d" % (transport, listen_address.host, listen_address.port))
+        self.screen_sharing_web_server.start(ScreenSharingConfig.local_ip, ScreenSharingConfig.local_port, credentials)
+        log.msg("ScreenSharing listener started on %s" % self.screen_sharing_web_server.url)
 
     def stop(self):
         self.bonjour_focus_service.stop()

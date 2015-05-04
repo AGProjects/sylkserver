@@ -64,7 +64,6 @@ class ScreenSharingWebsite(resource.Resource):
 
 
 class ScreenSharingWebServer(object):
-
     def __init__(self, images_path):
         root = resource.Resource()
         home = ScreenSharingWebsite(images_path)
@@ -74,6 +73,19 @@ class ScreenSharingWebServer(object):
 
         self.site = server.Site(root, logPath=os.devnull)
         self.listener = None
+        self.scheme = None
+
+    @property
+    def url(self):
+        if self.listener is None:
+            return ''
+        return '%s://%s:%d' % (self.scheme, self.host, self.port)
+
+    @property
+    def host(self):
+        if self.listener is None:
+            return ''
+        return self.listener.getHost().host
 
     @property
     def port(self):
@@ -84,8 +96,10 @@ class ScreenSharingWebServer(object):
     def start(self, interface, port, credentials):
         if credentials is None:
             self.listener = reactor.listenTCP(port, self.site, interface=interface)
+            self.scheme = 'http'
         else:
             self.listener = reactor.listenTLS(port, self.site, credentials, interface=interface)
+            self.scheme = 'https'
 
     def stop(self):
         self.listener.stopListening()

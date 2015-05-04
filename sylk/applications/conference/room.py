@@ -33,7 +33,7 @@ from twisted.internet import reactor
 from zope.interface import implements
 
 from sylk.accounts import DefaultAccount
-from sylk.applications.conference.configuration import get_room_config, ConferenceConfig
+from sylk.applications.conference.configuration import get_room_config, ConferenceConfig, ScreenSharingConfig
 from sylk.applications.conference.logger import log
 from sylk.bonjour import BonjourService
 from sylk.configuration import ServerConfig, ThorNodeConfig
@@ -55,12 +55,9 @@ class ScreenImage(object):
         self.room = weakref.ref(room)
         self.room_uri = room.uri
         self.sender = sender
-        self.filename = os.path.join(ConferenceConfig.screen_sharing_dir, room.uri, '%s@%s_%s.jpg' % (sender.uri.user, sender.uri.host, ''.join(random.sample(string.letters+string.digits, 10))))
+        self.filename = os.path.join(ScreenSharingConfig.directory, room.uri, '%s@%s_%s.jpg' % (sender.uri.user, sender.uri.host, ''.join(random.sample(string.letters+string.digits, 10))))
         from sylk.applications.conference import ConferenceApplication
-        port = ConferenceApplication().screen_sharing_web_server.port
-        scheme = 'https' if ConferenceConfig.screen_sharing_use_https else 'http'
-        host = ConferenceConfig.screen_sharing_hostname or ConferenceConfig.screen_sharing_ip.normalized
-        self.url = URL('%s://%s:%s/' % (scheme, host, port))
+        self.url = URL(ConferenceApplication().screen_sharing_web_server.url)
         self.url.query_items['image'] = os.path.join(room.uri, os.path.basename(self.filename))
         self.state = None
         self.timer = None
@@ -251,7 +248,7 @@ class Room(object):
             shutil.rmtree(path)
         except EnvironmentError:
             pass
-        path = os.path.join(ConferenceConfig.screen_sharing_dir, self.uri)
+        path = os.path.join(ScreenSharingConfig.directory, self.uri)
         try:
             shutil.rmtree(path)
         except EnvironmentError:

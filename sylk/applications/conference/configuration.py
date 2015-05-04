@@ -93,17 +93,21 @@ class ConferenceConfig(ConfigSection):
     file_transfer_dir = ConfigSetting(type=Path, value=Path(os.path.join(ServerConfig.spool_dir.normalized, 'conference', 'files')))
     push_file_transfer = False
 
-    screen_sharing_dir = ConfigSetting(type=Path, value=Path(os.path.join(ServerConfig.spool_dir.normalized, 'conference', 'screensharing')))
-    screen_sharing_ip = ConfigSetting(type=IPAddress, value=IPAddress(host.default_ip))
-    screen_sharing_hostname = ConfigSetting(type=Hostname, value=IPAddress(host.default_ip))
-    screen_sharing_port = ConfigSetting(type=Port, value=0)
-    screen_sharing_use_https = True
-    screen_sharing_certificate = ConfigSetting(type=Path, value=Path(Resources.get('tls/default.crt')))
-
     advertise_xmpp_support = True
     pstn_access_numbers = ConfigSetting(type=StringList, value='')
 
     zrtp_auto_verify = True
+
+
+class ScreenSharingConfig(ConfigSection):
+    __cfgfile__ = 'conference.ini'
+    __section__ = 'ScreenSharing'
+
+    directory = ConfigSetting(type=Path, value=Path(os.path.join(ServerConfig.spool_dir.normalized, 'conference', 'screensharing')))
+    local_ip = ConfigSetting(type=IPAddress, value=IPAddress(host.default_ip))
+    local_port = ConfigSetting(type=Port, value=0)
+    hostname = ConfigSetting(type=Hostname, value=IPAddress(host.default_ip))
+    certificate = ConfigSetting(type=Path, value=Path(Resources.get('tls/default.crt')))
 
 
 class RoomConfig(ConfigSection):
