@@ -118,6 +118,7 @@ def load_applications():
             app()
         except Exception, e:
             log.warning('Error loading application: %s' % e)
+            log.err()
 
 
 class ApplicationNotLoadedError(Exception):
@@ -149,6 +150,7 @@ class IncomingRequestHandler(object):
                 app().start()
             except Exception, e:
                 log.warning('Error starting application: %s' % e)
+                log.err()
         self.authorization_handler.start()
         notification_center = NotificationCenter()
         notification_center.add_observer(self, name='SIPSessionNewIncoming')
@@ -168,6 +170,7 @@ class IncomingRequestHandler(object):
                 app().stop()
             except Exception, e:
                 log.warning('Error stopping application: %s' % e)
+                log.err()
 
     def get_application(self, ruri, headers):
         if SYLK_APP_HEADER in headers:
