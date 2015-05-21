@@ -976,7 +976,7 @@ class RoomFile(object):
 
     @property
     def file_selector(self):
-        return FileSelector.for_file(os.path.join(self.directory, self.name), hash=self.hash)
+        return FileSelector.for_file(self.name, hash=self.hash)
 
 
 class FileTransferHandler(object):
