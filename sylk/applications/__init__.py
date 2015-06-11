@@ -107,7 +107,7 @@ def load_extra_applications():
             for module in (item for item in set(app_list).difference(ServerConfig.disabled_applications)):
                 try:
                     __import__(module)
-                except ImportError:
+                except ImportError, e:
                     log.warning('Error loading extra "%s" application: %s' % (module, e))
 
 def load_applications():
