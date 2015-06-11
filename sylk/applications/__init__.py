@@ -9,6 +9,8 @@ import socket
 import struct
 import sys
 
+from collections import defaultdict
+
 from application import log
 from application.configuration.datatypes import NetworkRange
 from application.notification import IObserver, NotificationCenter
@@ -142,6 +144,16 @@ class IncomingRequestHandler(object):
         else:
             log.msg('Default application: %s' % ServerConfig.default_application)
         self.application_map = dict((item.split(':')) for item in ServerConfig.application_map)
+        if self.application_map:
+            txt = 'Application map:\n'
+            invert_app_map = defaultdict(list)
+            for url, app in self.application_map.iteritems():
+                invert_app_map[app].append(url)
+            for app, urls in invert_app_map.iteritems():
+                txt += '    * %s:\n' % app
+                for url in urls:
+                    txt += '        - %s\n' % url
+            log.msg(txt[:-1])
         self.authorization_handler = AuthorizationHandler()
 
     def start(self):
