@@ -41,7 +41,7 @@ certificate = /etc/sylkserver/tls/default.crt
 ; enable_bonjour = False
 
 ; Base directory for files created by the server, exclusing log files
-; spool_dir = /var/spool/syslkserver
+; spool_dir = /var/spool/sylkserver
 
 
 [SIP]
