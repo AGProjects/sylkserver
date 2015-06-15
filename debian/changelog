@@ -1,3 +1,16 @@
+sylkserver (2.10.0) unstable; urgency=medium
+
+  * Add global web server that applications can tap into
+  * Refactor web capabilities of conference application
+  * Make loading and starting applications more resilient
+  * Log exceptions when initializing/starting/stopping applications
+  * Log application map on startup
+  * Reorganized some code in the echo application
+  * Fix building FileSelector objects out of RoomFile objects
+  * Fixed using undefined variable
+
+ -- Saul Ibarra <saul@ag-projects.com>  Mon, 15 Jun 2015 16:17:26 +0200
+
 sylkserver (2.9.1) unstable; urgency=medium
 
   * Add spool_dir setting
