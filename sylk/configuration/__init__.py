@@ -64,6 +64,16 @@ class RTPConfig(ConfigSection):
     sample_rate = ConfigSetting(type=SampleRate, value=32000)
 
 
+class WebServerConfig(ConfigSection):
+    __cfgfile__ = configuration_filename
+    __section__ = 'WebServer'
+
+    local_ip = ConfigSetting(type=IPAddress, value=IPAddress(host.default_ip))
+    local_port = ConfigSetting(type=Port, value=8088)
+    hostname = ''
+    certificate = ConfigSetting(type=Path, value=Path(Resources.get('tls/default.crt')))
+
+
 class ThorNodeConfig(ConfigSection):
     __cfgfile__ = configuration_filename
     __section__ = 'ThorNetwork'
