@@ -7,7 +7,6 @@ import shutil
 
 from application.notification import IObserver, NotificationCenter
 from application.python import Null
-from gnutls.interfaces.twisted import X509Credentials
 from sipsimple.account.bonjour import BonjourPresenceState
 from sipsimple.configuration.settings import SIPSimpleSettings
 from sipsimple.core import SIPURI, SIPCoreError
@@ -20,14 +19,14 @@ from zope.interface import implements
 
 from sylk.accounts import DefaultAccount
 from sylk.applications import SylkApplication
-from sylk.applications.conference.configuration import get_room_config, ConferenceConfig, ScreenSharingConfig
+from sylk.applications.conference.configuration import get_room_config, ConferenceConfig
 from sylk.applications.conference.logger import log
 from sylk.applications.conference.room import Room
-from sylk.applications.conference.web import ScreenSharingWebServer
+from sylk.applications.conference.web import ConferenceWeb
 from sylk.bonjour import BonjourService
 from sylk.configuration import ServerConfig, ThorNodeConfig
 from sylk.session import Session, IllegalStateError
-from sylk.tls import Certificate, PrivateKey
+from sylk.web import server as web_server
 
 
 class ACLValidationError(Exception): pass
@@ -43,11 +42,14 @@ class ConferenceApplication(SylkApplication):
         self.invited_participants_map = {}
         self.bonjour_focus_service = Null
         self.bonjour_room_service = Null
-        self.screen_sharing_web_server = None
+        self.web = Null
 
     def start(self):
+        self.web = ConferenceWeb(self)
+        web_server.register_resource('conference', self.web.resource())
+
         # cleanup old files
-        for path in (ConferenceConfig.file_transfer_dir, ScreenSharingConfig.directory):
+        for path in (ConferenceConfig.file_transfer_dir, ConferenceConfig.screensharing_images_dir):
             try:
                 shutil.rmtree(path)
             except EnvironmentError:
@@ -61,20 +63,10 @@ class ConferenceApplication(SylkApplication):
             self.bonjour_room_service.start()
             self.bonjour_room_service.presence_state = BonjourPresenceState('available', u'No participants')
             log.msg("Bonjour publication started for service 'sipuri'")
-        self.screen_sharing_web_server = ScreenSharingWebServer(ScreenSharingConfig.directory)
-        if os.path.isfile(ScreenSharingConfig.certificate):
-            cert = Certificate(ScreenSharingConfig.certificate.normalized)
-            key = PrivateKey(ScreenSharingConfig.certificate.normalized)
-            credentials = X509Credentials(cert, key)
-        else:
-            credentials = None
-        self.screen_sharing_web_server.start(ScreenSharingConfig.local_ip, ScreenSharingConfig.local_port, credentials)
-        log.msg("ScreenSharing listener started on %s" % self.screen_sharing_web_server.url)
 
     def stop(self):
         self.bonjour_focus_service.stop()
         self.bonjour_room_service.stop()
-        self.screen_sharing_web_server.stop()
 
     def get_room(self, uri, create=False):
         room_uri = '%s@%s' % (uri.user, uri.host)

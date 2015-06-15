@@ -7,12 +7,10 @@ import os
 import re
 
 from application.configuration import ConfigFile, ConfigSection, ConfigSetting
-from application.configuration.datatypes import StringList, Hostname
-from application.system import host
+from application.configuration.datatypes import StringList
 
 from sylk.configuration import ServerConfig
-from sylk.configuration.datatypes import IPAddress, Path, Port
-from sylk.resources import Resources
+from sylk.configuration.datatypes import Path
 
 
 # Datatypes
@@ -93,21 +91,12 @@ class ConferenceConfig(ConfigSection):
     file_transfer_dir = ConfigSetting(type=Path, value=Path(os.path.join(ServerConfig.spool_dir.normalized, 'conference', 'files')))
     push_file_transfer = False
 
+    screensharing_images_dir = ConfigSetting(type=Path, value=Path(os.path.join(ServerConfig.spool_dir.normalized, 'conference', 'screensharing')))
+
     advertise_xmpp_support = True
     pstn_access_numbers = ConfigSetting(type=StringList, value='')
 
     zrtp_auto_verify = True
-
-
-class ScreenSharingConfig(ConfigSection):
-    __cfgfile__ = 'conference.ini'
-    __section__ = 'ScreenSharing'
-
-    directory = ConfigSetting(type=Path, value=Path(os.path.join(ServerConfig.spool_dir.normalized, 'conference', 'screensharing')))
-    local_ip = ConfigSetting(type=IPAddress, value=IPAddress(host.default_ip))
-    local_port = ConfigSetting(type=Port, value=0)
-    hostname = ConfigSetting(type=Hostname, value=IPAddress(host.default_ip))
-    certificate = ConfigSetting(type=Path, value=Path(Resources.get('tls/default.crt')))
 
 
 class RoomConfig(ConfigSection):

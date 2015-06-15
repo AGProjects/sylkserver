@@ -33,13 +33,14 @@ from twisted.internet import reactor
 from zope.interface import implements
 
 from sylk.accounts import DefaultAccount
-from sylk.applications.conference.configuration import get_room_config, ConferenceConfig, ScreenSharingConfig
+from sylk.applications.conference.configuration import get_room_config, ConferenceConfig
 from sylk.applications.conference.logger import log
 from sylk.bonjour import BonjourService
 from sylk.configuration import ServerConfig, ThorNodeConfig
 from sylk.configuration.datatypes import URL
 from sylk.resources import Resources
 from sylk.session import Session, IllegalStateError
+from sylk.web import server as web_server
 
 
 def format_identity(identity):
@@ -55,10 +56,9 @@ class ScreenImage(object):
         self.room = weakref.ref(room)
         self.room_uri = room.uri
         self.sender = sender
-        self.filename = os.path.join(ScreenSharingConfig.directory, room.uri, '%s@%s_%s.jpg' % (sender.uri.user, sender.uri.host, ''.join(random.sample(string.letters+string.digits, 10))))
-        from sylk.applications.conference import ConferenceApplication
-        self.url = URL(ConferenceApplication().screen_sharing_web_server.url)
-        self.url.query_items['image'] = os.path.join(room.uri, os.path.basename(self.filename))
+        self.filename = os.path.join(ConferenceConfig.screensharing_images_dir, room.uri, '%s@%s_%s.jpg' % (sender.uri.user, sender.uri.host, ''.join(random.sample(string.letters+string.digits, 10))))
+        self.url = URL(web_server.url + '/conference/' + room.uri + '/screensharing')
+        self.url.query_items['image'] = os.path.basename(self.filename)
         self.state = None
         self.timer = None
 
@@ -248,7 +248,7 @@ class Room(object):
             shutil.rmtree(path)
         except EnvironmentError:
             pass
-        path = os.path.join(ScreenSharingConfig.directory, self.uri)
+        path = os.path.join(ConferenceConfig.screensharing_images_dir, self.uri)
         try:
             shutil.rmtree(path)
         except EnvironmentError:

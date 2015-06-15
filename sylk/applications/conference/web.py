@@ -1,106 +1,85 @@
 # Copyright (C) 2011 AG Projects. See LICENSE for details
 #
 
-__all__ = ['ScreenSharingWebServer']
-
 import os
 import urllib
 
-from twisted.web import server, static, resource
-from twisted.internet import reactor
+from application.python.types import Singleton
+from twisted.web.resource import ErrorPage, NoResource
+from twisted.web.static import File
+
+from sylk.applications.conference.configuration import ConferenceConfig
+from sylk.web import Klein
 
 
-html_template = """
-<html>
-<head>
-    <title>SylkServer Screen Sharing</title>
-</head>
+class ConferenceWeb(object):
+    __metaclass__ = Singleton
 
-<script type="text/javascript">
-    var today = new Date();
-    var c = today.getTime();
+    app = Klein()
 
-    function reloadScreen()
-    {
-        document.screenImage.src = "%(image)s" + "?" + c;
-        c = c + 1;
-    }
+    screensharing_template = """
+        <html>
+        <head>
+            <title>SylkServer Screen Sharing</title>
+        </head>
+        <script type="text/javascript">
+            var today = new Date();
+            var c = today.getTime();
 
-    function startTimer()
-    {
-        setTimeout('reloadScreen()', 1000);
-    }
-</script>
+            function reloadScreen() {
+                document.screenImage.src = "%(image)s" + "?" + c;
+                c = c + 1;
+            }
 
-<body bgcolor="#999999">
-    <div>
-        <img src='%(image)s' name='screenImage' onload='startTimer()' style='position: relative; top: 0px; margin: 0px 0px 0px 0px; clear: both; float: left; %(width)s' />
-    </div>
-</body>
+            function startTimer() {
+                setTimeout('reloadScreen()', 1000);
+            }
+        </script>
+        <body bgcolor="#999999">
+            <div>
+                <img src='%(image)s' name='screenImage' onload='startTimer()' style='position: relative; top: 0px; margin: 0px 0px 0px 0px; clear: both; float: left; %(width)s' />
+            </div>
+        </body>
+        </html>
+    """
 
-</html>
+    def __init__(self, conference):
+        self.conference = conference
 
-"""
+    def resource(self):
+        return self.app.resource()
 
+    @app.route('/')
+    def home(self, request):
+        return NoResource('Nothing to see here, move along.')
 
-class ScreenSharingWebsite(resource.Resource):
-    isLeaf = True
+    @app.route('/<string:room_uri>')
+    def room(self, request, room_uri):
+        return NoResource('Nothing to see here, move along.')
 
-    def __init__(self, path):
-        self.base_path = os.path.realpath(path)
-        resource.Resource.__init__(self)
-
-    def render_GET(self, request):
+    @app.route('/<string:room_uri>/screensharing')
+    def scheensharing(self, request, room_uri):
+        try:
+            room = self.conference._rooms[room_uri]
+        except KeyError:
+            return NoResource('Room not found')
+        request.setHeader('Content-Type', 'text/html; charset=utf-8')
         if 'image' not in request.args or not request.args.get('image', [''])[0].endswith('jpg'):
-            return "<html><body>Screenshot image not provided</body></html>"
-        image_path = urllib.unquote(request.args['image'][0])
-        if os.path.commonprefix([os.path.realpath(os.path.join(self.base_path, image_path)), self.base_path]) != self.base_path:
-            return "<html><body>Screenshot image is not readable</body></html>"
-        if not os.path.isfile(os.path.join(self.base_path, image_path)):
-            return "<html><body>Screenshot image is not readable</body></html>"
-        image = os.path.join('/img', image_path)
+            return ErrorPage(400, 'Bad Request', '\"image\" not provided')
+        images_path = os.path.join(ConferenceConfig.screensharing_images_dir, room.uri)
+        image_path = os.path.basename(urllib.unquote(request.args['image'][0]))
+        if not os.path.isfile(os.path.join(images_path, image_path)):
+            return NoResource('Image not found')
+        image = os.path.join('screensharing_img', image_path)
         width = 'width: 100%' if 'fit' in request.args else ''
-        return html_template % dict(image=image, width=width)
+        return self.screensharing_template % dict(image=image, width=width)
 
-
-class ScreenSharingWebServer(object):
-    def __init__(self, images_path):
-        root = resource.Resource()
-        home = ScreenSharingWebsite(images_path)
-        img_resource = static.File(images_path)
-        root.putChild('', home)
-        root.putChild('img', img_resource)
-
-        self.site = server.Site(root, logPath=os.devnull)
-        self.listener = None
-        self.scheme = None
-
-    @property
-    def url(self):
-        if self.listener is None:
-            return ''
-        return '%s://%s:%d' % (self.scheme, self.host, self.port)
-
-    @property
-    def host(self):
-        if self.listener is None:
-            return ''
-        return self.listener.getHost().host
-
-    @property
-    def port(self):
-        if self.listener is None:
-            return 0
-        return self.listener.getHost().port
-
-    def start(self, interface, port, credentials):
-        if credentials is None:
-            self.listener = reactor.listenTCP(port, self.site, interface=interface)
-            self.scheme = 'http'
-        else:
-            self.listener = reactor.listenTLS(port, self.site, credentials, interface=interface)
-            self.scheme = 'https'
-
-    def stop(self):
-        self.listener.stopListening()
+    @app.route('/<string:room_uri>/screensharing_img/<string:filename>')
+    def screensharing_image(self, request, room_uri, filename):
+        try:
+            room = self.conference._rooms[room_uri]
+        except KeyError:
+            return NoResource('Room not found')
+        images_path = os.path.join(ConferenceConfig.screensharing_images_dir, room.uri)
+        return File(os.path.join(images_path, os.path.basename(filename)))
 
