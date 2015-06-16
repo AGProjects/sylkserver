@@ -65,6 +65,10 @@ Install the required dependencies:
  * python-sipsimple http://sipsimpleclient.org
  * python-sqlobject (>= 0.12.4)
  * python-twisted
+ * python-werkzeug
+
+Optionally, install the following packages for extra functionality:
+
  * python-wokkel http://wokkel.ik.nu/
 
 To run SylkServer in the foreground:
