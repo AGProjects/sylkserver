@@ -1,3 +1,9 @@
+sylkserver (2.10.1) unstable; urgency=medium
+
+  * Added missing dependency on python-werkzeug
+
+ -- Saul Ibarra <saul@ag-projects.com>  Tue, 16 Jun 2015 15:50:52 +0200
+
 sylkserver (2.10.0) unstable; urgency=medium
 
   * Add global web server that applications can tap into
