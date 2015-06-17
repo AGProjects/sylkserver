@@ -40,7 +40,7 @@ certificate = /etc/sylkserver/tls/default.crt
 ; Enable Bonjour capabilities for applications
 ; enable_bonjour = False
 
-; Base directory for files created by the server, exclusing log files
+; Base directory for files created by the server, excluding log files
 ; spool_dir = /var/spool/sylkserver
 
 
