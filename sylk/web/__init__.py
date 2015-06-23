@@ -7,14 +7,13 @@ import os
 
 from application import log
 from application.python.types import Singleton
-from gnutls.interfaces.twisted import X509Credentials
 from twisted.internet import reactor
+from twisted.internet.ssl import DefaultOpenSSLContextFactory
 from twisted.web.resource import Resource
 from twisted.web.server import Site
 
 from sylk import __version__
 from sylk.configuration import WebServerConfig
-from sylk.tls import Certificate, PrivateKey
 from sylk.web.klein import Klein
 
 # Set the 'Server' header string which Twisted Web will use
@@ -49,14 +48,21 @@ class WebServer(object):
     def start(self):
         interface = WebServerConfig.local_ip
         port = WebServerConfig.local_port
-        if os.path.isfile(WebServerConfig.certificate):
-            cert = Certificate(WebServerConfig.certificate.normalized)
-            key = PrivateKey(WebServerConfig.certificate.normalized)
-            credentials = X509Credentials(cert, key)
-            self.listener = reactor.listenTLS(port, self.site, credentials, interface=interface)
+        cert_path = WebServerConfig.certificate.normalized if WebServerConfig.certificate else None
+        if cert_path is not None:
+            if not os.path.isfile(cert_path):
+                log.error('Certificate file could not be found')
+                return
+            try:
+                ssl_context = DefaultOpenSSLContextFactory(cert_path, cert_path)
+            except Exception:
+                log.exception('Creating SSL context')
+                log.err()
+                return
+            self.listener = reactor.listenSSL(port, self.site, ssl_context, backlog=511, interface=interface)
             scheme = 'https'
         else:
-            self.listener = reactor.listenTCP(port, self.site, interface=interface)
+            self.listener = reactor.listenTCP(port, self.site, backlog=511, interface=interface)
             scheme = 'http'
         port = self.listener.getHost().port
         self.__dict__['url'] = '%s://%s:%d' % (scheme, WebServerConfig.hostname or interface.normalized, port)
