@@ -36,6 +36,7 @@ class WebServer(object):
         self.base = Resource()
         self.base.putChild('', RootResource())
         self.site = Site(self.base, logPath=os.devnull)
+        self.site.noisy = False
         self.listener = None
 
     @property
