@@ -52,7 +52,7 @@ class WebServer(object):
         cert_path = WebServerConfig.certificate.normalized if WebServerConfig.certificate else None
         if cert_path is not None:
             if not os.path.isfile(cert_path):
-                log.error('Certificate file could not be found')
+                log.error('Certificate file %s could not be found' % cert_path)
                 return
             try:
                 ssl_context = DefaultOpenSSLContextFactory(cert_path, cert_path)
