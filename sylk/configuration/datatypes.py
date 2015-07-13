@@ -111,7 +111,8 @@ class SIPProxyAddress(object):
 
 class Path(unicode):
     def __new__(cls, path):
-        path = os.path.normpath(path)
+        if path:
+            path = os.path.normpath(path)
         return unicode.__new__(cls, path)
 
     @property
