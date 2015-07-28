@@ -2,7 +2,7 @@
 SylkServer
 ----------
 
-Copyright (c) 2010-2014 AG Projects
+Copyright (c) 2010-2015 AG Projects
 http://ag-projects.com
 
 Main author: Saul Ibarra
@@ -40,8 +40,8 @@ authorization and accounting.
 
 SylkServer can also be deployed as multimedia SIP conference server on a
 private network to serve SIP clients on the same LAN by using bonjour mode. 
-Blink Pro for MacOSX can be used for automatic discovery of SylkServer
-instances in the neighborhood.
+Blink for MacOSX can be used for automatic discovery of SylkServer instances
+in the neighborhood.
 
 
 Features
@@ -69,6 +69,11 @@ Audio
  - Hold/Unhold
  - RTP timeout
  - DTMF handling
+
+Video
+
+ - H.264 and VP8 codecs
+ - SRTP encryption (SDES and ZRTP key-exchanges)
 
 Instant Messaging
 
@@ -128,11 +133,12 @@ multi-party screen sharing capability.
 
 XMPP Gateway
 
-SylkServer can act as a transparent gateway between SIP and XMPP protocols. 
-This can be used by a SIP service provider to bridge out to XMPP domains or
-to receive incoming chat sessions from XMPP domains to its local SIP users. 
-In a similar fashion, a XMPP service provider can use the gateway to bridge
-out to SIP domains and handle incoming chat requestes from SIP domains to
+SylkServer can act as a transparent inter-domain gateway between SIP and
+XMPP protocols.  This can be used by a SIP service provider to bridge out to
+external XMPP domains or to receive incoming chat messages and Jingle audio
+sessions from remote XMPP domains to its local SIP users.  In a similar
+fashion, a XMPP service provider can use the gateway to bridge out to
+external SIP domains and handle incoming chat requestes from SIP domains to
 the XMPP users it serves.
 
 A media session or a presence session initiated by an incoming connection on
@@ -150,7 +156,7 @@ The server implements relevant features from the following standards:
  - MSRP protocol RFC4975
  - MSRP relay extension RFC4976
  - MSRP File Transfer RFC5547
- - MSRP switch draft-ietf-simple-chat-12
+ - MSRP switch draft-ietf-simple-chat-18
  - MSRP Alternative Connection Model RFC6135
  - Indication of Message Composition RFC3994
  - CPIM Message Format RFC3862
