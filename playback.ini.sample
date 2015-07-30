@@ -4,7 +4,7 @@
 ; files_dir = /usr/share/sylkserver/sounds/playback
 
 ; Toggle video support (SylkServer will send a color bar)
-: enable_video = False
+; enable_video = False
 
 ; Delay for answering sessions
 ; answer_delay = 1
