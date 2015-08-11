@@ -26,15 +26,7 @@ class ConferenceNode(EventServiceClient):
     topics = ["Thor.Members"]
 
     def __init__(self):
-        # Needs to be called from a green thread
-        self.node = ThorEntity(SIPConfig.local_ip.normalized, ['conference_server', 'xmpp_gateway'], version=sylk.__version__)
-        self.networks = {}
-        self.presence_message = ThorEvent('Thor.Presence', self.node.id)
-        self.shutdown_message = ThorEvent('Thor.Leave', self.node.id)
-        credentials = X509Credentials(ThorNodeConfig.certificate, ThorNodeConfig.private_key, [ThorNodeConfig.ca])
-        credentials.verify_peer = True
-        credentials.session_params.compressions = (COMP_LZO, COMP_DEFLATE, COMP_NULL)
-        EventServiceClient.__init__(self, ThorNodeConfig.domain, credentials)
+        pass
 
     def connectionLost(self, connector, reason):
         """Called when an event server connection goes away"""
@@ -46,6 +38,18 @@ class ConferenceNode(EventServiceClient):
         available_connectors = set(c for c in self.connectors if not c.failed)
         if not available_connectors:
             NotificationCenter().post_notification('ThorNetworkGotFatalError', sender=self)
+
+    def start(self, roles):
+        # Needs to be called from a green thread
+        log.msg('Publishing %s roles to SIPThor' % roles)
+        self.node = ThorEntity(SIPConfig.local_ip.normalized, roles, version=sylk.__version__)
+        self.networks = {}
+        self.presence_message = ThorEvent('Thor.Presence', self.node.id)
+        self.shutdown_message = ThorEvent('Thor.Leave', self.node.id)
+        credentials = X509Credentials(ThorNodeConfig.certificate, ThorNodeConfig.private_key, [ThorNodeConfig.ca])
+        credentials.verify_peer = True
+        credentials.session_params.compressions = (COMP_LZO, COMP_DEFLATE, COMP_NULL)
+        EventServiceClient.__init__(self, ThorNodeConfig.domain, credentials)
 
     def stop(self):
         # Needs to be called from a green thread
@@ -81,7 +85,7 @@ class ConferenceNode(EventServiceClient):
         networks = self.networks
         role_map = ThorEntitiesRoleMap(event.message) # mapping between role names and lists of nodes with that role
         updated = False
-        for role in ('sip_proxy', 'conference_server', 'xmpp_gateway'):
+        for role in self.node.roles + ('sip_proxy',):
             try:
                 network = networks[role]
             except KeyError:
@@ -104,7 +108,6 @@ class ConferenceNode(EventServiceClient):
                 plural = len(added_nodes) != 1 and 's' or ''
                 log.msg("added %s node%s: %s" % (role, plural, ', '.join(added_nodes)))
                 updated = True
-            #print "Thor %s nodes: %s" % (role, str(network.nodes))
         if updated:
             NotificationCenter().post_notification('ThorNetworkGotUpdate', sender=self, data=NotificationData(networks=self.networks))
 

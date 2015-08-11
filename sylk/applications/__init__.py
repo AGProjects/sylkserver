@@ -136,7 +136,8 @@ class IncomingRequestHandler(object):
     def __init__(self):
         load_applications()
         registry = ApplicationRegistry()
-        log.msg('Loaded applications: %s' % ', '.join([app.__appname__ for app in registry]))
+        self.applications = dict((app.__appname__, app) for app in registry)
+        log.msg('Loaded applications: %s' % ', '.join(self.applications.keys()))
         default_application = registry.find_application(ServerConfig.default_application)
         if default_application is None:
             log.warning('Default application "%s" does not exist, falling back to "conference"' % ServerConfig.default_application)
@@ -196,8 +197,8 @@ class IncomingRequestHandler(object):
                         application = self.application_map[prefix]
                         break
         try:
-            app = next(app for app in ApplicationRegistry() if app.__appname__ == application)
-        except StopIteration:
+            app = self.applications[application]
+        except KeyError:
             log.error('Application %s is not loaded' % application)
             raise ApplicationNotLoadedError
         else:

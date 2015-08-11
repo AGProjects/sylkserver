@@ -157,13 +157,19 @@ class SylkServer(SIPApplication):
         notification_center.post_notification('SIPApplicationDidStart', sender=self)
 
         # start SylkServer components
-        if ThorNodeConfig.enabled:
-            from sylk.interfaces.sipthor import ConferenceNode
-            self.thor_interface = ConferenceNode()
         self.web_server = WebServer()
         self.web_server.start()
         self.request_handler = IncomingRequestHandler()
         self.request_handler.start()
+        if ThorNodeConfig.enabled:
+            from sylk.interfaces.sipthor import ConferenceNode
+            self.thor_interface = ConferenceNode()
+            thor_roles = []
+            if 'conference' in self.request_handler.applications:
+                thor_roles.append('conference_server')
+            if 'xmppgateway' in self.request_handler.applications:
+                thor_roles.append('xmpp_gateway')
+            self.thor_interface.start(thor_roles)
 
     @run_in_green_thread
     def _shutdown_subsystems(self):
