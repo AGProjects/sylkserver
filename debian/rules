@@ -10,9 +10,7 @@ override_dh_clean:
 	rm -rf build dist MANIFEST
 
 override_dh_install:
-	install -m 0644 config.ini.sample debian/sylkserver/etc/sylkserver/config.ini
-	install -m 0644 conference.ini.sample debian/sylkserver/etc/sylkserver/conference.ini
-	install -m 0644 xmppgateway.ini.sample debian/sylkserver/etc/sylkserver/xmppgateway.ini
+	install -m 0644 *.ini.sample debian/sylkserver/etc/sylkserver/
 	dh_install
 
 override_dh_installinit:
