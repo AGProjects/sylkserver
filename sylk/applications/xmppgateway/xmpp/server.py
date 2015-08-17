@@ -101,6 +101,8 @@ class SylkRouter(Router):
 
 
 class SylkS2SServerFactory(XMPPS2SServerFactory):
+    noisy = False
+
     def onConnectionMade(self, xs):
         super(self.__class__, self).onConnectionMade(xs)
 
@@ -120,6 +122,8 @@ class SylkS2SServerFactory(XMPPS2SServerFactory):
 
 
 class DeferredS2SClientFactory(DeferredS2SClientFactory):
+    noisy = False
+
     def onConnectionMade(self, xs):
         super(self.__class__, self).onConnectionMade(xs)
 
