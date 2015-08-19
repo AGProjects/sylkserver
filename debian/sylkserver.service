@@ -1,0 +1,11 @@
+[Unit]
+Description=SylkServer SIP application server
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/sylk-server --no-fork
+Restart=on-abnormal
+
+[Install]
+WantedBy=multi-user.target
