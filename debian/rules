@@ -10,7 +10,6 @@ override_dh_clean:
 	rm -rf build dist MANIFEST
 
 override_dh_install:
-	install -m 0644 *.ini.sample debian/sylkserver/etc/sylkserver/
 	dh_install
 
 override_dh_installinit:

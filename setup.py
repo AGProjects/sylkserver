@@ -16,6 +16,10 @@ def get_version():
 def find_packages(toplevel):
     return [directory.replace(os.path.sep, '.') for directory, subdirs, files in os.walk(toplevel) if '__init__.py' in files]
 
+def get_resource_files(resource):
+    for root, dirs, files in os.walk(os.path.join('resources', resource)):
+        yield (os.path.join('share/sylkserver', root[10:]), [os.path.join(root, f) for f in files])
+
 setup(name         = "sylkserver",
       version      = get_version(),
       author       = "AG Projects",
@@ -32,8 +36,8 @@ setup(name         = "sylkserver",
       packages     = find_packages('sylk'),
       scripts      = ['sylk-server'],
       data_files   = [('/var/lib/sylkserver', []),
-                      ('share/sylkserver/tls', glob.glob(os.path.join('resources', 'tls', '*.crt'))),
-                      ('share/sylkserver/sounds', glob.glob(os.path.join('resources', 'sounds', '*.wav'))),
-                      ('share/sylkserver/sounds/moh', glob.glob(os.path.join('resources', 'sounds', 'moh','*.wav')))]
+                      ('/etc/sylkserver', glob.glob('*.ini.sample')),
+                      ('/etc/sylkserver/tls', glob.glob('resources/tls/*.crt'))] + \
+                      list(get_resource_files('sounds'))
       )
 
