@@ -1,7 +1,7 @@
 # Copyright (C) 2015 AG Projects. See LICENSE for details.
 #
 
-__all__ = ['Klein', 'WebServer', 'server']
+__all__ = ['Klein', 'StaticFileResource', 'WebServer', 'server']
 
 import os
 
@@ -9,8 +9,9 @@ from application import log
 from application.python.types import Singleton
 from twisted.internet import reactor
 from twisted.internet.ssl import DefaultOpenSSLContextFactory
-from twisted.web.resource import Resource
+from twisted.web.resource import Resource, NoResource
 from twisted.web.server import Site
+from twisted.web.static import File
 
 from sylk import __version__
 from sylk.configuration import WebServerConfig
@@ -19,6 +20,11 @@ from sylk.web.klein import Klein
 # Set the 'Server' header string which Twisted Web will use
 import twisted.web.server
 twisted.web.server.version = b'SylkServer/%s' % __version__
+
+
+class StaticFileResource(File):
+    def directoryListing(self):
+        return NoResource('Directory listing not available')
 
 
 class RootResource(Resource):
