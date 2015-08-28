@@ -1,0 +1,82 @@
+
+SylkServer WebRTC gateway
+-------------------------
+
+The WebRTC gateway application enables web based clients to communicate
+transparently with SIP endpoints using WebRTC suite of standards and
+protocols.
+
+To perform this function SylkServer must run on a computer with a public
+reachable IP adddress.
+
+
+Architecture
+------------
+
++--------+               +-------------+ +----------+     +-------------+
+|        |               |             | |          |     |     SIP     |
+| WebRTC |  SylkRTC API  |             | |  Janus   +<--->+ audio/video |
+| client +<------------->+  SylkServer | |          |     |    calls    |
+|        |               |   WebRTC    | +----------+     +-------------+
++--------+               |   gateway   | +----------+     +-------------+
+                         |             | | Presence |     |   SIMPLE    |
+                         |             | | and chat +<--->+     IM      |
+                         |             | | gateway  |     |   Presence  |
+                         +-------------+ +----------+     +-------------+
+
+
+End-point requirements
+----------------------
+
+The WebRTC gateway doesn't do media transcoding, so after taking care of the
+WebRTC-specific media features (ICE and DTLS mainly), endpoints will
+exchange plain RTP media between them, therefore SIP end-points must have a
+set of compatible audio (Opus) and video codecs (H.264 and VP8).
+
+As a WebRTC client, a standard browser with WebRTC support can be used
+(e.g.  Firefox or Google Chrome).
+
+
+Features
+--------
+
+ * SIP account registration
+ * Audio / video calling
+ * Codec agnostic
+
+
+Roadmap
+-------
+
+ * Chat sessions
+ * Presence
+ * Contacts management
+ * SDES Encryption
+
+
+SylkRTC API
+-----------
+
+A JavaScript library implementing SylkRTC API is available at:
+
+http://projects.ag-projects.com/projects/sylkrtc
+
+
+Janus
+-----
+
+For implementing WebRTC capabilities, SylkServer uses an external component
+called Janus.
+
+https://github.com/meetecho/janus-gateway
+
+Janus can be installed by following the instructions on its README file:
+
+https://github.com/meetecho/janus-gateway/blob/master/README.md
+
+The only requirement is that Janus is compiled with WebSocket supports,
+since that's the transport SylkServer uses in order to communicate with
+Janus.
+
+Note: libsrtp >= 1.5.0 is recommended.
+

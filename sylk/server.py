@@ -169,6 +169,8 @@ class SylkServer(SIPApplication):
                 thor_roles.append('conference_server')
             if 'xmppgateway' in self.request_handler.applications:
                 thor_roles.append('xmpp_gateway')
+            if 'webrtcgateway' in self.request_handler.applications:
+                thor_roles.append('webrtc_gateway')
             self.thor_interface.start(thor_roles)
 
     @run_in_green_thread

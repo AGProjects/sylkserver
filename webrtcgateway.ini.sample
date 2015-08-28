@@ -1,0 +1,29 @@
+; SylkServer WebRTC gateway configuration file
+;
+; For the gateway to work Janus needs to be properly installed and configured,
+; please refer to README.webrtc for detailed instructions
+;
+[General]
+; List of allowed web origins. The connection origin (Origin header in the
+; HTTP request) will be checked against the list defined here, if the domain
+; is no allowed the connection will be refused.
+; * (the default) means any
+; web_origins = *
+
+; Proxy used for outbound SIP traffic
+; outbound_sip_proxy =
+
+; List of allowed SIP domains for managing accounts
+; sip_domains = *
+
+; Boolean indicating if the WebSocket messages sent to/from clients should be logged
+; to a file
+; trace_websocket = False
+
+[Janus]
+; URL pointing to the Janus API endpoint (only WebSocket is supported)
+; api_url = ws://localhost:8188
+
+; Boolean indicating if the messages between SylkServer and Janus should be logged to
+; a file
+; trace_janus = False

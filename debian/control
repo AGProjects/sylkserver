@@ -9,7 +9,7 @@ Standards-Version: 3.9.6
 Package: sylkserver
 Architecture: all
 Depends: ${python:Depends}, ${misc:Depends}, python-application (>= 1.4.0), python-eventlib, python-lxml, python-sipsimple (>= 2.4.0), python-twisted-web, python-werkzeug
-Suggests: libavahi-compat-libdnssd1, python-twisted-words, python-wokkel (>= 0.7.0)
+Suggests: libavahi-compat-libdnssd1, python-twisted-words, python-wokkel (>= 0.7.0), python-autobahn (>= 0.10.3), janus
 Recommends: sylkserver-sounds
 Description: A state of the art, extensible SIP Application Server
  SylkServer is an application server that can be programmed to perform SIP
@@ -24,3 +24,12 @@ Description: A state of the art, extensible SIP Application Server
  .
  This package contains sounds used by SylkServer.
 
+Package: sylkserver-webrtc-gateway
+Architecture: all
+Depends: ${misc:Depends}, sylkserver, janus, python-autobahn (>= 0.10.3)
+Description: A state of the art, extensible SIP Application Server
+ SylkServer is an application server that can be programmed to perform SIP
+ end-point applications and act as a gateway between SIP and XMPP domains.
+ .
+ This is a meta-package containing the dependencies required to run the
+ WebRTC gateway application.

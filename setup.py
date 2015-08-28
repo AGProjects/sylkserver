@@ -38,6 +38,6 @@ setup(name         = "sylkserver",
       data_files   = [('/var/lib/sylkserver', []),
                       ('/etc/sylkserver', glob.glob('*.ini.sample')),
                       ('/etc/sylkserver/tls', glob.glob('resources/tls/*.crt'))] + \
-                      list(get_resource_files('sounds'))
+                      list(get_resource_files('sounds')) + list(get_resource_files('html'))
       )
 
