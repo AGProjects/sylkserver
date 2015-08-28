@@ -1,3 +1,18 @@
+sylkserver (3.0.0) unstable; urgency=medium
+
+  * Added WebRTC gateway application
+  * Switch to using listenSSL
+  * Make main web server logging less verbose
+  * Fix initializing Path datatype
+  * Rework how services are published in SIPThor
+  * Install all sample configuration files
+  * xmppgateway: make factories not noisy
+  * Add systemd unit file
+  * Improved Debian package creation
+  * Added build dependency on dh-python
+
+ -- Saul Ibarra <saul@ag-projects.com>  Fri, 28 Aug 2015 16:41:06 +0200
+
 sylkserver (2.10.1) unstable; urgency=medium
 
   * Added missing dependency on python-werkzeug
