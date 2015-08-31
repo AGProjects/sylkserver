@@ -83,12 +83,12 @@ var AccountBox = React.createClass({
             <div className="account-box" style={{overflow: 'hidden'}}>
                 <form role="form">
                     <div className="input-group">
-                        <span className="input-group-addon" id="account-input">Account</span>
+                        <span className="input-group-addon" id="account-input" style={{'min-width': '100px', 'text-align': 'left'}}>Account</span>
                         <input type="text" aria-describedby="account-input" className="form-control" disabled={!connectionReady || accountReady} value={this.state.accountId} placeholder="Enter SIP URI: user@domain" onChange={this.handleAccountIdChange}/>
                     </div>
                     <br/>
                     <div className="input-group">
-                        <span className="input-group-addon" id="account-password-input">Password</span>
+                        <span className="input-group-addon" id="account-password-input" style={{'min-width': '100px', 'text-align': 'left'}}>Password</span>
                         <input type="password" aria-describedby="account-password-input" className="form-control" disabled={!connectionReady || accountReady} value={this.state.password} onChange={this.handlePasswordChange}/>
                     </div>
                     <br/>
