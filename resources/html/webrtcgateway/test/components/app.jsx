@@ -88,11 +88,15 @@ var SylkTest = React.createClass({
         var accountBox;
         var callBox;
         var videoBox;
+        var ringtonePlayer;
         if (sylkrtc.isWebRTCSupported()) {
             accountBox = <AccountBox connection={this.state.connectionState === 'ready' ? this.state.connection : null} setAccount={this.setAccount}/>;
             if (this.state.callState === 'established') {
                 videoBox = <VideoBox call={this.state.currentCall}/>
             } else {
+                if (this.state.currentCall) {
+                    ringtonePlayer = <RingtonePlayer/>
+                }
                 if (this.state.currentCall === null || this.state.currentCall.direction === 'outgoing') {
                     callBox = <OutgoingCall account={this.state.account}/>
                 } else {
@@ -129,6 +133,7 @@ var SylkTest = React.createClass({
                             <hr/>
                             {videoBox}
                             {callBox}
+                            {ringtonePlayer}
                             <br/>
                             <br/>
                         </div>
