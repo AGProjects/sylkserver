@@ -69,7 +69,7 @@ class WebServerConfig(ConfigSection):
     __section__ = 'WebServer'
 
     local_ip = ConfigSetting(type=IPAddress, value=IPAddress(host.default_ip))
-    local_port = ConfigSetting(type=Port, value=8088)
+    local_port = ConfigSetting(type=Port, value=10888)
     hostname = ''
     certificate = ConfigSetting(type=Path, value=Path(Resources.get('tls/default.crt')))
 
