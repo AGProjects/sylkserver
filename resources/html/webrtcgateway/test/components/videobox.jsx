@@ -19,7 +19,7 @@ var VideoBox = React.createClass({
             <div className="video-box" style={{overflow: 'hidden'}}>
                 <div style={{position: 'relative'}}>
                     <video id="call-video" ref="callVideo" autoPlay width="100%"/>
-                    <video id="local-video" ref="localVideo" autoPlay width="200px" style={{position: 'absolute', left: '8px', top: '8px'}}/>
+                    <video id="local-video" ref="localVideo" autoPlay muted width="200px" style={{position: 'absolute', left: '8px', top: '8px'}}/>
                 </div>
                 <br/>
                 <div>
