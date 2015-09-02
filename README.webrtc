@@ -89,5 +89,6 @@ point your web browser to:
 
 https://hostname:10888/webrtcgateway/
 
-
+It's recommended to change the API secret used between SylkServer and Janus,
+check the webrtcgateway.ini and janus.cfg configuration files.
 
