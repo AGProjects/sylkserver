@@ -22,5 +22,6 @@ class JanusConfig(ConfigSection):
     __section__ = 'Janus'
 
     api_url = 'ws://127.0.0.1:8188'
+    api_secret = '0745f2f74f34451c89343afcdcae5809'
     trace_janus = False
 

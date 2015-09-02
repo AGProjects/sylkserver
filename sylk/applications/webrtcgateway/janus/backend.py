@@ -25,6 +25,8 @@ class JanusRequest(object):
     def __init__(self, request_type, **kwargs):
         self.janus = request_type
         self.transaction = uuid.uuid4().hex
+        if JanusConfig.api_secret:
+            self.apisecret = JanusConfig.api_secret
         self.__dict__.update(**kwargs)
 
     @property

@@ -24,6 +24,12 @@
 ; URL pointing to the Janus API endpoint (only WebSocket is supported)
 ; api_url = ws://localhost:8188
 
+; API secret shared with Janus (must match the value in janus.cfg)
+; A random UUID value is recommended, a new value can be generated with
+; the following command:
+; python -c 'import uuid; print(uuid.uuid4().hex)'
+api_secret = 0745f2f74f34451c89343afcdcae5809
+
 ; Boolean indicating if the messages between SylkServer and Janus should be logged to
 ; a file
 ; trace_janus = False
