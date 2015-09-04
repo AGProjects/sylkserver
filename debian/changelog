@@ -1,3 +1,11 @@
+sylkserver (3.0.1) unstable; urgency=medium
+
+  * webrtc: mute local video in test application
+  * Adjust web port in configuration example
+  * Fix installing default certificates also in /usr/share/
+
+ -- Saul Ibarra <saul@ag-projects.com>  Fri, 04 Sep 2015 12:32:22 +0200
+
 sylkserver (3.0.0) unstable; urgency=medium
 
   * Added WebRTC gateway application
