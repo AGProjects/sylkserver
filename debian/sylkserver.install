@@ -2,3 +2,4 @@ usr/bin
 usr/lib
 etc/sylkserver
 usr/share/sylkserver/html
+usr/share/sylkserver/tls
