@@ -116,7 +116,7 @@ certificate = /etc/sylkserver/tls/default.crt
 ; local_ip =
 
 ; Port where the web server will listen on, set to 0 for random
-; local_port = 8088
+; local_port = 1088
 
 ; X.509 server certificate for HTTPS connections, the certificate private
 ; key must be concatenated inside the same file, set to empty in order to
