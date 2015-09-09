@@ -7,6 +7,7 @@ import re
 import uuid
 
 from application.python import Null
+from application.notification import IObserver, NotificationCenter
 from autobahn.twisted.websocket import WebSocketServerProtocol, WebSocketServerFactory
 from autobahn.websocket import http
 from eventlib import coros, proc
@@ -17,6 +18,7 @@ from sipsimple.lookup import DNSLookup, DNSLookupError
 from sipsimple.threading.green import run_in_green_thread
 from sipsimple.util import ISOTimestamp
 from twisted.internet import reactor
+from zope.interface import implements
 
 from sylk.applications.webrtcgateway.configuration import GeneralConfig
 from sylk.applications.webrtcgateway.logger import log
@@ -630,12 +632,27 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
 
 
 class SylkWebSocketServerFactory(WebSocketServerFactory):
+    implements(IObserver)
+
     protocol = SylkWebSocketServerProtocol
     connections = set()
-    backend = None
+    backend = None    # assigned by WebHandler
+
+    def __init__(self, *args, **kw):
+        super(SylkWebSocketServerFactory, self).__init__(*args, **kw)
+        notification_center = NotificationCenter()
+        notification_center.add_observer(self, name='JanusBackendDisconnected')
 
     def buildProtocol(self, addr):
         protocol = self.protocol()
         protocol.factory = self
         protocol.backend = self.backend
         return protocol
+
+    def handle_notification(self, notification):
+        handler = getattr(self, '_NH_%s' % notification.name, Null)
+        handler(notification)
+
+    def _NH_JanusBackendDisconnected(self, notification):
+        for conn in self.connections.copy():
+            conn.failConnection()
