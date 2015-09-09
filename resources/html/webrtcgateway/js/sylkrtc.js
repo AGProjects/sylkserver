@@ -1,5 +1,5 @@
 /*
- * sylkrtc.js v0.0.1
+ * sylkrtc.js v0.1.2
  * SylkServer WebRTC Gateway client library
  * Copyright 2015 AG Projects
  * License MIT
@@ -373,6 +373,7 @@ var Call = (function (_EventEmitter) {
 
             this._id = _nodeUuid2['default'].v4();
             this._direction = 'outgoing';
+            this._remoteIdentity = uri;
 
             var self = this;
             var pcConfig = options.pcConfig || { iceServers: [] };
@@ -1131,18 +1132,19 @@ function isWebRTCSupported() {
 }
 
 function attachMediaStream(element, stream) {
-    _rtcninja2['default'].attachMediaStream(element, stream);
+    return _rtcninja2['default'].attachMediaStream(element, stream);
 }
 
 function closeMediaStream(stream) {
     _rtcninja2['default'].closeMediaStream(stream);
 }
 
-exports.createConnection = createConnection;
-exports.debug = _debug2['default'];
-exports.attachMediaStream = attachMediaStream;
-exports.closeMediaStream = closeMediaStream;
-exports.isWebRTCSupported = isWebRTCSupported;
+exports['default'] = {
+    createConnection: createConnection,
+    debug: _debug2['default'],
+    attachMediaStream: attachMediaStream, closeMediaStream: closeMediaStream, isWebRTCSupported: isWebRTCSupported
+};
+module.exports = exports['default'];
 
 },{"./connection":3,"debug":9,"rtcninja":15}],5:[function(require,module,exports){
 /*
@@ -2647,7 +2649,7 @@ module.exports = Adapter;
 
 // Dependencies
 
-var browser = require('bowser').browser,
+var browser = require('bowser'),
 	debug = require('debug')('rtcninja:Adapter'),
 	debugerror = require('debug')('rtcninja:ERROR:Adapter'),
 
@@ -2662,7 +2664,7 @@ var browser = require('bowser').browser,
 	canRenegotiate = false,
 	oldSpecRTCOfferOptions = false,
 	browserVersion = Number(browser.version) || 0,
-	isDesktop = !!(!browser.mobile || !browser.tablet),
+	isDesktop = !!(!browser.mobile && !browser.tablet),
 	hasWebRTC = false,
 	virtGlobal, virtNavigator;
 
@@ -3701,7 +3703,7 @@ module.exports = rtcninja;
 
 // Dependencies.
 
-var browser = require('bowser').browser,
+var browser = require('bowser'),
 	debug = require('debug')('rtcninja'),
 	debugerror = require('debug')('rtcninja:ERROR'),
 	version = require('./version'),
@@ -3794,11 +3796,11 @@ module.exports = require('../package.json').version;
 /*!
   * Bowser - a browser detector
   * https://github.com/ded/bowser
-  * MIT License | (c) Dustin Diaz 2014
+  * MIT License | (c) Dustin Diaz 2015
   */
 
 !function (name, definition) {
-  if (typeof module != 'undefined' && module.exports) module.exports['browser'] = definition()
+  if (typeof module != 'undefined' && module.exports) module.exports = definition()
   else if (typeof define == 'function' && define.amd) define(definition)
   else this[name] = definition()
 }('bowser', function () {
@@ -3823,6 +3825,7 @@ module.exports = require('../package.json').version;
     var iosdevice = getFirstMatch(/(ipod|iphone|ipad)/i).toLowerCase()
       , likeAndroid = /like android/i.test(ua)
       , android = !likeAndroid && /android/i.test(ua)
+      , chromeBook = /CrOS/.test(ua)
       , edgeVersion = getFirstMatch(/edge\/(\d+(\.\d+)?)/i)
       , versionIdentifier = getFirstMatch(/version\/(\d+(\.\d+)?)/i)
       , tablet = /tablet/i.test(ua)
@@ -3834,6 +3837,13 @@ module.exports = require('../package.json').version;
         name: 'Opera'
       , opera: t
       , version: versionIdentifier || getFirstMatch(/(?:opera|opr)[\s\/](\d+(\.\d+)?)/i)
+      }
+    }
+    else if (/yabrowser/i.test(ua)) {
+      result = {
+        name: 'Yandex Browser'
+      , yandexbrowser: t
+      , version: versionIdentifier || getFirstMatch(/(?:yabrowser)[\s\/](\d+(\.\d+)?)/i)
       }
     }
     else if (/windows phone/i.test(ua)) {
@@ -3856,8 +3866,14 @@ module.exports = require('../package.json').version;
       , msie: t
       , version: getFirstMatch(/(?:msie |rv:)(\d+(\.\d+)?)/i)
       }
-    }
-    else if (/chrome.+? edge/i.test(ua)) {
+    } else if (chromeBook) {
+      result = {
+        name: 'Chrome'
+      , chromeBook: t
+      , chrome: t
+      , version: getFirstMatch(/(?:chrome|crios|crmo)\/(\d+(\.\d+)?)/i)
+      }
+    } else if (/chrome.+? edge/i.test(ua)) {
       result = {
         name: 'Microsoft Edge'
       , msedge: t
@@ -4022,6 +4038,7 @@ module.exports = require('../package.json').version;
     // http://developer.yahoo.com/yui/articles/gbs
     if (result.msedge ||
         (result.msie && result.version >= 10) ||
+        (result.yandexbrowser && result.version >= 15) ||
         (result.chrome && result.version >= 20) ||
         (result.firefox && result.version >= 20.0) ||
         (result.safari && result.version >= 6) ||
@@ -4247,7 +4264,7 @@ module.exports = require('../package.json').version;
 },{}],19:[function(require,module,exports){
 module.exports={
   "name": "rtcninja",
-  "version": "0.6.2",
+  "version": "0.6.4",
   "description": "WebRTC API wrapper to deal with different browsers",
   "author": {
     "name": "Iñaki Baz Castillo",
@@ -4265,7 +4282,7 @@ module.exports={
   "homepage": "https://github.com/eface2face/rtcninja.js",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/eface2face/rtcninja.js.git"
+    "url": "https://github.com/eface2face/rtcninja.js.git"
   },
   "keywords": [
     "webrtc"
@@ -4274,34 +4291,34 @@ module.exports={
     "node": ">=0.10.32"
   },
   "dependencies": {
-    "bowser": "^0.7.3",
+    "bowser": "^1.0.0",
     "debug": "^2.2.0",
     "merge": "^1.2.0"
   },
   "devDependencies": {
-    "browserify": "^10.2.3",
+    "browserify": "^11.0.1",
     "gulp": "git+https://github.com/gulpjs/gulp.git#4.0",
     "gulp-expect-file": "0.0.7",
     "gulp-filelog": "^0.4.1",
-    "gulp-header": "^1.2.2",
-    "gulp-jscs": "^1.6.0",
-    "gulp-jscs-stylish": "^1.1.0",
-    "gulp-jshint": "^1.11.0",
+    "gulp-header": "^1.7.1",
+    "gulp-jscs": "^2.0.0",
+    "gulp-jscs-stylish": "^1.1.2",
+    "gulp-jshint": "^1.11.2",
     "gulp-rename": "^1.2.2",
-    "gulp-uglify": "^1.2.0",
-    "jshint-stylish": "^1.0.2",
-    "retire": "^1.1.0",
-    "shelljs": "^0.5.0",
+    "gulp-uglify": "^1.4.0",
+    "jshint-stylish": "^2.0.1",
+    "retire": "^1.1.1",
+    "shelljs": "^0.5.3",
     "vinyl-source-stream": "^1.1.0"
   },
-  "gitHead": "9ddf6664289d9ab9da786edcd2f8b61b0633f013",
+  "gitHead": "18789cbefdb5a6c6c038ab4f1ce8e9e3813135b0",
   "bugs": {
     "url": "https://github.com/eface2face/rtcninja.js/issues"
   },
-  "_id": "rtcninja@0.6.2",
+  "_id": "rtcninja@0.6.4",
   "scripts": {},
-  "_shasum": "ac274f4184c64d2d98c1da2cca914a2725dfcf09",
-  "_from": "rtcninja@>=0.6.2 <0.7.0",
+  "_shasum": "7ede8577ce978cb431772d877967c53aadeb5e99",
+  "_from": "rtcninja@0.6.4",
   "_npmVersion": "2.5.1",
   "_nodeVersion": "0.12.0",
   "_npmUser": {
@@ -4309,8 +4326,8 @@ module.exports={
     "email": "ibc@aliax.net"
   },
   "dist": {
-    "shasum": "ac274f4184c64d2d98c1da2cca914a2725dfcf09",
-    "tarball": "http://registry.npmjs.org/rtcninja/-/rtcninja-0.6.2.tgz"
+    "shasum": "7ede8577ce978cb431772d877967c53aadeb5e99",
+    "tarball": "http://registry.npmjs.org/rtcninja/-/rtcninja-0.6.4.tgz"
   },
   "maintainers": [
     {
@@ -4319,8 +4336,7 @@ module.exports={
     }
   ],
   "directories": {},
-  "_resolved": "https://registry.npmjs.org/rtcninja/-/rtcninja-0.6.2.tgz",
-  "readme": "ERROR: No README data found!"
+  "_resolved": "https://registry.npmjs.org/rtcninja/-/rtcninja-0.6.4.tgz"
 }
 
 },{}],20:[function(require,module,exports){
@@ -4384,7 +4400,14 @@ module.exports={
     "email": "brian@worlize.com",
     "url": "https://www.worlize.com/"
   },
-  "version": "1.0.19",
+  "contributors": [
+    {
+      "name": "Iñaki Baz Castillo",
+      "email": "ibc@aliax.net",
+      "url": "http://dev.sipdoc.net"
+    }
+  ],
+  "version": "1.0.21",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/theturtle32/WebSocket-Node.git"
@@ -4394,17 +4417,18 @@ module.exports={
     "node": ">=0.8.0"
   },
   "dependencies": {
-    "debug": "~2.1.0",
-    "nan": "1.8.x",
-    "typedarray-to-buffer": "~3.0.0"
+    "debug": "~2.2.0",
+    "nan": "~1.8.x",
+    "typedarray-to-buffer": "~3.0.3",
+    "yaeti": "~0.0.4"
   },
   "devDependencies": {
-    "buffer-equal": "0.0.1",
-    "faucet": "0.0.1",
+    "buffer-equal": "^0.0.1",
+    "faucet": "^0.0.1",
     "gulp": "git+https://github.com/gulpjs/gulp.git#4.0",
-    "gulp-jshint": "^1.9.0",
-    "jshint-stylish": "^1.0.0",
-    "tape": "^3.0.0"
+    "gulp-jshint": "^1.11.2",
+    "jshint-stylish": "^1.0.2",
+    "tape": "^4.0.1"
   },
   "config": {
     "verbose": false
@@ -4420,15 +4444,15 @@ module.exports={
   },
   "browser": "lib/browser.js",
   "license": "Apache-2.0",
-  "gitHead": "da3bd5b04e9442c84881b2e9c13432cdbbae1f16",
+  "gitHead": "8f5d5f3ef3d946324fe016d525893546ff6500e1",
   "bugs": {
     "url": "https://github.com/theturtle32/WebSocket-Node/issues"
   },
-  "_id": "websocket@1.0.19",
-  "_shasum": "e62dbf1a3c5e0767425db7187cfa38f921dfb42c",
-  "_from": "websocket@>=1.0.19 <2.0.0",
-  "_npmVersion": "2.10.1",
-  "_nodeVersion": "0.12.4",
+  "_id": "websocket@1.0.21",
+  "_shasum": "f51f0a96ed19629af39922470ab591907f1c5bd9",
+  "_from": "websocket@1.0.21",
+  "_npmVersion": "2.12.1",
+  "_nodeVersion": "2.3.4",
   "_npmUser": {
     "name": "theturtle32",
     "email": "brian@worlize.com"
@@ -4440,10 +4464,10 @@ module.exports={
     }
   ],
   "dist": {
-    "shasum": "e62dbf1a3c5e0767425db7187cfa38f921dfb42c",
-    "tarball": "http://registry.npmjs.org/websocket/-/websocket-1.0.19.tgz"
+    "shasum": "f51f0a96ed19629af39922470ab591907f1c5bd9",
+    "tarball": "http://registry.npmjs.org/websocket/-/websocket-1.0.21.tgz"
   },
-  "_resolved": "https://registry.npmjs.org/websocket/-/websocket-1.0.19.tgz",
+  "_resolved": "https://registry.npmjs.org/websocket/-/websocket-1.0.21.tgz",
   "readme": "ERROR: No README data found!"
 }
 
