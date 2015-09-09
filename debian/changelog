@@ -1,3 +1,9 @@
+sylkserver (3.0.2~dev) UNRELEASED; urgency=medium
+
+  * TBD
+
+ -- Saul Ibarra <saul@ag-projects.com>  Wed, 09 Sep 2015 10:35:49 +0200
+
 sylkserver (3.0.1) unstable; urgency=medium
 
   * webrtc: mute local video in test application
