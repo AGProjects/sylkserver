@@ -84,6 +84,10 @@ class Operation(object):
         self.data = data
 
 
+class APIError(Exception):
+    pass
+
+
 class SylkWebSocketServerProtocol(WebSocketServerProtocol):
     janus_session_id = None
     accounts_map = None           # account ID -> account
@@ -253,8 +257,11 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
             return
 
         try:
-            account = data['account']
-            password = data['password']
+            try:
+                account = data['account']
+                password = data['password']
+            except KeyError:
+                raise APIError('Invalid parameters: "account" and "password" must be specified')
 
             if account in self.accounts_map:
                 log.warn('Account %s already added' % account)
@@ -267,9 +274,9 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
             try:
                 sip_uri = SIPURI.parse(uri)
             except SIPCoreError:
-                raise ValueError('Invalid account specified: %s' % account)
+                raise APIError('Invalid account specified: %s' % account)
             if not {'*', sip_uri.host}.intersection(GeneralConfig.sip_domains):
-                raise ValueError('SIP domain not allowed: %s' % sip_uri.host)
+                raise APIError('SIP domain not allowed: %s' % sip_uri.host)
 
             # Create and store our mapping
             account_info = AccountInfo(account, password)
@@ -278,8 +285,12 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
             data = dict(sylkrtc='ack', transaction=transaction)
             self._send_data(json.dumps(data))
             log.msg('Account %s added' % account)
-        except Exception, e:
+        except APIError, e:
             log.error('account_add: %s' % e)
+            data = dict(sylkrtc='error', transaction=transaction, error=str(e))
+            self._send_data(json.dumps(data))
+        except Exception, e:
+            log.error('Unexpected error in account_add: %s' % e)
             data = dict(sylkrtc='error', transaction=transaction, error=str(e))
             self._send_data(json.dumps(data))
 
@@ -290,9 +301,15 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
             return
 
         try:
-            account = data['account']
-            account_info = self.accounts_map[account]
-            self.accounts_map.pop(account_info.id)
+            try:
+                account = data['account']
+            except KeyError:
+                raise APIError('Invalid parameters: "account" must be specified')
+
+            try:
+                account_info = self.accounts_map.pop(account)
+            except KeyError:
+                raise APIError('Unknown account specified: %s' % account)
 
             handle_id = account_info.janus_handle_id
             if handle_id is not None:
@@ -303,8 +320,12 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
             data = dict(sylkrtc='ack', transaction=transaction)
             self._send_data(json.dumps(data))
             log.msg('Account %s removed' % account)
-        except Exception, e:
+        except APIError, e:
             log.error('account_remove: %s' % e)
+            data = dict(sylkrtc='error', transaction=transaction, error=str(e))
+            self._send_data(json.dumps(data))
+        except Exception, e:
+            log.error('Unexpected error in account_remove: %s' % e)
             data = dict(sylkrtc='error', transaction=transaction, error=str(e))
             self._send_data(json.dumps(data))
 
@@ -315,8 +336,15 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
             return
 
         try:
-            account = data['account']
-            account_info = self.accounts_map[account]
+            try:
+                account = data['account']
+            except KeyError:
+                raise APIError('Invalid parameters: "account" must be specified')
+
+            try:
+                account_info = self.accounts_map[account]
+            except KeyError:
+                raise APIError('Unknown account specified: %s' % account)
 
             proxy = self._lookup_sip_proxy(account)
 
@@ -343,8 +371,12 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
             data = dict(sylkrtc='ack', transaction=transaction)
             self._send_data(json.dumps(data))
             log.msg('Account %s will register' % account)
-        except Exception, e:
+        except APIError, e:
             log.error('account-register: %s' % e)
+            data = dict(sylkrtc='error', transaction=transaction, error=str(e))
+            self._send_data(json.dumps(data))
+        except Exception, e:
+            log.error('Unexpected error in account-register: %s' % e)
             data = dict(sylkrtc='error', transaction=transaction, error=str(e))
             self._send_data(json.dumps(data))
 
@@ -355,8 +387,15 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
             return
 
         try:
-            account = data['account']
-            account_info = self.accounts_map[account]
+            try:
+                account = data['account']
+            except KeyError:
+                raise APIError('Invalid parameters: "account" must be specified')
+
+            try:
+                account_info = self.accounts_map[account]
+            except KeyError:
+                raise APIError('Unknown account specified: %s' % account)
 
             handle_id = account_info.janus_handle_id
             if handle_id is not None:
@@ -368,8 +407,12 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
             data = dict(sylkrtc='ack', transaction=transaction)
             self._send_data(json.dumps(data))
             log.msg('Account %s will unregister' % account)
-        except Exception, e:
+        except APIError, e:
             log.error('account-unregister: %s' % e)
+            data = dict(sylkrtc='error', transaction=transaction, error=str(e))
+            self._send_data(json.dumps(data))
+        except Exception, e:
+            log.error('Unexpected error in account-unregister: %s' % e)
             data = dict(sylkrtc='error', transaction=transaction, error=str(e))
             self._send_data(json.dumps(data))
 
@@ -380,14 +423,21 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
             return
 
         try:
-            account = data['account']
-            session = data['session']
-            uri = data['uri']
-            sdp = data['sdp']
+            try:
+                account = data['account']
+                session = data['session']
+                uri = data['uri']
+                sdp = data['sdp']
+            except KeyError:
+                raise APIError('Invalid parameters: "account", "session", "uri" and "sdp" must be specified')
 
-            account_info = self.accounts_map[account]
+            try:
+                account_info = self.accounts_map[account]
+            except KeyError:
+                raise APIError('Unknown account specified: %s' % account)
+
             if session in self.sessions_map:
-                raise ValueError('Session ID already in use')
+                raise APIError('Session ID (%s) already in use' % session)
 
             # Create a new plugin handle and 'register' it, without actually doing so
             handle_id = block_on(self.backend.janus_attach(self.janus_session_id, 'janus.plugin.sip'))
@@ -397,7 +447,7 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
             except DNSLookupError:
                 block_on(self.backend.janus_detach(self.janus_session_id, handle_id))
                 self.backend.janus_set_event_handler(handle_id, None)
-                raise
+                raise APIError('DNS lookup error')
             account_uri = 'sip:%s' % account_info.id
             data = {'request': 'register', 'username': account_uri, 'ha1_secret': account_info.password, 'proxy': proxy, 'send_register': False}
             block_on(self.backend.janus_message(self.janus_session_id, handle_id, data))
@@ -414,8 +464,12 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
             data = dict(sylkrtc='ack', transaction=transaction)
             self._send_data(json.dumps(data))
             log.msg('Outgoing session %s from %s to %s created' % (session, account, uri))
-        except Exception, e:
+        except APIError, e:
             log.error('session-create: %s' % e)
+            data = dict(sylkrtc='error', transaction=transaction, error=str(e))
+            self._send_data(json.dumps(data))
+        except Exception, e:
+            log.error('Unexpected error in session-create: %s' % e)
             data = dict(sylkrtc='error', transaction=transaction, error=str(e))
             self._send_data(json.dumps(data))
 
@@ -426,21 +480,34 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
             return
 
         try:
-            session = data['session']
-            session_info = self.sessions_map[session]
+            try:
+                session = data['session']
+                sdp = data['sdp']
+            except KeyError:
+                raise APIError('Invalid parameters: "session" and "sdp" must be specified')
+
+            try:
+                session_info = self.sessions_map[session]
+            except KeyError:
+                raise APIError('Unknown session specified: %s' % session)
+
             if session_info.direction != 'incoming':
-                raise RuntimeError('Cannot answer outgoing session')
+                raise APIError('Cannot answer outgoing session')
             if session_info.state != 'connecting':
-                raise RuntimeError('Invalid state for session answer')
-            sdp = data['sdp']
+                raise APIError('Invalid state for session answer')
+
             data = {'request': 'accept'}
             jsep = {'type': 'answer', 'sdp': sdp}
             block_on(self.backend.janus_message(self.janus_session_id, session_info.janus_handle_id, data, jsep))
             data = dict(sylkrtc='ack', transaction=transaction)
             self._send_data(json.dumps(data))
             log.msg('%s answered session %s' % (session_info.account_id, session))
-        except Exception, e:
+        except APIError, e:
             log.error('session-answer: %s' % e)
+            data = dict(sylkrtc='error', transaction=transaction, error=str(e))
+            self._send_data(json.dumps(data))
+        except Exception, e:
+            log.error('Unexpected error in session-answer: %s' % e)
             data = dict(sylkrtc='error', transaction=transaction, error=str(e))
             self._send_data(json.dumps(data))
 
@@ -451,17 +518,29 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
             return
 
         try:
-            candidates = data['candidates']
-            session = data['session']
-            session_info = self.sessions_map[session]
+            try:
+                session = data['session']
+                candidates = data['candidates']
+            except KeyError:
+                raise APIError('Invalid parameters: "session" and "candidates" must be specified')
+
+            try:
+                session_info = self.sessions_map[session]
+            except KeyError:
+                raise APIError('Unknown session specified: %s' % session)
             if session_info.state == 'terminated':
-                raise RuntimeError('Session is terminated')
+                raise APIError('Session is terminated')
+
             block_on(self.backend.janus_trickle(self.janus_session_id, session_info.janus_handle_id, candidates))
             data = dict(sylkrtc='ack', transaction=transaction)
             self._send_data(json.dumps(data))
             log.msg('Trickled ICE candidate(s) for session %s' % session)
-        except Exception, e:
+        except APIError, e:
             log.error('session-trickle: %s' % e)
+            data = dict(sylkrtc='error', transaction=transaction, error=str(e))
+            self._send_data(json.dumps(data))
+        except Exception, e:
+            log.error('Unexpected error in session-trickle: %s' % e)
             data = dict(sylkrtc='error', transaction=transaction, error=str(e))
             self._send_data(json.dumps(data))
 
@@ -472,10 +551,18 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
             return
 
         try:
-            session = data['session']
-            session_info = self.sessions_map[session]
+            try:
+                session = data['session']
+            except KeyError:
+                raise APIError('Invalid parameters: "session" must be specified')
+
+            try:
+                session_info = self.sessions_map[session]
+            except KeyError:
+                raise APIError('Unknown session specified: %s' % session)
             if session_info.state not in ('connecting', 'progress', 'accepted', 'established'):
-                raise RuntimeError('Invalid state for session terminate: \"%s\"' % session_info.state)
+                raise APIError('Invalid state for session terminate: \"%s\"' % session_info.state)
+
             if session_info.direction == 'incoming' and session_info.state == 'connecting':
                 data = {'request': 'decline', 'code': 486}
             else:
@@ -484,8 +571,12 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
             data = dict(sylkrtc='ack', transaction=transaction)
             self._send_data(json.dumps(data))
             log.msg('%s terminated session %s' % (session_info.account_id, session))
-        except Exception, e:
+        except APIError, e:
             log.error('session-terminate: %s' % e)
+            data = dict(sylkrtc='error', transaction=transaction, error=str(e))
+            self._send_data(json.dumps(data))
+        except Exception, e:
+            log.error('Unexpected error in session-terminate: %s' % e)
             data = dict(sylkrtc='error', transaction=transaction, error=str(e))
             self._send_data(json.dumps(data))
 
