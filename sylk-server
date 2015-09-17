@@ -102,6 +102,8 @@ def main():
         memory_dump()
         print "---------------------"
 
+    sys.exit(int(server.failed))
+
 
 if __name__ == "__main__":
     main()

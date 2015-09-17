@@ -47,6 +47,7 @@ class SylkServer(SIPApplication):
 
         self.stopping_event = Event()
         self.stop_event = Event()
+        self.failed = False
 
     def start(self, options):
         self.options = options
@@ -246,9 +247,11 @@ class SylkServer(SIPApplication):
 
     def _NH_SIPEngineGotException(self, notification):
         log.error('An exception occured within the SIP core:\n%s\n' % notification.data.traceback)
+        self.failed = True
 
     def _NH_SIPEngineDidFail(self, notification):
         log.error('SIP engine failed')
+        self.failed = True
         super(SylkServer, self)._NH_SIPEngineDidFail(notification)
 
     def _NH_ThorNetworkGotFatalError(self, notification):
