@@ -22,13 +22,12 @@ the license is available at http://www.fsf.org/licensing/licenses/gpl-3.0.html
 Description
 -----------
 
-SylkServer is an application server that can be programmed to perform SIP
-end-point applications and act as a gateway between SIP and XMPP domains.
-
-The server has support for SIP signaling over TLS, TCP and UDP transports,
-RTP and MSRP media planes, capability for creating ad-hoc SIP multimedia
-conferences with HD Audio, IM and File Transfer and can be easily extended
-with other applications.
+SylkServer allows creation and delivery of rich multimedia applications
+accessed by SIP Clients, XMPP endpoints and Web applications.  The server
+supports SIP and XMPP signaling, RTP, MSRP and WebRTC media planes, has
+built in capabilities for creating multiparty conferences with wideband
+Audio, IM/ File Transfers and can be easily extended with other custom
+applications by using Python language.
 
 
 Deployment Scenarios
@@ -103,6 +102,10 @@ XMPP Gateway
  - IM (MSRP sessions and SIP Messages)
  - Presence (SIMPLE and XMPP)
 
+WebRTC Gateway
+
+See README.webrtc file.
+
 
 Applications
 ------------
@@ -147,6 +150,17 @@ other way around.  To make this possible, proper SIP or XMPP records must
 exists into the DNS zone for the domain that needs the gateway service.
 
 
+WebRTC gateway
+
+This application can be used to bridge audio/video calls between SIP clients
+and Web applications.  Any SIP service can be used and a simple to use
+client API is provided for developing web pages that include such
+functionality.  This application supports transparently any audio/video
+codec negotiated by the end-points.
+
+See https://webrtc.sipthor.net for a working example.
+
+
 Standards
 ---------
 
@@ -183,6 +197,7 @@ The server implements relevant features from the following standards:
 -  Interworking between the Session Initiation Protocol (SIP) and the
    Extensible Messaging and Presence Protocol (XMPP): Multi-Party Text Chat
    http://xmpp.org/internet-drafts/draft-saintandre-sip-xmpp-groupchat-01.html
+-  WebRTC standards http://www.w3.org/TR/webrtc/
 
 
 Support
