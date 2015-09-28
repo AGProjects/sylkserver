@@ -672,6 +672,27 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
                                                                              session_info.local_identity,
                                                                              session_info.remote_identity,
                                                                              reason))
+                        # check if missed incoming call
+                        if session_info.direction == 'incoming' and code == 487:
+                            data = dict(sylkrtc='account_event',
+                                        account=session_info.account_id,
+                                        event='missed_session',
+                                        data=dict(originator=session_info.remote_identity))
+                            log.msg('Incoming session from %s missed' % session_info.remote_identity)
+                            self._send_data(json.dumps(data))
+                elif event_type == 'missed_call':
+                    try:
+                        account_info = self.account_handles_map[handle_id]
+                    except KeyError:
+                        log.warn('Could not find account for handle ID %s' % handle_id)
+                        return
+                    originator = SIP_PREFIX_RE.sub('', event_data['result']['caller'])
+                    data = dict(sylkrtc='account_event',
+                                account=account_info.id,
+                                event='missed_session',
+                                data=dict(originator=originator))
+                    log.msg('Incoming session from %s missed' % originator)
+                    self._send_data(json.dumps(data))
                 elif event_type in ('ack', 'declining', 'hangingup'):
                     # ignore
                     pass
