@@ -672,7 +672,7 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
                                                                              session_info.local_identity,
                                                                              session_info.remote_identity,
                                                                              reason))
-                elif event_type in ('ack', 'hangingup'):
+                elif event_type in ('ack', 'declining', 'hangingup'):
                     # ignore
                     pass
                 else:
@@ -715,7 +715,7 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
                                                                      session_info.local_identity,
                                                                      session_info.remote_identity,
                                                                      reason))
-        elif event_type in ('media', 'declining'):
+        elif event_type in ('media',):
             # ignore
             pass
         else:
