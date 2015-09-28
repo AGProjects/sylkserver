@@ -676,7 +676,7 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
                     # ignore
                     pass
                 else:
-                    log.warn('Unexpected event type: %s' % event_type)
+                    log.warn('Unexpected SIP plugin event type: %s' % event_type)
             else:
                 log.warn('Unexpected event: %s' % event)
         elif event_type == 'webrtcup':
