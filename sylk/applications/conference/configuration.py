@@ -10,7 +10,7 @@ from application.configuration import ConfigFile, ConfigSection, ConfigSetting
 from application.configuration.datatypes import StringList
 
 from sylk.configuration import ServerConfig
-from sylk.configuration.datatypes import Path
+from sylk.configuration.datatypes import Path, URL
 
 
 # Datatypes
@@ -95,6 +95,7 @@ class ConferenceConfig(ConfigSection):
 
     advertise_xmpp_support = True
     pstn_access_numbers = ConfigSetting(type=StringList, value='')
+    webrtc_gateway_url = ConfigSetting(type=URL, value='')
 
     zrtp_auto_verify = True
 

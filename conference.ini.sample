@@ -22,6 +22,9 @@ screensharing_images_dir = /var/spool/sylkserver/conference/screensharing
 ; Comma separated list of PSTN numbers to advertise as a conference URI
 ; pstn_access_numbers =
 
+; URL where the rooms can be joined using a WebRTC browser
+; webrtc_gateway_url =
+
 ; Automatically verify ZRTP endpoints if the following conditions are met:
 ;  - The session also has a chat stream with no relay in between
 ;  - A MSRP message of type application/blink-zrtp-sas is received with the
