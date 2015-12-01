@@ -8,7 +8,7 @@ Standards-Version: 3.9.6
 
 Package: sylkserver
 Architecture: all
-Depends: ${python:Depends}, ${misc:Depends}, python-application (>= 1.4.0), python-eventlib, python-lxml, python-sipsimple (>= 2.4.0), python-twisted-web, python-werkzeug
+Depends: ${python:Depends}, ${misc:Depends}, python-application (>= 1.4.0), python-eventlib, python-lxml, python-sipsimple (>= 2.6.0), python-twisted-web, python-werkzeug
 Suggests: libavahi-compat-libdnssd1, python-twisted-words, python-wokkel (>= 0.7.0), python-autobahn (>= 0.10.3), janus
 Recommends: sylkserver-sounds
 Description: A state of the art, extensible SIP Application Server
