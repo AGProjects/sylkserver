@@ -130,7 +130,7 @@ class EchoApplication(SylkApplication):
         stream = notification.sender
         message = notification.data.message
         stream.msrp_session.send_report(notification.data.chunk, 200, 'OK')
-        stream.send_message(message.body, message.content_type)
+        stream.send_message(message.content, message.content_type)
 
     def _NH_SIPSessionNewProposal(self, notification):
         if notification.data.originator == 'remote':

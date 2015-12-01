@@ -85,7 +85,7 @@ class MediaSessionHandler(object):
         streams = []
         for stream_type in proposed_stream_types:
             try:
-                klass = SIPMediaStreamRegistry().get(stream_type)
+                klass = SIPMediaStreamRegistry.get(stream_type)
             except Exception:
                 continue
             streams.append(klass())

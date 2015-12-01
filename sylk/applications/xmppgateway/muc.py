@@ -13,8 +13,7 @@ from sipsimple.core import Engine, SIPURI, SIPCoreError, Referral, sip_status_me
 from sipsimple.core import ContactHeader, FromHeader, ToHeader, ReferToHeader, RouteHeader
 from sipsimple.lookup import DNSLookup, DNSLookupError
 from sipsimple.streams import MediaStreamRegistry
-from sipsimple.streams.msrp import ChatStreamError
-from sipsimple.streams.applications.chat import CPIMIdentity
+from sipsimple.streams.msrp.chat import ChatStreamError, ChatIdentity
 from sipsimple.threading import run_in_twisted_thread
 from sipsimple.threading.green import run_in_green_thread
 from time import time
@@ -410,9 +409,9 @@ class X2SMucHandler(object):
             return
         if content_type == 'text/plain':
             html_body = None
-            body = message.body
+            body = message.content
         else:
-            html_body = message.body
+            html_body = message.content
             body = None
         resource = message.sender.display_name or str(message.sender.uri)
         sender = Identity(FrozenURI(self.sip_identity.uri.user, self.sip_identity.uri.host, resource))
@@ -453,7 +452,7 @@ class X2SMucHandler(object):
         message = notification.data.message
         sender_uri = message.sender.uri.as_sip_uri()
         del sender_uri.parameters['gr']    # no GRUU in CPIM From header
-        sender = CPIMIdentity(sender_uri, display_name=self.nickname)
+        sender = ChatIdentity(sender_uri, display_name=self.nickname)
         message_id = self._msrp_stream.send_message(message.body, 'text/plain', sender=sender)
         self._pending_messages_map[message_id] = message
         # Message will be echoed back to the sender on ChatStreamDidDeliverMessage

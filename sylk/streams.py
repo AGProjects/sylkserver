@@ -1,8 +1,6 @@
 # Copyright (C) 2010-2011 AG Projects. See LICENSE for details.
 #
 
-import random
-
 from application.notification import NotificationCenter, NotificationData
 from eventlib import api
 from msrplib.connect import DirectConnector, DirectAcceptor
@@ -11,9 +9,8 @@ from msrplib.session import contains_mime_type
 from msrplib.transport import make_response
 from sipsimple.core import SDPAttribute
 from sipsimple.payloads.iscomposing import IsComposingDocument, State, LastActive, Refresh, ContentType
-from sipsimple.streams.applications.chat import CPIMMessage, CPIMParserError
-from sipsimple.streams.msrp import ChatStream as _ChatStream, MSRPStreamBase as _MSRPStreamBase
-from sipsimple.streams.msrp import ChatStreamError, Message, MSRPStreamError, NotificationProxyLogger
+from sipsimple.streams.msrp import MSRPStreamBase as _MSRPStreamBase, MSRPStreamError, NotificationProxyLogger
+from sipsimple.streams.msrp.chat import ChatStream as _ChatStream, Message, QueuedMessage, CPIMPayload, CPIMParserError
 from sipsimple.threading.green import run_in_green_thread
 from sipsimple.util import ISOTimestamp
 
@@ -117,10 +114,11 @@ class ChatStream(_ChatStream):
         else:
             data = ''.join(self.incoming_queue.pop(chunk.message_id, [])) + chunk.data
         try:
-            message = CPIMMessage.parse(data)
+            payload = CPIMPayload.decode(data)
         except CPIMParserError:
             self.msrp_session.send_report(chunk, 400, 'CPIM Parser Error')
             return
+        message = Message(**payload.__dict__)
         if not contains_mime_type(self.accept_wrapped_types, message.content_type):
             self.msrp_session.send_report(chunk, 415, 'Invalid Content-Type')
             return
@@ -131,7 +129,7 @@ class ChatStream(_ChatStream):
         private = self.session.remote_focus and len(message.recipients) == 1 and message.recipients[0] != self.remote_identity
         notification_center = NotificationCenter()
         if message.content_type.lower() == IsComposingDocument.content_type:
-            data = IsComposingDocument.parse(message.body)
+            data = IsComposingDocument.parse(message.content)
             ndata = NotificationData(state=data.state.value,
                                      refresh=data.refresh.value if data.refresh is not None else 120,
                                      content_type=data.content_type.value if data.content_type is not None else None,
@@ -164,22 +162,14 @@ class ChatStream(_ChatStream):
         response = make_response(chunk, code, reason)
         self._send_nickname_response(response)
 
-    def send_message(self, content, content_type='text/plain', sender=None, recipients=None, courtesy_recipients=None, subject=None, timestamp=None, required=None, additional_headers=None, message_id=None, notify_progress=True, success_report='yes', failure_report='yes'):
-        if self.direction=='recvonly':
-            raise ChatStreamError('Cannot send message on recvonly stream')
-        if message_id is None:
-            message_id = '%x' % random.getrandbits(64)
-        message = Message(message_id, content, content_type, sender=sender, recipients=recipients, courtesy_recipients=courtesy_recipients, subject=subject, timestamp=timestamp, required=required, additional_headers=additional_headers, failure_report=failure_report, success_report=success_report, notify_progress=notify_progress)
+    def send_message(self, content, content_type='text/plain', sender=None, recipients=None, timestamp=None, additional_headers=None, message_id=None, notify_progress=True):
+        message = QueuedMessage(content, content_type, sender=sender, recipients=recipients, timestamp=timestamp, additional_headers=additional_headers, id=message_id, notify_progress=notify_progress)
         self._enqueue_message(message)
-        return message_id
+        return message.id
 
-    def send_composing_indication(self, state, refresh=None, last_active=None, sender=None, recipients=None, message_id=None, notify_progress=False, success_report='no', failure_report='partial'):
-        if self.direction == 'recvonly':
-            raise ChatStreamError('Cannot send message on recvonly stream')
-        if message_id is None:
-            message_id = '%x' % random.getrandbits(64)
+    def send_composing_indication(self, state, refresh=None, last_active=None, sender=None, recipients=None, message_id=None, notify_progress=False):
         content = IsComposingDocument.create(state=State(state), refresh=Refresh(refresh) if refresh is not None else None, last_active=LastActive(last_active) if last_active is not None else None, content_type=ContentType('text'))
-        message = Message(message_id, content, IsComposingDocument.content_type, sender=sender, recipients=recipients, failure_report=failure_report, success_report=success_report, notify_progress=notify_progress)
+        message = QueuedMessage(content, IsComposingDocument.content_type, sender=sender, recipients=recipients, id=message_id, notify_progress=notify_progress)
         self._enqueue_message(message)
-        return message_id
+        return message.id
 

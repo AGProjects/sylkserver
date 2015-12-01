@@ -6,7 +6,7 @@ from application.python import Null
 from sipsimple.core import SIPURI, SIPCoreError
 from sipsimple.payloads import ParserError
 from sipsimple.payloads.iscomposing import IsComposingDocument, IsComposingMessage
-from sipsimple.streams.applications.chat import CPIMMessage, CPIMParserError
+from sipsimple.streams.msrp.chat import CPIMPayload, CPIMParserError
 from sipsimple.threading.green import run_in_green_thread
 from zope.interface import implements
 
@@ -211,13 +211,13 @@ class XMPPGatewayApplication(SylkApplication):
 
         if content_type == 'message/cpim':
             try:
-                cpim_message = CPIMMessage.parse(data.body)
+                cpim_message = CPIMPayload.decode(data.body)
             except CPIMParserError:
                 log.msg('Message rejected: CPIM parse error')
                 message_request.answer(400)
                 return
             else:
-                body = cpim_message.body
+                body = cpim_message.content
                 content_type = cpim_message.content_type
                 sender = cpim_message.sender or from_header
                 from_uri = sender.uri

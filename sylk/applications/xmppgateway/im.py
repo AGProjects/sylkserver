@@ -12,7 +12,7 @@ from sipsimple.core import ContactHeader, FromHeader, RouteHeader, ToHeader
 from sipsimple.core import Message as SIPMessageRequest
 from sipsimple.lookup import DNSLookup, DNSLookupError
 from sipsimple.streams import MediaStreamRegistry
-from sipsimple.streams.applications.chat import CPIMIdentity
+from sipsimple.streams.msrp.chat import ChatIdentity
 from sipsimple.threading import run_in_twisted_thread
 from sipsimple.threading.green import run_in_green_thread, run_in_waitable_green_thread
 from twisted.internet import reactor
@@ -128,7 +128,7 @@ class ChatSessionHandler(object):
             log.warning('DNS lookup error while looking for %s proxy' % uri)
             notification_center.post_notification('ChatSessionDidFail', sender=self, data=NotificationData(reason='DNS lookup error'))
             return
-        self.msrp_stream = MediaStreamRegistry().get('chat')()
+        self.msrp_stream = MediaStreamRegistry.get('chat')()
         route = routes.pop(0)
         from_header = FromHeader(from_uri)
         to_header = ToHeader(to_uri)
@@ -180,7 +180,7 @@ class ChatSessionHandler(object):
                     failure_report = 'yes'
                 sender_uri = message.sender.uri.as_sip_uri()
                 sender_uri.parameters['gr'] = encode_resource(sender_uri.parameters['gr'].decode('utf-8'))
-                sender = CPIMIdentity(sender_uri)
+                sender = ChatIdentity(sender_uri)
                 self.msrp_stream.send_message(message.body, 'text/plain', sender=sender, message_id=message.id, notify_progress=True, success_report=success_report, failure_report=failure_report)
             self.msrp_stream.send_composing_indication('idle', 30, sender=sender)
 
@@ -261,9 +261,9 @@ class ChatSessionHandler(object):
             return
         if content_type == 'text/plain':
             html_body = None
-            body = message.body
+            body = message.content
         else:
-            html_body = message.body
+            html_body = message.content
             body = None
         if self._sip_session_timer is not None and self._sip_session_timer.active():
             self._sip_session_timer.reset(SESSION_TIMEOUT)
@@ -327,7 +327,7 @@ class ChatSessionHandler(object):
         message = notification.data.message
         sender_uri = message.sender.uri.as_sip_uri()
         del sender_uri.parameters['gr']    # no GRUU in CPIM From header
-        sender = CPIMIdentity(sender_uri)
+        sender = ChatIdentity(sender_uri)
         self.use_receipts = message.use_receipt
         if not message.use_receipt:
             success_report = 'no'
@@ -354,7 +354,7 @@ class ChatSessionHandler(object):
         if state is not None:
             sender_uri = message.sender.uri.as_sip_uri()
             del sender_uri.parameters['gr']    # no GRUU in CPIM From header
-            sender = CPIMIdentity(sender_uri)
+            sender = ChatIdentity(sender_uri)
             self.msrp_stream.send_composing_indication(state, 30, sender=sender)
             if message.use_receipt:
                 self.xmpp_session.send_receipt_acknowledgement(message.id)

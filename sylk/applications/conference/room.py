@@ -24,8 +24,8 @@ from sipsimple.core import Header, FromHeader, ToHeader, SubjectHeader
 from sipsimple.lookup import DNSLookup, DNSLookupError
 from sipsimple.payloads import conference
 from sipsimple.streams import MediaStreamRegistry
-from sipsimple.streams.applications.chat import CPIMIdentity, CPIMHeader, Namespace
-from sipsimple.streams.msrp import FileSelector
+from sipsimple.streams.msrp.chat import ChatIdentity, CPIMHeader, CPIMNamespace
+from sipsimple.streams.msrp.filetransfer import FileSelector
 from sipsimple.threading import run_in_thread, run_in_twisted_thread
 from sipsimple.threading.green import run_in_green_thread
 from sipsimple.util import ISOTimestamp
@@ -125,7 +125,7 @@ class Room(object):
     def __init__(self, uri):
         self.config = get_room_config(uri)
         self.uri = uri
-        self.identity = CPIMIdentity(SIPURI.parse('sip:%s' % self.uri), display_name='Conference Room')
+        self.identity = ChatIdentity(SIPURI.parse('sip:%s' % self.uri), display_name='Conference Room')
         self.files = []
         self.screen_images = {}
         self.sessions = []
@@ -262,7 +262,7 @@ class Room(object):
                 message = data.message
                 if message.sender.uri != session.remote_identity.uri:
                     continue
-                if message.body.startswith('?OTR:'):
+                if message.content.startswith('?OTR:'):
                     continue
                 if message.timestamp is None:
                     message.timestamp = ISOTimestamp.utcnow()
@@ -290,7 +290,7 @@ class Room(object):
                 chat_stream = next(stream for stream in s.streams if stream.type == 'chat')
             except StopIteration:
                 continue
-            chat_stream.send_message(message.body, message.content_type, sender=message.sender, recipients=[self.identity], timestamp=message.timestamp, additional_headers=message.additional_headers)
+            chat_stream.send_message(message.content, message.content_type, sender=message.sender, recipients=[self.identity], timestamp=message.timestamp, additional_headers=message.additional_headers)
 
     def dispatch_private_message(self, session, message):
         # Private messages are delivered to all sessions matching the recipient but also to the sender,
@@ -301,36 +301,36 @@ class Room(object):
                 chat_stream = next(stream for stream in s.streams if stream.type == 'chat')
             except StopIteration:
                 continue
-            chat_stream.send_message(message.body, message.content_type, sender=message.sender, recipients=[recipient], timestamp=message.timestamp, additional_headers=message.additional_headers)
+            chat_stream.send_message(message.content, message.content_type, sender=message.sender, recipients=[recipient], timestamp=message.timestamp, additional_headers=message.additional_headers)
 
     def dispatch_iscomposing(self, session, data):
+        identity = ChatIdentity(session.remote_identity.uri, session.remote_identity.display_name)
         for s in (s for s in self.sessions if s is not session):
             try:
                 chat_stream = next(stream for stream in s.streams if stream.type == 'chat')
             except StopIteration:
                 continue
-            identity = CPIMIdentity(session.remote_identity.uri, session.remote_identity.display_name)
             chat_stream.send_composing_indication(data.state, data.refresh, sender=identity, recipients=[self.identity])
 
     def dispatch_private_iscomposing(self, session, data):
+        identity = ChatIdentity(session.remote_identity.uri, session.remote_identity.display_name)
         recipient_uri = data.recipients[0].uri
         for s in (s for s in self.sessions if s is not session and s.remote_identity.uri == recipient_uri):
             try:
                 chat_stream = next(stream for stream in s.streams if stream.type == 'chat')
             except StopIteration:
                 continue
-            identity = CPIMIdentity(session.remote_identity.uri, session.remote_identity.display_name)
             chat_stream.send_composing_indication(data.state, data.refresh, sender=identity)
 
-    def dispatch_server_message(self, body, content_type='text/plain', exclude=None):
+    def dispatch_server_message(self, content, content_type='text/plain', exclude=None):
+        ns = CPIMNamespace('urn:ag-projects:xml:ns:cpim', prefix='agp')
+        message_type = CPIMHeader('Message-Type', ns, 'status')
         for session in (session for session in self.sessions if session is not exclude):
             try:
                 chat_stream = next(stream for stream in session.streams if stream.type == 'chat')
             except StopIteration:
                 continue
-            ns = Namespace('urn:ag-projects:xml:ns:cpim', prefix='agp')
-            message_type = CPIMHeader('Message-Type', ns, 'status')
-            chat_stream.send_message(body, content_type, sender=self.identity, recipients=[self.identity], additional_headers=[message_type])
+            chat_stream.send_message(content, content_type, sender=self.identity, recipients=[self.identity], additional_headers=[message_type])
 
     def dispatch_conference_info(self):
         data = self.conference_info
@@ -550,7 +550,7 @@ class Room(object):
         if secure_chat:
             txt = 'Received ZRTP Short Authentication String: %s' % sas
             # Don't set the remote identity, that way it will appear as a private message
-            ns = Namespace('urn:ag-projects:xml:ns:cpim', prefix='agp')
+            ns = CPIMNamespace('urn:ag-projects:xml:ns:cpim', prefix='agp')
             message_type = CPIMHeader('Message-Type', ns, 'status')
             chat_stream.send_message(txt, 'text/plain', sender=self.identity, additional_headers=[message_type])
 
@@ -574,7 +574,7 @@ class Room(object):
             self.incoming_message_queue.send((session, 'message', data))
         elif content_type == 'application/blink-screensharing':
             stream.msrp_session.send_report(notification.data.chunk, 200, 'OK')
-            self.add_screen_image(message.sender, message.body)
+            self.add_screen_image(message.sender, message.content)
         elif content_type == 'application/blink-zrtp-sas':
             if not self.config.zrtp_auto_verify:
                 stream.msrp_session.send_report(notification.data.chunk, 413, 'Unwanted message')
@@ -586,7 +586,7 @@ class Room(object):
                 return
             # Only trust it if there was a direct path and the transport is TLS
             secure_chat = stream.transport == 'tls' and all(len(path)==1 for path in (stream.msrp.full_local_path, stream.msrp.full_remote_path))
-            remote_sas = str(message.body)
+            remote_sas = str(message.content)
             if remote_sas == audio_stream.encryption.zrtp.sas and secure_chat:
                 audio_stream.encryption.zrtp.verified = True
                 stream.msrp_session.send_report(notification.data.chunk, 200, 'OK')
@@ -940,7 +940,7 @@ class WelcomeHandler(object):
                     txt += '    - Using a WebRTC enabled browser go to %s and join room %s\n' % (self.room.config.webrtc_gateway_url, self.room.identity.uri.user)
         stream.send_message(txt, 'text/plain', sender=self.room.identity, recipients=[self.room.identity])
         for msg in self.room.history:
-            stream.send_message(msg.body, msg.content_type, sender=msg.sender, recipients=[self.room.identity], timestamp=msg.timestamp)
+            stream.send_message(msg.content, msg.content_type, sender=msg.sender, recipients=[self.room.identity], timestamp=msg.timestamp)
 
         # Send ZRTP SAS over the chat stream, if applicable
         if self.room.config.zrtp_auto_verify:
@@ -957,7 +957,7 @@ class WelcomeHandler(object):
                     if sas is not None and secure_chat:
                         txt = 'Received ZRTP Short Authentication String: %s' % sas
                         # Don't set the remote identity, that way it will appear as a private message
-                        ns = Namespace('urn:ag-projects:xml:ns:cpim', prefix='agp')
+                        ns = CPIMNamespace('urn:ag-projects:xml:ns:cpim', prefix='agp')
                         message_type = CPIMHeader('Message-Type', ns, 'status')
                         stream.send_message(txt, 'text/plain', sender=self.room.identity, additional_headers=[message_type])
 
@@ -1023,7 +1023,7 @@ class FileTransferHandler(object):
             return
 
         self.session = Session(account)
-        self.stream = MediaStreamRegistry().get('file-transfer')(file.file_selector, 'sendonly')
+        self.stream = MediaStreamRegistry.get('file-transfer')(file.file_selector, 'sendonly')
         self.handler = self.stream.handler
         notification_center = NotificationCenter()
         notification_center.add_observer(self, sender=self.stream)
@@ -1047,7 +1047,7 @@ class FileTransferHandler(object):
         if room is not None:
             if failure_reason is None:
                 if self.direction == 'incoming' and self.stream.direction == 'recvonly':
-                    sender = CPIMIdentity(self.session.remote_identity.uri, self.session.remote_identity.display_name)
+                    sender = ChatIdentity(self.session.remote_identity.uri, self.session.remote_identity.display_name)
                     file = RoomFile(self.stream.file_selector.name, self.stream.file_selector.hash, self.stream.file_selector.size, sender)
                     room.add_file(file)
             else:

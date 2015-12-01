@@ -382,7 +382,7 @@ class Session(object):
         self.proposed_streams = []
         for index, media_stream in enumerate(remote_sdp.media):
             if media_stream.port != 0:
-                for stream_type in MediaStreamRegistry():
+                for stream_type in MediaStreamRegistry:
                     try:
                         stream = stream_type.new_from_sdp(self, remote_sdp, index)
                     except InvalidStreamError:
@@ -1687,7 +1687,7 @@ class Session(object):
                             for index in added_media_indexes | reused_media_indexes:
                                 media_stream = proposed_remote_sdp.media[index]
                                 if media_stream.port != 0:
-                                    for stream_type in MediaStreamRegistry():
+                                    for stream_type in MediaStreamRegistry:
                                         try:
                                             stream = stream_type.new_from_sdp(self, proposed_remote_sdp, index)
                                         except InvalidStreamError:

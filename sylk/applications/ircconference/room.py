@@ -17,8 +17,7 @@ from sipsimple.audio import AudioConference, WavePlayer, WavePlayerError
 from sipsimple.configuration.settings import SIPSimpleSettings
 from sipsimple.core import SIPURI, SIPCoreError, SIPCoreInvalidStateError
 from sipsimple.payloads.conference import Conference, ConferenceDocument, ConferenceDescription, ConferenceState, Endpoint, EndpointStatus, HostInfo, JoiningInfo, Media, User, Users, WebPage
-from sipsimple.streams.applications.chat import CPIMIdentity
-from sipsimple.streams.msrp import ChatStreamError
+from sipsimple.streams.msrp.chat import ChatIdentity
 from sipsimple.threading import run_in_twisted_thread
 from sipsimple.threading.green import run_in_green_thread
 from twisted.internet import protocol, reactor
@@ -80,9 +79,9 @@ def html2text(data):
 
 
 class IRCMessage(object):
-    def __init__(self, username, uri, body, content_type='text/plain'):
-        self.sender = CPIMIdentity(uri, display_name=username)
-        self.body = body
+    def __init__(self, username, uri, content, content_type='text/plain'):
+        self.sender = ChatIdentity(uri, display_name=username)
+        self.content = content
         self.content_type = content_type
 
 
@@ -96,7 +95,7 @@ class IRCRoom(object):
 
     def __init__(self, uri):
         self.uri = uri
-        self.identity = CPIMIdentity.parse('<sip:%s>' % self.uri)
+        self.identity = ChatIdentity.parse('<sip:%s>' % self.uri)
         self.sessions = []
         self.sessions_with_proposals = []
         self.subscriptions = []
@@ -160,17 +159,14 @@ class IRCRoom(object):
                 self.dispatch_irc_message(data)
 
     def dispatch_message(self, session, message):
+        identity = ChatIdentity.parse(format_identity(session.remote_identity, True))
         for s in (s for s in self.sessions if s is not session):
             try:
-                identity = CPIMIdentity.parse(format_identity(session.remote_identity, True))
                 chat_stream = next(stream for stream in s.streams if stream.type == 'chat')
             except StopIteration:
                 pass
             else:
-                try:
-                    chat_stream.send_message(message.body, message.content_type, sender=identity, recipients=[self.identity], timestamp=message.timestamp)
-                except ChatStreamError, e:
-                    log.error(u'Error dispatching message to %s: %s' % (s.remote_identity.uri, e))
+                chat_stream.send_message(message.content, message.content_type, sender=identity, recipients=[self.identity], timestamp=message.timestamp)
 
     def dispatch_irc_message(self, message):
         for session in self.sessions:
@@ -179,22 +175,16 @@ class IRCRoom(object):
             except StopIteration:
                 pass
             else:
-                try:
-                    chat_stream.send_message(message.body, message.content_type, sender=message.sender, recipients=[self.identity])
-                except ChatStreamError, e:
-                    log.error(u'Error dispatching message to %s: %s' % (session.remote_identity.uri, e))
+                chat_stream.send_message(message.content, message.content_type, sender=message.sender, recipients=[self.identity])
 
-    def dispatch_server_message(self, body, content_type='text/plain', exclude=None):
+    def dispatch_server_message(self, content, content_type='text/plain', exclude=None):
         for session in (session for session in self.sessions if session is not exclude):
             try:
                 chat_stream = next(stream for stream in session.streams if stream.type == 'chat')
             except StopIteration:
                 pass
             else:
-                try:
-                    chat_stream.send_message(body, content_type, sender=self.identity, recipients=[self.identity])
-                except ChatStreamError, e:
-                    log.error(u'Error dispatching message to %s: %s' % (session.remote_identity.uri, e))
+                chat_stream.send_message(content, content_type, sender=self.identity, recipients=[self.identity])
 
     def get_conference_info(self):
         # Send request to get participants list, we'll get a notification with it
@@ -409,13 +399,14 @@ class IRCRoom(object):
         self.incoming_message_queue.send((session, 'msrp_message', message))
         # Send MSRP chat message to IRC chat room
         if message.content_type == 'text/html':
-            body = html2text(message.body)
+            content = html2text(message.content)
         elif message.content_type == 'text/plain':
-            body = message.body
+            content = message.content
         else:
-            raise RuntimeError('unexpected message type: %s' % message.content_type)
+            log.warning('unexpected message type: %s' % message.content_type)
+            return
         sender = message.sender
-        irc_message = '%s: %s' % (format_identity(sender), body)
+        irc_message = '%s: %s' % (format_identity(sender), content)
         if self.irc_protocol is not None:
             self.irc_protocol.send_message(irc_message.encode('utf-8'))
         else:
