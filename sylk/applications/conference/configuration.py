@@ -109,6 +109,7 @@ class RoomConfig(ConfigSection):
 
     pstn_access_numbers = ConferenceConfig.pstn_access_numbers
     advertise_xmpp_support = ConferenceConfig.advertise_xmpp_support
+    webrtc_gateway_url = ConferenceConfig.webrtc_gateway_url
 
     zrtp_auto_verify = ConferenceConfig.zrtp_auto_verify
 
