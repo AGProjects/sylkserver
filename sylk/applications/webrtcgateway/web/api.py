@@ -41,6 +41,12 @@ class AccountInfo(object):
         return 'sip:%s' % self.id
 
 
+class SessionPartyIdentity(object):
+    def __init__(self, uri, display_name=''):
+        self.uri = uri
+        self.display_name = display_name
+
+
 class SessionInfoBase(object):
     type = None    # override in subclass
 
@@ -49,23 +55,22 @@ class SessionInfoBase(object):
         self.direction = None
         self.state = None
         self.account_id = None
-        self.remote_identity = None
+        self.local_identity = None     # instance of SessionPartyIdentity
+        self.remote_identity = None    # instance of SessionPartyIdentity
 
     def init_outgoing(self, account_id, destination):
         self.account_id = account_id
         self.direction = 'outgoing'
         self.state = 'connecting'
-        self.remote_identity = destination
+        self.local_identity = SessionPartyIdentity(account_id)
+        self.remote_identity = SessionPartyIdentity(destination)
 
-    def init_incoming(self, account_id, originator):
+    def init_incoming(self, account_id, originator, originator_display_name=''):
         self.account_id = account_id
         self.direction = 'incoming'
         self.state = 'connecting'
-        self.remote_identity = originator
-
-    @property
-    def local_identity(self):
-        return self.account_id
+        self.local_identity = SessionPartyIdentity(account_id)
+        self.remote_identity = SessionPartyIdentity(originator, originator_display_name)
 
 
 class JanusSessionInfo(SessionInfoBase):
@@ -603,21 +608,24 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
                         log.warn('Could not find account for handle ID %s' % handle_id)
                         return
                     if event_type == 'incomingcall':
-                        originator = SIP_PREFIX_RE.sub('', event_data['result']['username'])
+                        originator_uri = SIP_PREFIX_RE.sub('', event_data['result']['username'])
+                        originator_display_name = event_data['result'].get('displayname', '').replace('"', '')
                         jsep = event.get('jsep', None)
                         assert jsep is not None
                         session_id = uuid.uuid4().hex
                         session = JanusSessionInfo(session_id)
                         session.janus_handle_id = handle_id
-                        session.init_incoming(account_info.id, originator)
+                        session.init_incoming(account_info.id, originator_uri, originator_display_name)
                         self.sessions_map[session_id] = session
                         self.session_handles_map[handle_id] = session
                         data = dict(sylkrtc='account_event',
                                     account=account_info.id,
                                     session=session_id,
                                     event='incoming_session',
-                                    data=dict(originator=originator, sdp=jsep['sdp']))
-                        log.msg('Incoming session %s %s <-> %s created' % (session.id, session.remote_identity, session.local_identity))
+                                    data=dict(originator=session.remote_identity.__dict__, sdp=jsep['sdp']))
+                        log.msg('Incoming session %s %s <-> %s created' % (session.id,
+                                                                           session.remote_identity.uri,
+                                                                           session.local_identity.uri))
                     else:
                         registration_state = event_type
                         if registration_state == 'registration_failed':
@@ -669,16 +677,16 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
                         self._cleanup_session(session_info)
                         log.msg('%s session %s %s <-> %s terminated (%s)' % (session_info.direction.title(),
                                                                              session_info.id,
-                                                                             session_info.local_identity,
-                                                                             session_info.remote_identity,
+                                                                             session_info.local_identity.uri,
+                                                                             session_info.remote_identity.uri,
                                                                              reason))
                         # check if missed incoming call
                         if session_info.direction == 'incoming' and code == 487:
                             data = dict(sylkrtc='account_event',
                                         account=session_info.account_id,
                                         event='missed_session',
-                                        data=dict(originator=session_info.remote_identity))
-                            log.msg('Incoming session from %s missed' % session_info.remote_identity)
+                                        data=dict(originator=session_info.remote_identity.__dict__))
+                            log.msg('Incoming session from %s missed' % session_info.remote_identity.uri)
                             self._send_data(json.dumps(data))
                 elif event_type == 'missed_call':
                     try:
@@ -686,12 +694,15 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
                     except KeyError:
                         log.warn('Could not find account for handle ID %s' % handle_id)
                         return
-                    originator = SIP_PREFIX_RE.sub('', event_data['result']['caller'])
+                    originator_uri = SIP_PREFIX_RE.sub('', event_data['result']['caller'])
+                    originator_display_name = event_data['result'].get('displayname', '').replace('"', '')
+                    # We have no session, so create an identity object by hand
+                    originator = SessionPartyIdentity(originator_uri, originator_display_name)
                     data = dict(sylkrtc='account_event',
                                 account=account_info.id,
                                 event='missed_session',
-                                data=dict(originator=originator))
-                    log.msg('Incoming session from %s missed' % originator)
+                                data=dict(originator=originator.__dict__))
+                    log.msg('Incoming session from %s missed' % originator.uri)
                     self._send_data(json.dumps(data))
                 elif event_type in ('ack', 'declining', 'hangingup'):
                     # ignore
@@ -733,8 +744,8 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
                 self._cleanup_session(session_info)
                 log.msg('%s session %s %s <-> %s terminated (%s)' % (session_info.direction.title(),
                                                                      session_info.id,
-                                                                     session_info.local_identity,
-                                                                     session_info.remote_identity,
+                                                                     session_info.local_identity.uri,
+                                                                     session_info.remote_identity.uri,
                                                                      reason))
         elif event_type in ('media',):
             # ignore
