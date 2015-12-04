@@ -1,8 +1,22 @@
-sylkserver (3.0.2~dev) UNRELEASED; urgency=medium
+sylkserver (3.1.0) unstable; urgency=medium
 
-  * TBD
+  * Fixed default web port in sample config file
+  * Terminate connections if backend goes down
+  * webrtc: fix navbar rounded corners in test app
+  * Update bundled sylkrtc.js library
+  * webrtc: show remote party in test app
+  * Improve error messages for API call errors
+  * Exit with a a non-zero exit code if engine failed
+  * Update README with WebRTC related information
+  * Added 'missed_session' event
+  * Added webrtc_gateway_url settings for conference rooms
+  * Adapt to changes in SIP SIMPLE SDK
+  * Raised python-sipsimple dependency
+  * Updated Janus config to match new version
+  * Raised Janus version dependency
+  * webrtc: add display name support for incoming and missed calls
 
- -- Saul Ibarra <saul@ag-projects.com>  Wed, 09 Sep 2015 10:35:49 +0200
+ -- Saul Ibarra <saul@ag-projects.com>  Fri, 04 Dec 2015 12:52:26 +0100
 
 sylkserver (3.0.1) unstable; urgency=medium
 
