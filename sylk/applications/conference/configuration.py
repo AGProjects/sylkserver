@@ -107,7 +107,7 @@ class RoomConfig(ConfigSection):
     allow = ConfigSetting(type=PolicySettingValue, value=PolicySettingValue('all'))
     deny = ConfigSetting(type=PolicySettingValue, value=PolicySettingValue('none'))
 
-    pstn_access_numbers = ConferenceConfig.pstn_access_numbers
+    pstn_access_numbers = ConfigSetting(type=StringList, value=ConferenceConfig.pstn_access_numbers)
     advertise_xmpp_support = ConferenceConfig.advertise_xmpp_support
     webrtc_gateway_url = ConferenceConfig.webrtc_gateway_url
 
