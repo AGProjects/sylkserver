@@ -747,7 +747,7 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
                                                                      session_info.local_identity.uri,
                                                                      session_info.remote_identity.uri,
                                                                      reason))
-        elif event_type in ('media',):
+        elif event_type in ('media', 'detached'):
             # ignore
             pass
         else:
