@@ -330,14 +330,12 @@ class ChatSessionHandler(object):
         sender = ChatIdentity(sender_uri)
         self.use_receipts = message.use_receipt
         if not message.use_receipt:
-            success_report = 'no'
-            failure_report = 'no'
+            notify_progress = False
         else:
-            success_report = 'yes'
-            failure_report = 'yes'
+            notify_progress = True
             self._pending_xmpp_stanzas[message.id] = message
         # Prefer plaintext
-        self.msrp_stream.send_message(message.body, 'text/plain', sender=sender, message_id=message.id, notify_progress=True, success_report=success_report, failure_report=failure_report)
+        self.msrp_stream.send_message(message.body, 'text/plain', sender=sender, message_id=message.id, notify_progress=notify_progress)
         self.msrp_stream.send_composing_indication('idle', 30, sender=sender)
 
     def _NH_XMPPChatSessionGotComposingIndication(self, notification):
