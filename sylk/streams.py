@@ -51,7 +51,7 @@ def MSRPStreamBase_initialize(self, session, direction):
                     raise MSRPStreamError("Cannot accept MSRP connection without a TLS certificate")
                 self.msrp_connector = DirectAcceptor(logger=logger, use_sessmatch=True)
                 self.local_role = 'actpass' if outgoing else 'passive'
-        full_local_path = self.msrp_connector.prepare(self.local_uri)
+        full_local_path = self.msrp_connector.prepare(local_uri=URI(host=SIPConfig.local_ip.normalized, port=0, use_tls=self.transport=='tls', credentials=self.session.account.tls_credentials))
         self.local_media = self._create_local_media(full_local_path)
     except Exception, e:
         notification_center.post_notification('MediaStreamDidNotInitialize', self, NotificationData(reason=str(e)))
@@ -71,10 +71,6 @@ class ChatStream(_ChatStream):
     accept_types = ['message/cpim']
     accept_wrapped_types = ['*']
     chatroom_capabilities = ['nickname', 'private-messages', 'com.ag-projects.screen-sharing', 'com.ag-projects.zrtp-sas']
-
-    @property
-    def local_uri(self):
-        return URI(host=SIPConfig.local_ip.normalized, port=0, use_tls=self.transport=='tls', credentials=self.session.account.tls_credentials)
 
     @property
     def private_messages_allowed(self):
