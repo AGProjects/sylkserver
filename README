@@ -170,7 +170,7 @@ The server implements relevant features from the following standards:
  - MSRP protocol RFC4975
  - MSRP relay extension RFC4976
  - MSRP File Transfer RFC5547
- - MSRP switch draft-ietf-simple-chat-18
+ - MSRP switch RFC7701
  - MSRP Alternative Connection Model RFC6135
  - Indication of Message Composition RFC3994
  - CPIM Message Format RFC3862
@@ -187,16 +187,10 @@ The server implements relevant features from the following standards:
  - Instant Messaging and Presence http://xmpp.org/rfcs/rfc6121.html
  - Interworking between the Session Initiation Protocol (SIP) and the
    Extensible Messaging and Presence Protocol (XMPP):
-   http://xmpp.org/internet-drafts/draft-saintandre-sip-xmpp-presence-02.html
- - Interworking between the Session Initiation Protocol (SIP) and the
-   Extensible Messaging and Presence Protocol (XMPP):
-   http://xmpp.org/internet-drafts/draft-saintandre-sip-xmpp-im-01.html
- - Interworking between the Session Initiation Protocol (SIP) and the
-   Extensible Messaging and Presence Protocol (XMPP):
-   http://xmpp.org/internet-drafts/draft-saintandre-sip-xmpp-chat-03.html
--  Interworking between the Session Initiation Protocol (SIP) and the
-   Extensible Messaging and Presence Protocol (XMPP): Multi-Party Text Chat
-   http://xmpp.org/internet-drafts/draft-saintandre-sip-xmpp-groupchat-01.html
+     - Presence: RFC7248
+     - IM: RFC7572
+     - Chat: RFC7573
+     - Multi-party chat: RFC7702
 -  WebRTC standards http://www.w3.org/TR/webrtc/
 
 
