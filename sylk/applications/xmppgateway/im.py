@@ -172,16 +172,11 @@ class ChatSessionHandler(object):
                 message = self._xmpp_message_queue.popleft()
                 if message.body is None:
                     continue
-                if not message.use_receipt:
-                    success_report = 'no'
-                    failure_report = 'no'
-                else:
-                    success_report = 'yes'
-                    failure_report = 'yes'
+                notify_progress = message.use_receipt
                 sender_uri = message.sender.uri.as_sip_uri()
                 sender_uri.parameters['gr'] = encode_resource(sender_uri.parameters['gr'].decode('utf-8'))
                 sender = ChatIdentity(sender_uri)
-                self.msrp_stream.send_message(message.body, 'text/plain', sender=sender, message_id=message.id, notify_progress=True, success_report=success_report, failure_report=failure_report)
+                self.msrp_stream.send_message(message.body, 'text/plain', sender=sender, message_id=message.id, notify_progress=message.use_receipt)
             self.msrp_stream.send_composing_indication('idle', 30, sender=sender)
 
     def _inactivity_timeout(self):
