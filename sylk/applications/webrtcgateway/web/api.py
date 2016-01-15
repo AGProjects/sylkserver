@@ -170,6 +170,8 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
     def disconnect(self, code=1000, reason=u''):
         self.sendClose(code, reason)
 
+    # internal methods (not overriding / implementing the protocol API)
+
     def _send_data(self, data):
         if GeneralConfig.trace_websocket:
             self.factory.ws_logger.msg("OUT", ISOTimestamp.now(), data)

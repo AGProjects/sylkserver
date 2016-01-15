@@ -15,6 +15,7 @@ class GeneralConfig(ConfigSection):
     sip_domains = ConfigSetting(type=StringList, value=['*'])
     outbound_sip_proxy = ConfigSetting(type=SIPProxyAddress, value=None)
     trace_websocket = False
+    websocket_ping_interval = 120
 
 
 class JanusConfig(ConfigSection):

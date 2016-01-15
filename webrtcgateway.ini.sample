@@ -20,6 +20,10 @@
 ; to a file
 ; trace_websocket = False
 
+; WebSocket Ping frames are sent at the configured interval, this helps detect dead
+; client connections
+; websocket_ping_interval = 120
+
 [Janus]
 ; URL pointing to the Janus API endpoint (only WebSocket is supported)
 ; api_url = ws://localhost:8188
