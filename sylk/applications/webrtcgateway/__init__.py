@@ -7,13 +7,13 @@ from sylk.applications.webrtcgateway.web import WebHandler
 
 class WebRTCGatewayApplication(SylkApplication):
     def __init__(self):
-        self.ws = WebHandler()
+        self.web_handler = WebHandler()
 
     def start(self):
-        self.ws.start()
+        self.web_handler.start()
 
     def stop(self):
-        self.ws.stop()
+        self.web_handler.stop()
 
     def incoming_session(self, session):
         log.msg(u'New incoming session %s from %s rejected' % (session.call_id, IdentityFormatter.format(session.remote_identity)))
