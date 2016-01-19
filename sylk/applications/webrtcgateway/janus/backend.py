@@ -50,7 +50,7 @@ class JanusClientProtocol(WebSocketClientProtocol):
     _janus_event_handlers = None
     _janus_pending_transactions = None
     _janus_keepalive_timers = None
-    _janus_keepalive_timeout = 45
+    _janus_keepalive_interval = 45
 
     def onOpen(self):
         notification_center = NotificationCenter()
@@ -179,7 +179,7 @@ class JanusClientProtocol(WebSocketClientProtocol):
         if isinstance(result, Failure):
             self.janus_stop_keepalive(session_id)
             return
-        self._janus_keepalive_timers[session_id] = reactor.callLater(self._janus_keepalive_timeout, self._janus_send_keepalive, session_id)
+        self._janus_keepalive_timers[session_id] = reactor.callLater(self._janus_keepalive_interval, self._janus_send_keepalive, session_id)
 
     def _janus_send_keepalive(self, session_id):
         req = JanusRequest('keepalive', session_id=session_id)
@@ -189,7 +189,7 @@ class JanusClientProtocol(WebSocketClientProtocol):
 
     def janus_start_keepalive(self, session_id):
         self.janus_stop_keepalive(session_id)
-        self._janus_keepalive_timers[session_id] = reactor.callLater(self._janus_keepalive_timeout, self._janus_send_keepalive, session_id)
+        self._janus_keepalive_timers[session_id] = reactor.callLater(self._janus_keepalive_interval, self._janus_send_keepalive, session_id)
 
     def janus_stop_keepalive(self, session_id):
         timer = self._janus_keepalive_timers.pop(session_id, None)
