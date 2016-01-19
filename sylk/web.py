@@ -5,6 +5,7 @@ import os
 
 from application import log
 from application.python.types import Singleton
+from klein import Klein
 from twisted.internet import reactor
 from twisted.internet.ssl import DefaultOpenSSLContextFactory
 from twisted.web.resource import Resource, NoResource
@@ -13,7 +14,6 @@ from twisted.web.static import File
 
 from sylk import __version__
 from sylk.configuration import WebServerConfig
-from sylk.web.klein import Klein
 
 # Set the 'Server' header string which Twisted Web will use
 import twisted.web.server
