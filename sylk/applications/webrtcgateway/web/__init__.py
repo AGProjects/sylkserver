@@ -1,5 +1,3 @@
-# Copyright (C) 2015 AG Projects. See LICENSE for details
-#
 
 from application.python.types import Singleton
 from autobahn.twisted.resource import WebSocketResource

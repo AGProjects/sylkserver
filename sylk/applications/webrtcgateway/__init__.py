@@ -1,5 +1,3 @@
-# Copyright (C) 2015 AG Projects. See LICENSE for details
-#
 
 from sylk.applications import SylkApplication
 from sylk.applications.webrtcgateway.logger import log

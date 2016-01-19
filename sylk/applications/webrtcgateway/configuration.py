@@ -1,5 +1,3 @@
-# Copyright (C) 2015 AG Projects. See LICENSE for details
-#
 
 from application.configuration import ConfigSection, ConfigSetting
 from application.configuration.datatypes import StringList

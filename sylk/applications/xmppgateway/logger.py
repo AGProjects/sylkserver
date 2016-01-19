@@ -1,5 +1,3 @@
-# Copyright (C) 2013 AG Projects. See LICENSE for details
-#
 
 __all__ = ['log']
 

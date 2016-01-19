@@ -1,5 +1,3 @@
-# Copyright (C) 2013 AG Projects. See LICENSE for details
-#
 
 from application.notification import IObserver, NotificationCenter, NotificationData
 from application.python import Null

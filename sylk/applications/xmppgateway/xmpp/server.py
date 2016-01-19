@@ -1,5 +1,3 @@
-# Copyright (C) 2013 AG Projects. See LICENSE for details
-#
 
 from sipsimple.util import ISOTimestamp
 from twisted.internet import defer, reactor

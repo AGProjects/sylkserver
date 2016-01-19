@@ -1,5 +1,3 @@
-# Copyright (C) 2014-present AG Projects. See LICENSE for details.
-#
 
 from application.system import host
 from sipsimple.account import Account, AccountManager

@@ -1,5 +1,3 @@
-# Copyright (C) 2010-2011 AG Projects. See LICENSE for details.
-#
 
 from application.configuration import ConfigSection, ConfigSetting
 from application.configuration.datatypes import NetworkRangeList, StringList

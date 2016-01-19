@@ -1,5 +1,3 @@
-# Copyright (C) 2012 AG Projects. See LICENSE for details
-#
 
 from application.system import host
 from application.configuration import ConfigSection, ConfigSetting

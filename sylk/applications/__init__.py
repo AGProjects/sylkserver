@@ -1,5 +1,3 @@
-# Copyright (C) 2010-2011 AG Projects. See LICENSE for details
-#
 
 __all__ = ['ISylkApplication', 'ApplicationRegistry', 'SylkApplication', 'IncomingRequestHandler', 'ApplicationLogger']
 

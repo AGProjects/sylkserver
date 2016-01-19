@@ -1,5 +1,3 @@
-# Copyright (C) 2012 AG Projects. See LICENSE for details
-#
 
 from application.notification import NotificationCenter, NotificationData
 from twisted.internet import defer, reactor

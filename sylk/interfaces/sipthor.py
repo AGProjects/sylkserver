@@ -1,7 +1,3 @@
-# Copyright (C) 2011 AG-Projects.
-#
-# This module is proprietary to AG Projects. Use of this module by third
-# parties is not supported.
 
 __all__ = ['ConferenceNode']
 

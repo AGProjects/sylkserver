@@ -1,5 +1,3 @@
-# Copyright (C) 2007-2011 AG Projects.
-#
 
 """TLS helper classes"""
 
