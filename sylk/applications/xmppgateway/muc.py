@@ -319,7 +319,7 @@ class X2SMucHandler(object):
             log.warning('DNS lookup error while looking for %s proxy' % uri)
             self.end()
             return
-        self._msrp_stream = MediaStreamRegistry().get('chat')()
+        self._msrp_stream = MediaStreamRegistry.get('chat')()
         route = routes.pop(0)
         from_header = FromHeader(from_uri)
         to_header = ToHeader(to_uri)

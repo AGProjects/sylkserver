@@ -343,9 +343,8 @@ class IncomingReferralHandler(object):
             log.msg('Room %s - failed to add %s' % (self.room_uri_str, self.refer_to_uri))
             self._refer_request.end(500)
             return
-        registry = MediaStreamRegistry()
         for stream_type in active_media:
-            self.streams.append(registry.get(stream_type)())
+            self.streams.append(MediaStreamRegistry.get(stream_type)())
         self.session = Session(account)
         notification_center.add_observer(self, sender=self.session)
         original_from_header = self._refer_headers.get('From')
