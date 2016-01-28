@@ -101,12 +101,14 @@ class MediaStreamRegistry(object):
         except StopIteration:
             raise UnknownStreamError("unknown stream type: %s" % type)
 
+MediaStreamRegistry = MediaStreamRegistry()
+
 
 class MediaStreamRegistrar(type):
     """Metaclass for adding a MediaStream to the media stream's class registry"""
     def __init__(cls, name, bases, dic):
         super(MediaStreamRegistrar, cls).__init__(name, bases, dic)
-        MediaStreamRegistry().add(cls)
+        MediaStreamRegistry.add(cls)
 
 
 # Import the streams defined in submodules

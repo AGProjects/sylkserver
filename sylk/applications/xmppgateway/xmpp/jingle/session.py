@@ -140,7 +140,7 @@ class JingleSession(object):
         self.proposed_streams = []
         for index, media_stream in enumerate(remote_sdp.media):
             if media_stream.port != 0:
-                for stream_type in MediaStreamRegistry():
+                for stream_type in MediaStreamRegistry:
                     try:
                         stream = stream_type.new_from_sdp(self, remote_sdp, index)
                     except InvalidStreamError:
