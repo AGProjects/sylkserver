@@ -470,7 +470,11 @@ class Room(object):
             return
         NotificationCenter().add_observer(self, sender=subscribe_request)
         self.subscriptions.append(subscribe_request)
-        subscribe_request.accept(conference.ConferenceDocument.content_type, self.conference_info)
+        try:
+            subscribe_request.accept(conference.ConferenceDocument.content_type, self.conference_info)
+        except SIPCoreError, e:
+            log.warning('Error accepting SIP subscription: %s' % e)
+            subscribe_request.end()
 
     def _accept_proposal(self, session, streams):
         try:

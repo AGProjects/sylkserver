@@ -84,9 +84,17 @@ class S2XPresenceHandler(object):
         if self._xmpp_subscription.state == 'active':
             pidf_doc = self._pidf
             content_type = pidf.PIDFDocument.content_type if pidf_doc is not None else None
-            subscription.accept(content_type, pidf_doc)
+            try:
+                subscription.accept(content_type, pidf_doc)
+            except SIPCoreError, e:
+                log.warning('Error accepting SIP subscription: %s' % e)
+                subscription.end()
         else:
-            subscription.accept_pending()
+            try:
+                subscription.accept_pending()
+            except SIPCoreError, e:
+                log.warning('Error accepting SIP subscription: %s' % e)
+                subscription.end()
         if XMPPGatewayConfig.log_presence:
             log.msg('SIP subscription from %s to %s added to presence flow 0x%x (%d subs)' % (format_uri(self.sip_identity.uri, 'sip'), format_uri(self.xmpp_identity.uri, 'xmpp'), id(self), len(self._sip_subscriptions)))
 

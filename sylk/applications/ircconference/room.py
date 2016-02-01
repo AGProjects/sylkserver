@@ -303,8 +303,12 @@ class IRCRoom(object):
             subscribe_request.reject(489)
             return
         NotificationCenter().add_observer(self, sender=subscribe_request)
-        subscribe_request.accept()
         self.subscriptions.append(subscribe_request)
+        try:
+            subscribe_request.accept()
+        except SIPCoreError, e:
+            log.warning('Error accepting SIP subscription: %s' % e)
+            subscribe_request.end()
         self.get_conference_info()
 
     @run_in_twisted_thread
