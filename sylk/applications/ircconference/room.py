@@ -157,7 +157,7 @@ class IRCRoom(object):
                 self.dispatch_irc_message(data)
 
     def dispatch_message(self, session, message):
-        identity = ChatIdentity.parse(format_identity(session.remote_identity, True))
+        identity = ChatIdentity.parse(format_identity(session.remote_identity))
         for s in (s for s in self.sessions if s is not session):
             try:
                 chat_stream = next(stream for stream in s.streams if stream.type == 'chat')
