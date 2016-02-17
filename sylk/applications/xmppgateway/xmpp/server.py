@@ -34,7 +34,7 @@ class SylkInternalComponent(InternalComponent):
             d.errback(xmlstream.TimeoutError("Shutting down"))
 
     def request(self, request):
-        if (request.stanzaKind != 'iq' or request.stanzaType not in ('get', 'set')):
+        if request.stanzaKind != 'iq' or request.stanzaType not in ('get', 'set'):
             return defer.fail(ValueError("Not a request"))
 
         element = request.toElement()
