@@ -170,7 +170,6 @@ class ChatSessionHandler(object):
                 message = self._xmpp_message_queue.popleft()
                 if message.body is None:
                     continue
-                notify_progress = message.use_receipt
                 sender_uri = message.sender.uri.as_sip_uri()
                 sender_uri.parameters['gr'] = encode_resource(sender_uri.parameters['gr'].decode('utf-8'))
                 sender = ChatIdentity(sender_uri)
