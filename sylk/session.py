@@ -580,15 +580,9 @@ class Session(object):
                 if e.data.originator == 'remote':
                     code = e.data.code
                     reason = e.data.reason
-                elif e.data.disconnect_reason == 'timeout':
-                    code = 408
-                    reason = 'timeout'
-                elif e.data.originator == 'local' and e.data.code == 408:
-                    code = e.data.code
-                    reason = e.data.reason
                 else:
-                    code = 0
-                    reason = None
+                    code = getattr(e.data, 'code', 0)
+                    reason = getattr(e.data, 'reason', 'Session disconnected')
                 if e.data.originator == 'remote' and code // 100 == 3:
                     redirect_identities = e.data.headers.get('Contact', [])
                 else:
