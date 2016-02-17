@@ -242,10 +242,9 @@ class DiscoProtocol(disco.DiscoHandler):
         if target.host not in xmpp_manager.domains | xmpp_manager.muc_domains:
             return defer.fail(StanzaError('service-unavailable'))
 
-        elements = []
-        elements.append(disco.DiscoFeature(disco.NS_DISCO_INFO))
-        elements.append(disco.DiscoFeature(disco.NS_DISCO_ITEMS))
-        elements.append(disco.DiscoFeature('http://sylkserver.com'))
+        elements = [disco.DiscoFeature(disco.NS_DISCO_INFO),
+                    disco.DiscoFeature(disco.NS_DISCO_ITEMS),
+                    disco.DiscoFeature('http://sylkserver.com')]
 
         if target.host in xmpp_manager.muc_domains:
             elements.append(disco.DiscoIdentity('conference', 'text', 'SylkServer Chat Service'))
