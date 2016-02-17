@@ -6,6 +6,7 @@ from msrplib.protocol import URI
 from msrplib.session import contains_mime_type
 from msrplib.transport import make_response
 from sipsimple.core import SDPAttribute
+from sipsimple.payloads import ParserError
 from sipsimple.payloads.iscomposing import IsComposingDocument, State, LastActive, Refresh, ContentType
 from sipsimple.streams.msrp import MSRPStreamBase as _MSRPStreamBase, MSRPStreamError, NotificationProxyLogger
 from sipsimple.streams.msrp.chat import ChatStream as _ChatStream, Message, QueuedMessage, CPIMPayload, CPIMParserError
@@ -123,7 +124,11 @@ class ChatStream(_ChatStream):
         private = self.session.remote_focus and len(message.recipients) == 1 and message.recipients[0] != self.remote_identity
         notification_center = NotificationCenter()
         if message.content_type.lower() == IsComposingDocument.content_type:
-            data = IsComposingDocument.parse(message.content)
+            try:
+                data = IsComposingDocument.parse(message.content)
+            except ParserError as e:
+                self.msrp_session.send_report(chunk, 400, str(e))
+                return
             ndata = NotificationData(state=data.state.value,
                                      refresh=data.refresh.value if data.refresh is not None else 120,
                                      content_type=data.content_type.value if data.content_type is not None else None,
@@ -131,7 +136,8 @@ class ChatStream(_ChatStream):
                                      sender=message.sender, recipients=message.recipients, private=private, chunk=chunk)
             notification_center.post_notification('ChatStreamGotComposingIndication', self, ndata)
         else:
-            notification_center.post_notification('ChatStreamGotMessage', self, NotificationData(message=message, private=private, chunk=chunk))
+            ndata = NotificationData(message=message, private=private, chunk=chunk)
+            notification_center.post_notification('ChatStreamGotMessage', self, ndata)
 
     def _handle_NICKNAME(self, chunk):
         nickname = chunk.headers['Use-Nickname'].decoded
