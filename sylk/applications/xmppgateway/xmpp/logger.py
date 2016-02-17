@@ -44,9 +44,9 @@ class Logger(object):
         if self._xmpptrace_start_time is None:
             self._xmpptrace_start_time = timestamp
         self._xmpptrace_packet_count += 1
-        buf = ["%s: Packet %d, +%s" % (direction, self._xmpptrace_packet_count, (timestamp - self._xmpptrace_start_time))]
-        buf.append(packet)
-        buf.append('--')
+        buf = ("%s: Packet %d, +%s" % (direction, self._xmpptrace_packet_count, (timestamp - self._xmpptrace_start_time)),
+               packet,
+               '--')
         message = '\n'.join(buf)
         self._process_log((message, timestamp))
 

@@ -43,9 +43,9 @@ class Logger(object):
         if self._janustrace_start_time is None:
             self._janustrace_start_time = timestamp
         self._janustrace_packet_count += 1
-        buf = ["%s: Packet %d, +%s" % (direction, self._janustrace_packet_count, (timestamp - self._janustrace_start_time))]
-        buf.append(packet)
-        buf.append('--')
+        buf = ("%s: Packet %d, +%s" % (direction, self._janustrace_packet_count, (timestamp - self._janustrace_start_time)),
+               packet,
+               '--')
         message = '\n'.join(buf)
         self._process_log((message, timestamp))
 
