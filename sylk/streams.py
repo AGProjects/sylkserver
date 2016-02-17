@@ -144,7 +144,8 @@ class ChatStream(_ChatStream):
         NotificationCenter().post_notification('ChatStreamGotNicknameRequest', self, NotificationData(nickname=nickname, chunk=chunk))
 
     @run_in_green_thread
-    def _send_nickname_response(self, response):
+    def _send_nickname_response(self, chunk, code, reason):
+        response = make_response(chunk, code, reason)
         try:
             self.msrp_session.send_chunk(response)
         except Exception:
@@ -153,14 +154,12 @@ class ChatStream(_ChatStream):
     def accept_nickname(self, chunk):
         if chunk.method != 'NICKNAME':
             raise ValueError('Incorrect chunk method for accept_nickname: %s' % chunk.method)
-        response = make_response(chunk, 200, 'OK')
-        self._send_nickname_response(response)
+        self._send_nickname_response(chunk, 200, 'OK')
 
     def reject_nickname(self, chunk, code, reason):
         if chunk.method != 'NICKNAME':
             raise ValueError('Incorrect chunk method for accept_nickname: %s' % chunk.method)
-        response = make_response(chunk, code, reason)
-        self._send_nickname_response(response)
+        self._send_nickname_response(chunk, code, reason)
 
     def send_message(self, content, content_type='text/plain', sender=None, recipients=None, timestamp=None, additional_headers=None, message_id=None, notify_progress=True):
         message = QueuedMessage(content, content_type, sender=sender, recipients=recipients, timestamp=timestamp, additional_headers=additional_headers, id=message_id, notify_progress=notify_progress)
