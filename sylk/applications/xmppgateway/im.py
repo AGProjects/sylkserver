@@ -165,15 +165,16 @@ class ChatSessionHandler(object):
             self._send_queued_messages()
 
     def _send_queued_messages(self):
-        if self._xmpp_message_queue:
-            while self._xmpp_message_queue:
-                message = self._xmpp_message_queue.popleft()
-                if message.body is None:
-                    continue
-                sender_uri = message.sender.uri.as_sip_uri()
-                sender_uri.parameters['gr'] = encode_resource(sender_uri.parameters['gr'].decode('utf-8'))
-                sender = ChatIdentity(sender_uri)
-                self.msrp_stream.send_message(message.body, 'text/plain', sender=sender, message_id=message.id, notify_progress=message.use_receipt)
+        sender = None
+        while self._xmpp_message_queue:
+            message = self._xmpp_message_queue.popleft()
+            if message.body is None:
+                continue
+            sender_uri = message.sender.uri.as_sip_uri()
+            sender_uri.parameters['gr'] = encode_resource(sender_uri.parameters['gr'].decode('utf-8'))
+            sender = ChatIdentity(sender_uri)
+            self.msrp_stream.send_message(message.body, 'text/plain', sender=sender, message_id=message.id, notify_progress=message.use_receipt)
+        if sender:
             self.msrp_stream.send_composing_indication('idle', 30, sender=sender)
 
     def _inactivity_timeout(self):
