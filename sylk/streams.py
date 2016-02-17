@@ -90,7 +90,7 @@ class ChatStream(_ChatStream):
             # keep-alive
             self.msrp_session.send_report(chunk, 200, 'OK')
             return
-        if self.direction=='sendonly':
+        if self.direction == 'sendonly':
             self.msrp_session.send_report(chunk, 413, 'Unwanted Message')
             return
         if chunk.content_type.lower() != 'message/cpim':
