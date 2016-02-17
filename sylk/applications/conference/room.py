@@ -875,7 +875,7 @@ class WelcomeHandler(object):
             if self.initial:
                 file = Resources.get('sounds/co_welcome_conference.wav')
                 self.play_file_in_player(player, file, 1)
-            user_count = len(set(str(s.remote_identity.uri) for s in self.room.sessions if any(stream for stream in s.streams if stream.type == 'audio')) - {str(self.session.remote_identity.uri)})
+            user_count = len({str(s.remote_identity.uri) for s in self.room.sessions if any(stream for stream in s.streams if stream.type == 'audio')} - {str(self.session.remote_identity.uri)})
             if user_count == 0:
                 file = Resources.get('sounds/co_only_one.wav')
                 self.play_file_in_player(player, file, 0.5)
@@ -916,7 +916,7 @@ class WelcomeHandler(object):
             txt = 'Welcome to SylkServer!'
         else:
             txt = ''
-        user_count = len(set(str(s.remote_identity.uri) for s in self.room.sessions) - {str(self.session.remote_identity.uri)})
+        user_count = len({str(s.remote_identity.uri) for s in self.room.sessions} - {str(self.session.remote_identity.uri)})
         if user_count == 0:
             txt += ' You are the first participant'
         else:

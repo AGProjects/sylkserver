@@ -207,7 +207,7 @@ class IRCRoom(object):
             host_info = HostInfo(web_page=WebPage(irc_configuration.website))
             self.conference_info_payload = Conference(self.identity.uri, conference_description=conference_description, host_info=host_info, users=Users())
         self.conference_info_payload.version = next(self.conference_info_version)
-        user_count = len(set(str(s.remote_identity.uri) for s in self.sessions)) + len(irc_participants)
+        user_count = len({str(s.remote_identity.uri) for s in self.sessions}) + len(irc_participants)
         self.conference_info_payload.conference_state = ConferenceState(user_count=user_count, active=True)
         users = Users()
         for session in self.sessions:
@@ -506,7 +506,7 @@ class WelcomeHandler(object):
             if welcome_prompt:
                 file = Resources.get('sounds/co_welcome_conference.wav')
                 self.play_file_in_player(player, file, 1)
-            user_count = len(set(str(s.remote_identity.uri) for s in self.room.sessions if any(stream for stream in s.streams if stream.type == 'audio')) - {str(self.session.remote_identity.uri)})
+            user_count = len({str(s.remote_identity.uri) for s in self.room.sessions if any(stream for stream in s.streams if stream.type == 'audio')} - {str(self.session.remote_identity.uri)})
             if user_count == 0:
                 file = Resources.get('sounds/co_only_one.wav')
                 self.play_file_in_player(player, file, 0.5)
