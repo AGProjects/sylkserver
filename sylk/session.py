@@ -400,6 +400,9 @@ class Session(object):
         if not self.proposed_streams:
             invitation.send_response(488)
             return
+        if 'Replaces' in data.headers:
+            invitation.send_response(403)
+            return
         self.direction = 'incoming'
         self.state = 'incoming'
         self.transport = invitation.transport
