@@ -250,9 +250,9 @@ class IRCRoom(object):
             pass
         else:
             notification_center.add_observer(self, sender=audio_stream)
-            log.msg(u'Audio stream using %s/%sHz (%s), end-points: %s:%d <-> %s:%d' % (audio_stream.codec, audio_stream.sample_rate,
-                                                                                       audio_stream.local_rtp_address, audio_stream.local_rtp_port,
-                                                                                       audio_stream.remote_rtp_address, audio_stream.remote_rtp_port))
+            log.msg(u'Audio stream using %s/%sHz, end-points: %s:%d <-> %s:%d' % (audio_stream.codec, audio_stream.sample_rate,
+                                                                                  audio_stream.local_rtp_address, audio_stream.local_rtp_port,
+                                                                                  audio_stream.remote_rtp_address, audio_stream.remote_rtp_port))
             welcome_handler = WelcomeHandler(self, session)
             welcome_handler.start()
         self.get_conference_info()
