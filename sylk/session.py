@@ -683,8 +683,9 @@ class Session(object):
                 stream.initialize(self, direction='incoming')
         self.proposed_streams = streams
 
+        wait_count = len(self.proposed_streams)
+
         try:
-            wait_count = len(self.proposed_streams)
             while wait_count > 0:
                 notification = self._channel.wait()
                 if notification.name == 'MediaStreamDidInitialize':
