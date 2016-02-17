@@ -343,7 +343,7 @@ class X2SPresenceHandler(object):
                 activities = set(list(person.activities))
                 if 'away' in activities:
                     stanza.show = 'away'
-                elif set(('holiday', 'vacation')).intersection(activities):
+                elif {'holiday', 'vacation'}.intersection(activities):
                     stanza.show = 'xa'
                 elif 'busy' in activities:
                     stanza.show = 'dnd'

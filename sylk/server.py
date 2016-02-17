@@ -100,8 +100,8 @@ class SylkServer(SIPApplication):
                        events={'conference': ['application/conference-info+xml'],
                                'presence': ['application/pidf+xml'],
                                'refer': ['message/sipfrag;version=2.0']},
-                       incoming_events=set(['conference', 'presence']),
-                       incoming_requests=set(['MESSAGE']))
+                       incoming_events={'conference', 'presence'},
+                       incoming_requests={'MESSAGE'})
         notification_center.add_observer(self, sender=self.engine)
         self.engine.start(**options)
 
