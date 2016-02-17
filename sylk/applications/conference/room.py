@@ -172,7 +172,7 @@ class Room(object):
             host_info = conference.HostInfo(web_page=conference.WebPage('http://sylkserver.com'))
             self.conference_info_payload = conference.Conference(self.identity.uri, conference_description=conference_description, host_info=host_info, users=conference.Users())
         self.conference_info_payload.version = next(self.conference_info_version)
-        user_count = len(self.participants_counter.keys())
+        user_count = len(self.participants_counter)
         self.conference_info_payload.conference_state = conference.ConferenceState(user_count=user_count, active=True)
         users = conference.Users()
         for session in (session for session in self.sessions if not (len(session.streams) == 1 and session.streams[0].type == 'file-transfer')):

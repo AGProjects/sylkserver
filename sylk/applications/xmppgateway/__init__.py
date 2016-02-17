@@ -441,7 +441,7 @@ class XMPPGatewayApplication(SylkApplication):
         handler = notification.sender
         if XMPPGatewayConfig.log_presence:
             log.msg('Presence flow 0x%x established %s --> %s' % (id(handler), format_uri(handler.sip_identity.uri, 'sip'), format_uri(handler.xmpp_identity.uri, 'xmpp')))
-            log.msg('%d SIP --> XMPP and %d XMPP --> SIP presence flows are active' % (len(self.s2x_presence_subscriptions.keys()), len(self.x2s_presence_subscriptions.keys())))
+            log.msg('%d SIP --> XMPP and %d XMPP --> SIP presence flows are active' % (len(self.s2x_presence_subscriptions), len(self.x2s_presence_subscriptions)))
 
     def _NH_S2XPresenceHandlerDidEnd(self, notification):
         handler = notification.sender
@@ -449,13 +449,13 @@ class XMPPGatewayApplication(SylkApplication):
         notification.center.remove_observer(self, sender=handler)
         if XMPPGatewayConfig.log_presence:
             log.msg('Presence flow 0x%x ended %s --> %s' % (id(handler), format_uri(handler.sip_identity.uri, 'sip'), format_uri(handler.xmpp_identity.uri, 'xmpp')))
-            log.msg('%d SIP --> XMPP and %d XMPP --> SIP presence flows are active' % (len(self.s2x_presence_subscriptions.keys()), len(self.x2s_presence_subscriptions.keys())))
+            log.msg('%d SIP --> XMPP and %d XMPP --> SIP presence flows are active' % (len(self.s2x_presence_subscriptions), len(self.x2s_presence_subscriptions)))
 
     def _NH_X2SPresenceHandlerDidStart(self, notification):
         handler = notification.sender
         if XMPPGatewayConfig.log_presence:
             log.msg('Presence flow 0x%x established %s --> %s' % (id(handler), format_uri(handler.xmpp_identity.uri, 'xmpp'), format_uri(handler.sip_identity.uri, 'sip')))
-            log.msg('%d SIP --> XMPP and %d XMPP --> SIP presence flows are active' % (len(self.s2x_presence_subscriptions.keys()), len(self.x2s_presence_subscriptions.keys())))
+            log.msg('%d SIP --> XMPP and %d XMPP --> SIP presence flows are active' % (len(self.s2x_presence_subscriptions), len(self.x2s_presence_subscriptions)))
 
     def _NH_X2SPresenceHandlerDidEnd(self, notification):
         handler = notification.sender
@@ -463,7 +463,7 @@ class XMPPGatewayApplication(SylkApplication):
         notification.center.remove_observer(self, sender=handler)
         if XMPPGatewayConfig.log_presence:
             log.msg('Presence flow 0x%x ended %s --> %s' % (id(handler), format_uri(handler.xmpp_identity.uri, 'xmpp'), format_uri(handler.sip_identity.uri, 'sip')))
-            log.msg('%d SIP --> XMPP and %d XMPP --> SIP presence flows are active' % (len(self.s2x_presence_subscriptions.keys()), len(self.x2s_presence_subscriptions.keys())))
+            log.msg('%d SIP --> XMPP and %d XMPP --> SIP presence flows are active' % (len(self.s2x_presence_subscriptions), len(self.x2s_presence_subscriptions)))
 
     # MUC handling
 

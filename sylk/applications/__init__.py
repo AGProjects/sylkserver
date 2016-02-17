@@ -135,7 +135,7 @@ class IncomingRequestHandler(object):
         load_applications()
         registry = ApplicationRegistry()
         self.applications = dict((app.__appname__, app) for app in registry)
-        log.msg('Loaded applications: %s' % ', '.join(self.applications.keys()))
+        log.msg('Loaded applications: %s' % ', '.join(self.applications))
         default_application = registry.find_application(ServerConfig.default_application)
         if default_application is None:
             log.warning('Default application "%s" does not exist, falling back to "conference"' % ServerConfig.default_application)
