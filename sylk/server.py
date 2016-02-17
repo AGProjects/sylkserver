@@ -42,6 +42,7 @@ class SylkServer(SIPApplication):
         self.web_server = Null
 
         self.logger = Logger()
+        self.options = Null
 
         self.stopping_event = Event()
         self.stop_event = Event()
