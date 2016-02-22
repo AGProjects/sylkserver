@@ -6,7 +6,6 @@ from application.notification import NotificationCenter, NotificationData
 from application.python.types import Singleton
 from eventlib.twistedutil import block_on, callInGreenThread
 from gnutls.interfaces.twisted import X509Credentials
-from gnutls.constants import COMP_DEFLATE, COMP_LZO, COMP_NULL
 from twisted.internet import defer
 
 from thor.eventservice import EventServiceClient, ThorEvent
@@ -44,7 +43,6 @@ class ConferenceNode(EventServiceClient):
         self.shutdown_message = ThorEvent('Thor.Leave', self.node.id)
         credentials = X509Credentials(ThorNodeConfig.certificate, ThorNodeConfig.private_key, [ThorNodeConfig.ca])
         credentials.verify_peer = True
-        credentials.session_params.compressions = (COMP_LZO, COMP_DEFLATE, COMP_NULL)
         EventServiceClient.__init__(self, ThorNodeConfig.domain, credentials)
 
     def stop(self):
