@@ -5,7 +5,7 @@ from application import log
 from application.notification import NotificationCenter, NotificationData
 from application.python.types import Singleton
 from eventlib.twistedutil import block_on, callInGreenThread
-from gnutls.interfaces.twisted import X509Credentials
+from gnutls.interfaces.twisted import TLSContext, X509Credentials
 from twisted.internet import defer
 
 from thor.eventservice import EventServiceClient, ThorEvent
@@ -43,7 +43,8 @@ class ConferenceNode(EventServiceClient):
         self.shutdown_message = ThorEvent('Thor.Leave', self.node.id)
         credentials = X509Credentials(ThorNodeConfig.certificate, ThorNodeConfig.private_key, [ThorNodeConfig.ca])
         credentials.verify_peer = True
-        EventServiceClient.__init__(self, ThorNodeConfig.domain, credentials)
+        tls_context = TLSContext(credentials)
+        EventServiceClient.__init__(self, ThorNodeConfig.domain, tls_context)
 
     def stop(self):
         # Needs to be called from a green thread
