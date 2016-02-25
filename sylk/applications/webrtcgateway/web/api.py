@@ -7,7 +7,6 @@ import uuid
 from application.python import Null
 from application.notification import IObserver, NotificationCenter
 from autobahn.twisted.websocket import WebSocketServerProtocol, WebSocketServerFactory
-from autobahn.websocket import http
 from eventlib import coros, proc
 from eventlib.twistedutil import block_on
 from sipsimple.configuration.settings import SIPSimpleSettings
@@ -21,6 +20,12 @@ from zope.interface import implements
 from sylk.applications.webrtcgateway.configuration import GeneralConfig
 from sylk.applications.webrtcgateway.logger import log
 from sylk.applications.webrtcgateway.util import GreenEvent
+
+try:
+    from autobahn.websocket.http import HttpException
+except ImportError:
+    # AutoBahn 0.12 changed this
+    from autobahn.websocket import ConnectionDeny as HttpException
 
 
 SYLK_WS_PROTOCOL = 'sylkRTC-1'
@@ -106,10 +111,10 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
         log.msg('Incoming connection from %s (origin %s)' % (request.peer, request.origin))
         if SYLK_WS_PROTOCOL not in request.protocols:
             log.msg('Rejecting connection, remote does not support our sub-protocol')
-            raise http.HttpException(http.NOT_ACCEPTABLE[0], 'No compatible protocol specified')
+            raise HttpException(406, 'No compatible protocol specified')
         if not self.backend.ready:
             log.msg('Rejecting connection, backend is not connected')
-            raise http.HttpException(http.SERVICE_UNAVAILABLE[0], 'Backend is not connected')
+            raise HttpException(503, 'Backend is not connected')
         return SYLK_WS_PROTOCOL
 
     def onOpen(self):
