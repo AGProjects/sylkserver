@@ -468,7 +468,7 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
             self.sessions_map[session_info.id] = session_info
             self.session_handles_map[handle_id] = session_info
 
-            data = {'request': 'call', 'uri': 'sip:%s' % SIP_PREFIX_RE.sub('', uri)}
+            data = {'request': 'call', 'uri': 'sip:%s' % SIP_PREFIX_RE.sub('', uri), 'srtp': 'sdes_optional'}
             jsep = {'type': 'offer', 'sdp': sdp}
             block_on(self.backend.janus_message(self.janus_session_id, handle_id, data, jsep))
             data = dict(sylkrtc='ack', transaction=transaction)
