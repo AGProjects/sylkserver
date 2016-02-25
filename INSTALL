@@ -2,7 +2,7 @@
 SylkServer Installation
 -----------------------
 
-Copyright (c) 2010-2014 AG Projects
+Copyright (c) AG Projects
 http://ag-projects.com
 
 Home page: http://sylkserver.com
@@ -14,7 +14,7 @@ package on Debian and Ubuntu systems.
 Debian and Ubuntu packages
 --------------------------
 
-Install the AG Projects debian software signing key: 
+Install the AG Projects debian software signing key:
 
 wget http://download.ag-projects.com/agp-debian-gpg.key
 sudo apt-key add agp-debian-gpg.key
@@ -43,7 +43,7 @@ Run SylkServer:
 
 /etc/init.d/sylkserver start
 
-High level application logs are logged to syslog. 
+High level application logs are logged to syslog.
 
 Detail protocol traces are logged in /var/log/sylkserver/
 
@@ -64,6 +64,7 @@ Install the required dependencies:
 
  * python-sipsimple http://sipsimpleclient.org
  * python-sqlobject (>= 0.12.4)
+ * python-autobahn
  * python-twisted
  * python-werkzeug
 
