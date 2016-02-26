@@ -64,9 +64,10 @@ def main():
         log.msg("Starting %s %s, with no configuration file" % (fullname, sylk.__version__))
     log.msg("Using SIP SIMPLE SDK version %s" % sipsimple_version)
 
+    if not options.fork and DEBUG:
+        from application.debug.memory import memory_dump
+
     try:
-        if not options.fork and DEBUG:
-            from application.debug.memory import memory_dump
         from sylk.server import SylkServer
         server = SylkServer()
     except Exception, e:
