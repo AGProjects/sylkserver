@@ -16,8 +16,6 @@ from sipsimple import __version__ as sipsimple_version
 import sylk
 
 
-DEBUG = False
-
 def main():
     name = 'sylk-server'
     fullname = 'SylkServer'
@@ -36,6 +34,8 @@ def main():
                       metavar='File')
     parser.add_option('--enable-bonjour', action='store_true', dest='enable_bonjour', default=False,
                       help='enable Bonjour services')
+    parser.add_option('--debug-memory', action='store_true', dest='debug_memory', default=False,
+                      help='enable memory debugging (works only if --no-fork is specified')
     (options, args) = parser.parse_args()
 
     path, configuration_filename = os.path.split(options.config_file)
@@ -64,7 +64,7 @@ def main():
         log.msg("Starting %s %s, with no configuration file" % (fullname, sylk.__version__))
     log.msg("Using SIP SIMPLE SDK version %s" % sipsimple_version)
 
-    if not options.fork and DEBUG:
+    if not options.fork and options.debug_memory:
         from application.debug.memory import memory_dump
 
     from sylk.server import SylkServer
@@ -94,7 +94,7 @@ def main():
             log.msg('Forcefully exiting SylkServer...')
             os._exit(1)
 
-    if not options.fork and DEBUG:
+    if not options.fork and options.debug_memory:
         print "---------------------"
         memory_dump()
         print "---------------------"
