@@ -5,7 +5,7 @@ import shutil
 import string
 import weakref
 
-from collections import defaultdict, deque
+from collections import Counter, deque
 from glob import glob
 from itertools import chain, count, cycle
 
@@ -138,7 +138,7 @@ class Room(object):
         self.bonjour_services = Null
         self.session_nickname_map = {}
         self.last_nicknames_map = {}
-        self.participants_counter = defaultdict(lambda: 0)
+        self.participants_counter = Counter()
         self.history = deque(maxlen=ConferenceConfig.history_size)
 
     @property
@@ -413,7 +413,7 @@ class Room(object):
         self.session_nickname_map.pop(session, None)
         remote_uri = str(session.remote_identity.uri)
         self.participants_counter[remote_uri] -= 1
-        if self.participants_counter[remote_uri] <= 0:
+        if self.participants_counter[remote_uri] == 0:
             del self.participants_counter[remote_uri]
             self.last_nicknames_map.pop(remote_uri, None)
         try:
