@@ -67,13 +67,8 @@ def main():
     if not options.fork and DEBUG:
         from application.debug.memory import memory_dump
 
-    try:
-        from sylk.server import SylkServer
-        server = SylkServer()
-    except Exception, e:
-        log.fatal("failed to create %s: %s" % (fullname, e))
-        log.err()
-        sys.exit(1)
+    from sylk.server import SylkServer
+    server = SylkServer()
 
     def stop_server(*args):
         if not server.stopping_event.is_set():
@@ -85,6 +80,11 @@ def main():
 
     try:
         server.start(options)
+    except Exception, e:
+        log.fatal("failed to run %s: %s" % (fullname, e))
+        log.err()
+        sys.exit(1)
+    else:
         while not server.stopping_event.wait(9999):
             pass
         server.stop_event.wait(5)
@@ -93,10 +93,6 @@ def main():
         else:
             log.msg('Forcefully exiting SylkServer...')
             os._exit(1)
-    except Exception, e:
-        log.fatal("failed to run %s: %s" % (fullname, e))
-        log.err()
-        sys.exit(1)
 
     if not options.fork and DEBUG:
         print "---------------------"
@@ -108,5 +104,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
