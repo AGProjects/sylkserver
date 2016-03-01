@@ -218,8 +218,7 @@ class AudioStream(object):
             if self.state != "INITIALIZED":
                 raise RuntimeError("AudioStream.start() may only be called in the INITIALIZED state")
             settings = SIPSimpleSettings()
-            self._transport.start(local_sdp, remote_sdp, stream_index, no_media_timeout=settings.rtp.timeout,
-                                        media_check_interval=settings.rtp.timeout)
+            self._transport.start(local_sdp, remote_sdp, stream_index, timeout=settings.rtp.timeout)
             self._check_hold(self._transport.direction, True)
             if self._try_ice:
                 self.state = 'WAIT_ICE'
@@ -249,7 +248,7 @@ class AudioStream(object):
                     self.notification_center.post_notification('MediaStreamDidFail', sender=self, data=NotificationData(reason=self._failure_reason))
                     return
                 self.notification_center.add_observer(self, sender=self._transport)
-                self._transport.start(local_sdp, remote_sdp, stream_index, no_media_timeout=settings.rtp.timeout, media_check_interval=settings.rtp.timeout)
+                self._transport.start(local_sdp, remote_sdp, stream_index, timeout=settings.rtp.timeout)
                 self.notification_center.post_notification('AudioPortDidChangeSlots', sender=self, data=NotificationData(consumer_slot_changed=True, producer_slot_changed=True,
                                                                                                                          old_consumer_slot=old_consumer_slot, new_consumer_slot=self.consumer_slot,
                                                                                                                          old_producer_slot=old_producer_slot, new_producer_slot=self.producer_slot))
