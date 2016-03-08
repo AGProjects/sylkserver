@@ -210,6 +210,7 @@ class SylkServer(SIPApplication):
 
     def _NH_SIPApplicationFailedToStartTLS(self, notification):
         log.fatal("Couldn't set TLS options: %s" % notification.data.error)
+        sys.exit(1)
 
     def _NH_SIPApplicationWillStart(self, notification):
         self.logger.start()
