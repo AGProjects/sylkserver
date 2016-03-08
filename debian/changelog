@@ -1,8 +1,39 @@
-sylkserver (3.2.0) UNRELEASED; urgency=medium
+sylkserver (3.2.0) unstable; urgency=medium
 
-  * TBD
+  * Fix per-room pstn_access_numbers setting
+  * Fixup leftover old streams API usage
+  * webrtcgateway: skip 'detached' event
+  * Update references, some of the drafts are now RFCs
+  * Fix overriding local_uri for MSRP streams
+  * Fix sending XMPP messages after API changes
+  * Fix method name
+  * webrtcgateway: enable WebSocket pinging
+  * Un-vendor Klein
+  * Disable i/o buffering when running with systemd
+  * Fix access to MediaStreamRegistry after SDK upgrade
+  * Make the Jingle MediaStreamRegistry analogous to the SIP one
+  * Catch exceptions when accepting incoming subscriptions
+  * Don't set GnuTLS compression parameters
+  * Adapt to API changes in SIPThor
+  * Several code style improvements
+  * Log errors when setting up streams in new_from_sdp
+  * Remove mismatched HTML closing tag
+  * Handle parsing errors for is-composing payload
+  * Reject incoming sessions with a Replaces header
+  * Fixed compatibility with AutoBahn >= 0.12
+  * webrtcgateway: enable optional SRTP-SDES for outgoing calls
+  * Adapted to changes in SIPSIMPLE SDK 3.0.0
+  * Update INSTALL
+  * Use collections.Counter instead of a custom defaultdict
+  * Simplified logic for starting server
+  * Added command line option for memory debugging
+  * Adapt to transpoert API change in Jingle streams
+  * Use new notification to listen for Engine failures
+  * Forcefully exit if we fail to start TLS
+  * Join the Engine thread just for 5 seconds
+  * xmppgateway: fix unicode error when sending MSRP chunks
 
- -- Saul Ibarra <saul@ag-projects.com>  Tue, 19 Jan 2016 14:32:29 +0100
+ -- Saul Ibarra <saul@ag-projects.com>  Tue, 08 Mar 2016 13:01:10 +0100
 
 sylkserver (3.1.0) unstable; urgency=medium
 
