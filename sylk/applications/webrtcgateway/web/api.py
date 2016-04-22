@@ -10,7 +10,7 @@ from autobahn.twisted.websocket import WebSocketServerProtocol, WebSocketServerF
 from eventlib import coros, proc
 from eventlib.twistedutil import block_on
 from sipsimple.configuration.settings import SIPSimpleSettings
-from sipsimple.core import SIPURI, SIPCoreError
+from sipsimple.core import SIPURI
 from sipsimple.lookup import DNSLookup, DNSLookupError
 from sipsimple.threading.green import run_in_green_thread
 from sipsimple.util import ISOTimestamp
@@ -19,6 +19,7 @@ from zope.interface import implements
 
 from sylk.applications.webrtcgateway.configuration import GeneralConfig
 from sylk.applications.webrtcgateway.logger import log
+from sylk.applications.webrtcgateway.models import sylkrtc
 from sylk.applications.webrtcgateway.util import GreenEvent
 
 try:
@@ -30,6 +31,17 @@ except ImportError:
 
 SYLK_WS_PROTOCOL = 'sylkRTC-1'
 SIP_PREFIX_RE = re.compile('^sips?:')
+
+sylkrtc_models = {
+    'account-add'        : sylkrtc.AccountAddRequest,
+    'account-remove'     : sylkrtc.AccountRemoveRequest,
+    'account-register'   : sylkrtc.AccountRegisterRequest,
+    'account-unregister' : sylkrtc.AccountUnregisterRequest,
+    'session-create'     : sylkrtc.SessionCreateRequest,
+    'session-answer'     : sylkrtc.SessionAnswerRequest,
+    'session-trickle'    : sylkrtc.SessionTrickleRequest,
+    'session-terminate'  : sylkrtc.SessionTerminateRequest,
+}
 
 
 class AccountInfo(object):
@@ -96,69 +108,27 @@ class APIError(Exception):
     pass
 
 
-class SylkWebSocketServerProtocol(WebSocketServerProtocol):
-    janus_session_id = None
-    accounts_map = None           # account ID -> account
-    account_handles_map = None    # Janus handle ID -> account
-    sessions_map = None           # session ID -> session
-    session_handles_map = None    # Janus handle ID -> session
-    ready_event = None
-    resolver = None
-    proc = None
-    operations_queue = None
-
-    def onConnect(self, request):
-        log.msg('Incoming connection from %s (origin %s)' % (request.peer, request.origin))
-        if SYLK_WS_PROTOCOL not in request.protocols:
-            log.msg('Rejecting connection, remote does not support our sub-protocol')
-            raise HttpException(406, 'No compatible protocol specified')
-        if not self.backend.ready:
-            log.msg('Rejecting connection, backend is not connected')
-            raise HttpException(503, 'Backend is not connected')
-        return SYLK_WS_PROTOCOL
-
-    def onOpen(self):
-        self.factory.connections.add(self)
-        self.accounts_map = {}
-        self.account_handles_map = {}
-        self.sessions_map = {}
-        self.session_handles_map = {}
+class ConnectionHandler(object):
+    def __init__(self, protocol):
+        self.protocol = protocol
+        self.janus_session_id = None
+        self.accounts_map = {}  # account ID -> account
+        self.account_handles_map = {}  # Janus handle ID -> account
+        self.sessions_map = {}  # session ID -> session
+        self.session_handles_map = {}  # Janus handle ID -> session
         self.ready_event = GreenEvent()
         self.resolver = DNSLookup()
         self.proc = proc.spawn(self._operations_handler)
         self.operations_queue = coros.queue()
+
+    def start(self):
         self._create_janus_session()
 
-    def onMessage(self, payload, isBinary):
-        if isBinary:
-            log.warn('Received invalid binary message')
-            return
-        if GeneralConfig.trace_websocket:
-            self.factory.ws_logger.msg("IN", ISOTimestamp.now(), payload)
-        try:
-            data = json.loads(payload)
-        except Exception, e:
-            log.warn('Error parsing WebSocket payload: %s' % e)
-            return
-        try:
-            request_type = data.pop('sylkrtc')
-        except KeyError:
-            log.warn('Error getting WebSocket message type')
-            return
-        self.ready_event.wait()
-        op = Operation(request_type.lower(), data)
-        self.operations_queue.send(op)
-
-    def onClose(self, wasClean, code, reason):
-        if self.ready_event is None:
-            # Very early connection closed, onOpen wasn't even called
-            return
-        log.msg('Connection from %s closed' % self.transport.getPeer())
-        self.factory.connections.discard(self)
+    def stop(self):
         if self.ready_event.is_set():
             assert self.janus_session_id is not None
-            self.backend.janus_stop_keepalive(self.janus_session_id)
-            self.backend.janus_destroy_session(self.janus_session_id)
+            self.protocol.backend.janus_stop_keepalive(self.janus_session_id)
+            self.protocol.backend.janus_destroy_session(self.janus_session_id)
         if self.proc is not None:
             self.proc.kill()
             self.proc = None
@@ -169,16 +139,41 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
         self.sessions_map.clear()
         self.session_handles_map.clear()
         self.janus_session_id = None
+        self.protocol = None
 
-    def disconnect(self, code=1000, reason=u''):
-        self.sendClose(code, reason)
+    def handle_message(self, data):
+        try:
+            request_type = data.pop('sylkrtc')
+        except KeyError:
+            log.warn('Error getting WebSocket message type')
+            return
+        self.ready_event.wait()
+        try:
+            model = sylkrtc_models[request_type]
+        except KeyError:
+            log.warn('Unknown request type: %s' % request_type)
+            return
+        request = model(**data)
+        try:
+            request.validate()
+        except Exception, e:
+            log.error('%s: %s' % (request_type, e))
+            if request.transaction:
+                self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
+            return
+        op = Operation(request_type, request)
+        self.operations_queue.send(op)
 
     # internal methods (not overriding / implementing the protocol API)
 
+    def _send_response(self, response):
+        response.validate()
+        self._send_data(json.dumps(response.to_struct()))
+
     def _send_data(self, data):
         if GeneralConfig.trace_websocket:
-            self.factory.ws_logger.msg("OUT", ISOTimestamp.now(), data)
-        self.sendMessage(data, False)
+            self.protocol.factory.ws_logger.msg("OUT", ISOTimestamp.now(), data)
+        self.protocol.sendMessage(data, False)
 
     def _cleanup_session(self, session):
         @run_in_green_thread
@@ -190,8 +185,8 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
             if session.direction == 'outgoing':
                 # Destroy plugin handle for outgoing sessions. For incoming ones it's the
                 # same as the account handle, so don't
-                block_on(self.backend.janus_detach(self.janus_session_id, session.janus_handle_id))
-                self.backend.janus_set_event_handler(session.janus_handle_id, None)
+                block_on(self.protocol.backend.janus_detach(self.janus_session_id, session.janus_handle_id))
+                self.protocol.backend.janus_set_event_handler(session.janus_handle_id, None)
             self.session_handles_map.pop(session.janus_handle_id)
 
         # give it some time to receive other hangup events
@@ -200,18 +195,16 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
     @run_in_green_thread
     def _create_janus_session(self):
         if self.ready_event.is_set():
-            data = dict(sylkrtc='event', event='ready')
-            self._send_data(json.dumps(data))
+            self._send_response(sylkrtc.ReadyEvent())
             return
         try:
-            self.janus_session_id = block_on(self.backend.janus_create_session())
-            self.backend.janus_start_keepalive(self.janus_session_id)
+            self.janus_session_id = block_on(self.protocol.backend.janus_create_session())
+            self.protocol.backend.janus_start_keepalive(self.janus_session_id)
         except Exception, e:
             log.warn('Error creating session, disconnecting: %s' % e)
-            self.disconnect(3000, unicode(e))
+            self.protocol.disconnect(3000, unicode(e))
             return
-        data = dict(sylkrtc='event', event='ready')
-        self._send_data(json.dumps(data))
+        self._send_response(sylkrtc.ReadyEvent())
         self.ready_event.set()
 
     def _lookup_sip_proxy(self, account):
@@ -229,23 +222,21 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
         else:
             proxy_uri = SIPURI(host=sip_uri.host)
         settings = SIPSimpleSettings()
-        try:
-            routes = self.resolver.lookup_sip_proxy(proxy_uri, settings.sip.transport_list).wait()
-        except DNSLookupError, e:
-            raise DNSLookupError('DNS lookup error: %s' % e)
+        routes = self.resolver.lookup_sip_proxy(proxy_uri, settings.sip.transport_list).wait()
         if not routes:
-            raise DNSLookupError('DNS lookup error: no results found')
+            raise DNSLookupError('no results found')
 
         # Get all routes with the highest priority transport and randomly pick one
-        route = random.choice([r for r in routes if r.transport==routes[0].transport])
+        route = random.choice([r for r in routes if r.transport == routes[0].transport])
 
         # Build a proxy URI Sofia-SIP likes
-        return '%s:%s:%d%s' % ('sips' if route.transport=='tls' else 'sip',
+        return '%s:%s:%d%s' % ('sips' if route.transport == 'tls' else 'sip',
                                route.address,
                                route.port,
                                ';transport=%s' % route.transport if route.transport != 'tls' else '')
 
     def _handle_janus_event(self, handle_id, event_type, event):
+        # TODO: use a model
         op = Operation('janus-event', data=dict(handle_id=handle_id, event_type=event_type, event=event))
         self.operations_queue.send(op)
 
@@ -256,66 +247,38 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
             try:
                 handler(op.data)
             except Exception:
-                log.err()
-            del op
-            del handler
+                log.exception('Unhandled exception in operation "%s"' % op.name)
+            del op, handler
 
-    def _OH_account_add(self, data):
-        transaction = data.get('transaction', None)
-        if transaction is None:
-            log.warn('Transaction not specified!')
-            return
+    def _OH_account_add(self, request):
+        # extract the fields to avoid going through the descriptor several times
+        account = request.account
+        password = request.password
 
         try:
-            try:
-                account = data['account']
-                password = data['password']
-            except KeyError:
-                raise APIError('Invalid parameters: "account" and "password" must be specified')
-
             if account in self.accounts_map:
-                log.warn('Account %s already added' % account)
-                data = dict(sylkrtc='error', transaction=transaction, error='Account already added')
-                self._send_data(json.dumps(data))
-                return
+                raise APIError('Account %s already added' % account)
 
-            # Validate URI
-            uri = 'sip:%s' % account
-            try:
-                sip_uri = SIPURI.parse(uri)
-            except SIPCoreError:
-                raise APIError('Invalid account specified: %s' % account)
-            if not {'*', sip_uri.host}.intersection(GeneralConfig.sip_domains):
-                raise APIError('SIP domain not allowed: %s' % sip_uri.host)
+            # check if domain is acceptable
+            domain = account.partition('@')[2]
+            if not {'*', domain}.intersection(GeneralConfig.sip_domains):
+                raise APIError('SIP domain not allowed: %s' % domain)
 
             # Create and store our mapping
             account_info = AccountInfo(account, password)
             self.accounts_map[account_info.id] = account_info
-
-            data = dict(sylkrtc='ack', transaction=transaction)
-            self._send_data(json.dumps(data))
-            log.msg('Account %s added' % account)
         except APIError, e:
             log.error('account_add: %s' % e)
-            data = dict(sylkrtc='error', transaction=transaction, error=str(e))
-            self._send_data(json.dumps(data))
-        except Exception, e:
-            log.error('Unexpected error in account_add: %s' % e)
-            data = dict(sylkrtc='error', transaction=transaction, error=str(e))
-            self._send_data(json.dumps(data))
+            self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
+        else:
+            log.msg('Account %s added' % account)
+            self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
 
-    def _OH_account_remove(self, data):
-        transaction = data.get('transaction', None)
-        if transaction is None:
-            log.warn('Transaction not specified!')
-            return
+    def _OH_account_remove(self, request):
+        # extract the fields to avoid going through the descriptor several times
+        account = request.account
 
         try:
-            try:
-                account = data['account']
-            except KeyError:
-                raise APIError('Invalid parameters: "account" must be specified')
-
             try:
                 account_info = self.accounts_map.pop(account)
             except KeyError:
@@ -323,52 +286,42 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
 
             handle_id = account_info.janus_handle_id
             if handle_id is not None:
-                block_on(self.backend.janus_detach(self.janus_session_id, handle_id))
-                self.backend.janus_set_event_handler(handle_id, None)
+                block_on(self.protocol.backend.janus_detach(self.janus_session_id, handle_id))
+                self.protocol.backend.janus_set_event_handler(handle_id, None)
                 self.account_handles_map.pop(handle_id)
-
-            data = dict(sylkrtc='ack', transaction=transaction)
-            self._send_data(json.dumps(data))
-            log.msg('Account %s removed' % account)
         except APIError, e:
             log.error('account_remove: %s' % e)
-            data = dict(sylkrtc='error', transaction=transaction, error=str(e))
-            self._send_data(json.dumps(data))
-        except Exception, e:
-            log.error('Unexpected error in account_remove: %s' % e)
-            data = dict(sylkrtc='error', transaction=transaction, error=str(e))
-            self._send_data(json.dumps(data))
+            self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
+        else:
+            log.msg('Account %s removed' % account)
+            self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
 
-    def _OH_account_register(self, data):
-        transaction = data.get('transaction', None)
-        if transaction is None:
-            log.warn('Transaction not specified!')
-            return
+    def _OH_account_register(self, request):
+        # extract the fields to avoid going through the descriptor several times
+        account = request.account
 
         try:
-            try:
-                account = data['account']
-            except KeyError:
-                raise APIError('Invalid parameters: "account" must be specified')
-
             try:
                 account_info = self.accounts_map[account]
             except KeyError:
                 raise APIError('Unknown account specified: %s' % account)
 
-            proxy = self._lookup_sip_proxy(account)
+            try:
+                proxy = self._lookup_sip_proxy(account)
+            except DNSLookupError:
+                raise APIError('DNS lookup error')
 
             handle_id = account_info.janus_handle_id
             if handle_id is not None:
                 # Destroy the existing plugin handle
-                block_on(self.backend.janus_detach(self.janus_session_id, handle_id))
-                self.backend.janus_set_event_handler(handle_id, None)
+                block_on(self.protocol.backend.janus_detach(self.janus_session_id, handle_id))
+                self.protocol.backend.janus_set_event_handler(handle_id, None)
                 self.account_handles_map.pop(handle_id)
                 account_info.janus_handle_id = None
 
             # Create a plugin handle
-            handle_id = block_on(self.backend.janus_attach(self.janus_session_id, 'janus.plugin.sip'))
-            self.backend.janus_set_event_handler(handle_id, self._handle_janus_event)
+            handle_id = block_on(self.protocol.backend.janus_attach(self.janus_session_id, 'janus.plugin.sip'))
+            self.protocol.backend.janus_set_event_handler(handle_id, self._handle_janus_event)
             account_info.janus_handle_id = handle_id
             self.account_handles_map[handle_id] = account_info
 
@@ -376,32 +329,19 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
                     'username': account_info.uri,
                     'ha1_secret': account_info.password,
                     'proxy': proxy}
-            block_on(self.backend.janus_message(self.janus_session_id, handle_id, data))
-
-            data = dict(sylkrtc='ack', transaction=transaction)
-            self._send_data(json.dumps(data))
-            log.msg('Account %s will register' % account)
+            block_on(self.protocol.backend.janus_message(self.janus_session_id, handle_id, data))
         except APIError, e:
             log.error('account-register: %s' % e)
-            data = dict(sylkrtc='error', transaction=transaction, error=str(e))
-            self._send_data(json.dumps(data))
-        except Exception, e:
-            log.error('Unexpected error in account-register: %s' % e)
-            data = dict(sylkrtc='error', transaction=transaction, error=str(e))
-            self._send_data(json.dumps(data))
+            self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
+        else:
+            log.msg('Account %s will register' % account)
+            self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
 
-    def _OH_account_unregister(self, data):
-        transaction = data.get('transaction', None)
-        if transaction is None:
-            log.warn('Transaction not specified!')
-            return
+    def _OH_account_unregister(self, request):
+        # extract the fields to avoid going through the descriptor several times
+        account = request.account
 
         try:
-            try:
-                account = data['account']
-            except KeyError:
-                raise APIError('Invalid parameters: "account" must be specified')
-
             try:
                 account_info = self.accounts_map[account]
             except KeyError:
@@ -409,38 +349,25 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
 
             handle_id = account_info.janus_handle_id
             if handle_id is not None:
-                block_on(self.backend.janus_detach(self.janus_session_id, handle_id))
-                self.backend.janus_set_event_handler(handle_id, None)
+                block_on(self.protocol.backend.janus_detach(self.janus_session_id, handle_id))
+                self.protocol.backend.janus_set_event_handler(handle_id, None)
                 account_info.janus_handle_id = None
                 self.account_handles_map.pop(handle_id)
-
-            data = dict(sylkrtc='ack', transaction=transaction)
-            self._send_data(json.dumps(data))
-            log.msg('Account %s will unregister' % account)
         except APIError, e:
             log.error('account-unregister: %s' % e)
-            data = dict(sylkrtc='error', transaction=transaction, error=str(e))
-            self._send_data(json.dumps(data))
-        except Exception, e:
-            log.error('Unexpected error in account-unregister: %s' % e)
-            data = dict(sylkrtc='error', transaction=transaction, error=str(e))
-            self._send_data(json.dumps(data))
+            self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
+        else:
+            log.msg('Account %s will unregister' % account)
+            self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
 
-    def _OH_session_create(self, data):
-        transaction = data.get('transaction', None)
-        if transaction is None:
-            log.warn('Transaction not specified!')
-            return
+    def _OH_session_create(self, request):
+        # extract the fields to avoid going through the descriptor several times
+        account = request.account
+        session = request.session
+        uri = request.uri
+        sdp = request.sdp
 
         try:
-            try:
-                account = data['account']
-                session = data['session']
-                uri = data['uri']
-                sdp = data['sdp']
-            except KeyError:
-                raise APIError('Invalid parameters: "account", "session", "uri" and "sdp" must be specified')
-
             try:
                 account_info = self.accounts_map[account]
             except KeyError:
@@ -450,17 +377,18 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
                 raise APIError('Session ID (%s) already in use' % session)
 
             # Create a new plugin handle and 'register' it, without actually doing so
-            handle_id = block_on(self.backend.janus_attach(self.janus_session_id, 'janus.plugin.sip'))
-            self.backend.janus_set_event_handler(handle_id, self._handle_janus_event)
+            handle_id = block_on(self.protocol.backend.janus_attach(self.janus_session_id, 'janus.plugin.sip'))
+            self.protocol.backend.janus_set_event_handler(handle_id, self._handle_janus_event)
             try:
                 proxy = self._lookup_sip_proxy(account_info.id)
             except DNSLookupError:
-                block_on(self.backend.janus_detach(self.janus_session_id, handle_id))
-                self.backend.janus_set_event_handler(handle_id, None)
+                block_on(self.protocol.backend.janus_detach(self.janus_session_id, handle_id))
+                self.protocol.backend.janus_set_event_handler(handle_id, None)
                 raise APIError('DNS lookup error')
             account_uri = 'sip:%s' % account_info.id
-            data = {'request': 'register', 'username': account_uri, 'ha1_secret': account_info.password, 'proxy': proxy, 'send_register': False}
-            block_on(self.backend.janus_message(self.janus_session_id, handle_id, data))
+            data = {'request': 'register', 'username': account_uri, 'ha1_secret': account_info.password, 'proxy': proxy,
+                    'send_register': False}
+            block_on(self.protocol.backend.janus_message(self.janus_session_id, handle_id, data))
 
             session_info = JanusSessionInfo(session)
             session_info.janus_handle_id = handle_id
@@ -470,32 +398,20 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
 
             data = {'request': 'call', 'uri': 'sip:%s' % SIP_PREFIX_RE.sub('', uri), 'srtp': 'sdes_optional'}
             jsep = {'type': 'offer', 'sdp': sdp}
-            block_on(self.backend.janus_message(self.janus_session_id, handle_id, data, jsep))
-            data = dict(sylkrtc='ack', transaction=transaction)
-            self._send_data(json.dumps(data))
-            log.msg('Outgoing session %s from %s to %s created' % (session, account, uri))
+            block_on(self.protocol.backend.janus_message(self.janus_session_id, handle_id, data, jsep))
         except APIError, e:
             log.error('session-create: %s' % e)
-            data = dict(sylkrtc='error', transaction=transaction, error=str(e))
-            self._send_data(json.dumps(data))
-        except Exception, e:
-            log.error('Unexpected error in session-create: %s' % e)
-            data = dict(sylkrtc='error', transaction=transaction, error=str(e))
-            self._send_data(json.dumps(data))
+            self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
+        else:
+            log.msg('Outgoing session %s from %s to %s created' % (session, account, uri))
+            self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
 
-    def _OH_session_answer(self, data):
-        transaction = data.get('transaction', None)
-        if transaction is None:
-            log.warn('Transaction not specified!')
-            return
+    def _OH_session_answer(self, request):
+        # extract the fields to avoid going through the descriptor several times
+        session = request.session
+        sdp = request.sdp
 
         try:
-            try:
-                session = data['session']
-                sdp = data['sdp']
-            except KeyError:
-                raise APIError('Invalid parameters: "session" and "sdp" must be specified')
-
             try:
                 session_info = self.sessions_map[session]
             except KeyError:
@@ -508,32 +424,20 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
 
             data = {'request': 'accept'}
             jsep = {'type': 'answer', 'sdp': sdp}
-            block_on(self.backend.janus_message(self.janus_session_id, session_info.janus_handle_id, data, jsep))
-            data = dict(sylkrtc='ack', transaction=transaction)
-            self._send_data(json.dumps(data))
-            log.msg('%s answered session %s' % (session_info.account_id, session))
+            block_on(self.protocol.backend.janus_message(self.janus_session_id, session_info.janus_handle_id, data, jsep))
         except APIError, e:
             log.error('session-answer: %s' % e)
-            data = dict(sylkrtc='error', transaction=transaction, error=str(e))
-            self._send_data(json.dumps(data))
-        except Exception, e:
-            log.error('Unexpected error in session-answer: %s' % e)
-            data = dict(sylkrtc='error', transaction=transaction, error=str(e))
-            self._send_data(json.dumps(data))
+            self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
+        else:
+            log.msg('%s answered session %s' % (session_info.account_id, session))
+            self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
 
-    def _OH_session_trickle(self, data):
-        transaction = data.get('transaction', None)
-        if transaction is None:
-            log.warn('Transaction not specified!')
-            return
+    def _OH_session_trickle(self, request):
+        # extract the fields to avoid going through the descriptor several times
+        session = request.session
+        candidates = [c.to_struct() for c in request.candidates]
 
         try:
-            try:
-                session = data['session']
-                candidates = data['candidates']
-            except KeyError:
-                raise APIError('Invalid parameters: "session" and "candidates" must be specified')
-
             try:
                 session_info = self.sessions_map[session]
             except KeyError:
@@ -541,31 +445,22 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
             if session_info.state == 'terminated':
                 raise APIError('Session is terminated')
 
-            block_on(self.backend.janus_trickle(self.janus_session_id, session_info.janus_handle_id, candidates))
-            data = dict(sylkrtc='ack', transaction=transaction)
-            self._send_data(json.dumps(data))
-            log.msg('Trickled ICE candidate(s) for session %s' % session)
+            block_on(self.protocol.backend.janus_trickle(self.janus_session_id, session_info.janus_handle_id, candidates))
         except APIError, e:
             log.error('session-trickle: %s' % e)
-            data = dict(sylkrtc='error', transaction=transaction, error=str(e))
-            self._send_data(json.dumps(data))
-        except Exception, e:
-            log.error('Unexpected error in session-trickle: %s' % e)
-            data = dict(sylkrtc='error', transaction=transaction, error=str(e))
-            self._send_data(json.dumps(data))
+            self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
+        else:
+            if candidates:
+                log.msg('Trickled ICE candidate(s) for session %s' % session)
+            else:
+                log.msg('Trickled ICE candidates end for session %s' % session)
+            self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
 
-    def _OH_session_terminate(self, data):
-        transaction = data.get('transaction', None)
-        if transaction is None:
-            log.warn('Transaction not specified!')
-            return
+    def _OH_session_terminate(self, request):
+        # extract the fields to avoid going through the descriptor several times
+        session = request.session
 
         try:
-            try:
-                session = data['session']
-            except KeyError:
-                raise APIError('Invalid parameters: "session" must be specified')
-
             try:
                 session_info = self.sessions_map[session]
             except KeyError:
@@ -577,18 +472,13 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
                 data = {'request': 'decline', 'code': 486}
             else:
                 data = {'request': 'hangup'}
-            block_on(self.backend.janus_message(self.janus_session_id, session_info.janus_handle_id, data))
-            data = dict(sylkrtc='ack', transaction=transaction)
-            self._send_data(json.dumps(data))
-            log.msg('%s terminated session %s' % (session_info.account_id, session))
+            block_on(self.protocol.backend.janus_message(self.janus_session_id, session_info.janus_handle_id, data))
         except APIError, e:
             log.error('session-terminate: %s' % e)
-            data = dict(sylkrtc='error', transaction=transaction, error=str(e))
-            self._send_data(json.dumps(data))
-        except Exception, e:
-            log.error('Unexpected error in session-terminate: %s' % e)
-            data = dict(sylkrtc='error', transaction=transaction, error=str(e))
-            self._send_data(json.dumps(data))
+            self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
+        else:
+            log.msg('%s terminated session %s' % (session_info.account_id, session))
+            self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
 
     # Event handlers
 
@@ -598,124 +488,9 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
         event = data['event']
 
         if event_type == 'event':
-            event_data = event['plugindata']['data']
-            if 'result' in event_data:
-                jsep = event.get('jsep', None)
-                event_type = event_data['result']['event']
-                if event_type in ('registering', 'registered', 'registration_failed', 'incomingcall'):
-                    # skip 'registered' events from session handles
-                    if event_type == 'registered' and event_data['result']['register_sent'] in (False, 'false'):
-                        return
-                    # account event
-                    try:
-                        account_info = self.account_handles_map[handle_id]
-                    except KeyError:
-                        log.warn('Could not find account for handle ID %s' % handle_id)
-                        return
-                    if event_type == 'incomingcall':
-                        originator_uri = SIP_PREFIX_RE.sub('', event_data['result']['username'])
-                        originator_display_name = event_data['result'].get('displayname', '').replace('"', '')
-                        jsep = event.get('jsep', None)
-                        assert jsep is not None
-                        session_id = uuid.uuid4().hex
-                        session = JanusSessionInfo(session_id)
-                        session.janus_handle_id = handle_id
-                        session.init_incoming(account_info.id, originator_uri, originator_display_name)
-                        self.sessions_map[session_id] = session
-                        self.session_handles_map[handle_id] = session
-                        data = dict(sylkrtc='account_event',
-                                    account=account_info.id,
-                                    session=session_id,
-                                    event='incoming_session',
-                                    data=dict(originator=session.remote_identity.__dict__, sdp=jsep['sdp']))
-                        log.msg('Incoming session %s %s <-> %s created' % (session.id,
-                                                                           session.remote_identity.uri,
-                                                                           session.local_identity.uri))
-                    else:
-                        registration_state = event_type
-                        if registration_state == 'registration_failed':
-                            registration_state = 'failed'
-                        if account_info.registration_state == registration_state:
-                            return
-                        account_info.registration_state = registration_state
-                        registration_data = dict(state=registration_state)
-                        if registration_state == 'failed':
-                            code = event_data['result']['code']
-                            reason = event_data['result']['reason']
-                            registration_data['reason'] = '%d %s' % (code, reason)
-                        data = dict(sylkrtc='account_event',
-                                    account=account_info.id,
-                                    event='registration_state',
-                                    data=registration_data)
-                        log.msg('Account %s registration state changed to %s' % (account_info.id, registration_state))
-                    self._send_data(json.dumps(data))
-                elif event_type in ('calling', 'accepted', 'hangup'):
-                    # session event
-                    try:
-                        session_info = self.session_handles_map[handle_id]
-                    except KeyError:
-                        log.warn('Could not find session for handle ID %s' % handle_id)
-                        return
-                    if event_type == 'hangup' and session_info.state == 'terminated':
-                        return
-                    if event_type == 'calling':
-                        session_info.state = 'progress'
-                    elif event_type == 'accepted':
-                        session_info.state = 'accepted'
-                    elif event_type == 'hangup':
-                        session_info.state = 'terminated'
-                    data = dict(sylkrtc='session_event',
-                                session=session_info.id,
-                                event='state',
-                                data=dict(state=session_info.state))
-                    log.msg('%s session %s state: %s' % (session_info.direction.title(), session_info.id, session_info.state))
-                    if session_info.state == 'accepted' and session_info.direction == 'outgoing':
-                        assert jsep is not None
-                        data['data']['sdp'] = jsep['sdp']
-                    elif session_info.state == 'terminated':
-                        code = event_data['result'].get('code', 0)
-                        reason = event_data['result'].get('reason', 'Unknown')
-                        reason = '%d %s' % (code, reason)
-                        data['data']['reason'] = reason
-                    self._send_data(json.dumps(data))
-                    if session_info.state == 'terminated':
-                        self._cleanup_session(session_info)
-                        log.msg('%s session %s %s <-> %s terminated (%s)' % (session_info.direction.title(),
-                                                                             session_info.id,
-                                                                             session_info.local_identity.uri,
-                                                                             session_info.remote_identity.uri,
-                                                                             reason))
-                        # check if missed incoming call
-                        if session_info.direction == 'incoming' and code == 487:
-                            data = dict(sylkrtc='account_event',
-                                        account=session_info.account_id,
-                                        event='missed_session',
-                                        data=dict(originator=session_info.remote_identity.__dict__))
-                            log.msg('Incoming session from %s missed' % session_info.remote_identity.uri)
-                            self._send_data(json.dumps(data))
-                elif event_type == 'missed_call':
-                    try:
-                        account_info = self.account_handles_map[handle_id]
-                    except KeyError:
-                        log.warn('Could not find account for handle ID %s' % handle_id)
-                        return
-                    originator_uri = SIP_PREFIX_RE.sub('', event_data['result']['caller'])
-                    originator_display_name = event_data['result'].get('displayname', '').replace('"', '')
-                    # We have no session, so create an identity object by hand
-                    originator = SessionPartyIdentity(originator_uri, originator_display_name)
-                    data = dict(sylkrtc='account_event',
-                                account=account_info.id,
-                                event='missed_session',
-                                data=dict(originator=originator.__dict__))
-                    log.msg('Incoming session from %s missed' % originator.uri)
-                    self._send_data(json.dumps(data))
-                elif event_type in ('ack', 'declining', 'hangingup'):
-                    # ignore
-                    pass
-                else:
-                    log.warn('Unexpected SIP plugin event type: %s' % event_type)
-            else:
-                log.warn('Unexpected event: %s' % event)
+            plugin = event['plugindata']['plugin'].split('.')[-1].lower()
+            handler = getattr(self, '_OH_janus_event_plugin_%s' % plugin, Null)
+            handler(data)
         elif event_type == 'webrtcup':
             try:
                 session_info = self.session_handles_map[handle_id]
@@ -728,6 +503,7 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
                         event='state',
                         data=dict(state=session_info.state))
             log.msg('%s session %s state: %s' % (session_info.direction.title(), session_info.id, session_info.state))
+            # TODO: SessionEvent model
             self._send_data(json.dumps(data))
         elif event_type == 'hangup':
             try:
@@ -745,6 +521,7 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
                             event='state',
                             data=dict(state=session_info.state, reason=reason))
                 log.msg('%s session %s state: %s' % (session_info.direction.title(), session_info.id, session_info.state))
+                # TODO: SessionEvent model
                 self._send_data(json.dumps(data))
                 self._cleanup_session(session_info)
                 log.msg('%s session %s %s <-> %s terminated (%s)' % (session_info.direction.title(),
@@ -757,6 +534,183 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
             pass
         else:
             log.warn('Received unexpected event type: %s' % event_type)
+
+    def _OH_janus_event_plugin_sip(self, data):
+        handle_id = data['handle_id']
+        event = data['event']
+        plugin_data = event['plugindata']
+        assert(plugin_data['plugin'] == 'janus.plugin.sip')
+        event_data = event['plugindata']['data']
+        assert(event_data.get('sip', '') == 'event')
+
+        if 'result' not in event_data:
+            log.warn('Unexpected event: %s' % event)
+            return
+
+        event_data = event_data['result']
+        jsep = event.get('jsep', None)
+        event_type = event_data['event']
+        if event_type in ('registering', 'registered', 'registration_failed', 'incomingcall'):
+            # skip 'registered' events from session handles
+            if event_type == 'registered' and event_data['register_sent'] in (False, 'false'):
+                return
+            # account event
+            try:
+                account_info = self.account_handles_map[handle_id]
+            except KeyError:
+                log.warn('Could not find account for handle ID %s' % handle_id)
+                return
+            if event_type == 'incomingcall':
+                originator_uri = SIP_PREFIX_RE.sub('', event_data['username'])
+                originator_display_name = event_data.get('displayname', '').replace('"', '')
+                jsep = event.get('jsep', None)
+                assert jsep is not None
+                session_id = uuid.uuid4().hex
+                session = JanusSessionInfo(session_id)
+                session.janus_handle_id = handle_id
+                session.init_incoming(account_info.id, originator_uri, originator_display_name)
+                self.sessions_map[session_id] = session
+                self.session_handles_map[handle_id] = session
+                data = dict(sylkrtc='account_event',
+                            account=account_info.id,
+                            session=session_id,
+                            event='incoming_session',
+                            data=dict(originator=session.remote_identity.__dict__, sdp=jsep['sdp']))
+                log.msg('Incoming session %s %s <-> %s created' % (session.id,
+                                                                   session.remote_identity.uri,
+                                                                   session.local_identity.uri))
+            else:
+                registration_state = event_type
+                if registration_state == 'registration_failed':
+                    registration_state = 'failed'
+                if account_info.registration_state == registration_state:
+                    return
+                account_info.registration_state = registration_state
+                registration_data = dict(state=registration_state)
+                if registration_state == 'failed':
+                    code = event_data['code']
+                    reason = event_data['reason']
+                    registration_data['reason'] = '%d %s' % (code, reason)
+                data = dict(sylkrtc='account_event',
+                            account=account_info.id,
+                            event='registration_state',
+                            data=registration_data)
+                log.msg('Account %s registration state changed to %s' % (account_info.id, registration_state))
+            # TODO: AccountEvent model
+            self._send_data(json.dumps(data))
+        elif event_type in ('calling', 'accepted', 'hangup'):
+            # session event
+            try:
+                session_info = self.session_handles_map[handle_id]
+            except KeyError:
+                log.warn('Could not find session for handle ID %s' % handle_id)
+                return
+            if event_type == 'hangup' and session_info.state == 'terminated':
+                return
+            if event_type == 'calling':
+                session_info.state = 'progress'
+            elif event_type == 'accepted':
+                session_info.state = 'accepted'
+            elif event_type == 'hangup':
+                session_info.state = 'terminated'
+            data = dict(sylkrtc='session_event',
+                        session=session_info.id,
+                        event='state',
+                        data=dict(state=session_info.state))
+            log.msg('%s session %s state: %s' % (session_info.direction.title(), session_info.id, session_info.state))
+            if session_info.state == 'accepted' and session_info.direction == 'outgoing':
+                assert jsep is not None
+                data['data']['sdp'] = jsep['sdp']
+            elif session_info.state == 'terminated':
+                code = event_data.get('code', 0)
+                reason = event_data.get('reason', 'Unknown')
+                reason = '%d %s' % (code, reason)
+                data['data']['reason'] = reason
+            # TODO: SessionEvent model
+            self._send_data(json.dumps(data))
+            if session_info.state == 'terminated':
+                self._cleanup_session(session_info)
+                log.msg('%s session %s %s <-> %s terminated (%s)' % (session_info.direction.title(),
+                                                                     session_info.id,
+                                                                     session_info.local_identity.uri,
+                                                                     session_info.remote_identity.uri,
+                                                                     reason))
+                # check if missed incoming call
+                if session_info.direction == 'incoming' and code == 487:
+                    data = dict(sylkrtc='account_event',
+                                account=session_info.account_id,
+                                event='missed_session',
+                                data=dict(originator=session_info.remote_identity.__dict__))
+                    log.msg('Incoming session from %s missed' % session_info.remote_identity.uri)
+                    # TODO: AccountEvent model
+                    self._send_data(json.dumps(data))
+        elif event_type == 'missed_call':
+            try:
+                account_info = self.account_handles_map[handle_id]
+            except KeyError:
+                log.warn('Could not find account for handle ID %s' % handle_id)
+                return
+            originator_uri = SIP_PREFIX_RE.sub('', event_data['caller'])
+            originator_display_name = event_data.get('displayname', '').replace('"', '')
+            # We have no session, so create an identity object by hand
+            originator = SessionPartyIdentity(originator_uri, originator_display_name)
+            data = dict(sylkrtc='account_event',
+                        account=account_info.id,
+                        event='missed_session',
+                        data=dict(originator=originator.__dict__))
+            log.msg('Incoming session from %s missed' % originator.uri)
+            # TODO: AccountEvent model
+            self._send_data(json.dumps(data))
+        elif event_type in ('ack', 'declining', 'hangingup'):
+            # ignore
+            pass
+        else:
+            log.warn('Unexpected SIP plugin event type: %s' % event_type)
+
+
+class SylkWebSocketServerProtocol(WebSocketServerProtocol):
+    backend = None
+    connection_handler = None
+
+    def onConnect(self, request):
+        log.msg('Incoming connection from %s (origin %s)' % (request.peer, request.origin))
+        if SYLK_WS_PROTOCOL not in request.protocols:
+            log.msg('Rejecting connection, remote does not support our sub-protocol')
+            raise HttpException(406, 'No compatible protocol specified')
+        if not self.backend.ready:
+            log.msg('Rejecting connection, backend is not connected')
+            raise HttpException(503, 'Backend is not connected')
+        return SYLK_WS_PROTOCOL
+
+    def onOpen(self):
+        self.factory.connections.add(self)
+        self.connection_handler = ConnectionHandler(self)
+        self.connection_handler.start()
+
+    def onMessage(self, payload, is_binary):
+        if is_binary:
+            log.warn('Received invalid binary message')
+            return
+        if GeneralConfig.trace_websocket:
+            self.factory.ws_logger.msg("IN", ISOTimestamp.now(), payload)
+        try:
+            data = json.loads(payload)
+        except Exception, e:
+            log.warn('Error parsing WebSocket payload: %s' % e)
+            return
+        self.connection_handler.handle_message(data)
+
+    def onClose(self, clean, code, reason):
+        if self.connection_handler is None:
+            # Very early connection closed, onOpen wasn't even called
+            return
+        log.msg('Connection from %s closed' % self.transport.getPeer())
+        self.factory.connections.discard(self)
+        self.connection_handler.stop()
+        self.connection_handler = None
+
+    def disconnect(self, code=1000, reason=u''):
+        self.sendClose(code, reason)
 
 
 class SylkWebSocketServerFactory(WebSocketServerFactory):
