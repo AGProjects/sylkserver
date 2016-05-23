@@ -33,10 +33,12 @@ SYLK_WS_PROTOCOL = 'sylkRTC-1'
 SIP_PREFIX_RE = re.compile('^sips?:')
 
 sylkrtc_models = {
+    # account management
     'account-add'        : sylkrtc.AccountAddRequest,
     'account-remove'     : sylkrtc.AccountRemoveRequest,
     'account-register'   : sylkrtc.AccountRegisterRequest,
     'account-unregister' : sylkrtc.AccountUnregisterRequest,
+    # session management
     'session-create'     : sylkrtc.SessionCreateRequest,
     'session-answer'     : sylkrtc.SessionAnswerRequest,
     'session-trickle'    : sylkrtc.SessionTrickleRequest,

@@ -33,9 +33,39 @@ def URIValidator(value):
         raise errors.ValidationError('invalid account: %s' % value)
 
 
+# Base models
+
 class SylkRTCRequestBase(models.Base):
     transaction = fields.StringField(required=True)
 
+
+class SylkRTCResponseBase(models.Base):
+    transaction = fields.StringField(required=True)
+
+
+# Miscelaneous models
+
+class AckResponse(SylkRTCResponseBase):
+    sylkrtc = DefaultValueField('ack')
+
+
+class ErrorResponse(SylkRTCResponseBase):
+    sylkrtc = DefaultValueField('error')
+    error = fields.StringField(required=True)
+
+
+class ICECandidate(models.Base):
+    candidate = fields.StringField(required=True)
+    sdpMLineIndex = fields.IntField(required=True)
+    sdpMid = fields.StringField(required=True)
+
+
+class ReadyEvent(models.Base):
+    sylkrtc = DefaultValueField('event')
+    event = DefaultValueField('ready')
+
+
+# Account models
 
 class AccountRequestBase(SylkRTCRequestBase):
     account = fields.StringField(required=True,
@@ -60,6 +90,8 @@ class AccountUnregisterRequest(AccountRequestBase):
     sylkrtc = DefaultValueField('account-unregister')
 
 
+# Session models
+
 class SessionRequestBase(SylkRTCRequestBase):
     session = fields.StringField(required=True)
 
@@ -78,12 +110,6 @@ class SessionAnswerRequest(SessionRequestBase):
     sdp = fields.StringField(required=True)
 
 
-class ICECandidate(models.Base):
-    candidate = fields.StringField(required=True)
-    sdpMLineIndex = fields.IntField(required=True)
-    sdpMid = fields.StringField(required=True)
-
-
 class SessionTrickleRequest(SessionRequestBase):
     sylkrtc = DefaultValueField('session-trickle')
     candidates = fields.ListField([ICECandidate])
@@ -93,19 +119,3 @@ class SessionTerminateRequest(SessionRequestBase):
     sylkrtc = DefaultValueField('session-terminate')
 
 
-class SylkRTCResponseBase(models.Base):
-    transaction = fields.StringField(required=True)
-
-
-class AckResponse(SylkRTCResponseBase):
-    sylkrtc = DefaultValueField('ack')
-
-
-class ErrorResponse(SylkRTCResponseBase):
-    sylkrtc = DefaultValueField('error')
-    error = fields.StringField(required=True)
-
-
-class ReadyEvent(models.Base):
-    sylkrtc = DefaultValueField('event')
-    event = DefaultValueField('ready')
