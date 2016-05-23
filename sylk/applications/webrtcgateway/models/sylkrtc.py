@@ -76,6 +76,7 @@ class AccountAddRequest(AccountRequestBase):
     sylkrtc = DefaultValueField('account-add')
     password = fields.StringField(required=True,
                                   validators=[validators.Length(minimum_value=1, maximum_value=9999)])
+    display_name = fields.StringField(required=False)
 
 
 class AccountRemoveRequest(AccountRequestBase):

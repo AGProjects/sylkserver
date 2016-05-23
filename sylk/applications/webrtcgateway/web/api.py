@@ -47,9 +47,10 @@ sylkrtc_models = {
 
 
 class AccountInfo(object):
-    def __init__(self, id, password):
+    def __init__(self, id, password, display_name=None):
         self.id = id
         self.password = password
+        self.display_name = display_name
         self.registration_state = None
         self.janus_handle_id = None
 
@@ -256,6 +257,7 @@ class ConnectionHandler(object):
         # extract the fields to avoid going through the descriptor several times
         account = request.account
         password = request.password
+        display_name = request.display_name
 
         try:
             if account in self.accounts_map:
@@ -267,7 +269,7 @@ class ConnectionHandler(object):
                 raise APIError('SIP domain not allowed: %s' % domain)
 
             # Create and store our mapping
-            account_info = AccountInfo(account, password)
+            account_info = AccountInfo(account, password, display_name)
             self.accounts_map[account_info.id] = account_info
         except APIError, e:
             log.error('account_add: %s' % e)
@@ -329,6 +331,7 @@ class ConnectionHandler(object):
 
             data = {'request': 'register',
                     'username': account_info.uri,
+                    'display_name': account_info.display_name,
                     'ha1_secret': account_info.password,
                     'proxy': proxy}
             block_on(self.protocol.backend.janus_message(self.janus_session_id, handle_id, data))
@@ -388,7 +391,11 @@ class ConnectionHandler(object):
                 self.protocol.backend.janus_set_event_handler(handle_id, None)
                 raise APIError('DNS lookup error')
             account_uri = 'sip:%s' % account_info.id
-            data = {'request': 'register', 'username': account_uri, 'ha1_secret': account_info.password, 'proxy': proxy,
+            data = {'request': 'register',
+                    'username': account_info.uri,
+                    'display_name': account_info.display_name,
+                    'ha1_secret': account_info.password,
+                    'proxy': proxy,
                     'send_register': False}
             block_on(self.protocol.backend.janus_message(self.janus_session_id, handle_id, data))
 
