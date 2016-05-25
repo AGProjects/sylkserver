@@ -401,6 +401,7 @@ class ConnectionHandler(object):
             session_info = JanusSessionInfo(session)
             session_info.janus_handle_id = handle_id
             session_info.init_outgoing(account, uri)
+            # TODO: create a "SessionContainer" object combining the 2
             self.sessions_map[session_info.id] = session_info
             self.session_handles_map[handle_id] = session_info
 
