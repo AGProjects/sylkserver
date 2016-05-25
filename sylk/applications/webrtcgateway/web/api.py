@@ -390,7 +390,6 @@ class ConnectionHandler(object):
                 block_on(self.protocol.backend.janus_detach(self.janus_session_id, handle_id))
                 self.protocol.backend.janus_set_event_handler(handle_id, None)
                 raise APIError('DNS lookup error')
-            account_uri = 'sip:%s' % account_info.id
             data = {'request': 'register',
                     'username': account_info.uri,
                     'display_name': account_info.display_name,
