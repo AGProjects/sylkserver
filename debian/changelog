@@ -1,3 +1,15 @@
+sylkserver (3.3.0) unstable; urgency=medium
+
+  * webrtcgateway: refactor API message handling
+  * webrtcgateway: reorganize models
+  * webrtcgateway: add support for setting account display name
+  * webrtcgateway: remove obsolete sylkrtc test application
+  * webrtcgateway: add ability to customize User Agent
+  * Raised Janus version dependency
+  * Update Janus configuration
+
+ -- Saul Ibarra <saul@ag-projects.com>  Tue, 14 Jun 2016 15:55:33 +0100
+
 sylkserver (3.2.0) unstable; urgency=medium
 
   * Fix per-room pstn_access_numbers setting
