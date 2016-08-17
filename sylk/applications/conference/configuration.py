@@ -91,7 +91,7 @@ class ConferenceConfig(ConfigSection):
 
     screensharing_images_dir = ConfigSetting(type=Path, value=Path(os.path.join(ServerConfig.spool_dir.normalized, 'conference', 'screensharing')))
 
-    advertise_xmpp_support = True
+    advertise_xmpp_support = False
     pstn_access_numbers = ConfigSetting(type=StringList, value='')
     webrtc_gateway_url = ConfigSetting(type=URL, value='')
 
