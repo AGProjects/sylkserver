@@ -939,7 +939,8 @@ class WelcomeHandler(object):
                     txt += '    - Using an XMPP Jingle capable client, add contact %s and call it (audio)\n' % self.room.uri
                 txt += '    - Using a SIP client, initiate a session to %s (audio and chat)\n' % self.room.uri
                 if self.room.config.webrtc_gateway_url:
-                    txt += '    - Using a WebRTC enabled browser go to %s and join room %s\n' % (self.room.config.webrtc_gateway_url, self.room.identity.uri.user)
+                    webrtc_url = str(self.room.config.webrtc_gateway_url).replace('$room', self.room.uri)
+                    txt += '    - Using a WebRTC enabled browser go to %s\n' % webrtc_url
         stream.send_message(txt, 'text/plain', sender=self.room.identity, recipients=[self.room.identity])
         for msg in self.room.history:
             stream.send_message(msg.content, msg.content_type, sender=msg.sender, recipients=[self.room.identity], timestamp=msg.timestamp)

@@ -22,7 +22,8 @@ screensharing_images_dir = /var/spool/sylkserver/conference/screensharing
 ; Comma separated list of PSTN numbers to advertise as a conference URI
 ; pstn_access_numbers =
 
-; URL where the rooms can be joined using a WebRTC browser
+; URL where the rooms can be joined using a WebRTC browser, the URL may contain
+; the $room token which will be replaced by the room URI in user@domain form
 ; webrtc_gateway_url =
 
 ; Automatically verify ZRTP endpoints if the following conditions are met:
