@@ -926,7 +926,7 @@ class WelcomeHandler(object):
                 txt += ' There are %s more participants' % user_count
         txt +=  ' in this conference room.'
         if not ServerConfig.enable_bonjour:
-            if self.room.config.advertise_xmpp_support or self.room.config.pstn_access_numbers:
+            if self.room.config.advertise_xmpp_support or self.room.config.pstn_access_numbers or self.room.config.webrtc_gateway_url:
                 txt += '\n\nOther participants can join at these addresses:\n\n'
                 if self.room.config.pstn_access_numbers:
                     if len(self.room.config.pstn_access_numbers) == 1:
