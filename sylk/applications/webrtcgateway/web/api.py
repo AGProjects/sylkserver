@@ -66,9 +66,7 @@ class SessionPartyIdentity(object):
         self.display_name = display_name
 
 
-class SessionInfoBase(object):
-    type = None    # override in subclass
-
+class SIPSessionInfo(object):
     def __init__(self, id):
         self.id = id
         self.direction = None
@@ -76,6 +74,7 @@ class SessionInfoBase(object):
         self.account_id = None
         self.local_identity = None     # instance of SessionPartyIdentity
         self.remote_identity = None    # instance of SessionPartyIdentity
+        self.janus_handle_id = None
 
     def init_outgoing(self, account_id, destination):
         self.account_id = account_id
@@ -90,14 +89,6 @@ class SessionInfoBase(object):
         self.state = 'connecting'
         self.local_identity = SessionPartyIdentity(account_id)
         self.remote_identity = SessionPartyIdentity(originator, originator_display_name)
-
-
-class JanusSessionInfo(SessionInfoBase):
-    type = 'janus'
-
-    def __init__(self, id):
-        super(JanusSessionInfo, self).__init__(id)
-        self.janus_handle_id = None
 
 
 class Operation(object):
@@ -402,7 +393,7 @@ class ConnectionHandler(object):
                     'send_register': False}
             block_on(self.protocol.backend.janus_message(self.janus_session_id, handle_id, data))
 
-            session_info = JanusSessionInfo(session)
+            session_info = SIPSessionInfo(session)
             session_info.janus_handle_id = handle_id
             session_info.init_outgoing(account, uri)
             # TODO: create a "SessionContainer" object combining the 2
@@ -577,7 +568,7 @@ class ConnectionHandler(object):
                 jsep = event.get('jsep', None)
                 assert jsep is not None
                 session_id = uuid.uuid4().hex
-                session = JanusSessionInfo(session_id)
+                session = SIPSessionInfo(session_id)
                 session.janus_handle_id = handle_id
                 session.init_incoming(account_info.id, originator_uri, originator_display_name)
                 self.sessions_map[session_id] = session
