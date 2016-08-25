@@ -239,9 +239,9 @@ class ConnectionHandler(object):
                                route.port,
                                ';transport=%s' % route.transport if route.transport != 'tls' else '')
 
-    def _handle_janus_event(self, handle_id, event_type, event):
+    def _handle_janus_event_sip(self, handle_id, event_type, event):
         # TODO: use a model
-        op = Operation('janus-event', data=dict(handle_id=handle_id, event_type=event_type, event=event))
+        op = Operation('janus-event-sip', data=dict(handle_id=handle_id, event_type=event_type, event=event))
         self.operations_queue.send(op)
 
     def _operations_handler(self):
@@ -327,7 +327,7 @@ class ConnectionHandler(object):
 
             # Create a plugin handle
             handle_id = block_on(self.protocol.backend.janus_attach(self.janus_session_id, 'janus.plugin.sip'))
-            self.protocol.backend.janus_set_event_handler(handle_id, self._handle_janus_event)
+            self.protocol.backend.janus_set_event_handler(handle_id, self._handle_janus_event_sip)
             account_info.janus_handle_id = handle_id
             self.account_handles_map[handle_id] = account_info
 
@@ -386,7 +386,7 @@ class ConnectionHandler(object):
 
             # Create a new plugin handle and 'register' it, without actually doing so
             handle_id = block_on(self.protocol.backend.janus_attach(self.janus_session_id, 'janus.plugin.sip'))
-            self.protocol.backend.janus_set_event_handler(handle_id, self._handle_janus_event)
+            self.protocol.backend.janus_set_event_handler(handle_id, self._handle_janus_event_sip)
             try:
                 proxy = self._lookup_sip_proxy(account_info.id)
             except DNSLookupError:
@@ -495,15 +495,13 @@ class ConnectionHandler(object):
 
     # Event handlers
 
-    def _OH_janus_event(self, data):
+    def _OH_janus_event_sip(self, data):
         handle_id = data['handle_id']
         event_type = data['event_type']
         event = data['event']
 
         if event_type == 'event':
-            plugin = event['plugindata']['plugin'].split('.')[-1].lower()
-            handler = getattr(self, '_OH_janus_event_plugin_%s' % plugin, Null)
-            handler(data)
+            self._janus_event_plugin_sip(data)
         elif event_type == 'webrtcup':
             try:
                 session_info = self.session_handles_map[handle_id]
@@ -548,7 +546,7 @@ class ConnectionHandler(object):
         else:
             log.warn('Received unexpected event type: %s' % event_type)
 
-    def _OH_janus_event_plugin_sip(self, data):
+    def _janus_event_plugin_sip(self, data):
         handle_id = data['handle_id']
         event = data['event']
         plugin_data = event['plugindata']
