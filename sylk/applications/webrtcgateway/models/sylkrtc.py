@@ -33,6 +33,15 @@ def URIValidator(value):
         raise errors.ValidationError('invalid account: %s' % value)
 
 
+class OptionsValidator(object):
+    def __init__(self, options):
+        self.options = options
+
+    def __call__(self, value):
+        if value not in self.options:
+            raise errors.ValidationError('invalid option: %s' % value)
+
+
 # Base models
 
 class SylkRTCRequestBase(models.Base):
@@ -120,4 +129,53 @@ class SessionTrickleRequest(SessionRequestBase):
 class SessionTerminateRequest(SessionRequestBase):
     sylkrtc = DefaultValueField('session-terminate')
 
+
+# VideoRoom models
+
+class VideoRoomRequestBase(SylkRTCRequestBase):
+    session = fields.StringField(required=True)
+
+
+class VideoRoomJoinRequest(VideoRoomRequestBase):
+    sylkrtc = DefaultValueField('videoroom-join')
+    account = fields.StringField(required=True,
+                                 validators=[URIValidator])
+    uri = fields.StringField(required=True,
+                             validators=[URIValidator])
+    sdp = fields.StringField(required=True)
+
+
+class VideoRoomControlTrickleRequest(models.Base):
+    # ID for the subscriber session, if specified, otherwise the publisher is considered
+    session = fields.StringField(required=False)
+    candidates = fields.ListField([ICECandidate])
+
+
+class VideoRoomControlFeedAttachRequest(models.Base):
+    session = fields.StringField(required=True)
+    publisher = fields.StringField(required=True)
+
+
+class VideoRoomControlFeedAnswerRequest(models.Base):
+    session = fields.StringField(required=True)
+    sdp = fields.StringField(required=True)
+
+
+class VideoRoomControlFeedDetachRequest(models.Base):
+    session = fields.StringField(required=True)
+
+
+class VideoRoomControlRequest(VideoRoomRequestBase):
+    sylkrtc = DefaultValueField('videoroom-ctl')
+    option = fields.StringField(required=True,
+                                validators=[OptionsValidator(['trickle', 'feed-attach', 'feed-answer', 'feed-detach'])])
+    # all other options should have optional fields below, and the application needs to do a little validation
+    trickle = fields.EmbeddedField(VideoRoomControlTrickleRequest, required=False)
+    feed_attach = fields.EmbeddedField(VideoRoomControlFeedAttachRequest, required=False)
+    feed_answer = fields.EmbeddedField(VideoRoomControlFeedAnswerRequest, required=False)
+    feed_detach = fields.EmbeddedField(VideoRoomControlFeedDetachRequest, required=False)
+
+
+class VideoRoomTerminateRequest(VideoRoomRequestBase):
+    sylkrtc = DefaultValueField('videoroom-terminate')
 

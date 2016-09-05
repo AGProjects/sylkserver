@@ -3,6 +3,7 @@ import json
 import random
 import re
 import uuid
+import weakref
 
 from application.python import Null
 from application.notification import IObserver, NotificationCenter
@@ -34,15 +35,19 @@ SIP_PREFIX_RE = re.compile('^sips?:')
 
 sylkrtc_models = {
     # account management
-    'account-add'        : sylkrtc.AccountAddRequest,
-    'account-remove'     : sylkrtc.AccountRemoveRequest,
-    'account-register'   : sylkrtc.AccountRegisterRequest,
-    'account-unregister' : sylkrtc.AccountUnregisterRequest,
+    'account-add'         : sylkrtc.AccountAddRequest,
+    'account-remove'      : sylkrtc.AccountRemoveRequest,
+    'account-register'    : sylkrtc.AccountRegisterRequest,
+    'account-unregister'  : sylkrtc.AccountUnregisterRequest,
     # session management
-    'session-create'     : sylkrtc.SessionCreateRequest,
-    'session-answer'     : sylkrtc.SessionAnswerRequest,
-    'session-trickle'    : sylkrtc.SessionTrickleRequest,
-    'session-terminate'  : sylkrtc.SessionTerminateRequest,
+    'session-create'      : sylkrtc.SessionCreateRequest,
+    'session-answer'      : sylkrtc.SessionAnswerRequest,
+    'session-trickle'     : sylkrtc.SessionTrickleRequest,
+    'session-terminate'   : sylkrtc.SessionTerminateRequest,
+    # video conference management
+    'videoroom-join'      : sylkrtc.VideoRoomJoinRequest,
+    'videoroom-ctl'       : sylkrtc.VideoRoomControlRequest,
+    'videoroom-terminate' : sylkrtc.VideoRoomTerminateRequest,
 }
 
 
@@ -91,6 +96,129 @@ class SIPSessionInfo(object):
         self.remote_identity = SessionPartyIdentity(originator, originator_display_name)
 
 
+class VideoRoom(object):
+    def __init__(self, uri):
+        self.uri = uri
+        self.id = random.getrandbits(32)    # janus needs numeric room names
+        self.destroyed = False
+        self._session_id_map = weakref.WeakValueDictionary()
+        self._publisher_id_map = weakref.WeakValueDictionary()
+
+    def add(self, session):
+        assert session.publisher_id is not None
+        assert session.id not in self._session_id_map
+        assert session.publisher_id not in self._publisher_id_map
+        self._session_id_map[session.id] = session
+        self._publisher_id_map[session.publisher_id] = session
+
+    def __getitem__(self, key):
+        try:
+            return self._session_id_map[key]
+        except KeyError:
+            return self._publisher_id_map[key]
+
+    def __len__(self):
+        return len(self._session_id_map)
+
+
+class VideoRoomContainer(object):
+    def __init__(self):
+        self._rooms = set()
+        self._uri_map = weakref.WeakValueDictionary()
+        self._id_map = weakref.WeakValueDictionary()
+
+    def add(self, room):
+        self._rooms.add(room)
+        self._uri_map[room.uri] = room
+        self._id_map[room.id] = room
+
+    def remove(self, value):
+        if isinstance(value, int):
+            room = self._id_map.get(value, None)
+        elif isinstance(value, basestring):
+            room = self._uri_map.get(value, None)
+        else:
+            room = value
+        self._rooms.discard(room)
+
+    def clear(self):
+        self._rooms.clear()
+
+    def __len__(self):
+        return len(self._rooms)
+
+    def __iter__(self):
+        return iter(self._rooms)
+
+    def __getitem__(self, item):
+        if isinstance(item, int):
+            return self._id_map[item]
+        elif isinstance(item, basestring):
+            return self._uri_map[item]
+        else:
+            raise KeyError('%s not found' % item)
+
+    def __contains__(self, item):
+        return item in self._id_map or item in self._uri_map or item in self._rooms
+
+
+class VideoRoomSessionInfo(object):
+    def __init__(self, id):
+        self.id = id
+        self.account_id = None
+        self.type = None  # publisher / subscriber
+        self.publisher_id = None    # janus publisher ID for publishers / publisher session ID for subscribers
+        self.janus_handle_id = None
+        self.room = None
+        self.parent_session = None
+        self.feeds = {}    # janus publisher ID -> our publisher ID
+
+    def initialize(self, account_id, type, room):
+        assert type in ('publisher', 'subscriber')
+        self.account_id = account_id
+        self.type = type
+        self.room = room
+
+    def __repr__(self):
+        return '<%s: id=%s janus_handle_id=%s type=%s>' % (self.__class__.__name__, self.id, self.janus_handle_id, self.type)
+
+
+class VideoRoomSessionContainer(object):
+    def __init__(self):
+        self._sessions = set()
+        self._janus_handle_map = weakref.WeakValueDictionary()
+        self._id_map = weakref.WeakValueDictionary()
+
+    def add(self, session):
+        assert session not in self._sessions
+        assert session.janus_handle_id not in self._janus_handle_map
+        assert session.id not in self._id_map
+        self._sessions.add(session)
+        self._janus_handle_map[session.janus_handle_id] = session
+        self._id_map[session.id] = session
+
+    def remove(self, session):
+        self._sessions.discard(session)
+
+    def clear(self):
+        self._sessions.clear()
+
+    def __len__(self):
+        return len(self._sessions)
+
+    def __iter__(self):
+        return iter(self._sessions)
+
+    def __getitem__(self, key):
+        try:
+            return self._id_map[key]
+        except KeyError:
+            return self._janus_handle_map[key]
+
+    def __contains__(self, item):
+        return item in self._id_map or item in self._janus_handle_map or item in self._sessions
+
+
 class Operation(object):
     __slots__ = ('name', 'data')
 
@@ -111,6 +239,7 @@ class ConnectionHandler(object):
         self.account_handles_map = {}  # Janus handle ID -> account
         self.sessions_map = {}  # session ID -> session
         self.session_handles_map = {}  # Janus handle ID -> session
+        self.videoroom_sessions = VideoRoomSessionContainer()    # session ID / janus handle ID -> session
         self.ready_event = GreenEvent()
         self.resolver = DNSLookup()
         self.proc = proc.spawn(self._operations_handler)
@@ -133,6 +262,7 @@ class ConnectionHandler(object):
         self.account_handles_map.clear()
         self.sessions_map.clear()
         self.session_handles_map.clear()
+        self.videoroom_sessions.clear()
         self.janus_session_id = None
         self.protocol = None
 
@@ -187,6 +317,49 @@ class ConnectionHandler(object):
         # give it some time to receive other hangup events
         reactor.callLater(2, do_cleanup)
 
+    def _cleanup_videoroom_session(self, session):
+        @run_in_green_thread
+        def do_cleanup():
+            if self.janus_session_id is None:
+                # The connection was closed, there is noting to do here
+                return
+            if session in self.videoroom_sessions:
+                self.videoroom_sessions.remove(session)
+                block_on(self.protocol.backend.janus_detach(self.janus_session_id, session.janus_handle_id))
+                self.protocol.backend.janus_set_event_handler(session.janus_handle_id, None)
+
+        # give it some time to receive other hangup events
+        reactor.callLater(2, do_cleanup)
+
+    def _maybe_destroy_videoroom(self, videoroom):
+        @run_in_green_thread
+        def f():
+            if self.protocol is None:
+                # The connection was closed
+                return
+            # destroy the room if empty
+            if not videoroom and not videoroom.destroyed:
+                videoroom.destroyed = True
+                self.protocol.factory.videorooms.remove(videoroom)
+
+                # create a handle to do the cleanup
+                handle_id = block_on(self.protocol.backend.janus_attach(self.janus_session_id, 'janus.plugin.videoroom'))
+                self.protocol.backend.janus_set_event_handler(handle_id, self._handle_janus_event_videoroom)
+
+                data = {'request': 'destroy',
+                        'room': videoroom.id}
+                try:
+                    block_on(self.protocol.backend.janus_message(self.janus_session_id, handle_id, data))
+                except Exception:
+                    pass
+                block_on(self.protocol.backend.janus_detach(self.janus_session_id, handle_id))
+                self.protocol.backend.janus_set_event_handler(handle_id, None)
+
+                log.msg('Video room %s destroyed' % videoroom.uri)
+
+        # don't destroy it immediately
+        reactor.callLater(5, f)
+
     @run_in_green_thread
     def _create_janus_session(self):
         if self.ready_event.is_set():
@@ -233,6 +406,11 @@ class ConnectionHandler(object):
     def _handle_janus_event_sip(self, handle_id, event_type, event):
         # TODO: use a model
         op = Operation('janus-event-sip', data=dict(handle_id=handle_id, event_type=event_type, event=event))
+        self.operations_queue.send(op)
+
+    def _handle_janus_event_videoroom(self, handle_id, event_type, event):
+        # TODO: use a model
+        op = Operation('janus-event-videoroom', data=dict(handle_id=handle_id, event_type=event_type, event=event))
         self.operations_queue.send(op)
 
     def _operations_handler(self):
@@ -484,6 +662,217 @@ class ConnectionHandler(object):
             log.msg('%s terminated session %s' % (session_info.account_id, session))
             self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
 
+    def _OH_videoroom_join(self, request):
+        account = request.account
+        session = request.session
+        uri = request.uri
+        sdp = request.sdp
+
+        try:
+            try:
+                account_info = self.accounts_map[account]
+            except KeyError:
+                raise APIError('Unknown account specified: %s' % account)
+
+            if session in self.videoroom_sessions:
+                raise APIError('VideoRoom session ID (%s) already in use' % session)
+
+            handle_id = block_on(self.protocol.backend.janus_attach(self.janus_session_id, 'janus.plugin.videoroom'))
+            self.protocol.backend.janus_set_event_handler(handle_id, self._handle_janus_event_videoroom)
+
+            # create the room if it doesn't exist
+
+            try:
+                videoroom = self.protocol.factory.videorooms[uri]
+            except KeyError:
+                videoroom = VideoRoom(uri)
+                self.protocol.factory.videorooms.add(videoroom)
+
+            data = {'request': 'create',
+                    'room': videoroom.id,
+                    'publishers': 10}
+            try:
+                block_on(self.protocol.backend.janus_message(self.janus_session_id, handle_id, data))
+            except Exception, e:
+                code = getattr(e, 'code', -1)
+                if code != 427:    # 417 == room exists
+                    block_on(self.protocol.backend.janus_detach(self.janus_session_id, handle_id))
+                    self.protocol.backend.janus_set_event_handler(handle_id, None)
+                    raise APIError(str(e))
+
+            # join the room
+            data = {'request': 'joinandconfigure',
+                    'room': videoroom.id,
+                    'ptype': 'publisher',
+                    'audio': True,
+                    'video': True}
+            if account_info.display_name:
+                data['display'] = account_info.display_name
+            jsep = {'type': 'offer', 'sdp': sdp}
+            block_on(self.protocol.backend.janus_message(self.janus_session_id, handle_id, data, jsep))
+
+            videoroom_session = VideoRoomSessionInfo(session)
+            videoroom_session.janus_handle_id = handle_id
+            videoroom_session.initialize(account, 'publisher', videoroom)
+            self.videoroom_sessions.add(videoroom_session)
+        except APIError, e:
+            log.error('videoroom-join: %s' % e)
+            self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
+            self._maybe_destroy_videoroom(videoroom)
+        else:
+            log.msg('Video room %s from %s to %s joined' % (videoroom.id, account, uri))
+            self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
+            data = dict(sylkrtc='videoroom_event',
+                        session=videoroom_session.id,
+                        event='state',
+                        data=dict(state='progress'))
+            self._send_data(json.dumps(data))
+
+    def _OH_videoroom_ctl(self, request):
+        if request.option == 'trickle':
+            trickle = request.trickle
+            if not trickle:
+                log.error('videoroom-ctl: missing field')
+                return
+            candidates = [c.to_struct() for c in trickle.candidates]
+            session = trickle.session or request.session
+            try:
+                try:
+                    videoroom_session = self.videoroom_sessions[session]
+                except KeyError:
+                    raise APIError('trickle: unknown video room session ID specified: %s' % session)
+                block_on(self.protocol.backend.janus_trickle(self.janus_session_id, videoroom_session.janus_handle_id, candidates))
+            except APIError, e:
+                log.error('videoroom-ctl: %s' % e)
+                self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
+            else:
+                if candidates:
+                    log.msg('Trickled ICE candidate(s) for videoroom session %s' % session)
+                else:
+                    log.msg('Trickled ICE candidates end for videoroom session %s' % session)
+                self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
+        elif request.option == 'feed-attach':
+            feed_attach = request.feed_attach
+            if not feed_attach:
+                log.error('videoroom-ctl: missing field')
+                return
+            try:
+                if feed_attach.session in self.videoroom_sessions:
+                    raise APIError('feed-attach: video room session ID (%s) already in use' % feed_attach.session)
+
+                # get the 'base' session, the one used to join and publish
+                try:
+                    base_session = self.videoroom_sessions[request.session]
+                except KeyError:
+                    raise APIError('feed-attach: unknown video room session ID specified: %s' % request.session)
+
+                # get the publisher's session
+                try:
+                    publisher_session = base_session.room[feed_attach.publisher]
+                except KeyError:
+                    raise APIError('feed-attach: unknown publisher video room session ID specified: %s' % feed_attach.publisher)
+                if publisher_session.publisher_id is None:
+                    raise APIError('feed-attach: video room session ID does not have a publisher ID' % feed_attach.publisher)
+
+                handle_id = block_on(self.protocol.backend.janus_attach(self.janus_session_id, 'janus.plugin.videoroom'))
+                self.protocol.backend.janus_set_event_handler(handle_id, self._handle_janus_event_videoroom)
+
+                # join the room as a listener
+                data = {'request': 'join',
+                        'room': base_session.room.id,
+                        'ptype': 'listener',
+                        'feed': publisher_session.publisher_id}
+                block_on(self.protocol.backend.janus_message(self.janus_session_id, handle_id, data))
+
+                videoroom_session = VideoRoomSessionInfo(feed_attach.session)
+                videoroom_session.janus_handle_id = handle_id
+                videoroom_session.parent_session = base_session
+                videoroom_session.publisher_id = publisher_session.id
+                videoroom_session.initialize(base_session.account_id, 'subscriber', base_session.room)
+                self.videoroom_sessions.add(videoroom_session)
+                base_session.feeds[publisher_session.publisher_id] = publisher_session.id
+            except APIError, e:
+                log.error('videoroom-ctl: %s' % e)
+                self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
+            else:
+                log.msg('Video room %s: %s attached to %s' % (base_session.room.id, base_session.account_id, feed_attach.publisher))
+                self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
+        elif request.option == 'feed-answer':
+            feed_answer = request.feed_answer
+            if not feed_answer:
+                log.error('videoroom-ctl: missing field')
+                return
+            try:
+                try:
+                    videoroom_session = self.videoroom_sessions[request.feed_answer.session]
+                except KeyError:
+                    raise APIError('feed-answer: unknown video room session ID specified: %s' % feed_answer.session)
+                data = {'request': 'start',
+                        'room': videoroom_session.room.id}
+                jsep = {'type': 'answer', 'sdp': feed_answer.sdp}
+                block_on(self.protocol.backend.janus_message(self.janus_session_id, videoroom_session.janus_handle_id, data, jsep))
+            except APIError, e:
+                log.error('videoroom-ctl: %s' % e)
+                self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
+            else:
+                self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
+        elif request.option == 'feed-detach':
+            feed_detach = request.feed_detach
+            if not feed_detach:
+                log.error('videoroom-ctl: missing field')
+                return
+            try:
+                try:
+                    base_session = self.videoroom_sessions[request.session]
+                except KeyError:
+                    raise APIError('feed-detach: unknown video room session ID specified: %s' % request.session)
+                try:
+                    videoroom_session = self.videoroom_sessions[feed_detach.session]
+                except KeyError:
+                    raise APIError('feed-detach: unknown video room session ID specified: %s' % feed_detach.session)
+                data = {'request': 'leave'}
+                block_on(self.protocol.backend.janus_message(self.janus_session_id, videoroom_session.janus_handle_id, data))
+            except APIError, e:
+                log.error('videoroom-ctl: %s' % e)
+                self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
+            else:
+                self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
+                block_on(self.protocol.backend.janus_detach(self.janus_session_id, videoroom_session.janus_handle_id))
+                self.protocol.backend.janus_set_event_handler(videoroom_session.janus_handle_id, None)
+                self.videoroom_sessions.remove(videoroom_session)
+                try:
+                    janus_publisher_id = next(k for k, v in base_session.feeds.iteritems() if v == videoroom_session.publisher_id)
+                except StopIteration:
+                    pass
+                else:
+                    base_session.feeds.pop(janus_publisher_id)
+        else:
+            log.error('videoroom-ctl: unsupported option: %s' % request.option)
+
+    def _OH_videoroom_terminate(self, request):
+        session = request.session
+
+        try:
+            try:
+                videoroom_session = self.videoroom_sessions[session]
+            except KeyError:
+                raise APIError('Unknown video room session ID specified: %s' % session)
+            data = {'request': 'leave'}
+            block_on(self.protocol.backend.janus_message(self.janus_session_id, videoroom_session.janus_handle_id, data))
+        except APIError, e:
+            log.error('videoroom-terminate: %s' % e)
+            self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
+        else:
+            log.msg('%s terminated video room session %s' % (videoroom_session.account_id, session))
+            self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
+            data = dict(sylkrtc='videoroom_event',
+                        session=videoroom_session.id,
+                        event='state',
+                        data=dict(state='terminated'))
+            self._send_data(json.dumps(data))
+            self._cleanup_videoroom_session(videoroom_session)
+            self._maybe_destroy_videoroom(videoroom_session.room)
+
     # Event handlers
 
     def _OH_janus_event_sip(self, data):
@@ -669,6 +1058,165 @@ class ConnectionHandler(object):
         else:
             log.warn('Unexpected SIP plugin event type: %s' % event_type)
 
+    def _OH_janus_event_videoroom(self, data):
+        handle_id = data['handle_id']
+        event_type = data['event_type']
+        event = data['event']
+
+        if event_type == 'event':
+            self._janus_event_plugin_videoroom(data)
+        elif event_type == 'webrtcup':
+            try:
+                videoroom_session = self.videoroom_sessions[handle_id]
+            except KeyError:
+                log.warn('Could not find videoroom session for handle ID %s' % handle_id)
+                return
+            base_session = videoroom_session.parent_session
+            if base_session is None:
+                data = dict(sylkrtc='videoroom_event',
+                            session=videoroom_session.id,
+                            event='state',
+                            data=dict(state='established'))
+            else:
+                # this is a subscriber session
+                data = dict(sylkrtc='videoroom_event',
+                            session=base_session.id,
+                            event='feed_established',
+                            data=dict(state='established', subscription=videoroom_session.id))
+            log.msg('Videoroom session %s is established' % videoroom_session.id)
+            self._send_data(json.dumps(data))
+        elif event_type == 'hangup':
+            try:
+                videoroom_session = self.videoroom_sessions[handle_id]
+            except KeyError:
+                log.warn('Could not find videoroom session for handle ID %s' % handle_id)
+                return
+            self._cleanup_videoroom_session(videoroom_session)
+            self._maybe_destroy_videoroom(videoroom_session.room)
+        elif event_type in ('media', 'detached'):
+            # ignore
+            pass
+        else:
+            log.warn('Received unexpected event type: %s' % event_type)
+
+    def _janus_event_plugin_videoroom(self, data):
+        handle_id = data['handle_id']
+        event = data['event']
+        plugin_data = event['plugindata']
+        assert(plugin_data['plugin'] == 'janus.plugin.videoroom')
+        event_data = event['plugindata']['data']
+        assert 'videoroom' in event_data
+
+        event_type = event_data['videoroom']
+        if event_type == 'joined':
+            # a join request succeeded, this is a publisher
+            try:
+                videoroom_session = self.videoroom_sessions[handle_id]
+            except KeyError:
+                log.warn('Could not find videoroom session for handle ID %s' % handle_id)
+                return
+            room = videoroom_session.room
+            videoroom_session.publisher_id = event_data['id']
+            room.add(videoroom_session)
+            jsep = event.get('jsep', None)
+            assert jsep is not None
+            data = dict(sylkrtc='videoroom_event',
+                        session=videoroom_session.id,
+                        event='state',
+                        data=dict(state='accepted', sdp=jsep['sdp']))
+            self._send_data(json.dumps(data))
+            # send information about existing publishers
+            publishers = []
+            for p in event_data['publishers']:
+                publisher_id = p['id']
+                publisher_display = p.get('display', '')
+                try:
+                    publisher_session = room[publisher_id]
+                except KeyError:
+                    log.warn('Could not find matching session for publisher %s' % publisher_id)
+                    continue
+                item = {
+                    'id': publisher_session.id,
+                    'uri': publisher_session.account_id,
+                    'display_name': publisher_display,
+                }
+                publishers.append(item)
+            data = dict(sylkrtc='videoroom_event',
+                        session=videoroom_session.id,
+                        event='initial_publishers',
+                        data=dict(publishers=publishers))
+            self._send_data(json.dumps(data))
+        elif event_type == 'event':
+            if 'publishers' in event_data:
+                try:
+                    videoroom_session = self.videoroom_sessions[handle_id]
+                except KeyError:
+                    log.warn('Could not find videoroom session for handle ID %s' % handle_id)
+                    return
+                room = videoroom_session.room
+                # send information about new publishers
+                publishers = []
+                for p in event_data['publishers']:
+                    publisher_id = p['id']
+                    publisher_display = p.get('display', '')
+                    try:
+                        publisher_session = room[publisher_id]
+                    except KeyError:
+                        log.warn('Could not find matching session for publisher %s' % publisher_id)
+                        continue
+                    item = {
+                        'id': publisher_session.id,
+                        'uri': publisher_session.account_id,
+                        'display_name': publisher_display,
+                    }
+                    publishers.append(item)
+                data = dict(sylkrtc='videoroom_event',
+                            session=videoroom_session.id,
+                            event='publishers_joined',
+                            data=dict(publishers=publishers))
+                self._send_data(json.dumps(data))
+            elif 'leaving' in event_data:
+                try:
+                    base_session = self.videoroom_sessions[handle_id]
+                except KeyError:
+                    log.warn('Could not find videoroom session for handle ID %s' % handle_id)
+                    return
+                janus_publisher_id = event_data['leaving']
+                try:
+                    publisher_id = base_session.feeds.pop(janus_publisher_id)
+                except KeyError:
+                    return
+                data = dict(sylkrtc='videoroom_event',
+                            session=base_session.id,
+                            event='publishers_left',
+                            data=dict(publishers=[publisher_id]))
+                self._send_data(json.dumps(data))
+            elif {'started', 'unpublished', 'left'}.intersection(event_data):
+                # ignore
+                pass
+            else:
+                log.warn('Received unexpected plugin "event" event')
+        elif event_type == 'attached':
+            # sent when a feed is subscribed for a given publisher
+            try:
+                videoroom_session = self.videoroom_sessions[handle_id]
+            except KeyError:
+                log.warn('Could not find videoroom session for handle ID %s' % handle_id)
+                return
+            # get the session which originated the subscription
+            base_session = videoroom_session.parent_session
+            assert base_session is not None
+            jsep = event.get('jsep', None)
+            assert jsep is not None
+            assert jsep['type'] == 'offer'
+            data = dict(sylkrtc='videoroom_event',
+                        session=base_session.id,
+                        event='feed_attached',
+                        data=dict(sdp=jsep['sdp'], subscription=videoroom_session.id))
+            self._send_data(json.dumps(data))
+        else:
+            log.warn('Received unexpected plugin event type: %s' % event_type)
+
 
 class SylkWebSocketServerProtocol(WebSocketServerProtocol):
     backend = None
@@ -720,6 +1268,7 @@ class SylkWebSocketServerFactory(WebSocketServerFactory):
 
     protocol = SylkWebSocketServerProtocol
     connections = set()
+    videorooms = VideoRoomContainer()
     backend = None    # assigned by WebHandler
 
     def __init__(self, *args, **kw):
@@ -740,3 +1289,4 @@ class SylkWebSocketServerFactory(WebSocketServerFactory):
     def _NH_JanusBackendDisconnected(self, notification):
         for conn in self.connections.copy():
             conn.failConnection()
+        self.videorooms.clear()
