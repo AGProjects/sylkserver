@@ -1052,7 +1052,7 @@ class ConnectionHandler(object):
             log.msg('Incoming session from %s missed' % originator.uri)
             # TODO: AccountEvent model
             self._send_data(json.dumps(data))
-        elif event_type in ('ack', 'declining', 'hangingup'):
+        elif event_type in ('ack', 'declining', 'hangingup', 'proceeding'):
             # ignore
             pass
         else:
