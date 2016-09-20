@@ -1,6 +1,11 @@
 Roadmap
 -------
 
+ - Video bandwidth management 
+ - VoIP legacy connect
+ - Recording
+ - Scalability
  - SIP Registrar/Router application
  - Presence Agent application
- - Offline storage application
+
+
