@@ -1,10 +1,10 @@
 Roadmap
 -------
 
- - Video bandwidth management 
- - VoIP legacy connect
- - Recording
- - Scalability
+ - [webrtcgateway] Video bandwidth management
+ - [webrtcgateway] VoIP legacy connect
+ - [webrtcgateway] Recording
+ - [webrtcgateway] Scalability
  - SIP Registrar/Router application
  - Presence Agent application
 
