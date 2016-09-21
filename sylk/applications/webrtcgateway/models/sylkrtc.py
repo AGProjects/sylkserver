@@ -33,6 +33,11 @@ def URIValidator(value):
         raise errors.ValidationError('invalid account: %s' % value)
 
 
+def URIListValidator(values):
+    for item in values:
+        URIValidator(item)
+
+
 class OptionsValidator(object):
     def __init__(self, options):
         self.options = options
@@ -165,15 +170,20 @@ class VideoRoomControlFeedDetachRequest(models.Base):
     session = fields.StringField(required=True)
 
 
+class VideoRoomControlInviteParticipantsRequest(models.Base):
+    participants = fields.ListField([str, unicode], validators=[URIListValidator])
+
+
 class VideoRoomControlRequest(VideoRoomRequestBase):
     sylkrtc = DefaultValueField('videoroom-ctl')
     option = fields.StringField(required=True,
-                                validators=[OptionsValidator(['trickle', 'feed-attach', 'feed-answer', 'feed-detach'])])
+                                validators=[OptionsValidator(['trickle', 'feed-attach', 'feed-answer', 'feed-detach', 'invite-participants'])])
     # all other options should have optional fields below, and the application needs to do a little validation
     trickle = fields.EmbeddedField(VideoRoomControlTrickleRequest, required=False)
     feed_attach = fields.EmbeddedField(VideoRoomControlFeedAttachRequest, required=False)
     feed_answer = fields.EmbeddedField(VideoRoomControlFeedAnswerRequest, required=False)
     feed_detach = fields.EmbeddedField(VideoRoomControlFeedDetachRequest, required=False)
+    invite_participants = fields.EmbeddedField(VideoRoomControlInviteParticipantsRequest, required=False)
 
 
 class VideoRoomTerminateRequest(VideoRoomRequestBase):

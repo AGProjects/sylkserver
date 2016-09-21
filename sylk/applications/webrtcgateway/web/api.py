@@ -403,6 +403,20 @@ class ConnectionHandler(object):
                                route.port,
                                ';transport=%s' % route.transport if route.transport != 'tls' else '')
 
+    def _handle_conference_invite(self, originator, room_uri, participants):
+        for p in participants:
+            try:
+                account_info = self.accounts_map[p]
+            except KeyError:
+                continue
+            data = dict(sylkrtc='account_event',
+                        account=account_info.id,
+                        event='conference_invite',
+                        data=dict(originator=dict(uri=originator.id, display_name=originator.display_name),
+                                  room=room_uri))
+            log.msg('Conference invitation from %s to %s for room %s' % (originator.id, account_info.id, room_uri))
+            self._send_data(json.dumps(data))
+
     def _handle_janus_event_sip(self, handle_id, event_type, event):
         # TODO: use a model
         op = Operation('janus-event-sip', data=dict(handle_id=handle_id, event_type=event_type, event=event))
@@ -846,6 +860,25 @@ class ConnectionHandler(object):
                     pass
                 else:
                     base_session.feeds.pop(janus_publisher_id)
+        elif request.option == 'invite-participants':
+            invite_participants = request.invite_participants
+            if not invite_participants:
+                log.error('videoroom-ctl: missing field')
+                return
+            try:
+                try:
+                    base_session = self.videoroom_sessions[request.session]
+                    account_info = self.accounts_map[base_session.account_id]
+                except KeyError:
+                    raise APIError('invite-participants: unknown video room session ID specified: %s' % request.session)
+            except APIError, e:
+                log.error('videoroom-ctl: %s' % e)
+                self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
+            else:
+                self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
+                for conn in self.protocol.factory.connections.difference([self]):
+                    if conn.connection_handler:
+                        conn.connection_handler._handle_conference_invite(account_info, base_session.room.uri, invite_participants.participants)
         else:
             log.error('videoroom-ctl: unsupported option: %s' % request.option)
 
