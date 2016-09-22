@@ -1,5 +1,5 @@
 [Unit]
-Description=SylkServer SIP application server
+Description=SylkServer RTC application server
 After=network.target
 
 [Service]

@@ -2,9 +2,7 @@
 SylkServer
 ----------
 
-Main author: Saul Ibarra
-Mentorship: Adrian Georgescu
-Contributors: Denis Bilenko, Dan Pascu
+A State of the art, extensible RTC Application Server
 
 Home page: http://sylkserver.com
 
@@ -22,9 +20,9 @@ Description
 SylkServer allows creation and delivery of rich multimedia applications
 accessed by SIP Clients, XMPP endpoints and Web applications.  The server
 supports SIP and XMPP signaling, RTP, MSRP and WebRTC media planes, has
-built in capabilities for creating multiparty conferences with wideband
-Audio, IM/ File Transfers and can be easily extended with other custom
-applications by using Python language.
+built in capabilities for creating multiparty conferences with Audio and
+Video, IM/ File Transfers and can be extended with custom applications by
+using Python language.
 
 
 Deployment Scenarios
@@ -39,6 +37,10 @@ private network to serve SIP clients on the same LAN by using bonjour mode.
 Blink for MacOSX can be used for automatic discovery of SylkServer instances
 in the neighborhood.
 
+SylkServer can also be deployed as as standalone video conference server. 
+The client side can be a standalone application or a standard web browser
+with WebRTC support.
+ 
 
 Features
 --------
@@ -92,6 +94,14 @@ Conferencing
  - XMPP MUC
  - Multiparty screensharing
  - Conference event package
+
+Video conferencing
+ 
+ - WebRTC
+ - Encryption
+ - Ad-hoc conferencing
+ - H.264 and VP8 video codecs
+ - Opus wideband audio
 
 XMPP Gateway
 
@@ -158,6 +168,12 @@ codec negotiated by the end-points.
 See https://webrtc.sipthor.net for a working example.
 
 
+WebRTC video conference
+
+This application allows WebRTC enabled end-points to organize ad-hoc video
+conferences.
+
+
 Standards
 ---------
 
@@ -209,6 +225,12 @@ For commercial support contact AG Projects http://ag-projects.com
 Credits
 -------
 
-Special thanks to NLNET http://nlnet.nl for sponsoring most of the efforts
-behind this project.
+Special thanks to our sponsors:
+
+ - NLnet Foundation http://nlnet.nl
+ - SIDN Fonds https://sidnfonds.nl
+
+Authors: Saul Ibarra, Tijmen de Mes
+Contributors: Denis Bilenko, Dan Pascu
+Mentorship: Adrian Georgescu
 
