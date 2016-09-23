@@ -37,7 +37,7 @@ private network to serve SIP clients on the same LAN by using bonjour mode.
 Blink for MacOSX can be used for automatic discovery of SylkServer instances
 in the neighborhood.
 
-SylkServer can also be deployed as as standalone video conference server. 
+SylkServer can also be deployed as a standalone video conference server. 
 The client side can be a standalone application or a standard web browser
 with WebRTC support.
  
