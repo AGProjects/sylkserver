@@ -123,6 +123,11 @@ certificate = /etc/sylkserver/tls/default.crt
 ; disable HTTPS
 ; certificate = /etc/sylkserver/tls/default.crt
 
+; Certificat chain file containing all the certificates that the server
+; should present to the client.  If specified, it must also contain the
+; certificate in the file specified by the 'certificate' option.
+; certificate_chain
+
 ; Hostname used when publishing the server URL. Must match the common name
 ; of server X.509 certificate set above, otherwise clients will raise
 ; warning. If not set the listening IP address will be used

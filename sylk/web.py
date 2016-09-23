@@ -54,17 +54,29 @@ class WebServer(object):
         interface = WebServerConfig.local_ip
         port = WebServerConfig.local_port
         cert_path = WebServerConfig.certificate.normalized if WebServerConfig.certificate else None
+        cert_chain_path = WebServerConfig.certificate_chain.normalized if WebServerConfig.certificate_chain else None
         if cert_path is not None:
             if not os.path.isfile(cert_path):
                 log.error('Certificate file %s could not be found' % cert_path)
                 return
             try:
-                ssl_context = DefaultOpenSSLContextFactory(cert_path, cert_path)
+                ssl_ctx_factory = DefaultOpenSSLContextFactory(cert_path, cert_path)
             except Exception:
-                log.exception('Creating SSL context')
+                log.exception('Creating TLS context')
                 log.err()
                 return
-            self.listener = reactor.listenSSL(port, self.site, ssl_context, backlog=511, interface=interface)
+            if cert_chain_path is not None:
+                if not os.path.isfile(cert_chain_path):
+                    log.error('Certificate chain file %s could not be found' % cert_chain_path)
+                    return
+                ssl_ctx = ssl_ctx_factory.getContext()
+                try:
+                    ssl_ctx.use_certificate_chain_file(cert_chain_path)
+                except Exception:
+                    log.exception('Setting TLS certificate chain file')
+                    log.err()
+                    return
+            self.listener = reactor.listenSSL(port, self.site, ssl_ctx_factory, backlog=511, interface=interface)
             scheme = 'https'
         else:
             self.listener = reactor.listenTCP(port, self.site, backlog=511, interface=interface)

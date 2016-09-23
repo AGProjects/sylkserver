@@ -70,6 +70,7 @@ class WebServerConfig(ConfigSection):
     local_port = ConfigSetting(type=Port, value=10888)
     hostname = ''
     certificate = ConfigSetting(type=Path, value=Path(Resources.get('tls/default.crt')))
+    certificate_chain = ConfigSetting(type=Path, value=None)
 
 
 class ThorNodeConfig(ConfigSection):
