@@ -51,7 +51,6 @@ Roadmap
  * Chat sessions
  * Presence
  * Contacts management
- * SDES Encryption
 
 
 SylkRTC API
@@ -59,7 +58,7 @@ SylkRTC API
 
 A JavaScript library implementing SylkRTC API is available at:
 
-http://projects.ag-projects.com/projects/sylkrtc
+https://github.com/AGProjects/sylkrtc.js
 
 
 Janus
