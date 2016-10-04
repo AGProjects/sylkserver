@@ -1266,6 +1266,7 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
         return SYLK_WS_PROTOCOL
 
     def onOpen(self):
+        log.msg('Connection from %s open' % self.transport.getPeer())
         self.factory.connections.add(self)
         self.connection_handler = ConnectionHandler(self)
         self.connection_handler.start()
