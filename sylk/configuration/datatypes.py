@@ -2,11 +2,9 @@
 import os
 import re
 import socket
-import sys
 import urllib
 import urlparse
 
-from application.python.descriptor import classproperty
 from application.system import host
 from sipsimple.configuration.datatypes import AudioCodecList, Hostname, SIPTransport
 
