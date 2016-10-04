@@ -18,7 +18,7 @@ Description: A state of the art, extensible RTC Application Server
 Package: sylkserver-sounds
 Architecture: all
 Depends: ${misc:Depends}, sylkserver
-Description: A state of the art, extensible SIP Application Server
+Description: A state of the art, extensible RTC Application Server
  SylkServer is an application server that can be programmed to perform SIP
  end-point applications and act as a gateway between SIP and XMPP domains.
  .
@@ -27,7 +27,7 @@ Description: A state of the art, extensible SIP Application Server
 Package: sylkserver-webrtc-gateway
 Architecture: all
 Depends: ${misc:Depends}, sylkserver, janus (>= 0.1.1), python-autobahn (>= 0.10.3), python-jsonmodels
-Description: A state of the art, extensible SIP Application Server
+Description: A state of the art, extensible RTC Application Server
  SylkServer is an application server that can be programmed to perform SIP
  end-point applications and act as a gateway between SIP and XMPP domains.
  .

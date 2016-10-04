@@ -22,7 +22,7 @@ setup(name         = "sylkserver",
       author       = "AG Projects",
       author_email = "support@ag-projects.com",
       url          = "http://sylkserver.com",
-      description  = "SylkServer - An Extensible SIP Application Server",
+      description  = "SylkServer - An Extensible RTC Application Server",
       classifiers  = [
             "Development Status :: 5 - Production/Stable",
             "Intended Audience :: Service Providers",
