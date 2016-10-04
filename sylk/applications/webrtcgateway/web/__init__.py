@@ -38,16 +38,6 @@ class WebRTCGatewayWeb(object):
     def ws(self, request):
         return self._ws_resource
 
-    @app.route('/js/', branch=True)
-    def js(self, request):
-        path = Resources.get('html/webrtcgateway/js/')
-        return StaticFileResource(path)
-
-    @app.route('/test/', branch=True)
-    def test(self, request):
-        path = Resources.get('html/webrtcgateway/test/')
-        return StaticFileResource(path)
-
 
 class WebHandler(object):
     def __init__(self):
