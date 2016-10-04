@@ -6,7 +6,8 @@ from sylk import __version__ as sylk_version
 from sylk.applications.webrtcgateway.configuration import GeneralConfig, JanusConfig
 from sylk.applications.webrtcgateway.janus.backend import JanusBackend
 from sylk.applications.webrtcgateway.logger import log
-from sylk.applications.webrtcgateway.web.api import SYLK_WS_PROTOCOL, SylkWebSocketServerFactory
+from sylk.applications.webrtcgateway.web.factory import SylkWebSocketServerFactory
+from sylk.applications.webrtcgateway.web.protocol import SYLK_WS_PROTOCOL
 from sylk.applications.webrtcgateway.websocket_logger import Logger as WSLogger
 from sylk.resources import Resources
 from sylk.web import Klein, StaticFileResource, server

@@ -6,8 +6,6 @@ import uuid
 import weakref
 
 from application.python import Null
-from application.notification import IObserver, NotificationCenter
-from autobahn.twisted.websocket import WebSocketServerProtocol, WebSocketServerFactory
 from eventlib import coros, proc
 from eventlib.twistedutil import block_on
 from sipsimple.configuration.settings import SIPSimpleSettings
@@ -16,21 +14,12 @@ from sipsimple.lookup import DNSLookup, DNSLookupError
 from sipsimple.threading.green import run_in_green_thread
 from sipsimple.util import ISOTimestamp
 from twisted.internet import reactor
-from zope.interface import implements
 
 from sylk.applications.webrtcgateway.configuration import GeneralConfig
 from sylk.applications.webrtcgateway.logger import log
 from sylk.applications.webrtcgateway.models import sylkrtc
 from sylk.applications.webrtcgateway.util import GreenEvent
 
-try:
-    from autobahn.websocket.http import HttpException
-except ImportError:
-    # AutoBahn 0.12 changed this
-    from autobahn.websocket import ConnectionDeny as HttpException
-
-
-SYLK_WS_PROTOCOL = 'sylkRTC-1'
 SIP_PREFIX_RE = re.compile('^sips?:')
 
 sylkrtc_models = {
@@ -119,47 +108,6 @@ class VideoRoom(object):
 
     def __len__(self):
         return len(self._session_id_map)
-
-
-class VideoRoomContainer(object):
-    def __init__(self):
-        self._rooms = set()
-        self._uri_map = weakref.WeakValueDictionary()
-        self._id_map = weakref.WeakValueDictionary()
-
-    def add(self, room):
-        self._rooms.add(room)
-        self._uri_map[room.uri] = room
-        self._id_map[room.id] = room
-
-    def remove(self, value):
-        if isinstance(value, int):
-            room = self._id_map.get(value, None)
-        elif isinstance(value, basestring):
-            room = self._uri_map.get(value, None)
-        else:
-            room = value
-        self._rooms.discard(room)
-
-    def clear(self):
-        self._rooms.clear()
-
-    def __len__(self):
-        return len(self._rooms)
-
-    def __iter__(self):
-        return iter(self._rooms)
-
-    def __getitem__(self, item):
-        if isinstance(item, int):
-            return self._id_map[item]
-        elif isinstance(item, basestring):
-            return self._uri_map[item]
-        else:
-            raise KeyError('%s not found' % item)
-
-    def __contains__(self, item):
-        return item in self._id_map or item in self._uri_map or item in self._rooms
 
 
 class VideoRoomSessionInfo(object):
@@ -1094,7 +1042,6 @@ class ConnectionHandler(object):
     def _OH_janus_event_videoroom(self, data):
         handle_id = data['handle_id']
         event_type = data['event_type']
-        event = data['event']
 
         if event_type == 'event':
             self._janus_event_plugin_videoroom(data)
@@ -1250,77 +1197,3 @@ class ConnectionHandler(object):
         else:
             log.warn('Received unexpected plugin event type: %s' % event_type)
 
-
-class SylkWebSocketServerProtocol(WebSocketServerProtocol):
-    backend = None
-    connection_handler = None
-
-    def onConnect(self, request):
-        log.msg('Incoming connection from %s (origin %s)' % (request.peer, request.origin))
-        if SYLK_WS_PROTOCOL not in request.protocols:
-            log.msg('Rejecting connection, remote does not support our sub-protocol')
-            raise HttpException(406, 'No compatible protocol specified')
-        if not self.backend.ready:
-            log.msg('Rejecting connection, backend is not connected')
-            raise HttpException(503, 'Backend is not connected')
-        return SYLK_WS_PROTOCOL
-
-    def onOpen(self):
-        log.msg('Connection from %s open' % self.transport.getPeer())
-        self.factory.connections.add(self)
-        self.connection_handler = ConnectionHandler(self)
-        self.connection_handler.start()
-
-    def onMessage(self, payload, is_binary):
-        if is_binary:
-            log.warn('Received invalid binary message')
-            return
-        if GeneralConfig.trace_websocket:
-            self.factory.ws_logger.msg("IN", ISOTimestamp.now(), payload)
-        try:
-            data = json.loads(payload)
-        except Exception, e:
-            log.warn('Error parsing WebSocket payload: %s' % e)
-            return
-        self.connection_handler.handle_message(data)
-
-    def onClose(self, clean, code, reason):
-        if self.connection_handler is None:
-            # Very early connection closed, onOpen wasn't even called
-            return
-        log.msg('Connection from %s closed' % self.transport.getPeer())
-        self.factory.connections.discard(self)
-        self.connection_handler.stop()
-        self.connection_handler = None
-
-    def disconnect(self, code=1000, reason=u''):
-        self.sendClose(code, reason)
-
-
-class SylkWebSocketServerFactory(WebSocketServerFactory):
-    implements(IObserver)
-
-    protocol = SylkWebSocketServerProtocol
-    connections = set()
-    videorooms = VideoRoomContainer()
-    backend = None    # assigned by WebHandler
-
-    def __init__(self, *args, **kw):
-        super(SylkWebSocketServerFactory, self).__init__(*args, **kw)
-        notification_center = NotificationCenter()
-        notification_center.add_observer(self, name='JanusBackendDisconnected')
-
-    def buildProtocol(self, addr):
-        protocol = self.protocol()
-        protocol.factory = self
-        protocol.backend = self.backend
-        return protocol
-
-    def handle_notification(self, notification):
-        handler = getattr(self, '_NH_%s' % notification.name, Null)
-        handler(notification)
-
-    def _NH_JanusBackendDisconnected(self, notification):
-        for conn in self.connections.copy():
-            conn.failConnection()
-        self.videorooms.clear()
