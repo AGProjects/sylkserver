@@ -37,9 +37,9 @@ private network to serve SIP clients on the same LAN by using bonjour mode.
 Blink for MacOSX can be used for automatic discovery of SylkServer instances
 in the neighborhood.
 
-SylkServer can also be deployed as a standalone video conference server.
-The client side can be a standalone application or a standard web browser
-with WebRTC support.
+SylkServer can also be deployed as a standalone video conference server. 
+The client side can be a standalone application (like the companion Sylk
+client) or a standard web browser with WebRTC support.
 
 
 Features
@@ -163,7 +163,9 @@ This application can be used to bridge audio/video calls between SIP clients
 and Web applications.  Any SIP service can be used and a simple to use
 client API is provided for developing web pages that include such
 functionality.  This application supports transparently any audio/video
-codec negotiated by the end-points.
+codec negotiated by the end-points, however WebRTC has standardized
+particular codecs for the use on the web, therfore the SIP clients must
+support the same set.
 
 See https://webrtc.sipthor.net for a working example.
 
@@ -171,7 +173,7 @@ See https://webrtc.sipthor.net for a working example.
 WebRTC video conference
 
 This application allows WebRTC enabled end-points to organize ad-hoc video
-conferences.
+conferences. See Sylk client for an example of how to use this application.
 
 
 Standards

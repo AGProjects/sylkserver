@@ -2,10 +2,7 @@ Roadmap
 -------
 
  - [webrtcgateway] Video bandwidth management
- - [webrtcgateway] VoIP legacy connect
+ - [webrtcgateway] SIP connect for multi-party video conference 
  - [webrtcgateway] Recording
  - [webrtcgateway] Scalability
- - SIP Registrar/Router application
- - Presence Agent application
-
 
