@@ -9,6 +9,9 @@ protocols.
 To perform this function SylkServer must run on a computer with a public
 reachable IP adddress.
 
+A ready to go client is available, see Sylk WebRTC client for more
+information.
+
 
 Architecture
 ------------
@@ -43,14 +46,6 @@ Features
  * SIP account registration
  * Audio / video calling
  * Codec agnostic
-
-
-Roadmap
--------
-
- * Chat sessions
- * Presence
- * Contacts management
 
 
 SylkRTC API
