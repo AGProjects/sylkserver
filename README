@@ -32,14 +32,14 @@ SylkServer is typically deployed behind a SIP Proxy that is designed to
 route the inbound and outbound traffic, handle the authentication,
 authorization and accounting.
 
-SylkServer can also be deployed as multimedia SIP conference server on a
-private network to serve SIP clients on the same LAN by using bonjour mode.
-Blink for MacOSX can be used for automatic discovery of SylkServer instances
-in the neighborhood.
+SylkServer can be deployed as multimedia SIP conference server on a private
+network to serve SIP clients on the same LAN by using bonjour mode.  Blink
+for MacOSX can be used for automatic discovery of SylkServer instances in
+the neighborhood.
 
-SylkServer can also be deployed as a standalone video conference server. 
-The client side can be a standalone application (like the companion Sylk
-client) or a standard web browser with WebRTC support.
+SylkServer can be deployed as a standalone video conference server.  The
+client side can be a standalone application (like the companion Sylk client)
+or a standard web browser with WebRTC support (like Chrome or Firefox).
 
 
 Features
@@ -71,7 +71,7 @@ Audio
 Video
 
  - H.264 and VP8 codecs
- - SRTP encryption (SDES and ZRTP key-exchanges)
+ - SRTP encryption (SDES and ZRTP key-exchange)
 
 Instant Messaging
 
@@ -87,7 +87,7 @@ File Transfer
  - Conference-info extension
  - Conference room persistent
 
-Conferencing
+Audio/Chat conferencing
 
  - Wideband RTP mixer
  - MSRP switch
@@ -98,7 +98,7 @@ Conferencing
 Video conferencing
 
  - WebRTC
- - Encryption
+ - Encryption (TLS, sRTP)
  - Ad-hoc conferencing
  - H.264 and VP8 video codecs
  - Opus wideband audio
