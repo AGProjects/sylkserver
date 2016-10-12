@@ -75,5 +75,5 @@ class SylkWebSocketServerFactory(WebSocketServerFactory):
 
     def _NH_JanusBackendDisconnected(self, notification):
         for conn in self.connections.copy():
-            conn.failConnection()
+            conn.dropConnection(abort=True)
         self.videorooms.clear()
