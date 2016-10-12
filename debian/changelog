@@ -1,3 +1,18 @@
+sylkserver (4.0.0) unstable; urgency=medium
+
+  * webrtc: add multi-party video conferencing capability
+  * webrtc: separate Janus event handlers per plugin
+  * webrtc: refactor JanusSessionInfo
+  * webrtc: reorganize API module
+  * webrtc: update builtin HTML description page
+  * core: add support for TLS certificate chains for the builtin web server
+  * echo: refactor application
+  * conference: advertise call-by-uri WebRTC URIs
+  * conference: don't advertise XMPP support by default
+  * conference: advertise other means to join a room also when in bonjour mode
+
+ -- Saul Ibarra <saul@ag-projects.com>  Wed, 12 Oct 2016 08:43:02 +0200
+
 sylkserver (3.3.0) unstable; urgency=medium
 
   * webrtcgateway: refactor API message handling
