@@ -98,7 +98,7 @@ Audio/Chat conferencing
 Video conferencing
 
  - WebRTC
- - Encryption (TLS, sRTP)
+ - Encryption (TLS, SRTP)
  - Ad-hoc conferencing
  - H.264 and VP8 video codecs
  - Opus wideband audio
