@@ -97,11 +97,11 @@ Audio/Chat conferencing
 
 Video conferencing
 
- - WebRTC
- - Encryption (TLS, SRTP)
- - Ad-hoc conferencing
+ - WebRTC media
+ - Encryption (TLS, sRTP)
  - H.264 and VP8 video codecs
  - Opus wideband audio
+ - Selective Forwarding Unit
 
 XMPP Gateway
 
@@ -173,7 +173,14 @@ See https://webrtc.sipthor.net for a working example.
 WebRTC video conference
 
 This application allows WebRTC enabled end-points to organize ad-hoc video
-conferences. See Sylk client for an example of how to use this application.
+conferences.  SylkServer implements Selective Forwarding Unit (SFU)
+functionality that uses little resources on the server side allowing for
+handling much more load than classic MCUs.  For scalling up beyond one
+server AG Projects provides SIP Thor, which provides horizontal scalability
+for all components present in a RTC platform.
+
+Sylk WebRTC client is provided as a sample client and other clients can be
+developed using sylkrtc API.
 
 
 Standards
@@ -206,7 +213,9 @@ The server implements relevant features from the following standards:
      - IM: RFC7572
      - Chat: RFC7573
      - Multi-party chat: RFC7702
--  WebRTC standards http://www.w3.org/TR/webrtc/
+ - WebRTC standards http://www.w3.org/TR/webrtc/
+ - RTP Topologies RFC7667
+   3.7 Selective Forwarding Middlebox
 
 
 Support
