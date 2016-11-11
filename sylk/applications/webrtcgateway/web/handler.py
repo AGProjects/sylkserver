@@ -69,6 +69,8 @@ class SIPSessionInfo(object):
         self.local_identity = None     # instance of SessionPartyIdentity
         self.remote_identity = None    # instance of SessionPartyIdentity
         self.janus_handle_id = None
+        self.ice_media_negotiation_started = False
+        self.ice_media_negotiation_ended = False
 
     def init_outgoing(self, account_id, destination):
         self.account_id = account_id
@@ -92,6 +94,8 @@ class VideoRoom(object):
         self.destroyed = False
         self._session_id_map = weakref.WeakValueDictionary()
         self._publisher_id_map = weakref.WeakValueDictionary()
+        log.msg('Video room %s created' % self.uri)
+
 
     def add(self, session):
         assert session.publisher_id is not None
@@ -99,6 +103,7 @@ class VideoRoom(object):
         assert session.publisher_id not in self._publisher_id_map
         self._session_id_map[session.id] = session
         self._publisher_id_map[session.publisher_id] = session
+        log.msg('Video room %s: added session %s for %s' % (self.uri, session.id, session.account_id))
 
     def __getitem__(self, key):
         try:
@@ -120,12 +125,16 @@ class VideoRoomSessionInfo(object):
         self.room = None
         self.parent_session = None
         self.feeds = {}    # janus publisher ID -> our publisher ID
+        self.ice_media_negotiation_started = False
+        self.ice_media_negotiation_ended = False
 
     def initialize(self, account_id, type, room):
         assert type in ('publisher', 'subscriber')
         self.account_id = account_id
         self.type = type
         self.room = room
+        log.msg('Video room %s: new session %s initialized by %s' % (self.room.uri, self.id, self.account_id))
+
 
     def __repr__(self):
         return '<%s: id=%s janus_handle_id=%s type=%s>' % (self.__class__.__name__, self.id, self.janus_handle_id, self.type)
@@ -147,6 +156,9 @@ class VideoRoomSessionContainer(object):
 
     def remove(self, session):
         self._sessions.discard(session)
+
+    def count(self):
+        return len(self._sessions)
 
     def clear(self):
         self._sessions.clear()
@@ -362,7 +374,7 @@ class ConnectionHandler(object):
                         event='conference_invite',
                         data=dict(originator=dict(uri=originator.id, display_name=originator.display_name),
                                   room=room_uri))
-            log.msg('Conference invitation from %s to %s for room %s' % (originator.id, account_info.id, room_uri))
+            log.msg('Video room %s: invitation from %s to %s' % (room_uri, originator.id, account_info.id))
             self._send_data(json.dumps(data))
 
     def _handle_janus_event_sip(self, handle_id, event_type, event):
@@ -408,7 +420,7 @@ class ConnectionHandler(object):
             log.error('account_add: %s' % e)
             self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
         else:
-            log.msg('Account %s added' % account)
+            log.msg('Account %s added using %s, %d accounts in total' % (account, user_agent, len(self.accounts_map.keys())))
             self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
 
     def _OH_account_remove(self, request):
@@ -430,7 +442,7 @@ class ConnectionHandler(object):
             log.error('account_remove: %s' % e)
             self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
         else:
-            log.msg('Account %s removed' % account)
+            log.msg('Account %s removed, %d accounts in total' % (account, len(self.accounts_map.keys())))
             self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
 
     def _OH_account_register(self, request):
@@ -473,7 +485,7 @@ class ConnectionHandler(object):
             log.error('account-register: %s' % e)
             self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
         else:
-            log.msg('Account %s will register' % account)
+            log.msg('Account %s will register using %s' % (account, account_info.user_agent))
             self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
 
     def _OH_account_unregister(self, request):
@@ -547,7 +559,7 @@ class ConnectionHandler(object):
             log.error('session-create: %s' % e)
             self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
         else:
-            log.msg('Outgoing session %s from %s to %s created' % (session, account, uri))
+            log.msg('Outgoing session %s from %s to %s created using %s, %d sessions in total' % (session, account, uri, account_info.user_agent, len(self.sessions_map.keys())))
             self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
 
     def _OH_session_answer(self, request):
@@ -573,7 +585,7 @@ class ConnectionHandler(object):
             log.error('session-answer: %s' % e)
             self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
         else:
-            log.msg('%s answered session %s' % (session_info.account_id, session))
+            log.msg('%s answered session %s, %d sessions in total' % (session_info.account_id, session, len(self.sessions_map.keys())))
             self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
 
     def _OH_session_trickle(self, request):
@@ -591,13 +603,16 @@ class ConnectionHandler(object):
 
             block_on(self.protocol.backend.janus_trickle(self.janus_session_id, session_info.janus_handle_id, candidates))
         except APIError, e:
-            log.error('session-trickle: %s' % e)
+            #log.error('session-trickle: %s' % e)
             self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
         else:
             if candidates:
-                log.msg('Trickled ICE candidate(s) for session %s' % session)
+                if not session_info.ice_media_negotiation_started:
+                    log.msg('Session %s: ICE negotiation started by %s' % (session_info.id, session_info.account_id))
+                session_info.ice_media_negotiation_started = True
             else:
-                log.msg('Trickled ICE candidates end for session %s' % session)
+                log.msg('Session %s: ICE negotiation ended by %s' % (session_info.id, session_info.account_id))
+                session_info.ice_media_negotiation_ended = True
             self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
 
     def _OH_session_terminate(self, request):
@@ -621,7 +636,7 @@ class ConnectionHandler(object):
             log.error('session-terminate: %s' % e)
             self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
         else:
-            log.msg('%s terminated session %s' % (session_info.account_id, session))
+            log.msg('%s terminated session %s, %d sessions in total' % (session_info.account_id, session, len(self.sessions_map.keys())))
             self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
 
     def _OH_videoroom_join(self, request):
@@ -637,7 +652,7 @@ class ConnectionHandler(object):
                 raise APIError('Unknown account specified: %s' % account)
 
             if session in self.videoroom_sessions:
-                raise APIError('VideoRoom session ID (%s) already in use' % session)
+                raise APIError('Video room session ID (%s) already in use' % session)
 
             handle_id = block_on(self.protocol.backend.janus_attach(self.janus_session_id, 'janus.plugin.videoroom'))
             self.protocol.backend.janus_set_event_handler(handle_id, self._handle_janus_event_videoroom)
@@ -682,7 +697,7 @@ class ConnectionHandler(object):
             self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
             self._maybe_destroy_videoroom(videoroom)
         else:
-            log.msg('Video room %s from %s to %s joined' % (videoroom.id, account, uri))
+            log.msg('Video room %s: joined by %s using %s (%d participants present)' % (videoroom.uri, account, account_info.user_agent, self.videoroom_sessions.count()))
             self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
             data = dict(sylkrtc='videoroom_event',
                         session=videoroom_session.id,
@@ -709,9 +724,13 @@ class ConnectionHandler(object):
                 self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
             else:
                 if candidates:
-                    log.msg('Trickled ICE candidate(s) for videoroom session %s' % session)
+                    if not videoroom_session.ice_media_negotiation_started:
+                        log.msg('Video room %s: ICE negotiation started by %s' % (videoroom_session.room.uri, videoroom_session.account_id))
+                        videoroom_session.ice_media_negotiation_started = True
                 else:
-                    log.msg('Trickled ICE candidates end for videoroom session %s' % session)
+                    log.msg('Video room %s: ICE negotiation ended by %s' % (videoroom_session.room.uri, videoroom_session.account_id))
+                    videoroom_session.ice_media_negotiation_ended = True
+
                 self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
         elif request.option == 'feed-attach':
             feed_attach = request.feed_attach
@@ -757,7 +776,7 @@ class ConnectionHandler(object):
                 log.error('videoroom-ctl: %s' % e)
                 self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
             else:
-                log.msg('Video room %s: %s attached to %s' % (base_session.room.id, base_session.account_id, feed_attach.publisher))
+                log.msg('Video room %s: %s attached to %s' % (base_session.room.uri, base_session.account_id, feed_attach.publisher))
                 self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
         elif request.option == 'feed-answer':
             feed_answer = request.feed_answer
@@ -844,7 +863,7 @@ class ConnectionHandler(object):
             log.error('videoroom-terminate: %s' % e)
             self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
         else:
-            log.msg('%s terminated video room session %s' % (videoroom_session.account_id, session))
+            log.msg('Video room %s: %s left the room (%d participants present)' % (videoroom_session.room.uri, videoroom_session.account_id, self.videoroom_sessions.count()))
             self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
             data = dict(sylkrtc='videoroom_event',
                         session=videoroom_session.id,
@@ -874,7 +893,13 @@ class ConnectionHandler(object):
                         session=session_info.id,
                         event='state',
                         data=dict(state=session_info.state))
-            log.msg('%s session %s state: %s' % (session_info.direction.title(), session_info.id, session_info.state))
+            direction = session_info.direction.title()
+            log.msg('%s session %s from %s to %s state: %s' % (direction,
+                                                     session_info.id,
+                                                     session_info.local_identity.uri if direction == 'Outgoing' else session_info.remote_identity.uri,
+                                                     session_info.remote_identity.uri if direction == 'Outgoing' else session_info.local_identity.uri,
+                                                     session_info.state))
+
             # TODO: SessionEvent model
             self._send_data(json.dumps(data))
         elif event_type == 'hangup':
@@ -892,17 +917,20 @@ class ConnectionHandler(object):
                             session=session_info.id,
                             event='state',
                             data=dict(state=session_info.state, reason=reason))
-                log.msg('%s session %s state: %s' % (session_info.direction.title(), session_info.id, session_info.state))
                 # TODO: SessionEvent model
                 self._send_data(json.dumps(data))
                 self._cleanup_session(session_info)
-                log.msg('%s session %s %s <-> %s terminated (%s)' % (session_info.direction.title(),
+                direction = session_info.direction.title()
+                log.msg('%s session %s from %s to %s terminated (%s)' % (direction,
                                                                      session_info.id,
-                                                                     session_info.local_identity.uri,
-                                                                     session_info.remote_identity.uri,
+                                                                     session_info.local_identity.uri if direction == 'Outgoing' else session_info.remote_identity.uri,
+                                                                     session_info.remote_identity.uri if direction == 'Outgoing' else session_info.local_identity.uri,
                                                                      reason))
         elif event_type in ('media', 'detached'):
             # ignore
+            pass
+        elif event_type == 'slowlink':
+            #  TODO something
             pass
         else:
             log.warn('Received unexpected event type: %s' % event_type)
@@ -948,9 +976,10 @@ class ConnectionHandler(object):
                             session=session_id,
                             event='incoming_session',
                             data=dict(originator=session.remote_identity.__dict__, sdp=jsep['sdp']))
-                log.msg('Incoming session %s %s <-> %s created' % (session.id,
+                log.msg('Incoming session %s from %s to %s created, %d sessions in total' % (session.id,
                                                                    session.remote_identity.uri,
-                                                                   session.local_identity.uri))
+                                                                   session.local_identity.uri,
+                                                                   len(self.sessions_map.keys())))
             else:
                 registration_state = event_type
                 if registration_state == 'registration_failed':
@@ -989,7 +1018,12 @@ class ConnectionHandler(object):
                         session=session_info.id,
                         event='state',
                         data=dict(state=session_info.state))
-            log.msg('%s session %s state: %s' % (session_info.direction.title(), session_info.id, session_info.state))
+            direction = session_info.direction.title()
+            log.msg('%s session %s from %s to %s state: %s' % (direction,
+                                                     session_info.id,
+                                                     session_info.local_identity.uri if direction == 'Outgoing' else session_info.remote_identity.uri,
+                                                     session_info.remote_identity.uri if direction == 'Outgoing' else session_info.local_identity.uri,
+                                                     session_info.state))
             if session_info.state == 'accepted' and session_info.direction == 'outgoing':
                 assert jsep is not None
                 data['data']['sdp'] = jsep['sdp']
@@ -1002,18 +1036,19 @@ class ConnectionHandler(object):
             self._send_data(json.dumps(data))
             if session_info.state == 'terminated':
                 self._cleanup_session(session_info)
-                log.msg('%s session %s %s <-> %s terminated (%s)' % (session_info.direction.title(),
-                                                                     session_info.id,
-                                                                     session_info.local_identity.uri,
-                                                                     session_info.remote_identity.uri,
-                                                                     reason))
+                direction = session_info.direction.title()
+                log.msg('%s session %s from %s to %s terminated (%s)' % (direction,
+                                                         session_info.id,
+                                                         session_info.local_identity.uri if direction == 'Outgoing' else session_info.remote_identity.uri,
+                                                         session_info.remote_identity.uri if direction == 'Outgoing' else session_info.local_identity.uri,
+                                                         reason))
                 # check if missed incoming call
                 if session_info.direction == 'incoming' and code == 487:
                     data = dict(sylkrtc='account_event',
                                 account=session_info.account_id,
                                 event='missed_session',
                                 data=dict(originator=session_info.remote_identity.__dict__))
-                    log.msg('Incoming session from %s missed' % session_info.remote_identity.uri)
+                    log.msg('Incoming session from %s to %s missed' % (session_info.remote_identity.uri, session_info.local_identity.uri))
                     # TODO: AccountEvent model
                     self._send_data(json.dumps(data))
         elif event_type == 'missed_call':
@@ -1063,21 +1098,39 @@ class ConnectionHandler(object):
                             session=base_session.id,
                             event='feed_established',
                             data=dict(state='established', subscription=videoroom_session.id))
-            log.msg('Videoroom session %s is established' % videoroom_session.id)
+            log.msg('Video room %s: session established to %s' % (videoroom_session.room.uri, videoroom_session.account_id))
             self._send_data(json.dumps(data))
         elif event_type == 'hangup':
             try:
                 videoroom_session = self.videoroom_sessions[handle_id]
             except KeyError:
-                log.warn('Could not find videoroom session for handle ID %s' % handle_id)
+                log.warn('Could not find video room session for handle ID %s' % handle_id)
                 return
+            log.msg('Video room %s: session terminated to %s' % (videoroom_session.room.uri, videoroom_session.account_id))
             self._cleanup_videoroom_session(videoroom_session)
             self._maybe_destroy_videoroom(videoroom_session.room)
         elif event_type in ('media', 'detached'):
             # ignore
             pass
+        elif event_type == 'slowlink':
+            try:
+                videoroom_session = (session_info for session_info in self.videoroom_sessions if session_info.janus_handle_id == handle_id).next()
+            except StopIteration:
+                log.warn('Could not find video room session for Janus handle ID %s' % handle_id)
+            else:
+                try:
+                    uplink = data['event']['uplink']
+                    #nacks = data['event']['nacks']
+                except KeyError:
+                    log.warn('Could not find uplink in slowlink event data')
+                else:
+                    if uplink:
+                        log.msg('Video room %s: %s has poor download IP connectivity' % (videoroom_session.room.uri, videoroom_session.account_id))
+                    else:
+                        log.msg('Video room %s: %s has poor upload IP connectivity' % (videoroom_session.room.uri, videoroom_session.account_id))
+
         else:
-            log.warn('Received unexpected event type: %s' % event_type)
+            log.warn('Received unexpected event type %s: data=%s' % (event_type, data))
 
     def _janus_event_plugin_videoroom(self, data):
         handle_id = data['handle_id']
@@ -1093,7 +1146,7 @@ class ConnectionHandler(object):
             try:
                 videoroom_session = self.videoroom_sessions[handle_id]
             except KeyError:
-                log.warn('Could not find videoroom session for handle ID %s' % handle_id)
+                log.warn('Could not find video room session for handle ID %s' % handle_id)
                 return
             room = videoroom_session.room
             videoroom_session.publisher_id = event_data['id']
@@ -1159,7 +1212,7 @@ class ConnectionHandler(object):
                 try:
                     base_session = self.videoroom_sessions[handle_id]
                 except KeyError:
-                    log.warn('Could not find videoroom session for handle ID %s' % handle_id)
+                    log.warn('Could not find video room session for handle ID %s' % handle_id)
                     return
                 janus_publisher_id = event_data['leaving']
                 try:
@@ -1194,6 +1247,8 @@ class ConnectionHandler(object):
                         event='feed_attached',
                         data=dict(sdp=jsep['sdp'], subscription=videoroom_session.id))
             self._send_data(json.dumps(data))
+        elif event_type == 'slow_link':
+            pass
         else:
-            log.warn('Received unexpected plugin event type: %s' % event_type)
+            log.warn('Received unexpected plugin event type %s: plugin_data=%s, event_data=%s' % (event_type, plugin_data, event_data))
 
