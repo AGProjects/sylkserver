@@ -1050,7 +1050,7 @@ class ConnectionHandler(object):
                                 account=session_info.account_id,
                                 event='missed_session',
                                 data=dict(originator=session_info.remote_identity.__dict__))
-                    log.msg('Incoming session from %s to %s missed' % (session_info.remote_identity.uri, session_info.local_identity.uri))
+                    log.msg('Incoming session from %s to %s was not answered ' % (session_info.remote_identity.uri, session_info.local_identity.uri))
                     # TODO: AccountEvent model
                     self._send_data(json.dumps(data))
         elif event_type == 'missed_call':
