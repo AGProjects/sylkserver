@@ -992,11 +992,13 @@ class ConnectionHandler(object):
                     code = event_data['code']
                     reason = event_data['reason']
                     registration_data['reason'] = '%d %s' % (code, reason)
+                    log.msg('Account %s registration failed: %s (%s)' % (account_info.id, code, reason))
+                else:
+                    log.msg('Account %s registration state changed to %s' % (account_info.id, registration_state))
                 data = dict(sylkrtc='account_event',
                             account=account_info.id,
                             event='registration_state',
                             data=registration_data)
-                log.msg('Account %s registration state changed to %s' % (account_info.id, registration_state))
             # TODO: AccountEvent model
             self._send_data(json.dumps(data))
         elif event_type in ('calling', 'accepted', 'hangup'):
