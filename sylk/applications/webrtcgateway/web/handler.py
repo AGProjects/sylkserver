@@ -420,7 +420,7 @@ class ConnectionHandler(object):
             log.error('account_add: %s' % e)
             self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
         else:
-            log.msg('Account %s added using %s, %d accounts in total' % (account, user_agent, len(self.accounts_map.keys())))
+            log.msg('Account %s added using %s' % (account, user_agent))
             self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
 
     def _OH_account_remove(self, request):
@@ -442,7 +442,7 @@ class ConnectionHandler(object):
             log.error('account_remove: %s' % e)
             self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
         else:
-            log.msg('Account %s removed, %d accounts in total' % (account, len(self.accounts_map.keys())))
+            log.msg('Account %s removed' % account)
             self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
 
     def _OH_account_register(self, request):
@@ -559,7 +559,7 @@ class ConnectionHandler(object):
             log.error('session-create: %s' % e)
             self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
         else:
-            log.msg('Outgoing session %s from %s to %s created using %s, %d sessions in total' % (session, account, uri, account_info.user_agent, len(self.sessions_map.keys())))
+            log.msg('Outgoing session %s from %s to %s created using %s' % (session, account, uri, account_info.user_agent))
             self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
 
     def _OH_session_answer(self, request):
@@ -585,7 +585,7 @@ class ConnectionHandler(object):
             log.error('session-answer: %s' % e)
             self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
         else:
-            log.msg('%s answered session %s, %d sessions in total' % (session_info.account_id, session, len(self.sessions_map.keys())))
+            log.msg('%s answered session %s' % (session_info.account_id, session))
             self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
 
     def _OH_session_trickle(self, request):
@@ -601,17 +601,23 @@ class ConnectionHandler(object):
             if session_info.state == 'terminated':
                 raise APIError('Session is terminated')
 
+            try:
+                account_info = self.accounts_map[session_info.account_id]
+            except KeyError:
+                raise APIError('Unknown account specified: %s' % session_info.account_id)
+
             block_on(self.protocol.backend.janus_trickle(self.janus_session_id, session_info.janus_handle_id, candidates))
         except APIError, e:
             #log.error('session-trickle: %s' % e)
             self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
         else:
+
             if candidates:
                 if not session_info.ice_media_negotiation_started:
-                    log.msg('Session %s: ICE negotiation started by %s' % (session_info.id, session_info.account_id))
+                    log.msg('Session %s: ICE negotiation started by %s using %s' % (session_info.id, session_info.account_id, account_info.user_agent))
                 session_info.ice_media_negotiation_started = True
             else:
-                log.msg('Session %s: ICE negotiation ended by %s' % (session_info.id, session_info.account_id))
+                log.msg('Session %s: ICE negotiation ended by %s using %s' % (session_info.id, session_info.account_id, account_info.user_agent))
                 session_info.ice_media_negotiation_ended = True
             self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
 
@@ -624,6 +630,7 @@ class ConnectionHandler(object):
                 session_info = self.sessions_map[session]
             except KeyError:
                 raise APIError('Unknown session specified: %s' % session)
+
             if session_info.state not in ('connecting', 'progress', 'accepted', 'established'):
                 raise APIError('Invalid state for session terminate: \"%s\"' % session_info.state)
 
@@ -636,7 +643,7 @@ class ConnectionHandler(object):
             log.error('session-terminate: %s' % e)
             self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
         else:
-            log.msg('%s terminated session %s, %d sessions in total' % (session_info.account_id, session, len(self.sessions_map.keys())))
+            log.msg('%s terminated session %s' % (session_info.account_id, session))
             self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
 
     def _OH_videoroom_join(self, request):
@@ -718,6 +725,12 @@ class ConnectionHandler(object):
                     videoroom_session = self.videoroom_sessions[session]
                 except KeyError:
                     raise APIError('trickle: unknown video room session ID specified: %s' % session)
+                    
+                try:
+                    account_info = self.accounts_map[videoroom_session.account_id]
+                except KeyError:
+                    raise APIError('Unknown account specified: %s' % videoroom_session.account_id)
+
                 block_on(self.protocol.backend.janus_trickle(self.janus_session_id, videoroom_session.janus_handle_id, candidates))
             except APIError, e:
                 log.error('videoroom-ctl: %s' % e)
@@ -725,10 +738,10 @@ class ConnectionHandler(object):
             else:
                 if candidates:
                     if not videoroom_session.ice_media_negotiation_started:
-                        log.msg('Video room %s: ICE negotiation started by %s' % (videoroom_session.room.uri, videoroom_session.account_id))
+                        log.msg('Video room %s: ICE negotiation started by %s using %s' % (videoroom_session.room.uri, videoroom_session.account_id. account_info.user_agent))
                         videoroom_session.ice_media_negotiation_started = True
                 else:
-                    log.msg('Video room %s: ICE negotiation ended by %s' % (videoroom_session.room.uri, videoroom_session.account_id))
+                    log.msg('Video room %s: ICE negotiation ended by %s using %s' % (videoroom_session.room.uri, videoroom_session.account_id, account_info.user_agent))
                     videoroom_session.ice_media_negotiation_ended = True
 
                 self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
@@ -976,10 +989,9 @@ class ConnectionHandler(object):
                             session=session_id,
                             event='incoming_session',
                             data=dict(originator=session.remote_identity.__dict__, sdp=jsep['sdp']))
-                log.msg('Incoming session %s from %s to %s created, %d sessions in total' % (session.id,
+                log.msg('Incoming session %s from %s to %s created' % (session.id,
                                                                    session.remote_identity.uri,
-                                                                   session.local_identity.uri,
-                                                                   len(self.sessions_map.keys())))
+                                                                   session.local_identity.uri))
             else:
                 registration_state = event_type
                 if registration_state == 'registration_failed':
@@ -1120,16 +1132,21 @@ class ConnectionHandler(object):
             except StopIteration:
                 log.warn('Could not find video room session for Janus handle ID %s' % handle_id)
             else:
+
+                try:
+                    account_info = self.accounts_map[videoroom_session.account_id]
+                except KeyError:
+                    raise APIError('Unknown account specified: %s' % videoroom_session.account_id)
+
                 try:
                     uplink = data['event']['uplink']
-                    #nacks = data['event']['nacks']
                 except KeyError:
                     log.warn('Could not find uplink in slowlink event data')
                 else:
                     if uplink:
-                        log.msg('Video room %s: %s has poor download IP connectivity' % (videoroom_session.room.uri, videoroom_session.account_id))
+                        log.msg('Video room %s: %s has poor download connection on %s' % (videoroom_session.room.uri, videoroom_session.account_id, account_info.user_agent))
                     else:
-                        log.msg('Video room %s: %s has poor upload IP connectivity' % (videoroom_session.room.uri, videoroom_session.account_id))
+                        log.msg('Video room %s: %s has poor upload connection on %s' % (videoroom_session.room.uri, videoroom_session.account_id, account_info.user_agent))
 
         else:
             log.warn('Received unexpected event type %s: data=%s' % (event_type, data))
