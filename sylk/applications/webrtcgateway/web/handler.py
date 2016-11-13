@@ -1,11 +1,13 @@
 
 import json
+import os
 import random
 import re
 import uuid
 import weakref
 
 from application.python import Null
+from application.system import makedirs
 from eventlib import coros, proc
 from eventlib.twistedutil import block_on
 from sipsimple.configuration.settings import SIPSimpleSettings
@@ -15,12 +17,14 @@ from sipsimple.threading.green import run_in_green_thread
 from sipsimple.util import ISOTimestamp
 from twisted.internet import reactor
 
-from sylk.applications.webrtcgateway.configuration import GeneralConfig
+from sylk.applications.webrtcgateway.configuration import GeneralConfig, get_room_config
 from sylk.applications.webrtcgateway.logger import log
 from sylk.applications.webrtcgateway.models import sylkrtc
 from sylk.applications.webrtcgateway.util import GreenEvent
 
 SIP_PREFIX_RE = re.compile('^sips?:')
+
+class ACLValidationError(Exception): pass
 
 sylkrtc_models = {
     # account management
@@ -89,13 +93,20 @@ class SIPSessionInfo(object):
 
 class VideoRoom(object):
     def __init__(self, uri):
+        self.config = get_room_config(uri)
         self.uri = uri
+        self.record = self.config.record
+        self.rec_dir = os.path.join(GeneralConfig.recording_dir, '%s/' % uri)
         self.id = random.getrandbits(32)    # janus needs numeric room names
         self.destroyed = False
         self._session_id_map = weakref.WeakValueDictionary()
         self._publisher_id_map = weakref.WeakValueDictionary()
-        log.msg('Video room %s created' % self.uri)
 
+        if self.record:
+            makedirs(self.rec_dir, 0755)
+            log.msg('Video room %s created with recording in %s' % (self.uri, self.rec_dir))
+        else:
+            log.msg('Video room %s created without recording' % self.uri)
 
     def add(self, session):
         assert session.publisher_id is not None
@@ -253,6 +264,16 @@ class ConnectionHandler(object):
         op = Operation(request_type, request)
         self.operations_queue.send(op)
 
+    def validate_acl(self, room_uri, from_uri):
+        cfg = get_room_config(room_uri)
+        if cfg.access_policy == 'allow,deny':
+            if cfg.allow.match(from_uri) and not cfg.deny.match(from_uri):
+                return
+            raise ACLValidationError
+        else:
+            if cfg.deny.match(from_uri) and not cfg.allow.match(from_uri):
+                raise ACLValidationError
+
     # internal methods (not overriding / implementing the protocol API)
 
     def _send_response(self, response):
@@ -296,6 +317,9 @@ class ConnectionHandler(object):
         reactor.callLater(2, do_cleanup)
 
     def _maybe_destroy_videoroom(self, videoroom):
+        if videoroom is None:
+            return
+
         @run_in_green_thread
         def f():
             if self.protocol is None:
@@ -655,8 +679,14 @@ class ConnectionHandler(object):
         session = request.session
         uri = request.uri
         sdp = request.sdp
+        videoroom = None
 
         try:
+            try:
+                self.validate_acl(uri, account)
+            except ACLValidationError:
+                raise APIError('%s is not allowed to join room %s' % (account, uri))
+
             try:
                 account_info = self.accounts_map[account]
             except KeyError:
@@ -693,7 +723,10 @@ class ConnectionHandler(object):
                     'room': videoroom.id,
                     'ptype': 'publisher',
                     'audio': True,
-                    'video': True}
+                    'video': True,
+                    'record': videoroom.record,
+                    'rec_dir': videoroom.rec_dir
+                    }
             if account_info.display_name:
                 data['display'] = account_info.display_name
             jsep = {'type': 'offer', 'sdp': sdp}
@@ -737,7 +770,7 @@ class ConnectionHandler(object):
 
                 block_on(self.protocol.backend.janus_trickle(self.janus_session_id, videoroom_session.janus_handle_id, candidates))
             except APIError, e:
-                log.error('videoroom-ctl: %s' % e)
+                #log.error('videoroom-ctl: %s' % e)
                 self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
             else:
                 if candidates:

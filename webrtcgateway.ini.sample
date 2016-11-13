@@ -37,3 +37,12 @@ api_secret = 0745f2f74f34451c89343afcdcae5809
 ; Boolean indicating if the messages between SylkServer and Janus should be logged to
 ; a file
 ; trace_janus = False
+
+; Per room configuration options
+; [room1@videoconference.example.com]
+; record = True
+; access_policy = deny, allow
+; deny = all
+; allow = domain1.com, test1@example.com, test2@example.com
+
+
