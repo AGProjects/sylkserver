@@ -708,7 +708,10 @@ class ConnectionHandler(object):
 
             data = {'request': 'create',
                     'room': videoroom.id,
-                    'publishers': 10}
+                    'publishers': 10,
+                    'record': videoroom.record,
+                    'rec_dir': videoroom.rec_dir
+                    }
             try:
                 block_on(self.protocol.backend.janus_message(self.janus_session_id, handle_id, data))
             except Exception, e:
@@ -723,9 +726,7 @@ class ConnectionHandler(object):
                     'room': videoroom.id,
                     'ptype': 'publisher',
                     'audio': True,
-                    'video': True,
-                    'record': videoroom.record,
-                    'rec_dir': videoroom.rec_dir
+                    'video': True
                     }
             if account_info.display_name:
                 data['display'] = account_info.display_name
