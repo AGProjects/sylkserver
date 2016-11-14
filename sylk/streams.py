@@ -78,7 +78,7 @@ class ChatStream(_MSRPStreamBase):
     media_type = 'message'
     accept_types = ['message/cpim']
     accept_wrapped_types = ['*']
-    chatroom_capabilities = ['nickname', 'private-messages', 'com.ag-projects.screen-sharing', 'com.ag-projects.zrtp-sas']
+    supported_chatroom_capabilities = ['nickname', 'private-messages', 'com.ag-projects.screen-sharing', 'com.ag-projects.zrtp-sas']
 
     def __init__(self):
         super(ChatStream, self).__init__(direction='sendrecv')
@@ -165,11 +165,8 @@ class ChatStream(_MSRPStreamBase):
 
     def _create_local_media(self, uri_path):
         local_media = super(ChatStream, self)._create_local_media(uri_path)
-        if self.session.local_focus and self.chatroom_capabilities:
-            caps = self.chatroom_capabilities[:]
-            if ServerConfig.enable_bonjour:
-                caps.remove('private-messages')
-            local_media.attributes.append(SDPAttribute('chatroom', ' '.join(caps)))
+        if self.session.local_focus and self.supported_chatroom_capabilities:
+            local_media.attributes.append(SDPAttribute('chatroom', ' '.join(self.supported_chatroom_capabilities)))
         return local_media
 
     def _handle_REPORT(self, chunk):
