@@ -67,7 +67,8 @@ def MSRPStreamBase_initialize(self, session, direction):
     finally:
         self.greenlet = None
 
-# Monkey-patch the initialize method
+# Monkey-patch the initialize method (needed because we want every MSRP based stream to behave this way, including file transfers)
+#
 _MSRPStreamBase.initialize = MSRPStreamBase_initialize
 
 
