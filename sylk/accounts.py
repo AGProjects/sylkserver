@@ -43,7 +43,7 @@ class DefaultContactURIFactory(object):
 
 class DefaultAccount(Account):
     """
-    Subclass of Accoutn which doesn't start any subsystem. SylkServer just
+    Subclass of Account which doesn't start any subsystem. SylkServer just
     uses it as the default account for all applications as a settings object.
     """
 
