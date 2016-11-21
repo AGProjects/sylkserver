@@ -306,10 +306,7 @@ class AuthorizationHandler(object):
         handler(notification)
 
     def _NH_ThorNetworkGotUpdate(self, notification):
-        thor_nodes = []
-        for node in chain(*(n.nodes for n in notification.data.networks.values())):
-            thor_nodes.append(NetworkRange(node))
-        self.thor_nodes = thor_nodes
+        self.thor_nodes = [NetworkRange(node) for node in chain.from_iterable(n.nodes for n in notification.data.networks.values())]
 
 
 class ApplicationLogger(object):
