@@ -92,7 +92,7 @@ certificate = /etc/sylkserver/tls/default.crt
 ; RTP transport settings
 
 ; Allowed codec list, valid values: opus, G722, speex, PCMU, PCMA, iLBC, GSM
-; audio_codecs = opus,speex,G722,PCMU,PCMA
+; audio_codecs = opus,G722,speex,PCMU,PCMA
 
 ; Port range used for RTP
 ; port_range = 50000:50500
@@ -104,7 +104,7 @@ certificate = /etc/sylkserver/tls/default.crt
 ; timeout = 30
 
 ; Audio sampling rate
-; sample_rate = 32000
+; sample_rate = 48000
 
 
 [WebServer]
