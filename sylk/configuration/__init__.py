@@ -55,7 +55,7 @@ class RTPConfig(ConfigSection):
     __cfgfile__ = configuration_filename
     __section__ = 'RTP'
 
-    audio_codecs = ConfigSetting(type=AudioCodecs, value=['opus', 'speex', 'G722', 'PCMA', 'PCMU'])
+    audio_codecs = ConfigSetting(type=AudioCodecs, value=['opus', 'G722', 'speex', 'PCMA', 'PCMU'])
     port_range = ConfigSetting(type=PortRange, value=PortRange('50000:50500'))
     srtp_encryption = ConfigSetting(type=SRTPEncryption, value='opportunistic')
     timeout = ConfigSetting(type=NonNegativeInteger, value=30)
