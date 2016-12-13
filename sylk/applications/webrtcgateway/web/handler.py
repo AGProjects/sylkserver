@@ -21,6 +21,7 @@ from sylk.applications.webrtcgateway.configuration import GeneralConfig, get_roo
 from sylk.applications.webrtcgateway.logger import log
 from sylk.applications.webrtcgateway.models import sylkrtc
 from sylk.applications.webrtcgateway.util import GreenEvent
+from sylk.applications.webrtcgateway.web.storage import TokenStorage
 
 SIP_PREFIX_RE = re.compile('^sips?:')
 
@@ -32,6 +33,7 @@ sylkrtc_models = {
     'account-remove'      : sylkrtc.AccountRemoveRequest,
     'account-register'    : sylkrtc.AccountRegisterRequest,
     'account-unregister'  : sylkrtc.AccountUnregisterRequest,
+    'account-devicetoken' : sylkrtc.AccountDeviceTokenRequest,
     # session management
     'session-create'      : sylkrtc.SessionCreateRequest,
     'session-answer'      : sylkrtc.SessionAnswerRequest,
@@ -537,6 +539,31 @@ class ConnectionHandler(object):
             self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
         else:
             log.msg('Account %s will unregister' % account)
+            self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
+
+    def _OH_account_devicetoken(self, request):
+        # extract the fields to avoid going through the descriptor several times
+        account = request.account
+        old_token = request.old_token
+        new_token = request.new_token
+
+        try:
+            try:
+                account_info = self.accounts_map[account]
+            except KeyError:
+                raise APIError('Unknown account specified: %s' % account)
+
+            storage = TokenStorage()
+            if old_token is not None:
+                storage.remove(account, old_token)
+                log.msg('Removed device token %s... for account %s', (old_token[:5], account))
+            if new_token is not None:
+                storage.add(account, new_token)
+                log.msg('Added device token %s... for account %s', (new_token[:5], account))
+        except APIError, e:
+            log.error('account-devicetoken: %s' % e)
+            self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
+        else:
             self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
 
     def _OH_session_create(self, request):

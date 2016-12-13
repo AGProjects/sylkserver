@@ -3,7 +3,7 @@ import os
 import re
 
 from application.configuration import ConfigFile, ConfigSection, ConfigSetting
-from application.configuration.datatypes import StringList
+from application.configuration.datatypes import NetworkAddress, StringList
 
 from sylk.configuration import ServerConfig
 from sylk.configuration.datatypes import Path, SIPProxyAddress
@@ -75,6 +75,10 @@ class PolicySettingValue(list):
         return uri in self or domain in self
 
 
+class ManagementInterfaceAddress(NetworkAddress):
+    default_port = 20888
+
+
 # Configuration objects
 
 class GeneralConfig(ConfigSection):
@@ -87,15 +91,9 @@ class GeneralConfig(ConfigSection):
     trace_websocket = False
     websocket_ping_interval = 120
     recording_dir = ConfigSetting(type=Path, value=Path(os.path.join(ServerConfig.spool_dir.normalized, 'videoconference', 'recordings')))
-
-
-class RoomConfig(ConfigSection):
-    __cfgfile__ = 'webrtcgateway.ini'
-
-    record = False
-    access_policy = ConfigSetting(type=AccessPolicyValue, value=AccessPolicyValue('allow, deny'))
-    allow = ConfigSetting(type=PolicySettingValue, value=PolicySettingValue('all'))
-    deny = ConfigSetting(type=PolicySettingValue, value=PolicySettingValue('none'))
+    http_management_interface = ConfigSetting(type=ManagementInterfaceAddress, value=ManagementInterfaceAddress('127.0.0.1'))
+    http_management_auth_secret = ConfigSetting(type=str, value=None)
+    firebase_server_key = ConfigSetting(type=str, value=None)
 
 
 class JanusConfig(ConfigSection):
@@ -105,6 +103,15 @@ class JanusConfig(ConfigSection):
     api_url = 'ws://127.0.0.1:8188'
     api_secret = '0745f2f74f34451c89343afcdcae5809'
     trace_janus = False
+
+
+class RoomConfig(ConfigSection):
+    __cfgfile__ = 'webrtcgateway.ini'
+
+    record = False
+    access_policy = ConfigSetting(type=AccessPolicyValue, value=AccessPolicyValue('allow, deny'))
+    allow = ConfigSetting(type=PolicySettingValue, value=PolicySettingValue('all'))
+    deny = ConfigSetting(type=PolicySettingValue, value=PolicySettingValue('none'))
 
 
 class Configuration(object):

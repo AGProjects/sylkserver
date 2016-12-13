@@ -24,6 +24,15 @@
 ; client connections
 ; websocket_ping_interval = 120
 
+; IP and port for the HTTP management interface
+; http_management_interface = 127.0.0.1:20888
+
+; Shared secret for the HTTP management interface (Authorization: key=THE_KEY)
+; http_management_auth_secret =
+
+; Server key for Firebase Cloud Messaging
+; firebase_server_key =
+
 [Janus]
 ; URL pointing to the Janus API endpoint (only WebSocket is supported)
 ; api_url = ws://127.0.0.1:8188

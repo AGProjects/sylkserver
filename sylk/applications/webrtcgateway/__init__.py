@@ -3,17 +3,25 @@ from sylk.applications import SylkApplication
 from sylk.applications.webrtcgateway.logger import log
 from sylk.applications.webrtcgateway.util import IdentityFormatter
 from sylk.applications.webrtcgateway.web import WebHandler
+from sylk.applications.webrtcgateway.web.admin import AdminWebHandler
+from sylk.applications.webrtcgateway.web.storage import TokenStorage
 
 
 class WebRTCGatewayApplication(SylkApplication):
     def __init__(self):
         self.web_handler = WebHandler()
+        self.admin_web_handler = AdminWebHandler()
 
     def start(self):
         self.web_handler.start()
+        self.admin_web_handler.start()
+        # Load tokens from storage
+        storage = TokenStorage()
+        storage.load()
 
     def stop(self):
         self.web_handler.stop()
+        self.admin_web_handler.stop()
 
     def incoming_session(self, session):
         log.msg(u'New incoming session %s from %s rejected' % (session.call_id, IdentityFormatter.format(session.remote_identity)))
