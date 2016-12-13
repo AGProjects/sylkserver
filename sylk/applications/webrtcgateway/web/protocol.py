@@ -24,18 +24,17 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
     peer = None
 
     def onConnect(self, request):
-        #log.msg('Incoming connection from %s (origin %s)' % (request.peer, request.origin))
         self.peer = request.peer
         if SYLK_WS_PROTOCOL not in request.protocols:
-            log.msg('Rejecting connection, remote does not support our sub-protocol')
+            log.msg('Rejecting connection from %s, remote does not support our sub-protocol' % self.peer)
             raise HttpException(406, 'No compatible protocol specified')
         if not self.backend.ready:
-            log.msg('Rejecting connection, backend is not connected')
+            log.msg('Rejecting connection from %s, backend is not connected' % self.peer)
             raise HttpException(503, 'Backend is not connected')
         return SYLK_WS_PROTOCOL
 
     def onOpen(self):
-        #log.msg('Connection from %s open' % self.transport.getPeer())
+        log.msg('Connection from %s open' % self.peer)
         self.factory.connections.add(self)
         self.connection_handler = ConnectionHandler(self)
         self.connection_handler.start()
@@ -57,7 +56,7 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
         if self.connection_handler is None:
             # Very early connection closed, onOpen wasn't even called
             return
-        log.msg('Connection from %s closed' % self.transport.getPeer())
+        log.msg('Connection from %s closed' % self.peer)
         self.factory.connections.discard(self)
         self.connection_handler.stop()
         self.connection_handler = None
