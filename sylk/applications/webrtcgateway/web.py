@@ -81,7 +81,7 @@ class WebHandler(object):
     def stop(self):
         if self.factory is not None:
             for conn in self.factory.connections.copy():
-                conn.failConnection()
+                conn.dropConnection(abort=True)
             self.factory = None
         if self.backend is not None:
             self.backend.stop()
