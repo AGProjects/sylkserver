@@ -74,8 +74,7 @@ class SIPSessionInfo(object):
         self.local_identity = None     # instance of SessionPartyIdentity
         self.remote_identity = None    # instance of SessionPartyIdentity
         self.janus_handle_id = None
-        self.ice_media_negotiation_started = False
-        self.ice_media_negotiation_ended = False
+        self.trickle_ice_active = False
 
     def init_outgoing(self, account_id, destination):
         self.account_id = account_id
@@ -137,8 +136,7 @@ class VideoRoomSessionInfo(object):
         self.room = None
         self.parent_session = None
         self.feeds = {}    # janus publisher ID -> our publisher ID
-        self.ice_media_negotiation_started = False
-        self.ice_media_negotiation_ended = False
+        self.trickle_ice_active = False
 
     def initialize(self, account_id, type, room):
         assert type in ('publisher', 'subscriber')
@@ -667,12 +665,12 @@ class ConnectionHandler(object):
         else:
 
             if candidates:
-                if not session_info.ice_media_negotiation_started:
+                if not session_info.trickle_ice_active:
                     log.msg('Session %s: ICE negotiation started by %s using %s' % (session_info.id, session_info.account_id, account_info.user_agent))
-                session_info.ice_media_negotiation_started = True
+                    session_info.trickle_ice_active = True
             else:
                 log.msg('Session %s: ICE negotiation ended by %s using %s' % (session_info.id, session_info.account_id, account_info.user_agent))
-                session_info.ice_media_negotiation_ended = True
+                session_info.trickle_ice_active = False
             self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
 
     def _OH_session_terminate(self, request):
@@ -801,12 +799,12 @@ class ConnectionHandler(object):
                 self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
             else:
                 if candidates:
-                    if not videoroom_session.ice_media_negotiation_started:
+                    if not videoroom_session.trickle_ice_active:
                         log.msg('Video room %s: ICE negotiation started by %s using %s' % (videoroom_session.room.uri, videoroom_session.account_id, account_info.user_agent))
-                        videoroom_session.ice_media_negotiation_started = True
+                        videoroom_session.trickle_ice_active = True
                 else:
                     log.msg('Video room %s: ICE negotiation ended by %s using %s' % (videoroom_session.room.uri, videoroom_session.account_id, account_info.user_agent))
-                    videoroom_session.ice_media_negotiation_ended = True
+                    videoroom_session.trickle_ice_active = False
 
                 self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
         elif request.option == 'feed-attach':
