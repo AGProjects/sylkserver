@@ -660,7 +660,7 @@ class ConnectionHandler(object):
 
             block_on(self.protocol.backend.janus_trickle(self.janus_session_id, session_info.janus_handle_id, candidates))
         except APIError, e:
-            #log.error('session-trickle: %s' % e)
+            log.error('session-trickle: %s' % e)
             self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
         else:
 
@@ -795,7 +795,7 @@ class ConnectionHandler(object):
 
                 block_on(self.protocol.backend.janus_trickle(self.janus_session_id, videoroom_session.janus_handle_id, candidates))
             except APIError, e:
-                #log.error('videoroom-ctl: %s' % e)
+                log.error('videoroom-ctl: %s' % e)
                 self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
             else:
                 if candidates:
