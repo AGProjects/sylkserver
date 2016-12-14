@@ -1,4 +1,3 @@
-
 import json
 import os
 import random
@@ -20,8 +19,8 @@ from twisted.internet import reactor
 from sylk.applications.webrtcgateway.configuration import GeneralConfig, get_room_config
 from sylk.applications.webrtcgateway.logger import log
 from sylk.applications.webrtcgateway.models import sylkrtc
+from sylk.applications.webrtcgateway.storage import TokenStorage
 from sylk.applications.webrtcgateway.util import GreenEvent
-from sylk.applications.webrtcgateway.web.storage import TokenStorage
 
 SIP_PREFIX_RE = re.compile('^sips?:')
 

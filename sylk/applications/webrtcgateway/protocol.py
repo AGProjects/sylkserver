@@ -1,4 +1,3 @@
-
 import json
 
 from autobahn.twisted.websocket import WebSocketServerProtocol
@@ -12,7 +11,7 @@ except ImportError:
 
 from sylk.applications.webrtcgateway.configuration import GeneralConfig
 from sylk.applications.webrtcgateway.logger import log
-from sylk.applications.webrtcgateway.web.handler import ConnectionHandler
+from sylk.applications.webrtcgateway.handler import ConnectionHandler
 
 
 SYLK_WS_PROTOCOL = 'sylkRTC-1'

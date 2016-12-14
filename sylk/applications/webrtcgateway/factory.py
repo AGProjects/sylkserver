@@ -1,13 +1,11 @@
-
 import weakref
 
 from application.notification import IObserver, NotificationCenter
 from application.python import Null
-from application.python.types import Singleton
 from autobahn.twisted.websocket import WebSocketServerFactory
 from zope.interface import implements
 
-from sylk.applications.webrtcgateway.web.protocol import SylkWebSocketServerProtocol, SYLK_WS_PROTOCOL
+from sylk.applications.webrtcgateway.protocol import SylkWebSocketServerProtocol
 
 
 class VideoRoomContainer(object):

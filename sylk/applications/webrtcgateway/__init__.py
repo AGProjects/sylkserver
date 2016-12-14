@@ -1,10 +1,8 @@
-
 from sylk.applications import SylkApplication
 from sylk.applications.webrtcgateway.logger import log
+from sylk.applications.webrtcgateway.storage import TokenStorage
 from sylk.applications.webrtcgateway.util import IdentityFormatter
-from sylk.applications.webrtcgateway.web import WebHandler
-from sylk.applications.webrtcgateway.web.admin import AdminWebHandler
-from sylk.applications.webrtcgateway.web.storage import TokenStorage
+from sylk.applications.webrtcgateway.web import WebHandler, AdminWebHandler
 
 
 class WebRTCGatewayApplication(SylkApplication):
