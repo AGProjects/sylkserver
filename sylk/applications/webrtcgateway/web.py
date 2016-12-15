@@ -89,6 +89,15 @@ class WebHandler(object):
         self.ws_logger.stop()
 
 
+# TODO: This implementation is a prototype.  Moving forward it probably makes sense to provide admin API
+# capabilities for other applications too.  This could be done in a number of ways:
+#
+# * On the main web server, under a /admin/ parent route.
+# * On a separate web server, which could listen on a different IP and port.
+#
+# In either case, HTTPS aside, a token based authentication mechanism would be desired.
+# Which one is best is not 100% clear at this point.
+
 class AuthError(Exception): pass
 
 

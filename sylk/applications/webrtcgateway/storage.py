@@ -11,6 +11,11 @@ from sipsimple.threading import run_in_thread
 from sylk.configuration import ServerConfig
 
 
+# TODO: This implementation is a prototype. It should be refactored to store tokens in a
+# distributed DB so other SylkServer instances can access them.  Also add some metadata
+# like the modification date so we know when a token was refreshed, and thus it's ok to
+# scrap it after a reasonable amount of time.
+
 class TokenStorage(object):
     __metaclass__ = Singleton
 
