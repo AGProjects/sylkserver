@@ -40,7 +40,11 @@ class StringProducer(object):
 
 def incoming_session(originator, destination, tokens):
     for token in tokens:
-        data = {'to': token, 'notification': {}, 'data': {'sylkrtc': {}}}
+        data = {'to': token,
+                'notification': {},
+                'data': {'sylkrtc': {}},
+                'content_available': True
+        }
         data['notification']['body'] = 'Incoming session from %s' % originator
         data['priority'] = 'high'
         data['time_to_live'] = 60    # don't deliver if phone is out for over a minute
@@ -53,7 +57,11 @@ def incoming_session(originator, destination, tokens):
 
 def missed_session(originator, destination, tokens):
     for token in tokens:
-        data = {'to': token, 'notification': {}, 'data': {'sylkrtc': {}}}
+        data = {'to': token,
+                'notification': {},
+                'data': {'sylkrtc': {}},
+                'content_available': True
+        }
         data['notification']['body'] = 'Missed session from %s' % originator
         data['priority'] = 'high'
         # No TTL, default is 4 weeks
