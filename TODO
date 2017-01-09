@@ -1,8 +1,8 @@
 Roadmap
 -------
 
+ - [webrtcgateway] Scalability using SIPThor
  - [webrtcgateway] Video bandwidth management
  - [webrtcgateway] SIP connect for multi-party video conference 
  - [webrtcgateway] Recording
- - [webrtcgateway] Scalability
-
+ 
