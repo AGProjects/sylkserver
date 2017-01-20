@@ -8,7 +8,7 @@ Standards-Version: 3.9.8
 
 Package: sylkserver
 Architecture: all
-Depends: ${python:Depends}, ${misc:Depends}, python-application (>= 1.4.0), python-eventlib, python-lxml, python-sipsimple (>= 3.0.0), python-twisted, python-klein
+Depends: ${python:Depends}, ${misc:Depends}, lsb-base, python-application (>= 1.4.0), python-eventlib, python-lxml, python-sipsimple (>= 3.0.0), python-twisted, python-klein
 Suggests: libavahi-compat-libdnssd1, python-twisted-words, python-wokkel (>= 0.7.0), sylkserver-webrtc-gateway
 Recommends: sylkserver-sounds
 Description: A state of the art, extensible RTC Application Server
