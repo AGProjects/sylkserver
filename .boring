@@ -1,21 +1,21 @@
-# Boring file regexps:
-(^|/)_darcs($|/)
-(^|/)CVS($|/)
-(^|/)\.svn($|/)
+#
+# Boring file regular expressions
+#
+
+~$
+\#
 (^|/)\.DS_Store$
 (^|/)Thumbs\.db$
-\#
-~$
 (^|/)core(\.[0-9]+)?$
-\.(pyc|pyo|o|so|orig|bak|BAK|prof|wpu|cvsignore)$
-(^|/)build($|/)
-(^|/)dist($|/)
+\.(pyc|pyo|o|so|orig|rej|prof|bak|BAK|tmp|wpu|ini|swp)$
+
 (^|/)\.idea($|/)
 (^|/)\.komodotools($|/)
+(^|/)\.directory($|/)
+(^|/)_darcs($|/)
+
 ^MANIFEST$
-# Test ini files
-\.ini$
-# vim backup biles
-\.swp$
-# Default output directory for testing
-^var$
+^build($|/)
+^dist($|/)
+^var($|/)
+
