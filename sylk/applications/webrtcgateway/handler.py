@@ -252,8 +252,8 @@ class ConnectionHandler(object):
         except KeyError:
             log.warn('Unknown request type: %s' % request_type)
             return
-        request = model(**data)
         try:
+            request = model(**data)
             request.validate()
         except Exception, e:
             log.error('%s: %s' % (request_type, e))
