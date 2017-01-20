@@ -16,6 +16,9 @@ sylkserver (4.1.0) unstable; urgency=medium
   * webrtcgw: simplify ICE state flags
   * webrtcgw: uncomment log lines
   * webrtcgw: set content_available to True for FCM notifications
+  * Capture validation errors when building requests
+  * The new_token field is not required for the account-devicetoken request
+  * Added extra logging to help debug device token handling
   * Increased debian compatibility level to 9
   * Increased debian standards version
   * Updated debian package maintainer
@@ -23,7 +26,7 @@ sylkserver (4.1.0) unstable; urgency=medium
   * Adjusted debian package's descriptions
   * Updated boring file
 
- -- Dan Pascu <dan@ag-projects.com>  Fri, 20 Jan 2017 09:01:48 +0200
+ -- Dan Pascu <dan@ag-projects.com>  Fri, 20 Jan 2017 11:36:01 +0200
 
 sylkserver (4.0.0) unstable; urgency=medium
 
