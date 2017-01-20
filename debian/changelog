@@ -1,3 +1,31 @@
+sylkserver (4.1.0) unstable; urgency=medium
+
+  * Mention implemented standards for WebRTC video conferencing
+  * Improve logging of WebRTC gateway and video conference applications
+  * Added per video room access control and recording options
+  * Fix settings the recording folder for video conference recordings
+  * Fixed chatroom capabilities
+  * Changed codec order
+  * Changed sample rate to favor opus
+  * Adjusted sample config with latest default values
+  * Use a local copy of bootstrap.min.css
+  * webrtcgw: improved logging of incoming connections
+  * webrtcgw: initial implementation of push notifications framework
+  * webrtcgw: fix sample configuration file
+  * webrtcgw: reorganized package
+  * webrtcgw: fix for AutoBahn API change
+  * webrtcgw: simplify ICE state flags
+  * webrtcgw: uncomment log lines
+  * webrtcgw: set content_available to True for FCM notifications
+  * Increased debian compatibility level to 9
+  * Increased debian standards version
+  * Updated debian package maintainer
+  * Added debian dependency on lsb-base
+  * Adjusted debian package's descriptions
+  * Updated boring file
+
+ -- Dan Pascu <dan@ag-projects.com>  Fri, 20 Jan 2017 08:24:59 +0200
+
 sylkserver (4.0.0) unstable; urgency=medium
 
   * webrtc: add multi-party video conferencing capability
