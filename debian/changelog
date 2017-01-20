@@ -8,7 +8,6 @@ sylkserver (4.1.0) unstable; urgency=medium
   * Changed codec order
   * Changed sample rate to favor opus
   * Adjusted sample config with latest default values
-  * Use a local copy of bootstrap.min.css
   * webrtcgw: improved logging of incoming connections
   * webrtcgw: initial implementation of push notifications framework
   * webrtcgw: fix sample configuration file
@@ -24,7 +23,7 @@ sylkserver (4.1.0) unstable; urgency=medium
   * Adjusted debian package's descriptions
   * Updated boring file
 
- -- Dan Pascu <dan@ag-projects.com>  Fri, 20 Jan 2017 08:24:59 +0200
+ -- Dan Pascu <dan@ag-projects.com>  Fri, 20 Jan 2017 09:01:48 +0200
 
 sylkserver (4.0.0) unstable; urgency=medium
 
