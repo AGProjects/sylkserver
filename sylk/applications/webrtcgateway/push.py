@@ -82,5 +82,7 @@ def _send_push_notification(payload):
         else:
             if r.code != 200:
                 log.warn('Error sending Firebase message: %s' % r.phrase)
+            else:
+                log.info("Pushed FCM {0[data][sylkrtc][event]} event for {0[data][sylkrtc][destination]}".format(payload))
     else:
         log.warn('Cannot send push notification: no Firebase server key configured')

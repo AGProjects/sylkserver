@@ -8,6 +8,7 @@ from application.python.types import Singleton
 from collections import defaultdict
 from sipsimple.threading import run_in_thread
 
+from sylk.applications.webrtcgateway.logger import log
 from sylk.configuration import ServerConfig
 
 
@@ -40,9 +41,11 @@ class TokenStorage(object):
         return self._tokens[key]
 
     def add(self, account, token):
+        log.info("Added FCM token {!s} for account {}".format(token, account))
         self._tokens[account].add(token)
         self._save()
 
     def remove(self, account, token):
+        log.info("Removed FCM token {!s} for account {}".format(token, account))
         self._tokens[account].discard(token)
         self._save()
