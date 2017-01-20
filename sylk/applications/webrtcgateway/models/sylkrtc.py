@@ -109,7 +109,7 @@ class AccountUnregisterRequest(AccountRequestBase):
 class AccountDeviceTokenRequest(AccountRequestBase):
     sylkrtc = DefaultValueField('account-devicetoken')
     old_token = fields.StringField(required=False)
-    new_token = fields.StringField(required=True)
+    new_token = fields.StringField(required=False)
 
 
 # Session models
