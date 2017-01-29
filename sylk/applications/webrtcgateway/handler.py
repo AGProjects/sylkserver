@@ -254,12 +254,18 @@ class ConnectionHandler(object):
             return
         try:
             request = model(**data)
+        except Exception, e:
+            log.error('%s: %s' % (request_type, e))
+            return
+
+        try:
             request.validate()
         except Exception, e:
             log.error('%s: %s' % (request_type, e))
             if request.transaction:
                 self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
             return
+
         op = Operation(request_type, request)
         self.operations_queue.send(op)
 
