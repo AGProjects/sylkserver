@@ -21,6 +21,8 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
     backend = None
     connection_handler = None
     peer = None
+    usage = {'accounts': set(), 'user_agents': set(), 'devices': set()}
+
 
     def onConnect(self, request):
         self.peer = request.peer

@@ -458,6 +458,7 @@ class ConnectionHandler(object):
             log.error('account_add: %s' % e)
             self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
         else:
+            self.protocol.usage['accounts'].add(account_info.id)
             log.msg('Account %s added using %s at %s' % (account, user_agent, self.end_point_address))
             self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
 
@@ -487,7 +488,9 @@ class ConnectionHandler(object):
             block_on(self.protocol.backend.janus_detach(self.janus_session_id, handle_id))
             self.protocol.backend.janus_set_event_handler(handle_id, None)
             self.account_handles_map.pop(handle_id)
+            self.protocol.usage['devices'].discard(handle_id)
 
+        self.protocol.usage['accounts'].discard(account)
         log.msg('Account %s removed' % account)
 
     def _OH_account_register(self, request):
@@ -531,6 +534,8 @@ class ConnectionHandler(object):
             self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
         else:
             log.msg('Account %s will register using %s' % (account, account_info.user_agent))
+            self.protocol.usage['devices'].add(handle_id)
+            self.protocol.usage['user_agents'].add(account_info.user_agent)
             self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
 
     def _OH_account_unregister(self, request):
@@ -554,6 +559,8 @@ class ConnectionHandler(object):
             log.error('account-unregister: %s' % e)
             self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
         else:
+            self.protocol.usage['devices'].discard(handle_id)
+            self.protocol.usage['accounts'].discard(account_info.id)
             log.msg('Account %s removed' % account)
             self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
 
