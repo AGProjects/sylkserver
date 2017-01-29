@@ -45,7 +45,8 @@ def incoming_session(originator, destination, tokens):
                 'data': {'sylkrtc': {}},
                 'content_available': True
         }
-        data['notification']['body'] = 'Incoming session from %s' % originator
+        data['notification']['body'] = 'Incoming call from %s' % originator
+        data['notification']['sound'] = 'Blow'
         data['priority'] = 'high'
         data['time_to_live'] = 60    # don't deliver if phone is out for over a minute
         data['data']['sylkrtc']['event'] = 'incoming_session'
@@ -62,7 +63,8 @@ def missed_session(originator, destination, tokens):
                 'data': {'sylkrtc': {}},
                 'content_available': True
         }
-        data['notification']['body'] = 'Missed session from %s' % originator
+        data['notification']['body'] = 'Missed call from %s' % originator
+        data['notification']['sound'] = 'Blow'
         data['priority'] = 'high'
         # No TTL, default is 4 weeks
         data['data']['sylkrtc']['event'] = 'missed_session'
