@@ -41,11 +41,11 @@ class TokenStorage(object):
         return self._tokens[key]
 
     def add(self, account, token):
-        log.info("Added FCM token {!s} for account {}".format(token, account))
+        log.debug("Added FCM token {!s} for account {}".format(token, account))
         self._tokens[account].add(token)
         self._save()
 
     def remove(self, account, token):
-        log.info("Removed FCM token {!s} for account {}".format(token, account))
+        log.debug("Removed FCM token {!s} for account {}".format(token, account))
         self._tokens[account].discard(token)
         self._save()

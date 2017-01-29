@@ -54,6 +54,7 @@ class AccountInfo(object):
         self.user_agent = user_agent
         self.registration_state = None
         self.janus_handle_id = None
+        self.fcm_token = None
 
     @property
     def uri(self):
@@ -563,10 +564,12 @@ class ConnectionHandler(object):
             storage = TokenStorage()
             if old_token is not None:
                 storage.remove(account, old_token)
-                log.msg('Removed device token %s... for account %s', (old_token[:5], account))
+                log.msg('Removed device token %s for account %s using %s' % (old_token, account, account_info.user_agent))
+                account_info.fcm_token = None
             if new_token is not None:
                 storage.add(account, new_token)
-                log.msg('Added device token %s... for account %s', (new_token[:5], account))
+                account_info.fcm_token = new_token
+                log.msg('Added device token %s for account %s using %s' % (new_token, account, account_info.user_agent))
         except APIError, e:
             log.error('account-devicetoken: %s' % e)
             self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
