@@ -1127,6 +1127,7 @@ class ConnectionHandler(object):
                     reason = event_data['reason']
                     registration_data['reason'] = '%d %s' % (code, reason)
                     log.msg('Account %s registration failed: %s (%s)' % (account_info.id, code, reason))
+                    self._remove_account(account_info.id)
                 elif registration_state == 'registered':
                     log.msg('Account %s registered using %s from %s' % (account_info.id, account_info.user_agent, self.end_point_address))
                 data = dict(sylkrtc='account_event',
