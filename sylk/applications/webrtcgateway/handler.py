@@ -236,6 +236,12 @@ class ConnectionHandler(object):
             self.proc.kill()
             self.proc = None
         # cleanup
+        for account in list(self.accounts_map.keys()):
+            try:
+                self._remove_account(account)
+            except APIError:
+                continue
+
         self.ready_event.clear()
         self.accounts_map.clear()
         self.account_handles_map.clear()
