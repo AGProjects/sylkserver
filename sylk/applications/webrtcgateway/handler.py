@@ -481,6 +481,7 @@ class ConnectionHandler(object):
         else:
             self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
 
+    @run_in_green_thread
     def _remove_account(self, account):
         log.msg('Account %s will be removed...' % account)
 
