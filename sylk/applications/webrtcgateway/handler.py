@@ -735,8 +735,6 @@ class ConnectionHandler(object):
         else:
             log.msg('%s terminated session %s' % (session_info.account_id, session))
             self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
-            if '@guest' in session_info.account_id:
-                self._remove_account(session_info.account_id)
 
     def _OH_videoroom_join(self, request):
         account = request.account
