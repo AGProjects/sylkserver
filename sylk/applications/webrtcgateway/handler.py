@@ -379,8 +379,8 @@ class ConnectionHandler(object):
         self._send_response(sylkrtc.ReadyEvent())
         self.ready_event.set()
 
-    def _lookup_sip_proxy(self, account):
-        sip_uri = SIPURI.parse('sip:%s' % account)
+    def _lookup_sip_proxy(self, uri):
+        sip_uri = SIPURI.parse('sip:%s' % uri)
 
         # The proxy dance: Sofia-SIP seems to do a DNS lookup per SIP message when a domain is passed
         # as the proxy, so do the resolution ourselves and give it pre-resolver proxy URL. Since we use
@@ -393,6 +393,8 @@ class ConnectionHandler(object):
                                parameters={'transport': proxy.transport})
         else:
             proxy_uri = SIPURI(host=sip_uri.host)
+        log.msg('DNS Lookup for SIP domain %s' % proxy_uri.host)
+
         settings = SIPSimpleSettings()
         routes = self.resolver.lookup_sip_proxy(proxy_uri, settings.sip.transport_list).wait()
         if not routes:
@@ -619,7 +621,7 @@ class ConnectionHandler(object):
             handle_id = block_on(self.protocol.backend.janus_attach(self.janus_session_id, 'janus.plugin.sip'))
             self.protocol.backend.janus_set_event_handler(handle_id, self._handle_janus_event_sip)
             try:
-                proxy = self._lookup_sip_proxy(account_info.id)
+                proxy = self._lookup_sip_proxy(uri)
             except DNSLookupError:
                 block_on(self.protocol.backend.janus_detach(self.janus_session_id, handle_id))
                 self.protocol.backend.janus_set_event_handler(handle_id, None)
