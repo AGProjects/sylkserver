@@ -77,6 +77,7 @@ class SIPSessionInfo(object):
         self.remote_identity = None    # instance of SessionPartyIdentity
         self.janus_handle_id = None
         self.trickle_ice_active = False
+        self.media = set()
 
     def init_outgoing(self, account_id, destination):
         self.account_id = account_id
@@ -1166,6 +1167,10 @@ class ConnectionHandler(object):
             if session_info.state == 'accepted' and session_info.direction == 'outgoing':
                 assert jsep is not None
                 data['data']['sdp'] = jsep['sdp']
+                if 'm=audio' in jsep['sdp']:
+                    session_info.media.add('audio')
+                if 'm=video' in jsep['sdp']:
+                    session_info.media.add('video')
             elif session_info.state == 'terminated':
                 code = event_data.get('code', 0)
                 reason = event_data.get('reason', 'Unknown')
