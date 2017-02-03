@@ -534,7 +534,7 @@ class ConnectionHandler(object):
             log.error('account-register: %s' % e)
             self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
         else:
-            log.msg('Account %s will register using %s' % (account, account_info.user_agent))
+            log.debug('Account %s will register using %s' % (account, account_info.user_agent))
             self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
 
     def _OH_account_unregister(self, request):
@@ -636,7 +636,7 @@ class ConnectionHandler(object):
             log.error('session-create: %s' % e)
             self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
         else:
-            log.msg('Outgoing session %s from %s to %s created using %s from %s' % (session, account, uri, account_info.user_agent, self.end_point_address))
+            log.msg('Outgoing session %s from %s to %s started using %s from %s' % (session, account, uri, account_info.user_agent, self.end_point_address))
             self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
 
     def _OH_session_answer(self, request):
@@ -720,7 +720,7 @@ class ConnectionHandler(object):
             log.error('session-terminate: %s' % e)
             self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
         else:
-            log.msg('%s terminated session %s' % (session_info.account_id, session))
+            log.debug('%s terminated session %s' % (session_info.account_id, session))
             self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
 
     def _OH_videoroom_join(self, request):
@@ -1021,7 +1021,7 @@ class ConnectionHandler(object):
                         event='state',
                         data=dict(state=session_info.state))
             direction = session_info.direction.title()
-            log.msg('%s session %s from %s to %s state: %s' % (direction,
+            log.debug('%s session %s from %s to %s state: %s' % (direction,
                                                      session_info.id,
                                                      session_info.local_identity.uri if direction == 'Outgoing' else session_info.remote_identity.uri,
                                                      session_info.remote_identity.uri if direction == 'Outgoing' else session_info.local_identity.uri,
@@ -1148,7 +1148,7 @@ class ConnectionHandler(object):
                         event='state',
                         data=dict(state=session_info.state))
             direction = session_info.direction.title()
-            log.msg('%s session %s from %s to %s state: %s' % (direction,
+            log.debug('%s session %s from %s to %s state: %s' % (direction,
                                                      session_info.id,
                                                      session_info.local_identity.uri if direction == 'Outgoing' else session_info.remote_identity.uri,
                                                      session_info.remote_identity.uri if direction == 'Outgoing' else session_info.local_identity.uri,
