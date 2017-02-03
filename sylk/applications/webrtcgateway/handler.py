@@ -99,6 +99,7 @@ class VideoRoom(object):
     def __init__(self, uri):
         self.config = get_room_config(uri)
         self.uri = uri
+        self.janus_handle_id = None
         self.record = self.config.record
         self.rec_dir = os.path.join(GeneralConfig.recording_dir, '%s/' % uri)
         self.id = random.getrandbits(32)    # janus needs numeric room names
@@ -348,6 +349,7 @@ class ConnectionHandler(object):
                 videoroom.destroyed = True
                 self.protocol.factory.videorooms.remove(videoroom)
 
+                videoroom.janus_handle_id = None
                 # create a handle to do the cleanup
                 handle_id = block_on(self.protocol.backend.janus_attach(self.janus_session_id, 'janus.plugin.videoroom'))
                 self.protocol.backend.janus_set_event_handler(handle_id, self._handle_janus_event_videoroom)
@@ -790,6 +792,7 @@ class ConnectionHandler(object):
             jsep = {'type': 'offer', 'sdp': sdp}
             block_on(self.protocol.backend.janus_message(self.janus_session_id, handle_id, data, jsep))
 
+            videoroom.janus_session_id = handle_id
             videoroom_session = VideoRoomSessionInfo(session)
             videoroom_session.janus_handle_id = handle_id
             videoroom_session.initialize(account, 'publisher', videoroom)
