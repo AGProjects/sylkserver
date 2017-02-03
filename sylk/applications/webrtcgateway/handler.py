@@ -801,6 +801,7 @@ class ConnectionHandler(object):
 
             # track room participants and their sessions
             videoroom.participants[videoroom_session.id] = { 'account': account_info,
+                                                             'address': self.end_point_address,
                                                              'join_time': datetime.now(),
                                                              'slow_download': None,
                                                              'slow_upload': None,
