@@ -78,6 +78,7 @@ class SIPSessionInfo(object):
         self.janus_handle_id = None
         self.trickle_ice_active = False
         self.media = set()
+        self.start_time = None
 
     def init_outgoing(self, account_id, destination):
         self.account_id = account_id
@@ -1167,6 +1168,8 @@ class ConnectionHandler(object):
             if session_info.state == 'accepted' and session_info.direction == 'outgoing':
                 assert jsep is not None
                 data['data']['sdp'] = jsep['sdp']
+            if session_info.state == 'accepted':
+                session_info.start_time = datetime.now()
                 if 'm=audio' in jsep['sdp']:
                     session_info.media.add('audio')
                 if 'm=video' in jsep['sdp']:
