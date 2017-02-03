@@ -1155,10 +1155,13 @@ class ConnectionHandler(object):
                 data['data']['sdp'] = jsep['sdp']
             if session_info.state == 'accepted':
                 session_info.start_time = datetime.now()
-                if 'm=audio' in jsep['sdp']:
-                    session_info.media.add('audio')
-                if 'm=video' in jsep['sdp']:
-                    session_info.media.add('video')
+                try:
+                    if 'm=audio' in jsep['sdp']:
+                        session_info.media.add('audio')
+                    if 'm=video' in jsep['sdp']:
+                        session_info.media.add('video')
+                except (KeyError, TypeError):
+                    pass
             elif session_info.state == 'terminated':
                 code = event_data.get('code', 0)
                 reason = event_data.get('reason', 'Unknown')
