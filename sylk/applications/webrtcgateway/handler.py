@@ -239,11 +239,6 @@ class ConnectionHandler(object):
             self.proc.kill()
             self.proc = None
         # cleanup
-        for account in list(self.accounts_map.keys()):
-            try:
-                self._remove_account(account)
-            except APIError:
-                continue
 
         self.ready_event.clear()
         self.accounts_map.clear()
@@ -479,30 +474,25 @@ class ConnectionHandler(object):
         account = request.account
 
         try:
-            self._remove_account(account)
+            try:
+                account_info = self.accounts_map.pop(account)
+            except KeyError:
+                raise APIError('Unknown account specified: %s' % account)
+
+            handle_id = account_info.janus_handle_id
+            if handle_id is not None:
+                # Destroy the existing plugin handle
+                block_on(self.protocol.backend.janus_detach(self.janus_session_id, handle_id))
+                self.protocol.backend.janus_set_event_handler(handle_id, None)
+                self.account_handles_map.pop(handle_id)
+
+            log.msg('Account %s removed' % account)
+                self._remove_account(account)
         except APIError, e:
             log.error('account_remove: %s' % e)
             self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
         else:
             self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
-
-    @run_in_green_thread
-    def _remove_account(self, account):
-        log.msg('Account %s will be removed...' % account)
-
-        try:
-            account_info = self.accounts_map.pop(account)
-        except KeyError:
-            raise APIError('Unknown account specified: %s' % account)
-
-        handle_id = account_info.janus_handle_id
-        if handle_id is not None:
-            # Destroy the existing plugin handle
-            block_on(self.protocol.backend.janus_detach(self.janus_session_id, handle_id))
-            self.protocol.backend.janus_set_event_handler(handle_id, None)
-            self.account_handles_map.pop(handle_id)
-
-        log.msg('Account %s removed' % account)
 
     def _OH_account_register(self, request):
         # extract the fields to avoid going through the descriptor several times
@@ -997,8 +987,6 @@ class ConnectionHandler(object):
             self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
         else:
             log.msg('Video room %s: %s left the room (%d participants present)' % (videoroom_session.room.uri, videoroom_session.account_id, self.videoroom_sessions.count()))
-            if '@guest' in videoroom_session.account_id:
-                self._remove_account(videoroom_session.account_id)
 
             videoroom = self.protocol.factory.videorooms[videoroom_session.room.uri]
             del(videoroom.participants[videoroom_session.id])
@@ -1065,8 +1053,6 @@ class ConnectionHandler(object):
                                                                      session_info.local_identity.uri if direction == 'Outgoing' else session_info.remote_identity.uri,
                                                                      session_info.remote_identity.uri if direction == 'Outgoing' else session_info.local_identity.uri,
                                                                      reason))
-                if '@guest' in session_info.local_identity.uri:
-                    self._remove_account(session_info.local_identity.uri)
 
         elif event_type in ('media', 'detached'):
             # ignore
@@ -1134,7 +1120,6 @@ class ConnectionHandler(object):
                     reason = event_data['reason']
                     registration_data['reason'] = '%d %s' % (code, reason)
                     log.msg('Account %s registration failed: %s (%s)' % (account_info.id, code, reason))
-                    self._remove_account(account_info.id)
                 elif registration_state == 'registered':
                     log.msg('Account %s registered using %s from %s' % (account_info.id, account_info.user_agent, self.end_point_address))
                 data = dict(sylkrtc='account_event',
@@ -1192,9 +1177,6 @@ class ConnectionHandler(object):
                                                          session_info.local_identity.uri if direction == 'Outgoing' else session_info.remote_identity.uri,
                                                          session_info.remote_identity.uri if direction == 'Outgoing' else session_info.local_identity.uri,
                                                          reason))
-
-                if '@guest' in session_info.local_identity.uri:
-                    self._remove_account(session_info.local_identity.uri)
 
                 # check if missed incoming call
                 if session_info.direction == 'incoming' and code == 487:
