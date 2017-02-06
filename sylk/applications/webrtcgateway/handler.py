@@ -480,17 +480,14 @@ class ConnectionHandler(object):
 
             handle_id = account_info.janus_handle_id
             if handle_id is not None:
-                # Destroy the existing plugin handle
                 block_on(self.protocol.backend.janus_detach(self.janus_session_id, handle_id))
                 self.protocol.backend.janus_set_event_handler(handle_id, None)
                 self.account_handles_map.pop(handle_id)
-
-            log.msg('Account %s removed' % account)
-                self._remove_account(account)
         except APIError, e:
             log.error('account_remove: %s' % e)
             self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
         else:
+            log.msg('Account %s removed' % account)
             self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
 
     def _OH_account_register(self, request):
