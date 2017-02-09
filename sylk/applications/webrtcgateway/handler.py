@@ -477,6 +477,7 @@ class ConnectionHandler(object):
             except KeyError:
                 raise APIError('Unknown account specified: %s' % account)
 
+            # cleanup in case the client didn't unregister before removing the account
             handle_id = account_info.janus_handle_id
             if handle_id is not None:
                 block_on(self.protocol.backend.janus_detach(self.janus_session_id, handle_id))
