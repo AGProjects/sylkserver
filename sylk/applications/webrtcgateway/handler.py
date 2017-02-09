@@ -242,7 +242,6 @@ class ConnectionHandler(object):
             self.proc.kill()
             self.proc = None
         # cleanup
-
         self.ready_event.clear()
         self.accounts_map.clear()
         self.account_handles_map.clear()
