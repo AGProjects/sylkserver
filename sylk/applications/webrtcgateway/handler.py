@@ -231,6 +231,11 @@ class ConnectionHandler(object):
     def stop(self):
         if self.ready_event.is_set():
             assert self.janus_session_id is not None
+            for account_info in self.accounts_map.values():
+                handle_id = account_info.janus_handle_id
+                if handle_id is not None:
+                    self.protocol.backend.janus_detach(self.janus_session_id, handle_id)
+                    self.protocol.backend.janus_set_event_handler(handle_id, None)
             self.protocol.backend.janus_stop_keepalive(self.janus_session_id)
             self.protocol.backend.janus_destroy_session(self.janus_session_id)
         if self.proc is not None:
