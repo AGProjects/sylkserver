@@ -7,7 +7,6 @@ import weakref
 
 from application.python import Null
 from application.system import makedirs
-from datetime import datetime
 from eventlib import coros, proc
 from eventlib.twistedutil import block_on
 from sipsimple.configuration.settings import SIPSimpleSettings
@@ -76,8 +75,6 @@ class SIPSessionInfo(object):
         self.remote_identity = None    # instance of SessionPartyIdentity
         self.janus_handle_id = None
         self.trickle_ice_active = False
-        self.media = set()
-        self.start_time = None
 
     def init_outgoing(self, account_id, destination):
         self.account_id = account_id
@@ -104,9 +101,6 @@ class VideoRoom(object):
         self.destroyed = False
         self._session_id_map = weakref.WeakValueDictionary()
         self._publisher_id_map = weakref.WeakValueDictionary()
-
-        self.start_time = datetime.now()
-        self.participants = {}
 
         if self.record:
             makedirs(self.rec_dir, 0755)
@@ -785,16 +779,6 @@ class ConnectionHandler(object):
             self._maybe_destroy_videoroom(videoroom)
         else:
             log.msg('Video room %s: joined by %s using %s (%d participants present) from %s' % (videoroom.uri, account, account_info.user_agent, self.videoroom_sessions.count(), self.end_point_address))
-
-            # track room participants and their sessions
-            videoroom.participants[videoroom_session.id] = { 'account': account_info,
-                                                             'address': self.end_point_address,
-                                                             'join_time': datetime.now(),
-                                                             'slow_download': None,
-                                                             'slow_upload': None,
-                                                             'subscriber_feeds': set(),
-                                                             'publisher_feeds' : set([videoroom_session.id])
-                                                             }
             self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
             data = dict(sylkrtc='videoroom_event',
                         session=videoroom_session.id,
@@ -881,12 +865,6 @@ class ConnectionHandler(object):
             else:
                 log.msg('Video room %s: %s attached to %s' % (base_session.room.uri, base_session.account_id, feed_attach.publisher))
                 self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
-
-                # track room participants and their sessions
-                videoroom = self.protocol.factory.videorooms[publisher_session.room.uri]
-                participant = videoroom.participants[publisher_session.id]
-                participant['subscriber_feeds'].add(videoroom_session.id)
-
         elif request.option == 'feed-answer':
             feed_answer = request.feed_answer
             if not feed_answer:
@@ -930,12 +908,6 @@ class ConnectionHandler(object):
                 block_on(self.protocol.backend.janus_detach(self.janus_session_id, videoroom_session.janus_handle_id))
                 self.protocol.backend.janus_set_event_handler(videoroom_session.janus_handle_id, None)
                 self.videoroom_sessions.remove(videoroom_session)
-
-                # track room participants and their sessions
-                videoroom = self.protocol.factory.videorooms[base_session.room.uri]
-                participant = videoroom.participants[base_session.id]
-                participant['subscriber_feeds'].discard(videoroom_session.id)
-
                 try:
                     janus_publisher_id = next(k for k, v in base_session.feeds.iteritems() if v == videoroom_session.publisher_id)
                 except StopIteration:
@@ -979,10 +951,6 @@ class ConnectionHandler(object):
             self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
         else:
             log.msg('Video room %s: %s left the room (%d participants present)' % (videoroom_session.room.uri, videoroom_session.account_id, self.videoroom_sessions.count()))
-
-            videoroom = self.protocol.factory.videorooms[videoroom_session.room.uri]
-            del(videoroom.participants[videoroom_session.id])
-
             self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
             data = dict(sylkrtc='videoroom_event',
                         session=videoroom_session.id,
@@ -1148,15 +1116,6 @@ class ConnectionHandler(object):
             if session_info.state == 'accepted' and session_info.direction == 'outgoing':
                 assert jsep is not None
                 data['data']['sdp'] = jsep['sdp']
-            if session_info.state == 'accepted':
-                session_info.start_time = datetime.now()
-                try:
-                    if 'm=audio' in jsep['sdp']:
-                        session_info.media.add('audio')
-                    if 'm=video' in jsep['sdp']:
-                        session_info.media.add('video')
-                except (KeyError, TypeError):
-                    pass
             elif session_info.state == 'terminated':
                 code = event_data.get('code', 0)
                 reason = event_data.get('reason', 'Unknown')
@@ -1244,7 +1203,6 @@ class ConnectionHandler(object):
             # ignore
             pass
         elif event_type == 'slowlink':
-            log.info('Slow link message received for Janus handle ID %s' % handle_id)
             try:
                 videoroom_session = (session_info for session_info in self.videoroom_sessions if session_info.janus_handle_id == handle_id).next()
             except StopIteration:
@@ -1261,21 +1219,8 @@ class ConnectionHandler(object):
                 except KeyError:
                     log.warn('Could not find uplink in slowlink event data')
                 else:
-                    # track room participants and their sessions
-                    publisher_session = videoroom_session if videoroom_session.type == 'publisher' else videoroom_session.parent_session
-                    try:
-                        videoroom = self.protocol.factory.videorooms[publisher_session.room.uri]
-                        participant = videoroom.participants[publisher_session.id]
-                    except KeyError:
-                        raise APIError('Cannot find publisher session for account %s' % publisher_session.account_id)
-                    else:
-                        if uplink:
-                            log.msg('Video room %s: %s has poor upload on %s connection on %s' % (videoroom_session.room.uri, videoroom_session.account_id, videoroom_session.type, account_info.user_agent))
-                            participant['slow_upload'] = datetime.now()
-                        else:
-                            log.msg('Video room %s: %s has poor download on %s connection on %s' % (videoroom_session.room.uri, videoroom_session.account_id, videoroom_session.type, account_info.user_agent))
-                            participant['slow_download'] = datetime.now()
-
+                    direction = 'download' if uplink else 'upload'  # uplink is from janus' point of view
+                    log.msg('Video room {0.room.uri}: poor {1} connection for {2.id} using {2.user_agent}'.format(videoroom_session, direction, account_info))
         else:
             log.warn('Received unexpected event type %s: data=%s' % (event_type, data))
 
