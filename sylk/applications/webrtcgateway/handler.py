@@ -145,7 +145,6 @@ class VideoRoomSessionInfo(object):
         self.room = room
         log.msg('Video room %s: new session %s initialized by %s' % (self.room.uri, self.id, self.account_id))
 
-
     def __repr__(self):
         return '<%s: id=%s janus_handle_id=%s type=%s>' % (self.__class__.__name__, self.id, self.janus_handle_id, self.type)
 
@@ -266,7 +265,6 @@ class ConnectionHandler(object):
             if transaction:
                 self._send_response(sylkrtc.ErrorResponse(transaction=transaction, error=str(e)))
             return
-
         op = Operation(request_type, request)
         self.operations_queue.send(op)
 
@@ -409,8 +407,7 @@ class ConnectionHandler(object):
             data = dict(sylkrtc='account_event',
                         account=account_info.id,
                         event='conference_invite',
-                        data=dict(originator=dict(uri=originator.id, display_name=originator.display_name),
-                                  room=room_uri))
+                        data=dict(originator=dict(uri=originator.id, display_name=originator.display_name), room=room_uri))
             log.msg('Video room %s: invitation from %s to %s' % (room_uri, originator.id, account_info.id))
             self._send_data(json.dumps(data))
 
@@ -746,8 +743,7 @@ class ConnectionHandler(object):
                     'room': videoroom.id,
                     'publishers': 10,
                     'record': videoroom.record,
-                    'rec_dir': videoroom.rec_dir
-                    }
+                    'rec_dir': videoroom.rec_dir}
             try:
                 block_on(self.protocol.backend.janus_message(self.janus_session_id, handle_id, data))
             except Exception, e:
@@ -762,8 +758,7 @@ class ConnectionHandler(object):
                     'room': videoroom.id,
                     'ptype': 'publisher',
                     'audio': True,
-                    'video': True
-                    }
+                    'video': True}
             if account_info.display_name:
                 data['display'] = account_info.display_name
             jsep = {'type': 'offer', 'sdp': sdp}
@@ -799,12 +794,10 @@ class ConnectionHandler(object):
                     videoroom_session = self.videoroom_sessions[session]
                 except KeyError:
                     raise APIError('trickle: unknown video room session ID specified: %s' % session)
-
                 try:
                     account_info = self.accounts_map[videoroom_session.account_id]
                 except KeyError:
                     raise APIError('Unknown account specified: %s' % videoroom_session.account_id)
-
                 block_on(self.protocol.backend.janus_trickle(self.janus_session_id, videoroom_session.janus_handle_id, candidates))
             except APIError, e:
                 log.error('videoroom-ctl: %s' % e)
@@ -986,7 +979,6 @@ class ConnectionHandler(object):
                                                      session_info.local_identity.uri if direction == 'Outgoing' else session_info.remote_identity.uri,
                                                      session_info.remote_identity.uri if direction == 'Outgoing' else session_info.local_identity.uri,
                                                      session_info.state))
-
             # TODO: SessionEvent model
             self._send_data(json.dumps(data))
         elif event_type == 'hangup':
@@ -1013,7 +1005,6 @@ class ConnectionHandler(object):
                                                                      session_info.local_identity.uri if direction == 'Outgoing' else session_info.remote_identity.uri,
                                                                      session_info.remote_identity.uri if direction == 'Outgoing' else session_info.local_identity.uri,
                                                                      reason))
-
         elif event_type in ('media', 'detached'):
             # ignore
             pass
@@ -1131,7 +1122,6 @@ class ConnectionHandler(object):
                                                          session_info.local_identity.uri if direction == 'Outgoing' else session_info.remote_identity.uri,
                                                          session_info.remote_identity.uri if direction == 'Outgoing' else session_info.local_identity.uri,
                                                          reason))
-
                 # check if missed incoming call
                 if session_info.direction == 'incoming' and code == 487:
                     data = dict(sylkrtc='account_event',
@@ -1208,7 +1198,6 @@ class ConnectionHandler(object):
             except StopIteration:
                 log.warn('Could not find video room session for Janus handle ID %s' % handle_id)
             else:
-
                 try:
                     account_info = self.accounts_map[videoroom_session.account_id]
                 except KeyError:
@@ -1260,11 +1249,9 @@ class ConnectionHandler(object):
                 except KeyError:
                     log.warn('Could not find matching session for publisher %s' % publisher_id)
                     continue
-                item = {
-                    'id': publisher_session.id,
-                    'uri': publisher_session.account_id,
-                    'display_name': publisher_display,
-                }
+                item = {'id': publisher_session.id,
+                        'uri': publisher_session.account_id,
+                        'display_name': publisher_display}
                 publishers.append(item)
             data = dict(sylkrtc='videoroom_event',
                         session=videoroom_session.id,
@@ -1289,11 +1276,9 @@ class ConnectionHandler(object):
                     except KeyError:
                         log.warn('Could not find matching session for publisher %s' % publisher_id)
                         continue
-                    item = {
-                        'id': publisher_session.id,
-                        'uri': publisher_session.account_id,
-                        'display_name': publisher_display,
-                    }
+                    item = {'id': publisher_session.id,
+                            'uri': publisher_session.account_id,
+                            'display_name': publisher_display}
                     publishers.append(item)
                 data = dict(sylkrtc='videoroom_event',
                             session=videoroom_session.id,
