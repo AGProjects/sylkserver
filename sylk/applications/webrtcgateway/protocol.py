@@ -20,10 +20,8 @@ SYLK_WS_PROTOCOL = 'sylkRTC-1'
 class SylkWebSocketServerProtocol(WebSocketServerProtocol):
     backend = None
     connection_handler = None
-    peer = None
 
     def onConnect(self, request):
-        self.peer = request.peer
         if SYLK_WS_PROTOCOL not in request.protocols:
             log.msg('Rejecting connection from %s, remote does not support our sub-protocol' % self.peer)
             raise HttpException(406, 'No compatible protocol specified')

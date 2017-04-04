@@ -214,10 +214,6 @@ class ConnectionHandler(object):
         self.proc = proc.spawn(self._operations_handler)
         self.operations_queue = coros.queue()
 
-    @property
-    def end_point_address(self):
-        return self.protocol.peer
-
     def start(self):
         self._create_janus_session()
 
@@ -454,7 +450,7 @@ class ConnectionHandler(object):
             log.error('account_add: %s' % e)
             self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
         else:
-            log.msg('Account %s added using %s at %s' % (account, user_agent, self.end_point_address))
+            log.msg('Account %s added using %s at %s' % (account, user_agent, self.protocol.peer))
             self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
 
     def _OH_account_remove(self, request):
@@ -620,7 +616,7 @@ class ConnectionHandler(object):
             log.error('session-create: %s' % e)
             self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
         else:
-            log.msg('Outgoing session %s from %s to %s started using %s from %s' % (session, account, uri, account_info.user_agent, self.end_point_address))
+            log.msg('Outgoing session %s from %s to %s started using %s from %s' % (session, account, uri, account_info.user_agent, self.protocol.peer))
             self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
 
     def _OH_session_answer(self, request):
@@ -773,7 +769,7 @@ class ConnectionHandler(object):
             self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
             self._maybe_destroy_videoroom(videoroom)
         else:
-            log.msg('Video room %s: joined by %s using %s (%d participants present) from %s' % (videoroom.uri, account, account_info.user_agent, self.videoroom_sessions.count(), self.end_point_address))
+            log.msg('Video room %s: joined by %s using %s (%d participants present) from %s' % (videoroom.uri, account, account_info.user_agent, self.videoroom_sessions.count(), self.protocol.peer))
             self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
             data = dict(sylkrtc='videoroom_event',
                         session=videoroom_session.id,
@@ -1072,7 +1068,7 @@ class ConnectionHandler(object):
                     registration_data['reason'] = '%d %s' % (code, reason)
                     log.msg('Account %s registration failed: %s (%s)' % (account_info.id, code, reason))
                 elif registration_state == 'registered':
-                    log.msg('Account %s registered using %s from %s' % (account_info.id, account_info.user_agent, self.end_point_address))
+                    log.msg('Account %s registered using %s from %s' % (account_info.id, account_info.user_agent, self.protocol.peer))
                 data = dict(sylkrtc='account_event',
                             account=account_info.id,
                             event='registration_state',
