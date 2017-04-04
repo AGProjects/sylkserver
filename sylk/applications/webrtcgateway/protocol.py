@@ -24,10 +24,10 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
     def onConnect(self, request):
         if SYLK_WS_PROTOCOL not in request.protocols:
             log.msg('Rejecting connection from %s, remote does not support our sub-protocol' % self.peer)
-            raise HttpException(406, 'No compatible protocol specified')
+            raise HttpException(406, u'No compatible protocol specified')
         if not self.backend.ready:
             log.msg('Rejecting connection from %s, backend is not connected' % self.peer)
-            raise HttpException(503, 'Backend is not connected')
+            raise HttpException(503, u'Backend is not connected')
         return SYLK_WS_PROTOCOL
 
     def onOpen(self):
