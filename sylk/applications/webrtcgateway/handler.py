@@ -377,8 +377,6 @@ class ConnectionHandler(object):
                                parameters={'transport': proxy.transport})
         else:
             proxy_uri = SIPURI(host=sip_uri.host)
-        log.msg('DNS Lookup for SIP domain %s' % proxy_uri.host)
-
         settings = SIPSimpleSettings()
         routes = self.resolver.lookup_sip_proxy(proxy_uri, settings.sip.transport_list).wait()
         if not routes:
@@ -386,7 +384,8 @@ class ConnectionHandler(object):
 
         # Get all routes with the highest priority transport and randomly pick one
         route = random.choice([r for r in routes if r.transport == routes[0].transport])
-        log.msg("Using SIP route %s" % route)
+
+        log.debug("DNS lookup for SIP proxy for {} yielded {}".format(uri, route))
 
         # Build a proxy URI Sofia-SIP likes
         return '%s:%s:%d%s' % ('sips' if route.transport == 'tls' else 'sip',
