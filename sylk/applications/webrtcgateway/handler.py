@@ -364,21 +364,18 @@ class ConnectionHandler(object):
         self.ready_event.set()
 
     def _lookup_sip_proxy(self, uri):
-        sip_uri = SIPURI.parse('sip:%s' % uri)
-
         # The proxy dance: Sofia-SIP seems to do a DNS lookup per SIP message when a domain is passed
         # as the proxy, so do the resolution ourselves and give it pre-resolver proxy URL. Since we use
         # caching to avoid long delays, we randomize the results matching the highest priority route's
         # transport.
+
         proxy = GeneralConfig.outbound_sip_proxy
         if proxy is not None:
-            proxy_uri = SIPURI(host=proxy.host,
-                               port=proxy.port,
-                               parameters={'transport': proxy.transport})
+            sip_uri = SIPURI(host=proxy.host, port=proxy.port, parameters={'transport': proxy.transport})
         else:
-            proxy_uri = SIPURI(host=sip_uri.host)
+            sip_uri = SIPURI.parse('sip:%s' % uri)
         settings = SIPSimpleSettings()
-        routes = self.resolver.lookup_sip_proxy(proxy_uri, settings.sip.transport_list).wait()
+        routes = self.resolver.lookup_sip_proxy(sip_uri, settings.sip.transport_list).wait()
         if not routes:
             raise DNSLookupError('no results found')
 
