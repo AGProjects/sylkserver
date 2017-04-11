@@ -379,7 +379,6 @@ class ConnectionHandler(object):
         if not routes:
             raise DNSLookupError('no results found')
 
-        # Get all routes with the highest priority transport and randomly pick one
         route = random.choice([r for r in routes if r.transport == routes[0].transport])
 
         log.debug("DNS lookup for SIP proxy for {} yielded {}".format(uri, route))
