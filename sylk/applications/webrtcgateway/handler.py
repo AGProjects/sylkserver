@@ -388,10 +388,7 @@ class ConnectionHandler(object):
         log.debug("DNS lookup for SIP proxy for {} yielded {}".format(uri, route))
 
         # Build a proxy URI Sofia-SIP likes
-        return '%s:%s:%d%s' % ('sips' if route.transport == 'tls' else 'sip',
-                               route.address,
-                               route.port,
-                               ';transport=%s' % route.transport if route.transport != 'tls' else '')
+        return 'sips:{route.address}:{route.port}'.format(route=route) if route.transport == 'tls' else str(route.uri)
 
     def _handle_conference_invite(self, originator, room_uri, participants):
         for p in participants:
