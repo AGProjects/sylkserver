@@ -22,27 +22,13 @@ from sylk.applications.webrtcgateway.models import sylkrtc
 from sylk.applications.webrtcgateway.storage import TokenStorage
 from sylk.applications.webrtcgateway.util import GreenEvent
 
+
 SIP_PREFIX_RE = re.compile('^sips?:')
 
-class ACLValidationError(Exception): pass
+sylkrtc_models = {model.sylkrtc.default_value: model for model in vars(sylkrtc).values() if hasattr(model, 'sylkrtc') and issubclass(model, sylkrtc.SylkRTCRequestBase)}
 
-sylkrtc_models = {
-    # account management
-    'account-add'         : sylkrtc.AccountAddRequest,
-    'account-remove'      : sylkrtc.AccountRemoveRequest,
-    'account-register'    : sylkrtc.AccountRegisterRequest,
-    'account-unregister'  : sylkrtc.AccountUnregisterRequest,
-    'account-devicetoken' : sylkrtc.AccountDeviceTokenRequest,
-    # session management
-    'session-create'      : sylkrtc.SessionCreateRequest,
-    'session-answer'      : sylkrtc.SessionAnswerRequest,
-    'session-trickle'     : sylkrtc.SessionTrickleRequest,
-    'session-terminate'   : sylkrtc.SessionTerminateRequest,
-    # video conference management
-    'videoroom-join'      : sylkrtc.VideoRoomJoinRequest,
-    'videoroom-ctl'       : sylkrtc.VideoRoomControlRequest,
-    'videoroom-terminate' : sylkrtc.VideoRoomTerminateRequest,
-}
+
+class ACLValidationError(Exception): pass
 
 
 class AccountInfo(object):
