@@ -993,7 +993,7 @@ class ConnectionHandler(object):
         event = data['event']
         plugin_data = event['plugindata']
         assert(plugin_data['plugin'] == 'janus.plugin.sip')
-        event_data = event['plugindata']['data']
+        event_data = plugin_data['data']
         assert(event_data.get('sip') == 'event')
 
         if 'result' not in event_data:
