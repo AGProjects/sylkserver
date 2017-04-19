@@ -67,7 +67,7 @@ class JanusClientProtocol(WebSocketClientProtocol):
             self.factory.janus_logger.msg("IN", ISOTimestamp.now(), payload)
         try:
             data = json.loads(payload)
-        except Exception, e:
+        except Exception as e:
             log.warn('Error decoding payload: %s' % e)
             return
         try:

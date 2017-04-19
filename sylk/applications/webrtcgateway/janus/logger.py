@@ -67,7 +67,7 @@ class Logger(object):
         log_directory = settings.logs.directory.normalized
         try:
             makedirs(log_directory)
-        except Exception, e:
+        except Exception as e:
             if not self._log_directory_error:
                 print "failed to create logs directory '%s': %s" % (log_directory, e)
                 self._log_directory_error = True
@@ -85,7 +85,7 @@ class Logger(object):
             filename = self._janustrace_filename
             try:
                 self._janustrace_file = open(filename, 'a')
-            except Exception, e:
+            except Exception as e:
                 if not self._janustrace_error:
                     print "failed to create log file '%s': %s" % (filename, e)
                     self._janustrace_error = True

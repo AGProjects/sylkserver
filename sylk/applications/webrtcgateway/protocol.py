@@ -44,7 +44,7 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
             self.factory.ws_logger.msg("IN", ISOTimestamp.now(), payload)
         try:
             data = json.loads(payload)
-        except Exception, e:
+        except Exception as e:
             log.warn('Error parsing WebSocket payload: %s' % e)
             return
         self.connection_handler.handle_message(data)

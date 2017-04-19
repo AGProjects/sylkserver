@@ -141,7 +141,7 @@ class AdminWebHandler(object):
             data = json.load(request.content)
             originator = data['originator']
             destination = data['destination']
-        except Exception, e:
+        except Exception as e:
             return json.dumps({'success': False, 'error': str(e)})
         else:
             storage = TokenStorage()
@@ -157,7 +157,7 @@ class AdminWebHandler(object):
             data = json.load(request.content)
             originator = data['originator']
             destination = data['destination']
-        except Exception, e:
+        except Exception as e:
             return json.dumps({'success': False, 'error': str(e)})
         else:
             storage = TokenStorage()

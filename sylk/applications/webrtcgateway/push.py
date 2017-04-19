@@ -79,7 +79,7 @@ def _send_push_notification(payload):
     if GeneralConfig.firebase_server_key:
         try:
             r = yield agent.request('POST', FIREBASE_API_URL, headers, StringProducer(payload))
-        except Exception, e:
+        except Exception as e:
             log.msg('Error sending Firebase message: %s', e)
         else:
             if r.code != 200:
