@@ -562,15 +562,14 @@ class ConnectionHandler(object):
             if session in self.sessions_map:
                 raise APIError('Session ID (%s) already in use' % session)
 
-            # Create a new plugin handle and 'register' it, without actually doing so
-            handle_id = block_on(self.protocol.backend.janus_attach(self.janus_session_id, 'janus.plugin.sip'))
-            self.protocol.backend.janus_set_event_handler(handle_id, self._handle_janus_event_sip)
             try:
                 proxy = self._lookup_sip_proxy(uri)
             except DNSLookupError:
-                block_on(self.protocol.backend.janus_detach(self.janus_session_id, handle_id))
-                self.protocol.backend.janus_set_event_handler(handle_id, None)
                 raise APIError('DNS lookup error')
+
+            # Create a new plugin handle and 'register' it, without actually doing so
+            handle_id = block_on(self.protocol.backend.janus_attach(self.janus_session_id, 'janus.plugin.sip'))
+            self.protocol.backend.janus_set_event_handler(handle_id, self._handle_janus_event_sip)
             data = {'request': 'register',
                     'username': account_info.uri,
                     'display_name': account_info.display_name,
