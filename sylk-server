@@ -78,6 +78,17 @@ def main():
     process.signals.add_handler(signal.SIGTERM, stop_server)
     process.signals.add_handler(signal.SIGINT, stop_server)
 
+    def toggle_debugging(*args):
+        from sylk.configuration import ServerConfig
+        if log.level.current != log.level.DEBUG:
+            log.level.current = log.level.DEBUG
+            log.info("Switched logging level to DEBUG")
+        else:
+            log.info("Switched logging level to {}".format(ServerConfig.log_level))
+            log.level.current = ServerConfig.log_level
+
+    process.signals.add_handler(signal.SIGUSR1, toggle_debugging)
+
     try:
         server.start(options)
     except Exception, e:
