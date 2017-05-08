@@ -5,6 +5,7 @@ import socket
 import urllib
 import urlparse
 
+from application import log
 from application.system import host
 from sipsimple.configuration.datatypes import AudioCodecList, Hostname, SIPTransport
 
@@ -173,4 +174,15 @@ class SRTPEncryption(str):
         if value not in cls.available_values:
             raise ValueError("illegal value for SRTP encryption: %s" % value)
         return value
+
+
+class LogLevel(log.NamedLevel):
+    __levelmap__ = {value.name: value for value in (log.level.DEBUG, log.level.INFO, log.level.WARNING, log.level.ERROR, log.level.CRITICAL)}
+
+    def __new__(cls, value):
+        value = str(value).upper()
+        if value not in cls.__levelmap__:
+            raise ValueError("illegal value for log level: %s" % value)
+        log.level.current = cls.__levelmap__[value]
+        return log.level.current
 

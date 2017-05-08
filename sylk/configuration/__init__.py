@@ -5,7 +5,7 @@ from application.system import host
 from sipsimple.configuration.datatypes import NonNegativeInteger, SampleRate
 
 from sylk import configuration_filename
-from sylk.configuration.datatypes import AudioCodecs, IPAddress, Path, Port, PortRange, SIPProxyAddress, SRTPEncryption
+from sylk.configuration.datatypes import AudioCodecs, IPAddress, Path, Port, PortRange, SIPProxyAddress, SRTPEncryption, LogLevel
 from sylk.resources import Resources, VarResources
 from sylk.tls import Certificate, PrivateKey
 
@@ -27,6 +27,7 @@ class ServerConfig(ConfigSection):
     trace_sip = False
     trace_msrp = False
     trace_notifications = False
+    log_level = ConfigSetting(type=LogLevel, value=LogLevel('info'))
     spool_dir = ConfigSetting(type=Path, value=Path(VarResources.get('spool/sylkserver')))
 
 

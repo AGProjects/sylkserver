@@ -25,6 +25,9 @@ trace_dir = /var/log/sylkserver
 ; trace_msrp = False
 ; trace_notifications = False
 
+; Log level (one of debug, info, warning, error or critical).
+;log_level = info
+
 ; TLS is used by default for SIP signaling and MSRP media using a
 ; self-signed certificate.  You may want to use a properly signed X.509
 ; certificate and configure it below
