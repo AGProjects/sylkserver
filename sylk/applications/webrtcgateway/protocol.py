@@ -10,8 +10,8 @@ except ImportError:
     from autobahn.websocket import ConnectionDeny as HttpException
 
 from sylk.applications.webrtcgateway.configuration import GeneralConfig
-from sylk.applications.webrtcgateway.logger import log
 from sylk.applications.webrtcgateway.handler import ConnectionHandler
+from sylk.applications.webrtcgateway.logger import log
 
 
 SYLK_WS_PROTOCOL = 'sylkRTC-1'
