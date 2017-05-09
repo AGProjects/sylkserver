@@ -7,7 +7,6 @@ from application.configuration.datatypes import NetworkAddress, StringList
 
 from sylk.configuration import ServerConfig
 from sylk.configuration.datatypes import Path, SIPProxyAddress
-from sylk.resources import VarResources
 
 __all__ = ['get_room_config']
 
