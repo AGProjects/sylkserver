@@ -715,6 +715,7 @@ class ConnectionHandler(object):
             data = {'request': 'create',
                     'room': videoroom.id,
                     'publishers': 10,
+                    'bitrate': 4*1024*1024,  # max bitrate = 4 Mb/s (if we do not specify this it defaults to 256Kb/s in janus)
                     'record': videoroom.record,
                     'rec_dir': videoroom.rec_dir}
             try:
