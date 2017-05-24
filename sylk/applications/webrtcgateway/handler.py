@@ -786,6 +786,27 @@ class ConnectionHandler(object):
                     videoroom_session.trickle_ice_active = False
 
                 self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
+        elif request.option == 'update':
+            if not request.update:
+                log.error("videoroom-ctl: missing 'update' field in request")
+                return
+            try:
+                try:
+                    videoroom_session = self.videoroom_sessions[request.session]
+                except KeyError:
+                    raise APIError('update: unknown video room session: {request.session}'.format(request=request))
+                update_data = request.update.to_struct()
+                if update_data:
+                    data = dict(request='configure', room=videoroom_session.room.id, **update_data)
+                    block_on(self.protocol.backend.janus_message(self.janus_session_id, videoroom_session.janus_handle_id, data))
+            except APIError as e:
+                log.error('videoroom-ctl: {exception!s}'.format(exception=e))
+                self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
+            else:
+                if update_data:
+                    modified = ', '.join('{}={}'.format(key, update_data[key]) for key in update_data)
+                    log.info('Updated video room session {request.session} with {modified}'.format(request=request, modified=modified))
+                self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
         elif request.option == 'feed-attach':
             feed_attach = request.feed_attach
             if not feed_attach:
@@ -1275,7 +1296,7 @@ class ConnectionHandler(object):
                             event='publishers_left',
                             data=dict(publishers=[publisher_id]))
                 self._send_data(json.dumps(data))
-            elif {'started', 'unpublished', 'left'}.intersection(event_data):
+            elif {'started', 'unpublished', 'left', 'configured'}.intersection(event_data):
                 # ignore
                 pass
             else:

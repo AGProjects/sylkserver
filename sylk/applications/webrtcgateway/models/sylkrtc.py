@@ -162,6 +162,12 @@ class VideoRoomControlTrickleRequest(models.Base):
     candidates = fields.ListField([ICECandidate])
 
 
+class VideoRoomControlUpdateRequest(models.Base):
+    audio = fields.BoolField(required=False)
+    video = fields.BoolField(required=False)
+    bitrate = fields.IntField(required=False)
+
+
 class VideoRoomControlFeedAttachRequest(models.Base):
     session = fields.StringField(required=True)
     publisher = fields.StringField(required=True)
@@ -182,10 +188,11 @@ class VideoRoomControlInviteParticipantsRequest(models.Base):
 
 class VideoRoomControlRequest(VideoRoomRequestBase):
     sylkrtc = DefaultValueField('videoroom-ctl')
-    option = fields.StringField(required=True,
-                                validators=[OptionsValidator(['trickle', 'feed-attach', 'feed-answer', 'feed-detach', 'invite-participants'])])
+    option = fields.StringField(required=True, validators=[OptionsValidator(['trickle', 'update', 'feed-attach', 'feed-answer', 'feed-detach', 'invite-participants'])])
+
     # all other options should have optional fields below, and the application needs to do a little validation
     trickle = fields.EmbeddedField(VideoRoomControlTrickleRequest, required=False)
+    update = fields.EmbeddedField(VideoRoomControlUpdateRequest, required=False)
     feed_attach = fields.EmbeddedField(VideoRoomControlFeedAttachRequest, required=False)
     feed_answer = fields.EmbeddedField(VideoRoomControlFeedAnswerRequest, required=False)
     feed_detach = fields.EmbeddedField(VideoRoomControlFeedDetachRequest, required=False)
