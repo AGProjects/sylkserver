@@ -9,12 +9,11 @@ import datetime
 import os
 import sys
 
-from pprint import pformat
-
 from application import log
 from application.notification import IObserver, NotificationCenter
 from application.python import Null
 from application.system import makedirs
+from pprint import pformat
 from sipsimple.configuration.settings import SIPSimpleSettings
 from sipsimple.threading import run_in_thread
 from zope.interface import implements
