@@ -65,7 +65,9 @@ def main():
     log.msg("Using SIP SIMPLE SDK version %s" % sipsimple_version)
 
     if not options.fork and options.debug_memory:
+        import atexit
         from application.debug.memory import memory_dump
+        atexit.register(memory_dump)
 
     from sylk.server import SylkServer
     server = SylkServer()
@@ -104,11 +106,6 @@ def main():
         else:
             log.msg('Forcefully exiting SylkServer...')
             os._exit(1)
-
-    if not options.fork and options.debug_memory:
-        print "---------------------"
-        memory_dump()
-        print "---------------------"
 
     sys.exit(int(server.failed))
 
