@@ -165,11 +165,11 @@ class SylkServer(SIPApplication):
             from sylk.interfaces.sipthor import ConferenceNode
             self.thor_interface = ConferenceNode()
             thor_roles = []
-            if 'conference' in self.request_handler.applications:
+            if 'conference' in self.request_handler.application_registry:
                 thor_roles.append('conference_server')
-            if 'xmppgateway' in self.request_handler.applications:
+            if 'xmppgateway' in self.request_handler.application_registry:
                 thor_roles.append('xmpp_gateway')
-            if 'webrtcgateway' in self.request_handler.applications:
+            if 'webrtcgateway' in self.request_handler.application_registry:
                 thor_roles.append('webrtc_gateway')
             self.thor_interface.start(thor_roles)
 

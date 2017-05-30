@@ -2,18 +2,19 @@
 __all__ = ['ISylkApplication', 'ApplicationRegistry', 'SylkApplication', 'IncomingRequestHandler', 'ApplicationLogger']
 
 import abc
+import imp
 import os
 import socket
 import struct
 import sys
 
-from collections import defaultdict
-
 from application import log
 from application.configuration.datatypes import NetworkRange
 from application.notification import IObserver, NotificationCenter
 from application.python import Null
+from application.python.decorator import execute_once
 from application.python.types import Singleton
+from collections import defaultdict
 from itertools import chain
 from sipsimple.threading import run_in_twisted_thread
 from zope.interface import implements
@@ -24,34 +25,87 @@ from sylk.configuration import ServerConfig, SIPConfig, ThorNodeConfig
 SYLK_APP_HEADER = 'X-Sylk-App'
 
 
+def find_builtin_applications():
+    applications_directory = os.path.dirname(__file__)
+    for path, dirs, files in os.walk(applications_directory):
+        parent_directory, name = os.path.split(path)
+        if parent_directory == applications_directory and '__init__.py' in files and name not in ServerConfig.disabled_applications:
+            yield name
+        if path != applications_directory:
+            del dirs[:]  # do not descend more than 1 level
+
+
+def find_extra_applications():
+    if ServerConfig.extra_applications_dir:
+        applications_directory = os.path.realpath(ServerConfig.extra_applications_dir.normalized)
+        for path, dirs, files in os.walk(applications_directory):
+            parent_directory, name = os.path.split(path)
+            if parent_directory == applications_directory and '__init__.py' in files and name not in ServerConfig.disabled_applications:
+                yield name
+            if path != applications_directory:
+                del dirs[:]  # do not descend more than 1 level
+
+
+def find_applications():
+    return chain(find_builtin_applications(), find_extra_applications())
+
+
 class ApplicationRegistry(object):
     __metaclass__ = Singleton
 
     def __init__(self):
-        self.applications = []
+        self.application_map = {}
+
+    def __getitem__(self, name):
+        return self.application_map[name]
+
+    def __contains__(self, name):
+        return name in self.application_map
 
     def __iter__(self):
-        return iter(self.applications)
+        return iter(self.application_map.values())
 
-    def find_application(self, name):
+    def __len__(self):
+        return len(self.application_map)
+
+    @execute_once
+    def load_applications(self):
+        for name in find_builtin_applications():
+            try:
+                __import__('sylk.applications.{name}'.format(name=name))
+            except ImportError as e:
+                log.error('Failed to load builtin application {name!r}: {exception!s}'.format(name=name, exception=e))
+        for name in find_extra_applications():
+            if name in sys.modules:
+                # being able to log this is contingent on this function only executing once
+                log.warning('Not loading extra application {name!r} as it would overshadow a system package/module'.format(name=name))
+                continue
+            try:
+                imp.load_module(name, *imp.find_module(name, [ServerConfig.extra_applications_dir.normalized]))
+            except ImportError as e:
+                log.error('Failed to load extra application {name!r}: {exception!s}'.format(name=name, exception=e))
+
+    def add(self, app_class):
         try:
-            return next(app for app in self.applications if app.__appname__ == name)
-        except StopIteration:
-            return None
+            app = app_class()
+        except Exception as e:
+            log.exception('Failed to initialize {app.__appname__!r} application: {exception!s}'.format(app=app_class, exception=e))
+        else:
+            self.application_map[app.__appname__] = app
 
-    def add(self, app):
-        if app not in self.applications:
-            self.applications.append(app)
+    def get(self, name, default=None):
+        return self.application_map.get(name, default)
 
 
 class ApplicationName(object):
-    def __get__(self, obj, objtype):
-        name = objtype.__name__
+    def __get__(self, instance, instance_type):
+        name = instance_type.__name__
         return name[:-11].lower() if name.endswith('Application') else name.lower()
 
 
 class SylkApplicationMeta(abc.ABCMeta, Singleton):
     """Metaclass for defining SylkServer applications: a Singleton that also adds them to the application registry"""
+
     def __init__(cls, name, bases, dic):
         super(SylkApplicationMeta, cls).__init__(name, bases, dic)
         if name != 'SylkApplication':
@@ -89,55 +143,21 @@ class SylkApplication(object):
         pass
 
 
-def load_builtin_applications():
-    toplevel = os.path.dirname(__file__)
-    app_list = [item for item in os.listdir(toplevel) if os.path.isdir(os.path.join(toplevel, item)) and '__init__.py' in os.listdir(os.path.join(toplevel, item))]
-    for module in ['sylk.applications.%s' % item for item in set(app_list).difference(ServerConfig.disabled_applications)]:
-        try:
-            __import__(module)
-        except ImportError, e:
-            log.warning('Error loading builtin "%s" application: %s' % (module, e))
-
-def load_extra_applications():
-    if ServerConfig.extra_applications_dir:
-        toplevel = os.path.realpath(os.path.abspath(ServerConfig.extra_applications_dir.normalized))
-        if os.path.isdir(toplevel):
-            app_list = [item for item in os.listdir(toplevel) if os.path.isdir(os.path.join(toplevel, item)) and '__init__.py' in os.listdir(os.path.join(toplevel, item))]
-            sys.path.append(toplevel)
-            for module in (item for item in set(app_list).difference(ServerConfig.disabled_applications)):
-                try:
-                    __import__(module)
-                except ImportError, e:
-                    log.warning('Error loading extra "%s" application: %s' % (module, e))
-
-def load_applications():
-    load_builtin_applications()
-    load_extra_applications()
-    for app in ApplicationRegistry():
-        try:
-            app()
-        except Exception, e:
-            log.warning('Error loading application: %s' % e)
-            log.err()
-
-
 class ApplicationNotLoadedError(Exception):
     pass
 
+
 class IncomingRequestHandler(object):
-    """
-    Handle incoming requests and match them to applications.
-    """
+    """Handle incoming requests and match them to applications"""
+
     __metaclass__ = Singleton
     implements(IObserver)
 
     def __init__(self):
-        load_applications()
-        registry = ApplicationRegistry()
-        self.applications = dict((app.__appname__, app) for app in registry)
-        log.msg('Loaded applications: %s' % ', '.join(self.applications))
-        default_application = registry.find_application(ServerConfig.default_application)
-        if default_application is None:
+        self.application_registry = ApplicationRegistry()
+        self.application_registry.load_applications()
+        log.info('Loaded applications: {}'.format(', '.join(sorted(app.__appname__ for app in self.application_registry))))
+        if ServerConfig.default_application not in self.application_registry:
             log.warning('Default application "%s" does not exist, falling back to "conference"' % ServerConfig.default_application)
             ServerConfig.default_application = 'conference'
         else:
@@ -156,12 +176,11 @@ class IncomingRequestHandler(object):
         self.authorization_handler = AuthorizationHandler()
 
     def start(self):
-        for app in ApplicationRegistry():
+        for app in self.application_registry:
             try:
-                app().start()
-            except Exception, e:
-                log.warning('Error starting application: %s' % e)
-                log.err()
+                app.start()
+            except Exception as e:
+                log.exception('Failed to start {app.__appname__!r} application: {exception!s}'.format(app=app, exception=e))
         self.authorization_handler.start()
         notification_center = NotificationCenter()
         notification_center.add_observer(self, name='SIPSessionNewIncoming')
@@ -176,31 +195,28 @@ class IncomingRequestHandler(object):
         notification_center.remove_observer(self, name='SIPIncomingSubscriptionGotSubscribe')
         notification_center.remove_observer(self, name='SIPIncomingReferralGotRefer')
         notification_center.remove_observer(self, name='SIPIncomingRequestGotRequest')
-        for app in ApplicationRegistry():
+        for app in self.application_registry:
             try:
-                app().stop()
-            except Exception, e:
-                log.warning('Error stopping application: %s' % e)
-                log.err()
+                app.stop()
+            except Exception as e:
+                log.exception('Failed to stop {app.__appname__!r} application: {exception!s}'.format(app=app, exception=e))
 
     def get_application(self, ruri, headers):
         if SYLK_APP_HEADER in headers:
-            application = headers[SYLK_APP_HEADER].body.strip()
+            application_name = headers[SYLK_APP_HEADER].body.strip()
         else:
-            application = ServerConfig.default_application
+            application_name = ServerConfig.default_application
             if self.application_map:
                 prefixes = ("%s@%s" % (ruri.user, ruri.host), ruri.host, ruri.user)
                 for prefix in prefixes:
                     if prefix in self.application_map:
-                        application = self.application_map[prefix]
+                        application_name = self.application_map[prefix]
                         break
         try:
-            app = self.applications[application]
+            return self.application_registry[application_name]
         except KeyError:
-            log.error('Application %s is not loaded' % application)
+            log.error('Application %s is not loaded' % application_name)
             raise ApplicationNotLoadedError
-        else:
-            return app()
 
     @run_in_twisted_thread
     def handle_notification(self, notification):
@@ -269,6 +285,7 @@ class IncomingRequestHandler(object):
 
 class UnauthorizedRequest(Exception):
     pass
+
 
 class AuthorizationHandler(object):
     implements(IObserver)
