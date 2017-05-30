@@ -108,16 +108,21 @@ class SylkServer(SIPApplication):
 
     @run_in_green_thread
     def _initialize_subsystems(self):
-        account_manager = AccountManager()
-        dns_manager = DNSManager()
         notification_center = NotificationCenter()
-        session_manager = SessionManager()
-        settings = SIPSimpleSettings()
 
-        notification_center.post_notification('SIPApplicationWillStart', sender=self)
-        if self.state == 'stopping':
+        with self._lock:
+            stop_pending = self._stop_pending
+            if stop_pending:
+                self.state = 'stopping'
+        if stop_pending:
+            notification_center.post_notification('SIPApplicationWillEnd', sender=self)
             reactor.stop()
             return
+
+        account_manager = AccountManager()
+        dns_manager = DNSManager()
+        session_manager = SessionManager()
+        settings = SIPSimpleSettings()
 
         # Initialize default account
         default_account = DefaultAccount()
