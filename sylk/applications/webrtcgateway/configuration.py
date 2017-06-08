@@ -8,7 +8,9 @@ from application.configuration.datatypes import NetworkAddress, StringList
 from sylk.configuration import ServerConfig
 from sylk.configuration.datatypes import Path, SIPProxyAddress
 
-__all__ = ['get_room_config']
+
+__all__ = 'GeneralConfig', 'JanusConfig', 'get_room_config'
+
 
 # Datatypes
 
@@ -44,36 +46,41 @@ class SIPAddress(str):
         return str.__new__(cls, address)
 
 
-class PolicySettingValue(list):
+class PolicyItem(object):
+    def __new__(cls, item):
+        lowercase_item = item.lower()
+        if lowercase_item in ('none', ''):
+            return 'none'
+        elif lowercase_item in ('any', 'all', '*'):
+            return 'all'
+        elif '@' in item:
+            return SIPAddress(item)
+        else:
+            return Domain(item)
+
+
+class PolicySettingValue(object):
     def __init__(self, value):
         if isinstance(value, (tuple, list)):
-            l = [str(x) for x in value]
-        elif isinstance(value, basestring):
-            if value.lower() in ('none', ''):
-                list.__init__(self, [])
-                return
-            elif value.lower() in ('any', 'all', '*'):
-                list.__init__(self, ['*'])
-                return
-            else:
-                l = re.split(r'\s*,\s*', value)
+            items = [str(x) for x in value]
+        elif isinstance(value, str):
+            items = re.split(r'\s*,\s*', value)
         else:
             raise TypeError("value must be a string, list or tuple")
-        values = []
-        for item in l:
-            if '@' in item:
-                values.append(SIPAddress(item))
-            else:
-                values.append(Domain(item))
-        list.__init__(self, values)
+        self.items = {PolicyItem(item) for item in items}
+        self.items.discard('none')
+
+    def __repr__(self):
+        return '{0.__class__.__name__}({1})'.format(self, sorted(self.items))
 
     def match(self, uri):
-        if self == ['*']:
+        if 'all' in self.items:
             return True
-
-        (user, domain) = uri.split("@")
+        elif not self.items:
+            return False
         uri = re.sub('^(sip:|sips:)', '', str(uri))
-        return uri in self or domain in self
+        domain = uri.split('@')[-1]
+        return uri in self.items or domain in self.items
 
 
 class ManagementInterfaceAddress(NetworkAddress):
