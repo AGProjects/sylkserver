@@ -20,7 +20,7 @@ from sipsimple.threading import run_in_twisted_thread
 from sipsimple.threading.green import run_in_green_thread
 from sipsimple.util import ISOTimestamp
 
-from sylk.configuration import SIPConfig, ServerConfig
+from sylk.configuration import SIPConfig
 
 
 @run_in_green_thread
