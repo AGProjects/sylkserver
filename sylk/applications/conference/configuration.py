@@ -51,9 +51,11 @@ class PolicySettingValue(list):
             l = [str(x) for x in value]
         elif isinstance(value, basestring):
             if value.lower() in ('none', ''):
-                return list.__init__(self, [])
+                list.__init__(self, [])
+                return
             elif value.lower() in ('any', 'all', '*'):
-                return list.__init__(self, ['*'])
+                list.__init__(self, ['*'])
+                return
             else:
                 l = re.split(r'\s*,\s*', value)
         else:
@@ -64,7 +66,7 @@ class PolicySettingValue(list):
                 values.append(SIPAddress(item))
             else:
                 values.append(Domain(item))
-        return list.__init__(self, values)
+        list.__init__(self, values)
 
     def match(self, uri):
         if self == ['*']:
