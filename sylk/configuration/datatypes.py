@@ -169,6 +169,7 @@ class URL(object):
 
 class SRTPEncryption(str):
     available_values = ('opportunistic', 'sdes', 'zrtp', 'disabled')
+
     def __new__(cls, value):
         value = str(value)
         if value not in cls.available_values:
@@ -185,4 +186,3 @@ class LogLevel(log.NamedLevel):
             raise ValueError("illegal value for log level: %s" % value)
         log.level.current = cls.__levelmap__[value]
         return log.level.current
-
