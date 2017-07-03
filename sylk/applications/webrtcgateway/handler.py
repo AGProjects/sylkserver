@@ -295,9 +295,8 @@ class ConnectionHandler(object):
     def validate_acl(self, room_uri, from_uri):
         cfg = get_room_config(room_uri)
         if cfg.access_policy == 'allow,deny':
-            if cfg.allow.match(from_uri) and not cfg.deny.match(from_uri):
-                return
-            raise ACLValidationError
+            if cfg.deny.match(from_uri) or not cfg.allow.match(from_uri):
+                raise ACLValidationError
         else:
             if cfg.deny.match(from_uri) and not cfg.allow.match(from_uri):
                 raise ACLValidationError
