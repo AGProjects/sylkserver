@@ -96,7 +96,7 @@ class S2XPresenceHandler(object):
                 log.warning('Error accepting SIP subscription: %s' % e)
                 subscription.end()
         if XMPPGatewayConfig.log_presence:
-            log.msg('SIP subscription from %s to %s added to presence flow 0x%x (%d subs)' % (format_uri(self.sip_identity.uri, 'sip'), format_uri(self.xmpp_identity.uri, 'xmpp'), id(self), len(self._sip_subscriptions)))
+            log.info('SIP subscription from %s to %s added to presence flow 0x%x (%d subs)' % (format_uri(self.sip_identity.uri, 'sip'), format_uri(self.xmpp_identity.uri, 'xmpp'), id(self), len(self._sip_subscriptions)))
 
     def _build_pidf(self):
         if not self._stanza_cache:
@@ -160,25 +160,25 @@ class S2XPresenceHandler(object):
         notification.center.remove_observer(self, sender=subscription)
         self._sip_subscriptions.remove(subscription)
         if XMPPGatewayConfig.log_presence:
-            log.msg('SIP subscription from %s to %s removed from presence flow 0x%x (%d subs)' % (format_uri(self.sip_identity.uri, 'sip'), format_uri(self.xmpp_identity.uri, 'xmpp'), id(self), len(self._sip_subscriptions)))
+            log.info('SIP subscription from %s to %s removed from presence flow 0x%x (%d subs)' % (format_uri(self.sip_identity.uri, 'sip'), format_uri(self.xmpp_identity.uri, 'xmpp'), id(self), len(self._sip_subscriptions)))
         if not self._sip_subscriptions:
             self.end()
 
     def _NH_SIPIncomingSubscriptionNotifyDidFail(self, notification):
         if XMPPGatewayConfig.log_presence:
-            log.msg('Sending SIP NOTIFY failed from %s to %s for presence flow 0x%x: %s (%s)' % (format_uri(self.xmpp_identity.uri, 'xmpp'), format_uri(self.sip_identity.uri, 'sip'), id(self), notification.data.code, notification.data.reason))
+            log.info('Sending SIP NOTIFY failed from %s to %s for presence flow 0x%x: %s (%s)' % (format_uri(self.xmpp_identity.uri, 'xmpp'), format_uri(self.sip_identity.uri, 'sip'), id(self), notification.data.code, notification.data.reason))
 
     def _NH_SIPIncomingSubscriptionGotUnsubscribe(self, notification):
         if XMPPGatewayConfig.log_presence:
-            log.msg('SIP subscription from %s to %s was terminated by user for presence flow 1x%x (%d subs)' % (format_uri(self.sip_identity.uri, 'sip'), format_uri(self.xmpp_identity.uri, 'xmpp'), id(self), len(self._sip_subscriptions)))
+            log.info('SIP subscription from %s to %s was terminated by user for presence flow 1x%x (%d subs)' % (format_uri(self.sip_identity.uri, 'sip'), format_uri(self.xmpp_identity.uri, 'xmpp'), id(self), len(self._sip_subscriptions)))
 
     def _NH_SIPIncomingSubscriptionGotRefreshingSubscribe(self, notification):
         if XMPPGatewayConfig.log_presence:
-            log.msg('SIP subscription from %s to %s was refreshed for presence flow 0x%x (%d subs)' % (format_uri(self.sip_identity.uri, 'sip'), format_uri(self.xmpp_identity.uri, 'xmpp'), id(self), len(self._sip_subscriptions)))
+            log.info('SIP subscription from %s to %s was refreshed for presence flow 0x%x (%d subs)' % (format_uri(self.sip_identity.uri, 'sip'), format_uri(self.xmpp_identity.uri, 'xmpp'), id(self), len(self._sip_subscriptions)))
 
     def _NH_SIPIncomingSubscriptionDidTimeout(self, notification):
         if XMPPGatewayConfig.log_presence:
-            log.msg('SIP subscription from %s to %s timed out for presence flow 0x%x (%d subs)' % (format_uri(self.sip_identity.uri, 'sip'), format_uri(self.xmpp_identity.uri, 'xmpp'), id(self), len(self._sip_subscriptions)))
+            log.info('SIP subscription from %s to %s timed out for presence flow 0x%x (%d subs)' % (format_uri(self.sip_identity.uri, 'sip'), format_uri(self.xmpp_identity.uri, 'xmpp'), id(self), len(self._sip_subscriptions)))
 
     def _NH_XMPPSubscriptionChangedState(self, notification):
         if notification.data.prev_state == 'subscribe_sent' and notification.data.state == 'active':
@@ -193,13 +193,13 @@ class S2XPresenceHandler(object):
         stanza.timestamp = ISOTimestamp.now()    # TODO: mirror the one in the stanza, if present
         pidf_doc = self._build_pidf()
         if XMPPGatewayConfig.log_presence:
-            log.msg('XMPP notification from %s to %s for presence flow 0x%x' % (format_uri(self.xmpp_identity.uri, 'xmpp'), format_uri(self.sip_identity.uri, 'sip'), id(self)))
+            log.info('XMPP notification from %s to %s for presence flow 0x%x' % (format_uri(self.xmpp_identity.uri, 'xmpp'), format_uri(self.sip_identity.uri, 'sip'), id(self)))
         for subscription in self._sip_subscriptions:
             try:
                 subscription.push_content(pidf.PIDFDocument.content_type, pidf_doc)
             except SIPCoreError, e:
                 if XMPPGatewayConfig.log_presence:
-                    log.msg('Failed to send SIP NOTIFY from %s to %s for presence flow 0x%x: %s' % (format_uri(self.xmpp_identity.uri, 'xmpp'), format_uri(self.sip_identity.uri, 'sip'), id(self), e))
+                    log.info('Failed to send SIP NOTIFY from %s to %s for presence flow 0x%x: %s' % (format_uri(self.xmpp_identity.uri, 'xmpp'), format_uri(self.sip_identity.uri, 'sip'), id(self), e))
         if not stanza.available:
             # Only inform once about this device being unavailable
             del self._stanza_cache[stanza.sender.uri]
@@ -445,7 +445,7 @@ class X2SPresenceHandler(object):
                                 pass
                             if notification.data.body:
                                 if XMPPGatewayConfig.log_presence:
-                                    log.msg('SIP NOTIFY from %s to %s' % (format_uri(self.sip_identity.uri, 'sip'), format_uri(self.xmpp_identity.uri, 'xmpp')))
+                                    log.info('SIP NOTIFY from %s to %s' % (format_uri(self.sip_identity.uri, 'sip'), format_uri(self.xmpp_identity.uri, 'xmpp')))
                                 self._process_pidf(notification.data.body)
                     elif notification.name == 'SIPSubscriptionDidEnd':
                         break

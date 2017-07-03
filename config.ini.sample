@@ -20,9 +20,10 @@
 ; extra_applications_dir =
 
 trace_dir = /var/log/sylkserver
-; trace_core = False
+; trace_dns = False
 ; trace_sip = False
 ; trace_msrp = False
+; trace_core = False
 ; trace_notifications = False
 
 ; Log level (one of debug, info, warning, error or critical).

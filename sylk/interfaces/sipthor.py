@@ -36,7 +36,7 @@ class ConferenceNode(EventServiceClient):
 
     def start(self, roles):
         # Needs to be called from a green thread
-        log.msg('Publishing %s roles to SIPThor' % roles)
+        log.info('Publishing %s roles to SIPThor' % roles)
         self.node = ThorEntity(SIPConfig.local_ip.normalized, roles, version=sylk.__version__)
         self.networks = {}
         self.presence_message = ThorEvent('Thor.Presence', self.node.id)
@@ -95,13 +95,13 @@ class ConferenceNode(EventServiceClient):
                 for node in removed_nodes:
                     network.remove_node(node)
                 plural = len(removed_nodes) != 1 and 's' or ''
-                log.msg("removed %s node%s: %s" % (role, plural, ', '.join(removed_nodes)))
+                log.info("removed %s node%s: %s" % (role, plural, ', '.join(removed_nodes)))
                 updated = True
             if added_nodes:
                 for node in added_nodes:
                     network.add_node(node)
                 plural = len(added_nodes) != 1 and 's' or ''
-                log.msg("added %s node%s: %s" % (role, plural, ', '.join(added_nodes)))
+                log.info("added %s node%s: %s" % (role, plural, ', '.join(added_nodes)))
                 updated = True
         if updated:
             NotificationCenter().post_notification('ThorNetworkGotUpdate', sender=self, data=NotificationData(networks=self.networks))

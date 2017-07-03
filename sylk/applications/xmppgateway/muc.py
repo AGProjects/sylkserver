@@ -335,7 +335,7 @@ class X2SMucHandler(object):
         handler(notification)
 
     def _NH_SIPSessionDidStart(self, notification):
-        log.msg("SIP multiparty session %s started" % self._sip_session.call_id)
+        log.info("SIP multiparty session %s started" % self._sip_session.call_id)
         if not self._sip_session.remote_focus or not self._msrp_stream.nickname_allowed:
             self.end()
             return
@@ -344,7 +344,7 @@ class X2SMucHandler(object):
         self._first_stanza = None
 
     def _NH_SIPSessionDidEnd(self, notification):
-        log.msg("SIP multiparty session %s ended" % self._sip_session.call_id)
+        log.info("SIP multiparty session %s ended" % self._sip_session.call_id)
         notification.center.remove_observer(self, sender=self._sip_session)
         notification.center.remove_observer(self, sender=self._msrp_stream)
         self._sip_session = None
@@ -352,7 +352,7 @@ class X2SMucHandler(object):
         self.end()
 
     def _NH_SIPSessionDidFail(self, notification):
-        log.msg("SIP multiparty session %s failed" % self._sip_session.call_id)
+        log.info("SIP multiparty session %s failed" % self._sip_session.call_id)
         notification.center.remove_observer(self, sender=self._sip_session)
         notification.center.remove_observer(self, sender=self._msrp_stream)
         self._sip_session = None

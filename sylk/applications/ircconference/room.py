@@ -250,16 +250,16 @@ class IRCRoom(object):
             pass
         else:
             notification_center.add_observer(self, sender=audio_stream)
-            log.msg(u'Audio stream using %s/%sHz, end-points: %s:%d <-> %s:%d' % (audio_stream.codec, audio_stream.sample_rate,
+            log.info(u'Audio stream using %s/%sHz, end-points: %s:%d <-> %s:%d' % (audio_stream.codec, audio_stream.sample_rate,
                                                                                   audio_stream.local_rtp_address, audio_stream.local_rtp_port,
                                                                                   audio_stream.remote_rtp_address, audio_stream.remote_rtp_port))
             welcome_handler = WelcomeHandler(self, session)
             welcome_handler.start()
         self.get_conference_info()
         if len(self.sessions) == 1:
-            log.msg(u'%s started conference %s %s' % (format_identity(session.remote_identity), self.uri, format_stream_types(session.streams)))
+            log.info(u'%s started conference %s %s' % (format_identity(session.remote_identity), self.uri, format_stream_types(session.streams)))
         else:
-            log.msg(u'%s joined conference %s %s' % (format_identity(session.remote_identity), self.uri, format_stream_types(session.streams)))
+            log.info(u'%s joined conference %s %s' % (format_identity(session.remote_identity), self.uri, format_stream_types(session.streams)))
         if str(session.remote_identity.uri) not in set(str(s.remote_identity.uri) for s in self.sessions if s is not session):
             self.dispatch_server_message('%s has joined the room %s' % (format_identity(session.remote_identity), format_stream_types(session.streams)), exclude=session)
 
@@ -287,9 +287,9 @@ class IRCRoom(object):
         notification_center.remove_observer(self, sender=session)
         self.sessions.remove(session)
         self.get_conference_info()
-        log.msg(u'%s left conference %s after %s' % (format_identity(session.remote_identity), self.uri, format_session_duration(session)))
+        log.info(u'%s left conference %s after %s' % (format_identity(session.remote_identity), self.uri, format_session_duration(session)))
         if not self.sessions:
-            log.msg(u'Last participant left conference %s' % self.uri)
+            log.info(u'Last participant left conference %s' % self.uri)
         if str(session.remote_identity.uri) not in set(str(s.remote_identity.uri) for s in self.sessions if s is not session):
             self.dispatch_server_message('%s has left the room after %s' % (format_identity(session.remote_identity), format_session_duration(session)))
 
@@ -326,9 +326,9 @@ class IRCRoom(object):
         session = notification.sender
         if notification.data.originator == 'remote':
             if notification.data.on_hold:
-                log.msg(u'%s has put the audio session on hold' % format_identity(session.remote_identity))
+                log.info(u'%s has put the audio session on hold' % format_identity(session.remote_identity))
             else:
-                log.msg(u'%s has taken the audio session out of hold' % format_identity(session.remote_identity))
+                log.info(u'%s has taken the audio session out of hold' % format_identity(session.remote_identity))
             self.get_conference_info()
 
     def _NH_SIPSessionNewProposal(self, notification):
@@ -353,10 +353,10 @@ class IRCRoom(object):
         session = notification.sender
         for stream in notification.data.added_streams:
             notification.center.add_observer(self, sender=stream)
-            log.msg(u'%s has added %s to %s' % (format_identity(session.remote_identity), stream.type, self.uri))
+            log.info(u'%s has added %s to %s' % (format_identity(session.remote_identity), stream.type, self.uri))
             self.dispatch_server_message('%s has added %s' % (format_identity(session.remote_identity), stream.type), exclude=session)
             if stream.type == 'audio':
-                log.msg(u'Audio stream using %s/%sHz, end-points: %s:%d <-> %s:%d' % (stream.codec, stream.sample_rate,
+                log.info(u'Audio stream using %s/%sHz, end-points: %s:%d <-> %s:%d' % (stream.codec, stream.sample_rate,
                                                                                       stream.local_rtp_address, stream.local_rtp_port,
                                                                                       stream.remote_rtp_address, stream.remote_rtp_port))
                 welcome_handler = WelcomeHandler(self, session)
@@ -364,7 +364,7 @@ class IRCRoom(object):
 
         for stream in notification.data.removed_streams:
             notification.center.remove_observer(self, sender=stream)
-            log.msg(u'%s has removed %s from %s' % (format_identity(session.remote_identity), stream.type, self.uri))
+            log.info(u'%s has removed %s from %s' % (format_identity(session.remote_identity), stream.type, self.uri))
             self.dispatch_server_message('%s has removed %s' % (format_identity(session.remote_identity), stream.type), exclude=session)
             if stream.type == 'audio':
                 try:
@@ -375,7 +375,7 @@ class IRCRoom(object):
                 if len(self.audio_conference.streams) == 0:
                     self.audio_conference.hold()
             if not session.streams:
-                log.msg(u'%s has removed all streams from %s, session will be terminated' % (format_identity(session.remote_identity), self.uri))
+                log.info(u'%s has removed all streams from %s, session will be terminated' % (format_identity(session.remote_identity), self.uri))
                 session.end()
         self.get_conference_info()
 
@@ -384,7 +384,7 @@ class IRCRoom(object):
         if stream.type != 'audio':
             return
         session = stream.session
-        log.msg(u'Audio stream for session %s timed out' % format_identity(session.remote_identity))
+        log.info(u'Audio stream for session %s timed out' % format_identity(session.remote_identity))
         if session.streams == [stream]:
             session.end()
 
@@ -392,7 +392,7 @@ class IRCRoom(object):
         stream = notification.sender
         message = notification.data.message
         if message.content_type not in ('text/html', 'text/plain'):
-            log.msg(u'Unsupported content type: %s, ignoring message' % message.content_type)
+            log.info(u'Unsupported content type: %s, ignoring message' % message.content_type)
             stream.msrp_session.send_report(notification.data.chunk, 413, 'Unwanted message')
             return
         stream.msrp_session.send_report(notification.data.chunk, 200, 'OK')
@@ -556,7 +556,7 @@ class IRCBot(irc.IRCClient):
 
     def connectionMade(self):
         irc.IRCClient.connectionMade(self)
-        log.msg('Connection to IRC has been established')
+        log.info('Connection to IRC has been established')
         NotificationCenter().post_notification('IRCBotGotConnected', self.factory, NotificationData(protocol=self))
 
     def connectionLost(self, failure):
@@ -564,15 +564,15 @@ class IRCBot(irc.IRCClient):
         NotificationCenter().post_notification('IRCBotGotDisconnected', self.factory, NotificationData())
 
     def signedOn(self):
-        log.msg('Logging into %s channel...' % self.factory.channel)
+        log.info('Logging into %s channel...' % self.factory.channel)
         self.join(self.factory.channel)
 
     def kickedFrom(self, channel, kicker, message):
-        log.msg('Got kicked from %s by %s: %s. Rejoining...' % (channel, kicker, message))
+        log.info('Got kicked from %s by %s: %s. Rejoining...' % (channel, kicker, message))
         self.join(self.factory.channel)
 
     def joined(self, channel):
-        log.msg('Logged into %s channel' % channel)
+        log.info('Logged into %s channel' % channel)
         NotificationCenter().post_notification('IRCBotJoinedChannel', self.factory, NotificationData(channel=self.factory.channel))
 
     def privmsg(self, user, channel, message):
@@ -661,9 +661,9 @@ class IRCBotFactory(protocol.ClientFactory):
         self.stop_requested = False
 
     def clientConnectionLost(self, connector, failure):
-        log.msg('Disconnected from IRC: %s' % failure.getErrorMessage())
+        log.info('Disconnected from IRC: %s' % failure.getErrorMessage())
         if not self.stop_requested:
-            log.msg('Reconnecting...')
+            log.info('Reconnecting...')
             connector.connect()
 
     def clientConnectionFailed(self, connector, failure):

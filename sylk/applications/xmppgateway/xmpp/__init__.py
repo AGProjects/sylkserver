@@ -6,7 +6,7 @@ from twisted.internet import reactor
 from wokkel.disco import DiscoClientProtocol
 from wokkel.generic import FallbackHandler, VersionHandler
 from wokkel.ping import PingHandler
-from wokkel.server import ServerService
+from wokkel.server import ServerService, XMPPS2SServerFactory
 from zope.interface import implements
 
 from sylk import __version__ as SYLK_VERSION
@@ -15,7 +15,7 @@ from sylk.applications.xmppgateway.datatypes import FrozenURI
 from sylk.applications.xmppgateway.logger import log
 from sylk.applications.xmppgateway.xmpp.jingle.session import JingleSession, JingleSessionManager
 from sylk.applications.xmppgateway.xmpp.protocols import DiscoProtocol, JingleProtocol, MessageProtocol, MUCServerProtocol, MUCPresenceProtocol, PresenceProtocol
-from sylk.applications.xmppgateway.xmpp.server import SylkInternalComponent, SylkRouter, SylkS2SServerFactory, xmpp_logger
+from sylk.applications.xmppgateway.xmpp.server import SylkInternalComponent, SylkRouter
 from sylk.applications.xmppgateway.xmpp.session import XMPPChatSessionManager, XMPPMucSessionManager
 from sylk.applications.xmppgateway.xmpp.subscription import XMPPSubscriptionManager
 
@@ -37,7 +37,7 @@ class XMPPManager(object):
         self._server_service.domains = self.domains | self.muc_domains
         self._server_service.logTraffic = False    # done manually
 
-        self._s2s_factory = SylkS2SServerFactory(self._server_service)
+        self._s2s_factory = XMPPS2SServerFactory(self._server_service)
         self._s2s_factory.logTraffic = False    # done manually
 
         # Setup internal components
@@ -99,13 +99,10 @@ class XMPPManager(object):
 
     def start(self):
         self.stopped = False
-        xmpp_logger.start()
-        config = XMPPGatewayConfig
-        if config.trace_xmpp and xmpp_logger._xmpptrace_filename is not None:
-            log.msg('Logging XMPP trace to file "%s"' % xmpp_logger._xmpptrace_filename)
-        self._s2s_listener = reactor.listenTCP(config.local_port, self._s2s_factory, interface=config.local_ip)
+        # noinspection PyUnresolvedReferences
+        self._s2s_listener = reactor.listenTCP(XMPPGatewayConfig.local_port, self._s2s_factory, interface=XMPPGatewayConfig.local_ip)
         listen_address = self._s2s_listener.getHost()
-        log.msg("XMPP listener started on %s:%d" % (listen_address.host, listen_address.port))
+        log.info("XMPP listener started on %s:%d" % (listen_address.host, listen_address.port))
         self.chat_session_manager.start()
         self.muc_session_manager.start()
         self.subscription_manager.start()
@@ -128,7 +125,6 @@ class XMPPManager(object):
         notification_center = NotificationCenter()
         notification_center.remove_observer(self, sender=self._internal_component)
         notification_center.remove_observer(self, sender=self._muc_component)
-        xmpp_logger.stop()
 
     def send_stanza(self, stanza):
         if self.stopped:

@@ -222,7 +222,7 @@ class BonjourService(object):
                 _bonjour.DNSServiceProcessResult(file.file)
             except:
                 # Should we close the file? The documentation doesn't say anything about this. -Luci
-                log.err()
+                log.exception()
         for file in command.files:
             file.active = False
         self._files = [f for f in self._files if not f.closed]

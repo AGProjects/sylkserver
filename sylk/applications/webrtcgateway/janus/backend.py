@@ -7,7 +7,6 @@ from application.notification import IObserver, NotificationCenter, Notification
 from application.python import Null
 from application.python.types import Singleton
 from autobahn.twisted.websocket import connectWS, WebSocketClientFactory, WebSocketClientProtocol
-from sipsimple.util import ISOTimestamp
 from twisted.internet import reactor, defer
 from twisted.internet.protocol import ReconnectingClientFactory
 from twisted.python.failure import Failure
@@ -15,7 +14,6 @@ from zope.interface import implements
 
 from sylk import __version__ as SYLK_VERSION
 from sylk.applications.webrtcgateway.configuration import JanusConfig
-from sylk.applications.webrtcgateway.janus.logger import Logger as JanusLogger
 from sylk.applications.webrtcgateway.logger import log
 
 
@@ -52,9 +50,10 @@ class JanusClientProtocol(WebSocketClientProtocol):
     _janus_keepalive_timers = None
     _janus_keepalive_interval = 45
 
+    notification_center = NotificationCenter()
+
     def onOpen(self):
-        notification_center = NotificationCenter()
-        notification_center.post_notification('JanusBackendConnected', sender=self)
+        self.notification_center.post_notification('JanusBackendConnected', sender=self)
         self._janus_pending_transactions = {}
         self._janus_keepalive_timers = {}
         self._janus_event_handlers = {}
@@ -63,8 +62,7 @@ class JanusClientProtocol(WebSocketClientProtocol):
         if isBinary:
             log.warn('Unexpected binary payload received')
             return
-        if JanusConfig.trace_janus:
-            self.factory.janus_logger.msg("IN", ISOTimestamp.now(), payload)
+        self.notification_center.post_notification('WebRTCJanusTrace', sender=self, data=NotificationData(direction='INCOMING', message=payload, peer=self.peer))
         try:
             data = json.loads(payload)
         except Exception as e:
@@ -84,7 +82,7 @@ class JanusClientProtocol(WebSocketClientProtocol):
             try:
                 handler(handle_id, message_type, data)
             except Exception:
-                log.err()
+                log.exception()
             return
         try:
             req, d = self._janus_pending_transactions.pop(transaction_id)
@@ -116,8 +114,7 @@ class JanusClientProtocol(WebSocketClientProtocol):
 
     def connectionLost(self, reason):
         super(JanusClientProtocol, self).connectionLost(reason)
-        notification_center = NotificationCenter()
-        notification_center.post_notification('JanusBackendDisconnected', sender=self, data=NotificationData(reason=reason.getErrorMessage()))
+        self.notification_center.post_notification('JanusBackendDisconnected', sender=self, data=NotificationData(reason=reason.getErrorMessage()))
 
     def disconnect(self, code=1000, reason=u''):
         self.sendClose(code, reason)
@@ -131,8 +128,7 @@ class JanusClientProtocol(WebSocketClientProtocol):
 
     def _janus_send_request(self, req):
         data = json.dumps(req.as_dict())
-        if JanusConfig.trace_janus:
-            self.factory.janus_logger.msg("OUT", ISOTimestamp.now(), data)
+        self.notification_center.post_notification('WebRTCJanusTrace', sender=self, data=NotificationData(direction='OUTGOING', message=data, peer=self.peer))
         self.sendMessage(data)
         d = defer.Deferred()
         self._janus_pending_transactions[req.transaction_id] = (req, d)
@@ -207,11 +203,7 @@ class JanusBackend(object):
     implements(IObserver)
 
     def __init__(self):
-        self.janus_logger = JanusLogger()
-        self.factory = JanusClientFactory(url=JanusConfig.api_url,
-                                          protocols=['janus-protocol'],
-                                          useragent='SylkServer/%s' % SYLK_VERSION)
-        self.factory.janus_logger = self.janus_logger
+        self.factory = JanusClientFactory(url=JanusConfig.api_url, protocols=['janus-protocol'], useragent='SylkServer/%s' % SYLK_VERSION)
         self.connector = None
         self.connection = Null
         self._stopped = False
@@ -226,7 +218,6 @@ class JanusBackend(object):
         return self.connection is not Null
 
     def start(self):
-        self.janus_logger.start()
         notification_center = NotificationCenter()
         notification_center.add_observer(self, name='JanusBackendConnected')
         notification_center.add_observer(self, name='JanusBackendDisconnected')
@@ -236,7 +227,6 @@ class JanusBackend(object):
         if self._stopped:
             return
         self._stopped = True
-        self.janus_logger.stop()
         self.factory.stopTrying()
         notification_center = NotificationCenter()
         notification_center.discard_observer(self, name='JanusBackendConnected')
@@ -255,10 +245,10 @@ class JanusBackend(object):
     def _NH_JanusBackendConnected(self, notification):
         assert self.connection is Null
         self.connection = notification.sender
-        log.msg('Janus backend connection up')
+        log.info('Janus backend connection up')
         self.factory.resetDelay()
 
     def _NH_JanusBackendDisconnected(self, notification):
-        log.msg('Janus backend connection down: %s' % notification.data.reason)
+        log.info('Janus backend connection down: %s' % notification.data.reason)
         self.connection = Null
 

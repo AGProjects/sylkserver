@@ -13,11 +13,11 @@ from sylk.applications.webrtcgateway.janus.backend import JanusBackend
 from sylk.applications.webrtcgateway.logger import log
 from sylk.applications.webrtcgateway.protocol import SYLK_WS_PROTOCOL
 from sylk.applications.webrtcgateway.storage import TokenStorage
-from sylk.applications.webrtcgateway.websocket_logger import Logger as WSLogger
 from sylk.resources import Resources
 from sylk.web import Klein, StaticFileResource, server
 
-__all__ = ['WebHandler', 'AdminWebHandler']
+
+__all__ = 'WebHandler', 'AdminWebHandler'
 
 
 class WebRTCGatewayWeb(object):
@@ -53,7 +53,6 @@ class WebHandler(object):
         self.factory = None
         self.resource = None
         self.web = None
-        self.ws_logger = WSLogger()
 
     def start(self):
         ws_url = 'ws' + server.url[4:] + '/webrtcgateway/ws'
@@ -61,17 +60,14 @@ class WebHandler(object):
         self.factory.setProtocolOptions(allowedOrigins=GeneralConfig.web_origins,
                                         autoPingInterval=GeneralConfig.websocket_ping_interval,
                                         autoPingTimeout=GeneralConfig.websocket_ping_interval/2)
-        self.factory.ws_logger = self.ws_logger
 
         self.web = WebRTCGatewayWeb(self.factory)
         server.register_resource('webrtcgateway', self.web.resource())
 
-        log.msg('WebSocket handler started at %s' % ws_url)
-        log.msg('Allowed web origins: %s' % ', '.join(GeneralConfig.web_origins))
-        log.msg('Allowed SIP domains: %s' % ', '.join(GeneralConfig.sip_domains))
-        log.msg('Using Janus API: %s' % JanusConfig.api_url)
-
-        self.ws_logger.start()
+        log.info('WebSocket handler started at %s' % ws_url)
+        log.info('Allowed web origins: %s' % ', '.join(GeneralConfig.web_origins))
+        log.info('Allowed SIP domains: %s' % ', '.join(GeneralConfig.sip_domains))
+        log.info('Using Janus API: %s' % JanusConfig.api_url)
 
         self.backend = JanusBackend()
         self.backend.start()
@@ -86,7 +82,6 @@ class WebHandler(object):
         if self.backend is not None:
             self.backend.stop()
             self.backend = None
-        self.ws_logger.stop()
 
 
 # TODO: This implementation is a prototype.  Moving forward it probably makes sense to provide admin API
@@ -111,8 +106,9 @@ class AdminWebHandler(object):
 
     def start(self):
         host, port = GeneralConfig.http_management_interface
+        # noinspection PyUnresolvedReferences
         self.listener = reactor.listenTCP(port, Site(self.app.resource()), interface=host)
-        log.msg('Admin web handler started at http://%s:%d' % (host, port))
+        log.info('Admin web handler started at http://%s:%d' % (host, port))
 
     def stop(self):
         if self.listener is not None:

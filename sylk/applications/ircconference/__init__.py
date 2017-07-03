@@ -23,7 +23,7 @@ class IRCConferenceApplication(SylkApplication):
         pass
 
     def incoming_session(self, session):
-        log.msg('New incoming session from %s' % session.remote_identity.uri)
+        log.info('New incoming session from %s' % session.remote_identity.uri)
         audio_streams = [stream for stream in session.proposed_streams if stream.type=='audio']
         chat_streams = [stream for stream in session.proposed_streams if stream.type=='chat']
         if not audio_streams and not chat_streams:
@@ -77,7 +77,7 @@ class IRCConferenceApplication(SylkApplication):
 
     def _NH_SIPSessionDidEnd(self, notification):
         session = notification.sender
-        log.msg('Session from %s ended' % session.remote_identity.uri)
+        log.info('Session from %s ended' % session.remote_identity.uri)
         NotificationCenter().remove_observer(self, sender=session)
         room = IRCRoom.get_room(session.request_uri)
         if session in room.sessions:
@@ -93,6 +93,6 @@ class IRCConferenceApplication(SylkApplication):
     def _NH_SIPSessionDidFail(self, notification):
         session = notification.sender
         self.pending_sessions.remove(session)
-        log.msg('Session from %s failed' % session.remote_identity.uri)
+        log.info('Session from %s failed' % session.remote_identity.uri)
 
 

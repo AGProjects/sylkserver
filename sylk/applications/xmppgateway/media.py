@@ -235,7 +235,7 @@ class MediaSessionHandler(object):
         handler(notification)
 
     def _NH_SIPSessionDidStart(self, notification):
-        log.msg("SIP session %s started" % self.sip_session.call_id)
+        log.info("SIP session %s started" % self.sip_session.call_id)
         if self.sip_session.direction == 'outgoing':
             # Time to accept the Jingle session and bridge them together
             try:
@@ -256,13 +256,13 @@ class MediaSessionHandler(object):
                 self._audio_bidge.add(audio_stream)
 
     def _NH_SIPSessionDidEnd(self, notification):
-        log.msg("SIP session %s ended" % self.sip_session.call_id)
+        log.info("SIP session %s ended" % self.sip_session.call_id)
         notification.center.remove_observer(self, sender=self.sip_session)
         self.sip_session = None
         self.end()
 
     def _NH_SIPSessionDidFail(self, notification):
-        log.msg("SIP session %s failed (%s)" % (self.sip_session.call_id, notification.data.reason))
+        log.info("SIP session %s failed (%s)" % (self.sip_session.call_id, notification.data.reason))
         notification.center.remove_observer(self, sender=self.sip_session)
         self.sip_session = None
         self.end()
@@ -285,7 +285,7 @@ class MediaSessionHandler(object):
         self.jingle_session._send_conference_info(notification.data.conference_info.toxml())
 
     def _NH_JingleSessionDidStart(self, notification):
-        log.msg("Jingle session %s started" % notification.sender.id)
+        log.info("Jingle session %s started" % notification.sender.id)
         if self.jingle_session.direction == 'incoming':
             # Both sessions have been accepted now
             self.started = True
@@ -306,13 +306,13 @@ class MediaSessionHandler(object):
             self.sip_session.accept(self.sip_session.proposed_streams)
 
     def _NH_JingleSessionDidEnd(self, notification):
-        log.msg("Jingle session %s ended" % notification.sender.id)
+        log.info("Jingle session %s ended" % notification.sender.id)
         notification.center.remove_observer(self, sender=self.jingle_session)
         self.jingle_session = None
         self.end()
 
     def _NH_JingleSessionDidFail(self, notification):
-        log.msg("Jingle session %s failed (%s)" % (notification.sender.id, notification.data.reason))
+        log.info("Jingle session %s failed (%s)" % (notification.sender.id, notification.data.reason))
         notification.center.remove_observer(self, sender=self.jingle_session)
         self.jingle_session = None
         self.end()

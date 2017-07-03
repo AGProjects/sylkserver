@@ -52,13 +52,13 @@ class XMPPGatewayApplication(SylkApplication):
     def incoming_session(self, session):
         stream_types = set([stream.type for stream in session.proposed_streams])
         if 'chat' in stream_types:
-            log.msg('New chat session from %s to %s' % (session.remote_identity.uri, session.local_identity.uri))
+            log.info('New chat session from %s to %s' % (session.remote_identity.uri, session.local_identity.uri))
             self.incoming_chat_session(session)
         elif 'audio' in stream_types:
-            log.msg('New audio session from %s to %s' % (session.remote_identity.uri, session.local_identity.uri))
+            log.info('New audio session from %s to %s' % (session.remote_identity.uri, session.local_identity.uri))
             self.incoming_media_session(session)
         else:
-            log.msg('New session from %s to %s rejected. Unsupported media: %s ' % (session.remote_identity.uri, session.local_identity.uri, stream_types))
+            log.info('New session from %s to %s rejected. Unsupported media: %s ' % (session.remote_identity.uri, session.local_identity.uri, stream_types))
             session.reject(488)
 
     def incoming_chat_session(self, session):
@@ -67,7 +67,7 @@ class XMPPGatewayApplication(SylkApplication):
             try:
                 referred_by_uri = SIPURI.parse(session.transfer_info.referred_by)
             except SIPCoreError:
-                log.msg("SIP multiparty session invitation %s failed: invalid Referred-By header" % session.call_id)
+                log.info("SIP multiparty session invitation %s failed: invalid Referred-By header" % session.call_id)
                 session.reject(488)
                 return
             muc_uri = FrozenURI(session.remote_identity.uri.user, session.remote_identity.uri.host)
@@ -84,7 +84,7 @@ class XMPPGatewayApplication(SylkApplication):
                 NotificationCenter().add_observer(self, sender=handler)
                 handler.start()
             else:
-                log.msg("SIP multiparty session invitation %s failed: there is another invitation in progress from %s to %s" % (session.call_id,
+                log.info("SIP multiparty session invitation %s failed: there is another invitation in progress from %s to %s" % (session.call_id,
                                                                                                                                 format_uri(inviter_uri, 'sip'),
                                                                                                                                 format_uri(recipient_uri, 'xmpp')))
                 session.reject(480)
@@ -92,7 +92,7 @@ class XMPPGatewayApplication(SylkApplication):
 
         # Check domain
         if session.remote_identity.uri.host not in XMPPGatewayConfig.domains:
-            log.msg('Session rejected: From domain is not a local XMPP domain')
+            log.info('Session rejected: From domain is not a local XMPP domain')
             session.reject(606, 'Not Acceptable')
             return
 
@@ -120,7 +120,7 @@ class XMPPGatewayApplication(SylkApplication):
             pass
         else:
             # There is another pending session with same identifiers, can't accept this one
-            log.msg('Session rejected: other session with same identifiers in progress')
+            log.info('Session rejected: other session with same identifiers in progress')
             session.reject(488)
             return
 
@@ -138,7 +138,7 @@ class XMPPGatewayApplication(SylkApplication):
 
     def incoming_media_session(self, session):
         if session.remote_identity.uri.host not in self.xmpp_manager.domains|self.xmpp_manager.muc_domains:
-            log.msg('Session rejected: From domain is not a local XMPP domain')
+            log.info('Session rejected: From domain is not a local XMPP domain')
             session.reject(403)
             return
 
@@ -154,11 +154,11 @@ class XMPPGatewayApplication(SylkApplication):
             return
 
         if XMPPGatewayConfig.log_presence:
-            log.msg('SIP subscription from %s to %s' % (format_uri(from_header.uri, 'sip'), format_uri(to_header.uri, 'xmpp')))
+            log.info('SIP subscription from %s to %s' % (format_uri(from_header.uri, 'sip'), format_uri(to_header.uri, 'xmpp')))
 
         if subscribe_request.event != 'presence':
             if XMPPGatewayConfig.log_presence:
-                log.msg('SIP subscription rejected: only presence event is supported')
+                log.info('SIP subscription rejected: only presence event is supported')
             subscribe_request.reject(489)
             return
 
@@ -166,7 +166,7 @@ class XMPPGatewayApplication(SylkApplication):
         remote_identity_uri = data.headers['From'].uri
         if remote_identity_uri.host not in XMPPGatewayConfig.domains:
             if XMPPGatewayConfig.log_presence:
-                log.msg('SIP subscription rejected: From domain is not a local XMPP domain')
+                log.info('SIP subscription rejected: From domain is not a local XMPP domain')
             subscribe_request.reject(606)
             return
 
@@ -199,11 +199,11 @@ class XMPPGatewayApplication(SylkApplication):
         if Null in (content_type, from_header, to_header):
             message_request.answer(400)
             return
-        log.msg('New SIP Message from %s to %s' % (from_header.uri, to_header.uri))
+        log.info('New SIP Message from %s to %s' % (from_header.uri, to_header.uri))
 
         # Check domain
         if from_header.uri.host not in XMPPGatewayConfig.domains:
-            log.msg('Message rejected: From domain is not a local XMPP domain')
+            log.info('Message rejected: From domain is not a local XMPP domain')
             message_request.answer(606)
             return
 
@@ -211,7 +211,7 @@ class XMPPGatewayApplication(SylkApplication):
             try:
                 cpim_message = CPIMPayload.decode(data.body)
             except CPIMParserError:
-                log.msg('Message rejected: CPIM parse error')
+                log.info('Message rejected: CPIM parse error')
                 message_request.answer(400)
                 return
             else:
@@ -410,7 +410,7 @@ class XMPPGatewayApplication(SylkApplication):
 
     def _NH_ChatSessionDidStart(self, notification):
         handler = notification.sender
-        log.msg('Chat session established sip:%s <--> xmpp:%s' % (handler.sip_identity.uri, handler.xmpp_identity.uri))
+        log.info('Chat session established sip:%s <--> xmpp:%s' % (handler.sip_identity.uri, handler.xmpp_identity.uri))
         for k,v in self.pending_sessions.items():
             if v is handler:
                 del self.pending_sessions[k]
@@ -419,7 +419,7 @@ class XMPPGatewayApplication(SylkApplication):
 
     def _NH_ChatSessionDidEnd(self, notification):
         handler = notification.sender
-        log.msg('Chat session ended sip:%s <--> xmpp:%s' % (handler.sip_identity.uri, handler.xmpp_identity.uri))
+        log.info('Chat session ended sip:%s <--> xmpp:%s' % (handler.sip_identity.uri, handler.xmpp_identity.uri))
         self.chat_sessions.remove(handler)
         notification.center.remove_observer(self, sender=handler)
 
@@ -432,7 +432,7 @@ class XMPPGatewayApplication(SylkApplication):
                 del self.pending_sessions[k]
                 break
         sip_uri, xmpp_uri = uris
-        log.msg('Chat session failed sip:%s <--> xmpp:%s (%s)' % (sip_uri, xmpp_uri, notification.data.reason))
+        log.info('Chat session failed sip:%s <--> xmpp:%s (%s)' % (sip_uri, xmpp_uri, notification.data.reason))
         notification.center.remove_observer(self, sender=handler)
 
     # Presence handling
@@ -440,41 +440,41 @@ class XMPPGatewayApplication(SylkApplication):
     def _NH_S2XPresenceHandlerDidStart(self, notification):
         handler = notification.sender
         if XMPPGatewayConfig.log_presence:
-            log.msg('Presence flow 0x%x established %s --> %s' % (id(handler), format_uri(handler.sip_identity.uri, 'sip'), format_uri(handler.xmpp_identity.uri, 'xmpp')))
-            log.msg('%d SIP --> XMPP and %d XMPP --> SIP presence flows are active' % (len(self.s2x_presence_subscriptions), len(self.x2s_presence_subscriptions)))
+            log.info('Presence flow 0x%x established %s --> %s' % (id(handler), format_uri(handler.sip_identity.uri, 'sip'), format_uri(handler.xmpp_identity.uri, 'xmpp')))
+            log.info('%d SIP --> XMPP and %d XMPP --> SIP presence flows are active' % (len(self.s2x_presence_subscriptions), len(self.x2s_presence_subscriptions)))
 
     def _NH_S2XPresenceHandlerDidEnd(self, notification):
         handler = notification.sender
         self.s2x_presence_subscriptions.pop((handler.sip_identity.uri, handler.xmpp_identity.uri), None)
         notification.center.remove_observer(self, sender=handler)
         if XMPPGatewayConfig.log_presence:
-            log.msg('Presence flow 0x%x ended %s --> %s' % (id(handler), format_uri(handler.sip_identity.uri, 'sip'), format_uri(handler.xmpp_identity.uri, 'xmpp')))
-            log.msg('%d SIP --> XMPP and %d XMPP --> SIP presence flows are active' % (len(self.s2x_presence_subscriptions), len(self.x2s_presence_subscriptions)))
+            log.info('Presence flow 0x%x ended %s --> %s' % (id(handler), format_uri(handler.sip_identity.uri, 'sip'), format_uri(handler.xmpp_identity.uri, 'xmpp')))
+            log.info('%d SIP --> XMPP and %d XMPP --> SIP presence flows are active' % (len(self.s2x_presence_subscriptions), len(self.x2s_presence_subscriptions)))
 
     def _NH_X2SPresenceHandlerDidStart(self, notification):
         handler = notification.sender
         if XMPPGatewayConfig.log_presence:
-            log.msg('Presence flow 0x%x established %s --> %s' % (id(handler), format_uri(handler.xmpp_identity.uri, 'xmpp'), format_uri(handler.sip_identity.uri, 'sip')))
-            log.msg('%d SIP --> XMPP and %d XMPP --> SIP presence flows are active' % (len(self.s2x_presence_subscriptions), len(self.x2s_presence_subscriptions)))
+            log.info('Presence flow 0x%x established %s --> %s' % (id(handler), format_uri(handler.xmpp_identity.uri, 'xmpp'), format_uri(handler.sip_identity.uri, 'sip')))
+            log.info('%d SIP --> XMPP and %d XMPP --> SIP presence flows are active' % (len(self.s2x_presence_subscriptions), len(self.x2s_presence_subscriptions)))
 
     def _NH_X2SPresenceHandlerDidEnd(self, notification):
         handler = notification.sender
         self.x2s_presence_subscriptions.pop((handler.xmpp_identity.uri, handler.sip_identity.uri), None)
         notification.center.remove_observer(self, sender=handler)
         if XMPPGatewayConfig.log_presence:
-            log.msg('Presence flow 0x%x ended %s --> %s' % (id(handler), format_uri(handler.xmpp_identity.uri, 'xmpp'), format_uri(handler.sip_identity.uri, 'sip')))
-            log.msg('%d SIP --> XMPP and %d XMPP --> SIP presence flows are active' % (len(self.s2x_presence_subscriptions), len(self.x2s_presence_subscriptions)))
+            log.info('Presence flow 0x%x ended %s --> %s' % (id(handler), format_uri(handler.xmpp_identity.uri, 'xmpp'), format_uri(handler.sip_identity.uri, 'sip')))
+            log.info('%d SIP --> XMPP and %d XMPP --> SIP presence flows are active' % (len(self.s2x_presence_subscriptions), len(self.x2s_presence_subscriptions)))
 
     # MUC handling
 
     def _NH_X2SMucHandlerDidStart(self, notification):
         handler = notification.sender
-        log.msg('Multiparty session established xmpp:%s --> sip:%s' % (handler.xmpp_identity.uri, handler.sip_identity.uri))
+        log.info('Multiparty session established xmpp:%s --> sip:%s' % (handler.xmpp_identity.uri, handler.sip_identity.uri))
         self.x2s_muc_sessions[(handler.xmpp_identity.uri, handler.sip_identity.uri)] = handler
 
     def _NH_X2SMucHandlerDidEnd(self, notification):
         handler = notification.sender
-        log.msg('Multiparty session ended xmpp:%s --> sip:%s' % (handler.xmpp_identity.uri, handler.sip_identity.uri))
+        log.info('Multiparty session ended xmpp:%s --> sip:%s' % (handler.xmpp_identity.uri, handler.sip_identity.uri))
         self.x2s_muc_sessions.pop((handler.xmpp_identity.uri, handler.sip_identity.uri), None)
         notification.center.remove_observer(self, sender=handler)
 
@@ -483,14 +483,14 @@ class XMPPGatewayApplication(SylkApplication):
         sender_uri = handler.sender.uri
         muc_uri = handler.recipient.uri
         participant_uri = handler.participant.uri
-        log.msg('%s invited %s to multiparty chat %s' % (format_uri(sender_uri, 'xmpp'), format_uri(participant_uri), format_uri(muc_uri, 'sip')))
+        log.info('%s invited %s to multiparty chat %s' % (format_uri(sender_uri, 'xmpp'), format_uri(participant_uri), format_uri(muc_uri, 'sip')))
 
     def _NH_X2SMucInvitationHandlerDidEnd(self, notification):
         handler = notification.sender
         sender_uri = handler.sender.uri
         muc_uri = handler.recipient.uri
         participant_uri = handler.participant.uri
-        log.msg('%s added %s to multiparty chat %s' % (format_uri(sender_uri, 'xmpp'), format_uri(participant_uri), format_uri(muc_uri, 'sip')))
+        log.info('%s added %s to multiparty chat %s' % (format_uri(sender_uri, 'xmpp'), format_uri(participant_uri), format_uri(muc_uri, 'sip')))
         del self.x2s_muc_add_participant_handlers[(muc_uri, participant_uri)]
         notification.center.remove_observer(self, sender=handler)
 
@@ -499,7 +499,7 @@ class XMPPGatewayApplication(SylkApplication):
         sender_uri = handler.sender.uri
         muc_uri = handler.recipient.uri
         participant_uri = handler.participant.uri
-        log.msg('%s could not add %s to multiparty chat %s: %s' % (format_uri(sender_uri, 'xmpp'), format_uri(participant_uri), format_uri(muc_uri, 'sip'), notification.data.failure))
+        log.info('%s could not add %s to multiparty chat %s: %s' % (format_uri(sender_uri, 'xmpp'), format_uri(participant_uri), format_uri(muc_uri, 'sip'), notification.data.failure))
         del self.x2s_muc_add_participant_handlers[(muc_uri, participant_uri)]
         notification.center.remove_observer(self, sender=handler)
 
@@ -508,14 +508,14 @@ class XMPPGatewayApplication(SylkApplication):
         muc_uri = handler.sender.uri
         inviter_uri = handler.inviter.uri
         recipient_uri = handler.recipient.uri
-        log.msg("%s invited %s to multiparty chat %s" % (format_uri(inviter_uri, 'sip'), format_uri(recipient_uri, 'xmpp'), format_uri(muc_uri, 'sip')))
+        log.info("%s invited %s to multiparty chat %s" % (format_uri(inviter_uri, 'sip'), format_uri(recipient_uri, 'xmpp'), format_uri(muc_uri, 'sip')))
 
     def _NH_S2XMucInvitationHandlerDidEnd(self, notification):
         handler = notification.sender
         muc_uri = handler.sender.uri
         inviter_uri = handler.inviter.uri
         recipient_uri = handler.recipient.uri
-        log.msg('%s added %s to multiparty chat %s' % (format_uri(inviter_uri, 'sip'), format_uri(recipient_uri, 'xmpp'), format_uri(muc_uri, 'sip')))
+        log.info('%s added %s to multiparty chat %s' % (format_uri(inviter_uri, 'sip'), format_uri(recipient_uri, 'xmpp'), format_uri(muc_uri, 'sip')))
         del self.s2x_muc_add_participant_handlers[(muc_uri, recipient_uri)]
         notification.center.remove_observer(self, sender=handler)
 
@@ -524,7 +524,7 @@ class XMPPGatewayApplication(SylkApplication):
         muc_uri = handler.sender.uri
         inviter_uri = handler.inviter.uri
         recipient_uri = handler.recipient.uri
-        log.msg('%s could not add %s to multiparty chat %s: %s' % (format_uri(inviter_uri, 'sip'), format_uri(recipient_uri, 'xmpp'), format_uri(muc_uri, 'sip'), str(notification.data.failure)))
+        log.info('%s could not add %s to multiparty chat %s: %s' % (format_uri(inviter_uri, 'sip'), format_uri(recipient_uri, 'xmpp'), format_uri(muc_uri, 'sip'), str(notification.data.failure)))
         del self.s2x_muc_add_participant_handlers[(muc_uri, recipient_uri)]
         notification.center.remove_observer(self, sender=handler)
 
@@ -538,17 +538,17 @@ class XMPPGatewayApplication(SylkApplication):
 
     def _NH_MediaSessionHandlerDidStart(self, notification):
         handler = notification.sender
-        log.msg('Media session started sip:%s <--> xmpp:%s' % (handler.sip_identity.uri, handler.xmpp_identity.uri))
+        log.info('Media session started sip:%s <--> xmpp:%s' % (handler.sip_identity.uri, handler.xmpp_identity.uri))
         self.media_sessions.add(handler)
 
     def _NH_MediaSessionHandlerDidEnd(self, notification):
         handler = notification.sender
-        log.msg('Media session ended sip:%s <--> xmpp:%s' % (handler.sip_identity.uri, handler.xmpp_identity.uri))
+        log.info('Media session ended sip:%s <--> xmpp:%s' % (handler.sip_identity.uri, handler.xmpp_identity.uri))
         self.media_sessions.remove(handler)
         notification.center.remove_observer(self, sender=handler)
 
     def _NH_MediaSessionHandlerDidFail(self, notification):
         handler = notification.sender
-        log.msg('Media session failed sip:%s <--> xmpp:%s' % (handler.sip_identity.uri, handler.xmpp_identity.uri))
+        log.info('Media session failed sip:%s <--> xmpp:%s' % (handler.sip_identity.uri, handler.xmpp_identity.uri))
         notification.center.remove_observer(self, sender=handler)
 

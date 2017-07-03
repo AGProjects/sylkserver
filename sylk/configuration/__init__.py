@@ -23,9 +23,10 @@ class ServerConfig(ConfigSection):
     disabled_applications = ConfigSetting(type=StringList, value='')
     extra_applications_dir = ConfigSetting(type=Path, value=None)
     trace_dir = ConfigSetting(type=Path, value=Path(VarResources.get('log/sylkserver')))
-    trace_core = False
+    trace_dns = False
     trace_sip = False
     trace_msrp = False
+    trace_core = False
     trace_notifications = False
     log_level = ConfigSetting(type=LogLevel, value=LogLevel('info'))
     spool_dir = ConfigSetting(type=Path, value=Path(VarResources.get('spool/sylkserver')))

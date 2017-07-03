@@ -3,6 +3,7 @@ __all__ = ['ISylkApplication', 'ApplicationRegistry', 'SylkApplication', 'Incomi
 
 import abc
 import imp
+import logging
 import os
 import socket
 import struct
@@ -161,18 +162,16 @@ class IncomingRequestHandler(object):
             log.warning('Default application "%s" does not exist, falling back to "conference"' % ServerConfig.default_application)
             ServerConfig.default_application = 'conference'
         else:
-            log.msg('Default application: %s' % ServerConfig.default_application)
+            log.info('Default application: %s' % ServerConfig.default_application)
         self.application_map = dict((item.split(':')) for item in ServerConfig.application_map)
         if self.application_map:
             txt = 'Application map:\n'
-            invert_app_map = defaultdict(list)
+            inverted_app_map = defaultdict(list)
             for url, app in self.application_map.iteritems():
-                invert_app_map[app].append(url)
-            for app, urls in invert_app_map.iteritems():
-                txt += '    * %s:\n' % app
-                for url in urls:
-                    txt += '        - %s\n' % url
-            log.msg(txt[:-1])
+                inverted_app_map[app].append(url)
+            for app, urls in inverted_app_map.iteritems():
+                txt += '  {}: {}\n'.format(app, ', '.join(urls))
+            log.info(txt[:-1])
         self.authorization_handler = AuthorizationHandler()
 
     def start(self):
@@ -327,39 +326,5 @@ class AuthorizationHandler(object):
 
 
 class ApplicationLogger(object):
-    __metaclass__ = Singleton
-
-    @classmethod
-    def for_package(cls, package):
-        return cls(package.split('.')[-1])
-
-    def __init__(self, prefix):
-        self.prefix = '[%s] ' % prefix
-
-    def info(self, message, **context):
-        log.info(self.prefix+message, **context)
-
-    def warning(self, message, **context):
-        log.warning(self.prefix+message, **context)
-
-    def debug(self, message, **context):
-        log.debug(self.prefix+message, **context)
-
-    def error(self, message, **context):
-        log.error(self.prefix+message, **context)
-
-    def critical(self, message, **context):
-        log.critical(self.prefix+message, **context)
-
-    def exception(self, message=None, **context):
-        if message is not None:
-            message = self.prefix+message
-        log.exception(message, **context)
-
-    # Some aliases that are commonly used
-    msg = info
-    warn = warning
-    fatal = critical
-    err = exception
-
-
+    def __new__(cls, package):
+        return logging.getLogger(package.split('.')[-1])

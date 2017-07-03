@@ -16,12 +16,12 @@
 ; List of allowed SIP domains for managing accounts
 ; sip_domains = *
 
-; Boolean indicating if the WebSocket messages sent to/from clients should be logged
-; to a file
-; trace_websocket = False
+; Boolean indicating if the WebSocket messages sent to/from clients should be
+; logged to a file
+; trace_client = False
 
-; WebSocket Ping frames are sent at the configured interval, this helps detect dead
-; client connections
+; WebSocket Ping frames are sent at the configured interval, this helps detect
+; dead client connections
 ; websocket_ping_interval = 120
 
 ; IP and port for the HTTP management interface
@@ -43,8 +43,8 @@
 ; python -c 'import uuid; print(uuid.uuid4().hex)'
 api_secret = 0745f2f74f34451c89343afcdcae5809
 
-; Boolean indicating if the messages between SylkServer and Janus should be logged to
-; a file
+; Boolean indicating if the messages between SylkServer and Janus should be
+; logged to a file
 ; trace_janus = False
 
 ; Per room configuration options

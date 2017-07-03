@@ -8,7 +8,6 @@ from application.python.types import Singleton
 from collections import defaultdict
 from sipsimple.threading import run_in_thread
 
-from sylk.applications.webrtcgateway.logger import log
 from sylk.configuration import ServerConfig
 
 
@@ -16,6 +15,7 @@ from sylk.configuration import ServerConfig
 # distributed DB so other SylkServer instances can access them.  Also add some metadata
 # like the modification date so we know when a token was refreshed, and thus it's ok to
 # scrap it after a reasonable amount of time.
+
 
 class TokenStorage(object):
     __metaclass__ = Singleton
@@ -41,11 +41,9 @@ class TokenStorage(object):
         return self._tokens[key]
 
     def add(self, account, token):
-        log.debug("Added FCM token {!s} for account {}".format(token, account))
         self._tokens[account].add(token)
         self._save()
 
     def remove(self, account, token):
-        log.debug("Removed FCM token {!s} for account {}".format(token, account))
         self._tokens[account].discard(token)
         self._save()

@@ -63,7 +63,6 @@ class WebServer(object):
                 ssl_ctx_factory = DefaultOpenSSLContextFactory(cert_path, cert_path)
             except Exception:
                 log.exception('Creating TLS context')
-                log.err()
                 return
             if cert_chain_path is not None:
                 if not os.path.isfile(cert_chain_path):
@@ -74,7 +73,6 @@ class WebServer(object):
                     ssl_ctx.use_certificate_chain_file(cert_chain_path)
                 except Exception:
                     log.exception('Setting TLS certificate chain file')
-                    log.err()
                     return
             self.listener = reactor.listenSSL(port, self.site, ssl_ctx_factory, backlog=511, interface=interface)
             scheme = 'https'
@@ -83,7 +81,7 @@ class WebServer(object):
             scheme = 'http'
         port = self.listener.getHost().port
         self.__dict__['url'] = '%s://%s:%d' % (scheme, WebServerConfig.hostname or interface.normalized, port)
-        log.msg('Web server listening for requests on: %s' % self.url)
+        log.info('Web server listening for requests on: %s' % self.url)
 
     def stop(self):
         if self.listener is not None:

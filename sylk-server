@@ -7,12 +7,12 @@ import os
 import signal
 import sys
 
+from application import log
+from application.configuration import ConfigFile
+from application.process import process, ProcessError
 from optparse import OptionParser
 
-from application import log
-from application.process import process, ProcessError
-from sipsimple import __version__ as sipsimple_version
-
+import sipsimple
 import sylk
 
 
@@ -54,27 +54,30 @@ def main():
             process.runtime_directory = runtime_directory
             process.daemonize(pid_file)
         except ProcessError, e:
-            log.fatal("Cannot start %s: %s" % (fullname, e))
+            log.fatal('Cannot start {name}: {exception!s}'.format(name=fullname, exception=e))
             sys.exit(1)
         log.start_syslog(name)
 
-    if sylk.configuration_filename:
-        log.msg("Starting %s %s, config=%s" % (fullname, sylk.__version__, sylk.configuration_filename))
+    from sylk.server import SylkServer
+
+    log.info('Starting {name} {module.__version__}, using SIP SIMPLE SDK {sipsimple.__version__}'.format(name=fullname, module=sylk, sipsimple=sipsimple))
+
+    config_file = ConfigFile(sylk.configuration_filename)
+    if config_file.files:
+        log.info('Reading configuration from {}'.format(', '.join(config_file.files)))
     else:
-        log.msg("Starting %s %s, with no configuration file" % (fullname, sylk.__version__))
-    log.msg("Using SIP SIMPLE SDK version %s" % sipsimple_version)
+        log.info('Not reading any configuration files (using internal defaults)')
 
     if not options.fork and options.debug_memory:
         import atexit
         from application.debug.memory import memory_dump
         atexit.register(memory_dump)
 
-    from sylk.server import SylkServer
     server = SylkServer()
 
     def stop_server(*args):
         if not server.stopping_event.is_set():
-            log.msg('Stopping SylkServer...')
+            log.info('Stopping {name}...'.format(name=fullname))
             server.stop()
 
     process.signals.add_handler(signal.SIGTERM, stop_server)
@@ -84,9 +87,9 @@ def main():
         from sylk.configuration import ServerConfig
         if log.level.current != log.level.DEBUG:
             log.level.current = log.level.DEBUG
-            log.info("Switched logging level to DEBUG")
+            log.info('Switched logging level to DEBUG')
         else:
-            log.info("Switched logging level to {}".format(ServerConfig.log_level))
+            log.info('Switched logging level to {}'.format(ServerConfig.log_level))
             log.level.current = ServerConfig.log_level
 
     process.signals.add_handler(signal.SIGUSR1, toggle_debugging)
@@ -94,17 +97,17 @@ def main():
     try:
         server.start(options)
     except Exception, e:
-        log.fatal("failed to run %s: %s" % (fullname, e))
-        log.err()
+        log.fatal('Failed to run {name}: {exception!s}'.format(name=fullname, exception=e))
+        log.exception()
         sys.exit(1)
     else:
         while not server.stopping_event.wait(9999):
             pass
         server.stop_event.wait(5)
         if server.stop_event.is_set():
-            log.msg("%s stopped" % fullname)
+            log.info('{name} stopped'.format(name=fullname))
         else:
-            log.msg('Forcefully exiting SylkServer...')
+            log.info('Forcefully exiting {name}...'.format(name=fullname))
             os._exit(1)
 
     sys.exit(int(server.failed))

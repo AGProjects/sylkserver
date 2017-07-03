@@ -1,22 +1,16 @@
 
-from sipsimple.util import ISOTimestamp
+from application.notification import NotificationCenter, NotificationData
 from twisted.internet import defer, reactor
 from twisted.words.protocols.jabber import error, xmlstream
 from twisted.words.protocols.jabber.jid import internJID
 from wokkel.component import InternalComponent, Router
 from wokkel.server import XMPPS2SServerFactory, DeferredS2SClientFactory
 
-from sylk.applications.xmppgateway.configuration import XMPPGatewayConfig
-from sylk.applications.xmppgateway.xmpp.logger import Logger
 
-__all__ = ['SylkRouter', 'SylkInternalComponent', 'SylkS2SServerFactory', 'xmpp_logger']
-
-
-xmpp_logger = Logger()
+__all__ = ['SylkRouter', 'SylkInternalComponent']
 
 
 class SylkInternalComponent(InternalComponent):
-
     def __init__(self, *args, **kwargs):
         InternalComponent.__init__(self, *args, **kwargs)
         self._iqDeferreds = {}
@@ -98,50 +92,25 @@ class SylkRouter(Router):
             self.routes[None].send(stanza)
 
 
-class SylkS2SServerFactory(XMPPS2SServerFactory):
-    noisy = False
+class LoggingXMLStream(xmlstream.XmlStream):
+    notification_center = NotificationCenter()
 
-    def onConnectionMade(self, xs):
-        super(self.__class__, self).onConnectionMade(xs)
+    def __init__(self, *args, **kw):
+        xmlstream.XmlStream.__init__(self, *args, **kw)
+        self.rawDataInFn = self._log_incoming_message
+        self.rawDataOutFn = self._log_outgoing_message
 
-        def logDataIn(buf):
-            buf = buf.strip()
-            if buf:
-                xmpp_logger.msg("RECEIVED", ISOTimestamp.now(), buf)
+    def _log_incoming_message(self, message):
+        self.notification_center.post_notification('XMPPMessageTrace', sender=self, data=NotificationData(direction='INCOMING', message=message))
 
-        def logDataOut(buf):
-            buf = buf.strip()
-            if buf:
-                xmpp_logger.msg("SENDING", ISOTimestamp.now(), buf)
-
-        if XMPPGatewayConfig.trace_xmpp:
-            xs.rawDataInFn = logDataIn
-            xs.rawDataOutFn = logDataOut
+    def _log_outgoing_message(self, message):
+        self.notification_center.post_notification('XMPPMessageTrace', sender=self, data=NotificationData(direction='OUTGOING', message=message))
 
 
-class DeferredS2SClientFactory(DeferredS2SClientFactory):
-    noisy = False
+# Modify wokkel's factories to not be noisy and to use our logging protocol
+XMPPS2SServerFactory.noisy = False
+XMPPS2SServerFactory.protocol = LoggingXMLStream
 
-    def onConnectionMade(self, xs):
-        super(self.__class__, self).onConnectionMade(xs)
-
-        def logDataIn(buf):
-            buf = buf.strip()
-            if buf:
-                xmpp_logger.msg("RECEIVED", ISOTimestamp.now(), buf)
-
-        def logDataOut(buf):
-            buf = buf.strip()
-            if buf:
-                xmpp_logger.msg("SENDING", ISOTimestamp.now(), buf)
-
-        if XMPPGatewayConfig.trace_xmpp:
-            xs.rawDataInFn = logDataIn
-            xs.rawDataOutFn = logDataOut
-
-
-# Patch Wokkel's DeferredS2SClientFactory to use our logger
-import wokkel.server
-wokkel.server.DeferredS2SClientFactory = DeferredS2SClientFactory
-del wokkel.server
+DeferredS2SClientFactory.noisy = False
+DeferredS2SClientFactory.protocol = LoggingXMLStream
 

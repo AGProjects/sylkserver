@@ -116,7 +116,6 @@ class LogsSettingsExtension(LogsSettings):
     trace_sip = Setting(type=bool, default=ServerConfig.trace_sip)
     trace_msrp = Setting(type=bool, default=ServerConfig.trace_msrp)
     trace_pjsip = Setting(type=bool, default=ServerConfig.trace_core)
-    trace_notifications = Setting(type=bool, default=ServerConfig.trace_notifications)
 
 
 class RTPSettingsExtension(RTPSettings):
@@ -128,6 +127,7 @@ class RTPSettingsExtension(RTPSettings):
 ca_file = ServerConfig.ca_file
 if ca_file is not None and not os.path.isfile(ca_file):
     ca_file = None
+
 
 class TLSSettingsExtension(TLSSettings):
     ca_list = Setting(type=Path, default=ca_file, nillable=True)
@@ -148,6 +148,7 @@ if tls_port is not None and None in (ca_file, account_cert):
     tls_port = None
 if tls_port is not None:
     transport_list.append('tls')
+
 
 class SIPSettingsExtension(SIPSettings):
     udp_port = Setting(type=Port, default=SIPConfig.local_udp_port, nillable=True)

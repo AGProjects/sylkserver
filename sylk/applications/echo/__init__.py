@@ -10,7 +10,7 @@ from sylk.bonjour import BonjourService
 from sylk.configuration import ServerConfig
 
 
-log = ApplicationLogger.for_package(__package__)
+log = ApplicationLogger(__package__)
 
 
 def format_identity(identity):
@@ -40,11 +40,11 @@ class EchoApplication(SylkApplication):
         self.bonjour_services.clear()
 
     def incoming_session(self, session):
-        log.msg(u'New incoming session %s from %s' % (session.call_id, format_identity(session.remote_identity)))
+        log.info(u'New incoming session %s from %s' % (session.call_id, format_identity(session.remote_identity)))
         audio_streams = [stream for stream in session.proposed_streams if stream.type=='audio']
         chat_streams = [stream for stream in session.proposed_streams if stream.type=='chat']
         if not audio_streams and not chat_streams:
-            log.msg(u'Session %s rejected: invalid media, only RTP audio and MSRP chat are supported' % session.call_id)
+            log.info(u'Session %s rejected: invalid media, only RTP audio and MSRP chat are supported' % session.call_id)
             session.reject(488)
             return
         if audio_streams:
@@ -126,7 +126,7 @@ class EchoHandler(object):
             chat_stream = next(stream for stream in session.streams if stream.type == 'chat')
         except StopIteration:
             chat_stream = None
-        log.msg('Session %s started' % session.call_id)
+        log.info('Session %s started' % session.call_id)
         if audio_stream is not None:
             self._make_audio_stream_echo(audio_stream)
             notification.center.add_observer(self, sender=audio_stream)
@@ -138,12 +138,12 @@ class EchoHandler(object):
 
     def _NH_SIPSessionDidEnd(self, notification):
         session = notification.sender
-        log.msg('Session %s ended' % session.call_id)
+        log.info('Session %s ended' % session.call_id)
         self._cleanup()
 
     def _NH_SIPSessionDidFail(self, notification):
         session = notification.sender
-        log.msg(u'Session %s failed from %s' % (session.call_id, format_identity(session.remote_identity)))
+        log.info(u'Session %s failed from %s' % (session.call_id, format_identity(session.remote_identity)))
         self._cleanup()
 
     def _NH_SIPSessionNewProposal(self, notification):
@@ -161,7 +161,7 @@ class EchoHandler(object):
         session = notification.sender
         for stream in notification.data.added_streams:
             notification.center.add_observer(self, sender=stream)
-            log.msg(u'Session %s has added %s' % (session.call_id, stream.type))
+            log.info(u'Session %s has added %s' % (session.call_id, stream.type))
             if stream.type == 'audio':
                 self._make_audio_stream_echo(stream)
                 self.audio_stream = stream
@@ -170,21 +170,21 @@ class EchoHandler(object):
 
         for stream in notification.data.removed_streams:
             notification.center.remove_observer(self, sender=stream)
-            log.msg(u'Session %s has removed %s' % (session.call_id, stream.type))
+            log.info(u'Session %s has removed %s' % (session.call_id, stream.type))
             if stream.type == 'audio':
                 self.audio_stream = None
             elif stream.type == 'chat':
                 self.chat_stream = None
 
         if not session.streams:
-            log.msg(u'Session %s has removed all streams, session will be terminated' % session.call_id)
+            log.info(u'Session %s has removed all streams, session will be terminated' % session.call_id)
             session.end()
 
     def _NH_SIPSessionTransferNewIncoming(self, notification):
         notification.sender.reject_transfer(403)
 
     def _NH_AudioStreamGotDTMF(self, notification):
-        log.msg(u'Session %s received DTMF: %s' % (self.session.call_id, notification.data.digit))
+        log.info(u'Session %s received DTMF: %s' % (self.session.call_id, notification.data.digit))
 
     def _NH_ChatStreamGotMessage(self, notification):
         stream = notification.sender

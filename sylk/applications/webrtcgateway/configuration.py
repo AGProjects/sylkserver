@@ -96,7 +96,7 @@ class GeneralConfig(ConfigSection):
     web_origins = ConfigSetting(type=StringList, value=['*'])
     sip_domains = ConfigSetting(type=StringList, value=['*'])
     outbound_sip_proxy = ConfigSetting(type=SIPProxyAddress, value=None)
-    trace_websocket = False
+    trace_client = False
     websocket_ping_interval = 120
     recording_dir = ConfigSetting(type=Path, value=Path(os.path.join(ServerConfig.spool_dir.normalized, 'videoconference', 'recordings')))
     http_management_interface = ConfigSetting(type=ManagementInterfaceAddress, value=ManagementInterfaceAddress('127.0.0.1'))

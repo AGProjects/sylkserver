@@ -30,7 +30,7 @@ from sylk.accounts import DefaultAccount
 from sylk.applications import IncomingRequestHandler
 from sylk.configuration import ServerConfig, SIPConfig, ThorNodeConfig
 from sylk.configuration.settings import AccountExtension, BonjourAccountExtension, SylkServerSettingsExtension
-from sylk.log import Logger
+from sylk.log import TraceLogManager
 from sylk.session import SessionManager
 from sylk.web import WebServer
 
@@ -41,7 +41,6 @@ class SylkServer(SIPApplication):
         self.thor_interface = Null
         self.web_server = Null
 
-        self.logger = Logger()
         self.options = Null
 
         self.stopping_event = Event()
@@ -214,28 +213,20 @@ class SylkServer(SIPApplication):
         pass
 
     def _NH_SIPApplicationFailedToStartTLS(self, notification):
-        log.fatal("Couldn't set TLS options: %s" % notification.data.error)
+        log.fatal('Could not set TLS options: %s' % notification.data.error)
         sys.exit(1)
 
     def _NH_SIPApplicationWillStart(self, notification):
-        self.logger.start()
-        settings = SIPSimpleSettings()
-        if settings.logs.trace_sip and self.logger._siptrace_filename is not None:
-            log.msg('Logging SIP trace to file "%s"' % self.logger._siptrace_filename)
-        if settings.logs.trace_msrp and self.logger._msrptrace_filename is not None:
-            log.msg('Logging MSRP trace to file "%s"' % self.logger._msrptrace_filename)
-        if settings.logs.trace_pjsip and self.logger._pjsiptrace_filename is not None:
-            log.msg('Logging PJSIP trace to file "%s"' % self.logger._pjsiptrace_filename)
-        if settings.logs.trace_notifications and self.logger._notifications_filename is not None:
-            log.msg('Logging notifications trace to file "%s"' % self.logger._notifications_filename)
+        tracelog_manager = TraceLogManager()
+        tracelog_manager.start()
 
     def _NH_SIPApplicationDidStart(self, notification):
         settings = SIPSimpleSettings()
         local_ip = SIPConfig.local_ip
-        log.msg("SylkServer started, listening on:")
+        log.info('SylkServer started, listening on:')
         for transport in settings.sip.transport_list:
             try:
-                log.msg("%s:%d (%s)" % (local_ip, getattr(self.engine, '%s_port' % transport), transport.upper()))
+                log.info('  %s:%d (%s)' % (local_ip, getattr(self.engine, '%s_port' % transport), transport.upper()))
             except TypeError:
                 pass
 
@@ -243,15 +234,16 @@ class SylkServer(SIPApplication):
         self.stopping_event.set()
 
     def _NH_SIPApplicationDidEnd(self, notification):
-        log.msg('SIP application ended')
-        self.logger.stop()
+        log.info('SIP application ended')
+        tracelog_manager = TraceLogManager()
+        tracelog_manager.stop()
         if not self.stopping_event.is_set():
             log.warning('SIP application ended without shutting down all subsystems')
             self.stopping_event.set()
         self.stop_event.set()
 
     def _NH_SIPApplicationGotFatalError(self, notification):
-        log.error('An exception occured within the SIP core:\n%s\n' % notification.data.traceback)
+        log.error('An exception occurred within the SIP core:\n%s\n' % notification.data.traceback)
         self.failed = True
 
     def _NH_SIPEngineDidFail(self, notification):

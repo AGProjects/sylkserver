@@ -1,294 +1,322 @@
 
-"""
-Logging support adapted from SIP SIMPLE Client logger.
-"""
-
-__all__ = ["Logger"]
-
-import datetime
+import inspect
+import logging
 import os
-import sys
 
+from abc import ABCMeta, abstractproperty
 from application import log
 from application.notification import IObserver, NotificationCenter
 from application.python import Null
+from application.python.types import MarkerType, Singleton
 from application.system import makedirs
-from pprint import pformat
-from sipsimple.configuration.settings import SIPSimpleSettings
+from collections import defaultdict
+from itertools import chain
 from sipsimple.threading import run_in_thread
 from zope.interface import implements
 
+from sylk.applications import find_applications
+from sylk.configuration import ServerConfig
 
-class Logger(object):
+
+__all__ = 'TraceLogManager', 'TraceLogger'
+
+
+class TraceLogManager(object):
+    __metaclass__ = Singleton
+
     implements(IObserver)
 
-    # public methods
-    #
-
     def __init__(self):
-        self.stopped = False
-        self.msrp_level = log.level.ERROR
-
-        self._siptrace_filename = None
-        self._siptrace_file = None
-        self._siptrace_error = False
-        self._siptrace_start_time = None
-        self._siptrace_packet_count = 0
-
-        self._msrptrace_filename = None
-        self._msrptrace_file = None
-        self._msrptrace_error = False
-
-        self._pjsiptrace_filename = None
-        self._pjsiptrace_file = None
-        self._pjsiptrace_error = False
-
-        self._notifications_filename = None
-        self._notifications_file = None
-        self._notifications_error = False
-
-        self._log_directory_error = False
+        self.loggers = set()  # todo: make it a list to preserve their order?
+        self.notification_map = defaultdict(set)  # maps notification names to trace loggers that are interested in them
+        self.started = False
 
     def start(self):
-        # try to create the log directory
+        if self.started:
+            return
+        self.started = True
+        directory = ServerConfig.trace_dir.normalized
         try:
-            self._init_log_directory()
-        except Exception:
-            pass
-
-        # register to receive log notifications
-        NotificationCenter().add_observer(self)
-        self.stopped = False
+            makedirs(directory)
+        except Exception as e:
+            log.error('Failed to create tracelog directory at {directory}: {exception!s}'.format(directory=directory, exception=e))
+        else:
+            for logger in (logger for logger in self.loggers if logger.enabled):
+                logger.start()
+                for name in logger.handled_notifications:
+                    self.notification_map[name].add(logger)
+            if self.notification_map:
+                notification_center = NotificationCenter()
+                notification_center.add_observer(self)
+                log.info('TraceLogManager started in {} for: {}'.format(directory, ', '.join(sorted(logger.name for logger in self.loggers if logger.enabled))))
+            else:
+                log.info('TraceLogManager started in {}'.format(directory))
 
     def stop(self):
-        NotificationCenter().remove_observer(self)
-        self.stopped = False
-        self._close_files()
+        if not self.started:
+            return
+        notification_center = NotificationCenter()
+        notification_center.discard_observer(self)
+        self.notification_map.clear()
+        for logger in self.loggers:
+            logger.stop()
+        self.started = False
 
-    @run_in_thread('log-io')
-    def _close_files(self):
-        # close sip trace file
-        if self._siptrace_file is not None:
-            self._siptrace_file.close()
-            self._siptrace_file = None
+    @classmethod
+    def register_logger(cls, logger):  # this is a class method for convenience
+        if inspect.isclass(logger) and issubclass(logger, TraceLogger):
+            logger = logger()
 
-        # close msrp trace file
-        if self._msrptrace_file is not None:
-            self._msrptrace_file.close()
-            self._msrptrace_file = None
+        assert isinstance(logger, TraceLogger), 'logger must be a TraceLogger instance or class'
 
-        # close pjsip trace file
-        if self._pjsiptrace_file is not None:
-            self._pjsiptrace_file.close()
-            self._pjsiptrace_file = None
+        self = cls()
 
-        # close notifications trace file
-        if self._notifications_file is not None:
-            self._notifications_file.close()
-            self._notifications_file = None
+        if logger in self.loggers:
+            return
+
+        self.loggers.add(logger)
+        if self.started and logger.enabled:
+            logger.start()
+            for name in logger.handled_notifications:
+                self.notification_map[name].add(logger)
+            if self.notification_map:
+                notification_center = NotificationCenter()
+                notification_center.add_observer(self)
+            log.info('TraceLogManager added {logger.name} logger for {logger.owner}'.format(logger=logger))
+
+    @run_in_thread('file-logging')
+    def handle_notification(self, notification):
+        for logger in self.notification_map.get(AllNotifications, ()):
+            logger.handle_notification(notification)
+        for logger in self.notification_map.get(notification.name, ()):
+            handler = getattr(logger, '_NH_{notification.name}'.format(notification=notification), Null)
+            handler(notification)
+
+
+class TraceLoggerType(ABCMeta, Singleton):
+    def __init__(cls, name, bases, dic):
+        super(TraceLoggerType, cls).__init__(name, bases, dic)
+        if not inspect.isabstract(cls):
+            # noinspection PyTypeChecker
+            TraceLogManager.register_logger(cls)
+
+
+class TraceLogger(object):
+    """
+    Abstract class that defines the interface for TraceLogger objects.
+
+    A trace logger is created by subclassing TraceLogger and defining the
+    name, owner, enabled and formatter class attributes and any number of
+    notification handlers, which are instance methods that have a name
+    starting with _NH_ followed by the notification name and receive a
+    notification as sole argument.
+    
+    def _NH_SomeNotificationName(self, notification):
+        self.logger.log_notification(notification)
+
+    def _NH_SomeOtherNotificationName(self, notification):
+        if some_condition:
+            self.logger.log_notification(notification)
+
+    Any non-abstract TraceLogger is automatically registered with the
+    TraceLogManager and becomes operational if enabled.
+    """
+
+    __metaclass__ = TraceLoggerType
+
+    name = abstractproperty()       # The name of this trace logger (should be the log filename without the .log extension)
+    owner = abstractproperty()      # The name of the application that owns this trace logger
+    enabled = abstractproperty()    # Boolean indicating if this trace logger is enabled (usually mirrors a configuration setting)
+    formatter = abstractproperty()  # The formatter used by this trace logger
+
+    def __init__(self):
+        self.logger = None
+
+    @property
+    def handled_notifications(self):
+        return {name[4:] for name in dir(self.__class__) if name.startswith('_NH_') and callable(getattr(self, name))}
+
+    # noinspection PyTypeChecker
+    def start(self):
+        if self.enabled and self.logger is None:
+            self.logger = NotificationLogger(self.name, ServerConfig.trace_dir.normalized, self.formatter)
+
+    def stop(self):
+        self.logger = None
 
     def handle_notification(self, notification):
-        if self.stopped:
-            return
-        self._process_notification(notification)
+        self.logger.log_notification(notification)
 
-    @run_in_thread('log-io')
-    def _process_notification(self, notification):
-        settings = SIPSimpleSettings()
-        handler = getattr(self, '_NH_%s' % notification.name, Null)
-        handler(notification)
 
-        handler = getattr(self, '_LH_%s' % notification.name, Null)
-        handler(notification)
+class AllNotifications:
+    __metaclass__ = MarkerType
 
-        if notification.name not in ('SIPEngineLog', 'SIPEngineSIPTrace') and settings.logs.trace_notifications:
-            message = 'Notification name=%s sender=%s' % (notification.name, notification.sender)
-            if notification.data is not None:
-                message += '\n%s' % pformat(notification.data.__dict__)
-            if settings.logs.trace_notifications:
-                try:
-                    self._init_log_file('notifications')
-                except Exception:
-                    pass
-                else:
-                    self._notifications_file.write('%s [%s %d]: %s\n' % (datetime.datetime.now(), os.path.basename(sys.argv[0]).rstrip('.py'), os.getpid(), message))
-                    self._notifications_file.flush()
 
-    # notification handlers
-    #
+class NotificationLogger(object):
+    def __init__(self, name, directory, formatter):
+        self.name = name
+        self.filename = os.path.join(directory, name + '.log')
+        self.logger = logging.getLogger(name)
+        self.logger.setLevel(logging.INFO)
+        self.logger.propagate = False
+        if not self.logger.handlers:
+            handler = logging.FileHandler(self.filename)
+            handler.setFormatter(formatter)
+            self.logger.addHandler(handler)
 
-    def _NH_CFGSettingsObjectDidChange(self, notification):
-        settings = SIPSimpleSettings()
-        if notification.sender is settings:
-            if 'logs.directory' in notification.data.modified:
-                # sip trace
-                if self._siptrace_file is not None:
-                    self._siptrace_file.close()
-                    self._siptrace_file = None
-                # pjsip trace
-                if self._pjsiptrace_file is not None:
-                    self._pjsiptrace_file.close()
-                    self._pjsiptrace_file = None
-                # notifications trace
-                if self._notifications_file is not None:
-                    self._notifications_file.close()
-                    self._notifications_file = None
-                # try to create the log directory
-                try:
-                    self._init_log_directory()
-                except Exception:
-                    pass
+    def log_notification(self, notification):
+        self.logger.info('', extra=dict(notification=notification))
 
-    # log handlers
-    #
 
-    def _LH_SIPEngineSIPTrace(self, notification):
-        settings = SIPSimpleSettings()
-        if not settings.logs.trace_sip:
-            return
-        if self._siptrace_start_time is None:
-            self._siptrace_start_time = notification.datetime
-        self._siptrace_packet_count += 1
-        if notification.data.received:
-            direction = "RECEIVED"
-        else:
-            direction = "SENDING"
-        buf = ("%s: Packet %d, +%s" % (direction, self._siptrace_packet_count, (notification.datetime - self._siptrace_start_time)),
-               "%(source_ip)s:%(source_port)d -(SIP over %(transport)s)-> %(destination_ip)s:%(destination_port)d" % notification.data.__dict__,
-               notification.data.data,
-               '--')
-        message = '\n'.join(buf)
-        try:
-            self._init_log_file('siptrace')
-        except Exception:
-            pass
-        else:
-            self._siptrace_file.write('%s [%s %d]: %s\n' % (notification.datetime, os.path.basename(sys.argv[0]).rstrip('.py'), os.getpid(), message))
-            self._siptrace_file.flush()
+# The formatters for the trace loggers
+#
 
-    def _LH_SIPEngineLog(self, notification):
-        settings = SIPSimpleSettings()
-        if not settings.logs.trace_pjsip:
-            return
-        message = "(%(level)d) %(message)s" % notification.data.__dict__
-        try:
-            self._init_log_file('pjsiptrace')
-        except Exception:
-            pass
-        else:
-            self._pjsiptrace_file.write('%s [%s %d] %s\n' % (notification.datetime, os.path.basename(sys.argv[0]).rstrip('.py'), os.getpid(), message))
-            self._pjsiptrace_file.flush()
+class NetworkAddress(object):
+    def __init__(self, address):
+        self.type = address.type
+        self.host = address.host
+        self.port = address.port
 
-    def _LH_DNSLookupTrace(self, notification):
-        settings = SIPSimpleSettings()
-        if not settings.logs.trace_sip:
-            return
-        message = 'DNS lookup %(query_type)s %(query_name)s' % notification.data.__dict__
+    def __str__(self):
+        return '{0.host}:{0.port}'.format(self)
+
+
+class DNSTraceFormatter(logging.Formatter):
+    _format_success = '{time} DNS lookup {data.query_type} {data.query_name} succeeded: TTL={data.answer.ttl} {answer!s}'
+    _format_failure = '{time} DNS lookup {data.query_type} {data.query_name} failed: {data.error!s}'
+
+    def format(self, record):
+        notification = record.notification
         if notification.data.error is None:
-            message += ' succeeded, ttl=%d: ' % notification.data.answer.ttl
             if notification.data.query_type == 'A':
-                message += ", ".join(record.address for record in notification.data.answer)
+                answer = ' | '.join(record.address for record in notification.data.answer)
             elif notification.data.query_type == 'SRV':
-                message += ", ".join('%d %d %d %s' % (record.priority, record.weight, record.port, record.target) for record in notification.data.answer)
+                answer = ' | '.join('{0.priority} {0.weight} {0.port} {0.target}'.format(dns_record) for dns_record in notification.data.answer)
             elif notification.data.query_type == 'NAPTR':
-                message += ", ".join('%d %d "%s" "%s" "%s" %s' % (record.order, record.preference, record.flags, record.service, record.regexp, record.replacement) for record in notification.data.answer)
-        else:
-            import dns.resolver
-            message_map = {dns.resolver.NXDOMAIN: 'DNS record does not exist',
-                           dns.resolver.NoAnswer: 'DNS response contains no answer',
-                           dns.resolver.NoNameservers: 'no DNS name servers could be reached',
-                           dns.resolver.Timeout: 'no DNS response received, the query has timed out'}
-            message += ' failed: %s' % message_map.get(notification.data.error.__class__, '')
-        try:
-            self._init_log_file('siptrace')
-        except Exception:
-            pass
-        else:
-            self._siptrace_file.write('%s [%s %d]: %s\n' % (notification.datetime, os.path.basename(sys.argv[0]).rstrip('.py'), os.getpid(), message))
-            self._siptrace_file.flush()
-
-    def _LH_MSRPTransportTrace(self, notification):
-        settings = SIPSimpleSettings()
-        if not settings.logs.trace_msrp:
-            return
-        arrow = {'incoming': '<--', 'outgoing': '-->'}[notification.data.direction]
-        local_address = notification.sender.getHost()
-        local_address = '%s:%d' % (local_address.host, local_address.port)
-        remote_address = notification.sender.getPeer()
-        remote_address = '%s:%d' % (remote_address.host, remote_address.port)
-        message = '%s %s %s\n' % (local_address, arrow, remote_address) + notification.data.data
-        try:
-            self._init_log_file('msrptrace')
-        except Exception:
-            pass
-        else:
-            self._msrptrace_file.write('%s [%s %d]: %s\n' % (notification.datetime, os.path.basename(sys.argv[0]).rstrip('.py'), os.getpid(), message))
-            self._msrptrace_file.flush()
-
-    def _LH_MSRPLibraryLog(self, notification):
-        settings = SIPSimpleSettings()
-        if not settings.logs.trace_msrp:
-            return
-        if notification.data.level < self.msrp_level:
-            return
-        message = '%s%s' % (notification.data.level.prefix, notification.data.message)
-        try:
-            self._init_log_file('msrptrace')
-        except Exception:
-            pass
-        else:
-            self._msrptrace_file.write('%s [%s %d]: %s\n' % (notification.datetime, os.path.basename(sys.argv[0]).rstrip('.py'), os.getpid(), message))
-            self._msrptrace_file.flush()
-
-    # private methods
-    #
-
-    def _init_log_directory(self):
-        settings = SIPSimpleSettings()
-        log_directory = settings.logs.directory.normalized
-        try:
-            makedirs(log_directory)
-        except Exception, e:
-            if not self._log_directory_error:
-                print "failed to create logs directory '%s': %s" % (log_directory, e)
-                self._log_directory_error = True
-            self._siptrace_error = True
-            self._pjsiptrace_error = True
-            self._notifications_error = True
-            raise
-        else:
-            self._log_directory_error = False
-            # sip trace
-            if self._siptrace_filename is None:
-                self._siptrace_filename = os.path.join(log_directory, 'sip_trace.log')
-                self._siptrace_error = False
-
-            # msrp trace
-            if self._msrptrace_filename is None:
-                self._msrptrace_filename = os.path.join(log_directory, 'msrp_trace.log')
-                self._msrptrace_error = False
-
-            # pjsip trace
-            if self._pjsiptrace_filename is None:
-                self._pjsiptrace_filename = os.path.join(log_directory, 'core_trace.log')
-                self._pjsiptrace_error = False
-
-            # notifications trace
-            if self._notifications_filename is None:
-                self._notifications_filename = os.path.join(log_directory, 'notifications_trace.log')
-                self._notifications_error = False
-
-    def _init_log_file(self, type):
-        if getattr(self, '_%s_file' % type) is None:
-            self._init_log_directory()
-            filename = getattr(self, '_%s_filename' % type)
-            try:
-                setattr(self, '_%s_file' % type, open(filename, 'a'))
-            except Exception, e:
-                if not getattr(self, '_%s_error' % type):
-                    print "failed to create log file '%s': %s" % (filename, e)
-                    setattr(self, '_%s_error' % type, True)
-                raise
+                answer = ' | '.join('{0.order} {0.preference} {0.flags!r} {0.service!r} {0.regexp!r} {0.replacement}'.format(dns_record) for dns_record in notification.data.answer)
             else:
-                setattr(self, '_%s_error' % type, False)
+                answer = ''
+            return self._format_success.format(time=notification.datetime, data=notification.data, answer=answer)
+        else:
+            return self._format_failure.format(time=notification.datetime, data=notification.data)
 
+
+class SIPTraceFormatter(logging.Formatter):
+    _format = '{time} Packet {packet} {direction} {data.transport} {data.source_ip}:{data.source_port} -> {data.destination_ip}:{data.destination_port}\n{data.data}\n'
+    _packet = 0
+
+    def format(self, record):
+        self._packet += 1
+        notification = record.notification
+        direction = 'INCOMING' if notification.data.received else 'OUTGOING'
+        return self._format.format(time=notification.datetime, packet=self._packet, direction=direction, data=notification.data)
+
+
+# noinspection PyPep8Naming,PyMethodMayBeStatic
+class MSRPTraceFormatter(logging.Formatter):
+    _packet = 0
+
+    def format(self, record):
+        handler = getattr(self, '_FH_{}'.format(record.notification.name), Null)
+        return handler(record)
+
+    def _FH_MSRPLibraryLog(self, record):
+        return '{notification.datetime} {notification.data.level!s} {notification.data.message}'.format(notification=record.notification)
+
+    def _FH_MSRPTransportTrace(self, record):
+        self._packet += 1
+        notification = record.notification
+        local_address = NetworkAddress(notification.data.local_address)
+        remote_address = NetworkAddress(notification.data.remote_address)
+        if notification.data.direction == 'incoming':
+            _format = '{time} Packet {packet} INCOMING {local_address} <- {remote_address}\n{data}\n'
+        else:
+            _format = '{time} Packet {packet} OUTGOING {local_address} -> {remote_address}\n{data}\n'
+        return _format.format(time=notification.datetime, packet=self._packet, local_address=local_address, remote_address=remote_address, data=notification.data.data)
+
+
+class CoreTraceFormatter(logging.Formatter):
+    _format = '{data.message}'  # todo: include data.level?
+
+    def format(self, record):
+        # return self._format.format(data=record.notification.data)
+        return record.notification.data.message
+
+
+class NotificationTraceFormatter(logging.Formatter):
+    _format = '{notification.datetime} Notification name={notification.name} sender={notification.sender} data={notification.data}'
+
+    def format(self, record):
+        return self._format.format(notification=record.notification)
+
+
+# The trace loggers
+#
+
+class DNSTraceLogger(TraceLogger):
+    name = 'dns_trace'
+    owner = 'core'
+    enabled = ServerConfig.trace_dns
+    formatter = DNSTraceFormatter()
+
+    def _NH_DNSLookupTrace(self, notification):
+        self.logger.log_notification(notification)
+
+
+class SIPTraceLogger(TraceLogger):
+    name = 'sip_trace'
+    owner = 'core'
+    enabled = ServerConfig.trace_sip
+    formatter = SIPTraceFormatter()
+
+    def _NH_SIPEngineSIPTrace(self, notification):
+        self.logger.log_notification(notification)
+
+
+class MSRPTraceLogger(TraceLogger):
+    name = 'msrp_trace'
+    owner = 'core'
+    enabled = ServerConfig.trace_msrp
+    formatter = MSRPTraceFormatter()
+
+    def _NH_MSRPTransportTrace(self, notification):
+        self.logger.log_notification(notification)
+
+    def _NH_MSRPLibraryLog(self, notification):
+        if notification.data.level >= logging.INFO:  # use logging.WARNING here?
+            self.logger.log_notification(notification)
+
+
+class CoreTraceLogger(TraceLogger):
+    name = 'core_trace'
+    owner = 'core'
+    enabled = ServerConfig.trace_core
+    formatter = CoreTraceFormatter()
+
+    def _NH_SIPEngineLog(self, notification):
+        self.logger.log_notification(notification)
+
+
+class NotificationTraceLogger(TraceLogger):
+    name = 'notification_trace'
+    owner = 'core'
+    enabled = ServerConfig.trace_notifications
+    formatter = NotificationTraceFormatter()
+
+    @property
+    def handled_notifications(self):
+        return {AllNotifications}
+
+    def handle_notification(self, notification):
+        if notification.name not in ('SIPEngineLog', 'SIPEngineSIPTrace'):
+            self.logger.log_notification(notification)
+
+
+# Customize the default logging formatter
+#
+core_name = 'sylk.core'
+
+root_logger = log.get_logger()
+root_logger.name = core_name
+log.Formatter.prefix_format = '{record.levelname:<8s} [{record.name}] '
+log.Formatter.prefix_length = max(len(name) for name in chain(find_applications(), [core_name])) + 8 + 4  # max name length + max level name length + 2 square brackets + 2 spaces
