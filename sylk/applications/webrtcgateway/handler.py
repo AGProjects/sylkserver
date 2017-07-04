@@ -174,7 +174,7 @@ class VideoRoomSessionInfo(object):
         return '<%s: id=%s janus_handle_id=%s type=%s>' % (self.__class__.__name__, self.id, self.janus_handle_id, self.type)
 
 
-class VideoRoomSessionContainer(object):
+class SessionContainer(object):
     def __init__(self):
         self._sessions = set()
         self._id_map = {}  # map session.id -> session and session.janus_handle_id -> session
@@ -243,7 +243,7 @@ class ConnectionHandler(object):
         self.account_handles_map = {}  # Janus handle ID -> account
         self.sessions_map = {}  # session ID -> session
         self.session_handles_map = {}  # Janus handle ID -> session
-        self.videoroom_sessions = VideoRoomSessionContainer()  # keeps references to all the videoroom sessions created by this participant (as publisher and subscriber)
+        self.videoroom_sessions = SessionContainer()  # keeps references to all the videoroom sessions created by this participant (as publisher and subscriber)
         self.ready_event = GreenEvent()
         self.resolver = DNSLookup()
         self.proc = proc.spawn(self._operations_handler)
