@@ -177,22 +177,37 @@ class VideoRoomSessionInfo(object):
 class VideoRoomSessionContainer(object):
     def __init__(self):
         self._sessions = set()
-        self._janus_handle_map = weakref.WeakValueDictionary()
-        self._id_map = weakref.WeakValueDictionary()
+        self._id_map = {}  # map session.id -> session and session.janus_handle_id -> session
 
     def add(self, session):
         assert session not in self._sessions
-        assert session.janus_handle_id not in self._janus_handle_map
-        assert session.id not in self._id_map
+        assert session.id not in self._id_map and session.janus_handle_id not in self._id_map
         self._sessions.add(session)
-        self._janus_handle_map[session.janus_handle_id] = session
-        self._id_map[session.id] = session
+        self._id_map[session.id] = self._id_map[session.janus_handle_id] = session
 
-    def remove(self, session):
-        self._sessions.discard(session)
+    def discard(self, item):  # item can be any of session, session.id or session.janus_handle_id
+        session = self._id_map[item] if item in self._id_map else item if item in self._sessions else None
+        if session is not None:
+            self._sessions.discard(session)
+            self._id_map.pop(session.id, None)
+            self._id_map.pop(session.janus_handle_id, None)
+
+    def remove(self, item):  # item can be any of session, session.id or session.janus_handle_id
+        session = self._id_map[item] if item in self._id_map else item
+        self._sessions.remove(session)
+        self._id_map.pop(session.id)
+        self._id_map.pop(session.janus_handle_id)
+
+    def pop(self, item):  # item can be any of session, session.id or session.janus_handle_id
+        session = self._id_map[item] if item in self._id_map else item
+        self._sessions.remove(session)
+        self._id_map.pop(session.id)
+        self._id_map.pop(session.janus_handle_id)
+        return session
 
     def clear(self):
         self._sessions.clear()
+        self._id_map.clear()
 
     def __len__(self):
         return len(self._sessions)
@@ -201,13 +216,10 @@ class VideoRoomSessionContainer(object):
         return iter(self._sessions)
 
     def __getitem__(self, key):
-        try:
-            return self._id_map[key]
-        except KeyError:
-            return self._janus_handle_map[key]
+        return self._id_map[key]
 
     def __contains__(self, item):
-        return item in self._id_map or item in self._janus_handle_map or item in self._sessions
+        return item in self._id_map or item in self._sessions
 
 
 class Operation(object):
@@ -231,7 +243,7 @@ class ConnectionHandler(object):
         self.account_handles_map = {}  # Janus handle ID -> account
         self.sessions_map = {}  # session ID -> session
         self.session_handles_map = {}  # Janus handle ID -> session
-        self.videoroom_sessions = VideoRoomSessionContainer()    # session ID / janus handle ID -> session
+        self.videoroom_sessions = VideoRoomSessionContainer()  # keeps references to all the videoroom sessions created by this participant (as publisher and subscriber)
         self.ready_event = GreenEvent()
         self.resolver = DNSLookup()
         self.proc = proc.spawn(self._operations_handler)
