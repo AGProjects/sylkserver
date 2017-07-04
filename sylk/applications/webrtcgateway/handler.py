@@ -331,13 +331,11 @@ class ConnectionHandler(object):
     def _cleanup_session(self, session):
         @run_in_green_thread
         def do_cleanup():
-            if self.janus_session_id is None:
-                # The connection was closed, there is noting to do here
+            if self.janus_session_id is None:  # The connection was closed, there is noting to do here
                 return
             self.sessions_map.pop(session.id)
             if session.direction == 'outgoing':
-                # Destroy plugin handle for outgoing sessions. For incoming ones it's the
-                # same as the account handle, so don't
+                # Destroy plugin handle for outgoing sessions. For incoming ones it's the same as the account handle, so don't
                 block_on(self.protocol.backend.janus_detach(self.janus_session_id, session.janus_handle_id))
                 self.protocol.backend.janus_set_event_handler(session.janus_handle_id, None)
             self.session_handles_map.pop(session.janus_handle_id)
@@ -348,8 +346,7 @@ class ConnectionHandler(object):
     def _cleanup_videoroom_session(self, session):
         @run_in_green_thread
         def do_cleanup():
-            if self.janus_session_id is None:
-                # The connection was closed, there is noting to do here
+            if self.janus_session_id is None:  # The connection was closed, there is noting to do here
                 return
             if session in self.videoroom_sessions:
                 self.videoroom_sessions.remove(session)
