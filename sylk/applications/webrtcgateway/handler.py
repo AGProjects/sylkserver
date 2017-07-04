@@ -250,6 +250,16 @@ class ConnectionHandler(object):
                 if handle_id is not None:
                     self.protocol.backend.janus_detach(self.janus_session_id, handle_id)
                     self.protocol.backend.janus_set_event_handler(handle_id, None)
+            for session in self.sessions_map.values():
+                handle_id = session.janus_handle_id
+                if handle_id is not None:
+                    self.protocol.backend.janus_detach(self.janus_session_id, handle_id)
+                    self.protocol.backend.janus_set_event_handler(handle_id, None)
+            for session in self.videoroom_sessions:
+                handle_id = session.janus_handle_id
+                if handle_id is not None:
+                    self.protocol.backend.janus_detach(self.janus_session_id, handle_id)
+                    self.protocol.backend.janus_set_event_handler(handle_id, None)
             self.protocol.backend.janus_stop_keepalive(self.janus_session_id)
             self.protocol.backend.janus_destroy_session(self.janus_session_id)
         if self.proc is not None:
