@@ -1163,9 +1163,9 @@ class ConnectionHandler(object):
             pass
         elif event_type == 'slowlink':
             try:
-                videoroom_session = (session_info for session_info in self.videoroom_sessions if session_info.janus_handle_id == handle_id).next()
-            except StopIteration:
-                self.log.warning('could not find video room session for Janus handle ID %s' % handle_id)
+                videoroom_session = self.videoroom_sessions[handle_id]
+            except KeyError:
+                self.log.warning('could not find video room session for handle ID %s' % handle_id)
                 return
             try:
                 uplink = data['event']['uplink']
