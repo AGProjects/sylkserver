@@ -47,11 +47,21 @@ api_secret = 0745f2f74f34451c89343afcdcae5809
 ; logged to a file
 ; trace_janus = False
 
+; Maximum video bitrate allowed per sender in a room in bits/s. This value is
+; applied to any room that doesn't define its own. The value is any integer
+; number between 64000 and 4194304. Default value is 4194304 (4Mb/s).
+; max_bitrate = 4194304
+
+; The video codec to be used by all participants in a room. This value is
+; applied to any room that doesn't define its own.
+; Possible values are: h264, vp8 and vp9. Default is vp9.
+; video_codec = vp9
+
 ; Per room configuration options
 ; [room1@videoconference.example.com]
 ; record = True
 ; access_policy = deny, allow
 ; deny = all
 ; allow = domain1.com, test1@example.com, test2@example.com
-
-
+; max_bitrate = 512000
+; video_codec = h264

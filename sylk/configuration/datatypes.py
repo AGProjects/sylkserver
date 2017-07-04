@@ -186,3 +186,23 @@ class LogLevel(log.NamedLevel):
             raise ValueError("illegal value for log level: %s" % value)
         log.level.current = cls.__levelmap__[value]
         return log.level.current
+
+
+class VideoBitrate(int):
+    def __new__(cls, value):
+        min_bitrate = 64000
+        max_bitrate = 4*1024*1024  # 4 Mb/s
+        value = int(value)
+        if not (min_bitrate <= value <= max_bitrate):
+            raise ValueError('value must be an integer number between {} and {}'.format(min_bitrate, max_bitrate))
+        return value
+
+
+class VideoCodec(str):
+    valid_values = 'h264', 'vp8', 'vp9'
+
+    def __new__(cls, value):
+        value = value.lower()
+        if value not in cls.valid_values:
+            raise ValueError('value must be one of: {!s}'.format(', '.join(cls.valid_values)))
+        return str.__new__(cls, value)

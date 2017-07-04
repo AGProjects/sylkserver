@@ -6,7 +6,7 @@ from application.configuration import ConfigFile, ConfigSection, ConfigSetting
 from application.configuration.datatypes import NetworkAddress, StringList
 
 from sylk.configuration import ServerConfig
-from sylk.configuration.datatypes import Path, SIPProxyAddress
+from sylk.configuration.datatypes import Path, SIPProxyAddress, VideoBitrate, VideoCodec
 
 
 __all__ = 'GeneralConfig', 'JanusConfig', 'get_room_config'
@@ -111,6 +111,8 @@ class JanusConfig(ConfigSection):
     api_url = 'ws://127.0.0.1:8188'
     api_secret = '0745f2f74f34451c89343afcdcae5809'
     trace_janus = False
+    max_bitrate = ConfigSetting(type=VideoBitrate, value=VideoBitrate(4*1024*1024))  # 4 MBits/s
+    video_codec = ConfigSetting(type=VideoCodec, value=VideoCodec('vp9'))
 
 
 class RoomConfig(ConfigSection):
@@ -120,6 +122,8 @@ class RoomConfig(ConfigSection):
     access_policy = ConfigSetting(type=AccessPolicyValue, value=AccessPolicyValue('allow, deny'))
     allow = ConfigSetting(type=PolicySettingValue, value=PolicySettingValue('all'))
     deny = ConfigSetting(type=PolicySettingValue, value=PolicySettingValue('none'))
+    max_bitrate = ConfigSetting(type=VideoBitrate, value=JanusConfig.max_bitrate)
+    video_codec = ConfigSetting(type=VideoCodec, value=JanusConfig.video_codec)
 
 
 class Configuration(object):
@@ -135,8 +139,6 @@ def get_room_config(room):
         config = Configuration(dict(RoomConfig))
         RoomConfig.reset()
     else:
-        # Apply general policy
-        config = Configuration(dict(RoomConfig))
+        config = Configuration(dict(RoomConfig))  # use room defaults
+    config.recording_dir = os.path.join(GeneralConfig.recording_dir, room)
     return config
-
-

@@ -119,18 +119,15 @@ class SIPSessionInfo(object):
 
 class VideoRoom(object):
     def __init__(self, uri):
-        self.config = get_room_config(uri)
-        self.uri = uri
-        self.record = self.config.record
-        self.rec_dir = os.path.join(GeneralConfig.recording_dir, '%s/' % uri)
         self.id = random.getrandbits(32)    # janus needs numeric room names
+        self.uri = uri
+        self.config = get_room_config(uri)
         self.destroyed = False
         self.log = VideoroomLogger(self)
         self._session_id_map = weakref.WeakValueDictionary()
         self._publisher_id_map = weakref.WeakValueDictionary()
-
-        if self.record:
-            makedirs(self.rec_dir, 0o755)
+        if self.config.record:
+            makedirs(self.config.recording_dir, 0o755)
             self.log.info('created (recording on)')
         else:
             self.log.info('created')
@@ -703,9 +700,10 @@ class ConnectionHandler(object):
             data = {'request': 'create',
                     'room': videoroom.id,
                     'publishers': 10,
-                    'bitrate': 4*1024*1024,  # max bitrate = 4 Mb/s (if we do not specify this it defaults to 256Kb/s in janus)
-                    'record': videoroom.record,
-                    'rec_dir': videoroom.rec_dir}
+                    'bitrate': videoroom.config.max_bitrate,  # max bitrate for room (if we do not specify this it defaults to 256Kb/s in janus)
+                    'videocodec': videoroom.config.video_codec,
+                    'record': videoroom.config.record,
+                    'rec_dir': videoroom.config.recording_dir}
             try:
                 block_on(self.protocol.backend.janus_message(self.janus_session_id, handle_id, data))
             except Exception as e:
