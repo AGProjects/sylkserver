@@ -148,6 +148,56 @@ class VideoRoom(object):
         return len(self._session_id_map)
 
 
+class PublisherFeedContainer(object):
+    """A container for the other participant's publisher sessions that we have subscribed to"""
+
+    def __init__(self):
+        self._publishers = set()
+        self._id_map = {}  # map publisher.id -> publisher and publisher.publisher_id -> publisher
+
+    def add(self, session):
+        assert session not in self._publishers
+        assert session.id not in self._id_map and session.publisher_id not in self._id_map
+        self._publishers.add(session)
+        self._id_map[session.id] = self._id_map[session.publisher_id] = session
+
+    def discard(self, item):  # item can be any of session, session.id or session.publisher_id
+        session = self._id_map[item] if item in self._id_map else item if item in self._publishers else None
+        if session is not None:
+            self._publishers.discard(session)
+            self._id_map.pop(session.id, None)
+            self._id_map.pop(session.publisher_id, None)
+
+    def remove(self, item):  # item can be any of session, session.id or session.publisher_id
+        session = self._id_map[item] if item in self._id_map else item
+        self._publishers.remove(session)
+        self._id_map.pop(session.id)
+        self._id_map.pop(session.publisher_id)
+
+    def pop(self, item):  # item can be any of session, session.id or session.publisher_id
+        session = self._id_map[item] if item in self._id_map else item
+        self._publishers.remove(session)
+        self._id_map.pop(session.id)
+        self._id_map.pop(session.publisher_id)
+        return session
+
+    def clear(self):
+        self._publishers.clear()
+        self._id_map.clear()
+
+    def __len__(self):
+        return len(self._publishers)
+
+    def __iter__(self):
+        return iter(self._publishers)
+
+    def __getitem__(self, key):
+        return self._id_map[key]
+
+    def __contains__(self, item):
+        return item in self._id_map or item in self._publishers
+
+
 class VideoRoomSessionInfo(object):
     slow_download = SlowLinkDescriptor()
     slow_upload = SlowLinkDescriptor()
@@ -162,7 +212,7 @@ class VideoRoomSessionInfo(object):
         self.parent_session = None
         self.slow_download = False
         self.slow_upload = False
-        self.feeds = {}    # janus publisher ID -> our publisher ID
+        self.feeds = PublisherFeedContainer()  # keeps references to all the other participant's publisher feeds that we subscribed to
 
     def initialize(self, account_id, type, room):
         assert type in ('publisher', 'subscriber')
@@ -274,6 +324,7 @@ class ConnectionHandler(object):
                 if handle_id is not None:
                     self.protocol.backend.janus_detach(self.janus_session_id, handle_id)
                     self.protocol.backend.janus_set_event_handler(handle_id, None)
+                session.feeds.clear()
             self.protocol.backend.janus_stop_keepalive(self.janus_session_id)
             self.protocol.backend.janus_destroy_session(self.janus_session_id)
         # cleanup
@@ -350,6 +401,7 @@ class ConnectionHandler(object):
                 return
             if session in self.videoroom_sessions:
                 self.videoroom_sessions.remove(session)
+                session.feeds.clear()
                 block_on(self.protocol.backend.janus_detach(self.janus_session_id, session.janus_handle_id))
                 self.protocol.backend.janus_set_event_handler(session.janus_handle_id, None)
 
@@ -840,7 +892,7 @@ class ConnectionHandler(object):
                 videoroom_session.publisher_id = publisher_session.id
                 videoroom_session.initialize(base_session.account_id, 'subscriber', base_session.room)
                 self.videoroom_sessions.add(videoroom_session)
-                base_session.feeds[publisher_session.publisher_id] = publisher_session.id
+                base_session.feeds.add(publisher_session)
             except APIError as e:
                 self.log.error('videoroom-ctl: {exception!s}'.format(exception=e))
                 self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
@@ -888,13 +940,8 @@ class ConnectionHandler(object):
                 self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
                 block_on(self.protocol.backend.janus_detach(self.janus_session_id, videoroom_session.janus_handle_id))
                 self.protocol.backend.janus_set_event_handler(videoroom_session.janus_handle_id, None)
-                self.videoroom_sessions.remove(videoroom_session)
-                try:
-                    janus_publisher_id = next(k for k, v in base_session.feeds.iteritems() if v == videoroom_session.publisher_id)
-                except StopIteration:
-                    pass
-                else:
-                    base_session.feeds.pop(janus_publisher_id)
+                self.videoroom_sessions.remove(videoroom_session)  # this is a subscriber session with no feeds, so no need to clean them up
+                base_session.feeds.discard(videoroom_session.publisher_id)
         elif request.option == 'invite-participants':
             invite_participants = request.invite_participants
             if not invite_participants:
@@ -1276,14 +1323,15 @@ class ConnectionHandler(object):
                 if janus_publisher_id == 'ok':  # the id is 'ok' when the notification is about ourselves leaving the room
                     self.log.info('left video room {session.room.uri} with session {session.id}'.format(session=base_session))  # todo: include session.id in log?
                     base_session.room.log.info('{session.account_id} has left the room'.format(session=base_session))
+                    return
                 try:
-                    publisher_id = base_session.feeds.pop(janus_publisher_id)
+                    publisher_session = base_session.feeds.pop(janus_publisher_id)
                 except KeyError:
                     return
                 data = dict(sylkrtc='videoroom_event',
                             session=base_session.id,
                             event='publishers_left',
-                            data=dict(publishers=[publisher_id]))
+                            data=dict(publishers=[publisher_session.id]))
                 self._send_data(json.dumps(data))
             elif {'started', 'unpublished', 'left', 'configured'}.intersection(event_data):
                 pass
