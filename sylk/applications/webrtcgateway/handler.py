@@ -254,6 +254,9 @@ class ConnectionHandler(object):
         self._create_janus_session()
 
     def stop(self):
+        if self.proc is not None:  # Kill the operation's handler proc first, in order to not have any operations active while we cleanup.
+            self.proc.kill()        # Also proc.kill() will switch to another green thread, which is another reason to do it first so that
+            self.proc = None        # we do not switch to another green thread in the middle of the cleanup with a partially deleted handler
         if self.ready_event.is_set():
             assert self.janus_session_id is not None
             for account_info in self.accounts_map.values():
@@ -273,9 +276,6 @@ class ConnectionHandler(object):
                     self.protocol.backend.janus_set_event_handler(handle_id, None)
             self.protocol.backend.janus_stop_keepalive(self.janus_session_id)
             self.protocol.backend.janus_destroy_session(self.janus_session_id)
-        if self.proc is not None:
-            self.proc.kill()
-            self.proc = None
         # cleanup
         self.ready_event.clear()
         self.accounts_map.clear()
