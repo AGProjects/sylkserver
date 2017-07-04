@@ -291,8 +291,7 @@ class ConnectionHandler(object):
         self.janus_session_id = None
         self.accounts_map = {}  # account ID -> account
         self.account_handles_map = {}  # Janus handle ID -> account
-        self.sessions_map = {}  # session ID -> session
-        self.session_handles_map = {}  # Janus handle ID -> session
+        self.sip_sessions = SessionContainer()  # keeps references to all the SIP sessions created or received by this device
         self.videoroom_sessions = SessionContainer()  # keeps references to all the videoroom sessions created by this participant (as publisher and subscriber)
         self.ready_event = GreenEvent()
         self.resolver = DNSLookup()
@@ -314,7 +313,7 @@ class ConnectionHandler(object):
                 if handle_id is not None:
                     self.protocol.backend.janus_detach(self.janus_session_id, handle_id)
                     self.protocol.backend.janus_set_event_handler(handle_id, None)
-            for session in self.sessions_map.values():
+            for session in self.sip_sessions:
                 handle_id = session.janus_handle_id
                 if handle_id is not None:
                     self.protocol.backend.janus_detach(self.janus_session_id, handle_id)
@@ -331,8 +330,7 @@ class ConnectionHandler(object):
         self.ready_event.clear()
         self.accounts_map.clear()
         self.account_handles_map.clear()
-        self.sessions_map.clear()
-        self.session_handles_map.clear()
+        self.sip_sessions.clear()
         self.videoroom_sessions.clear()
         self.janus_session_id = None
         self.protocol = None
@@ -384,12 +382,11 @@ class ConnectionHandler(object):
         def do_cleanup():
             if self.janus_session_id is None:  # The connection was closed, there is noting to do here
                 return
-            self.sessions_map.pop(session.id)
-            if session.direction == 'outgoing':
+            if session.direction == 'outgoing' and session in self.sip_sessions:
                 # Destroy plugin handle for outgoing sessions. For incoming ones it's the same as the account handle, so don't
                 block_on(self.protocol.backend.janus_detach(self.janus_session_id, session.janus_handle_id))
                 self.protocol.backend.janus_set_event_handler(session.janus_handle_id, None)
-            self.session_handles_map.pop(session.janus_handle_id)
+            self.sip_sessions.discard(session)
 
         # give it some time to receive other hangup events
         reactor.callLater(2, do_cleanup)
@@ -632,7 +629,7 @@ class ConnectionHandler(object):
 
     def _OH_session_create(self, request):
         try:
-            if request.session in self.sessions_map:
+            if request.session in self.sip_sessions:
                 raise APIError('Session ID {request.session} already in use'.format(request=request))
 
             try:
@@ -660,9 +657,8 @@ class ConnectionHandler(object):
             session_info = SIPSessionInfo(request.session)
             session_info.janus_handle_id = handle_id
             session_info.init_outgoing(request.account, request.uri)
-            # TODO: create a "SessionContainer" object combining the 2
-            self.sessions_map[session_info.id] = session_info
-            self.session_handles_map[handle_id] = session_info
+
+            self.sip_sessions.add(session_info)
 
             data = {'request': 'call', 'uri': 'sip:%s' % SIP_PREFIX_RE.sub('', request.uri), 'srtp': 'sdes_optional'}
             jsep = {'type': 'offer', 'sdp': request.sdp}
@@ -677,7 +673,7 @@ class ConnectionHandler(object):
     def _OH_session_answer(self, request):
         try:
             try:
-                session_info = self.sessions_map[request.session]
+                session_info = self.sip_sessions[request.session]
             except KeyError:
                 raise APIError('Unknown session specified: {request.session}'.format(request=request))
 
@@ -699,7 +695,7 @@ class ConnectionHandler(object):
     def _OH_session_trickle(self, request):
         try:
             try:
-                session_info = self.sessions_map[request.session]
+                session_info = self.sip_sessions[request.session]
             except KeyError:
                 raise APIError('Unknown session specified: {request.session}'.format(request=request))
 
@@ -720,7 +716,7 @@ class ConnectionHandler(object):
     def _OH_session_terminate(self, request):
         try:
             try:
-                session_info = self.sessions_map[request.session]
+                session_info = self.sip_sessions[request.session]
             except KeyError:
                 raise APIError('Unknown session specified: {request.session}'.format(request=request))
 
@@ -997,7 +993,7 @@ class ConnectionHandler(object):
             self._janus_event_plugin_sip(data)
         elif event_type == 'webrtcup':
             try:
-                session_info = self.session_handles_map[handle_id]
+                session_info = self.sip_sessions[handle_id]
             except KeyError:
                 self.log.warning('could not find session for handle ID %s' % handle_id)
                 return
@@ -1011,7 +1007,7 @@ class ConnectionHandler(object):
             self.log.info('established WEBRTC connection for session {session.id}'.format(session=session_info))
         elif event_type == 'hangup':
             try:
-                session_info = self.session_handles_map[handle_id]
+                session_info = self.sip_sessions[handle_id]
             except KeyError:
                 self.log.warning('could not find session for handle ID %s' % handle_id)
                 return
@@ -1036,7 +1032,7 @@ class ConnectionHandler(object):
             pass
         elif event_type == 'slowlink':
             try:
-                session_info = self.session_handles_map[handle_id]
+                session_info = self.sip_sessions[handle_id]
             except KeyError:
                 self.log.warning('could not find session for handle ID %s' % handle_id)
                 return
@@ -1090,8 +1086,7 @@ class ConnectionHandler(object):
                 session = SIPSessionInfo(session_id)
                 session.janus_handle_id = handle_id
                 session.init_incoming(account_info.id, originator_uri, originator_display_name)
-                self.sessions_map[session_id] = session
-                self.session_handles_map[handle_id] = session
+                self.sip_sessions.add(session)
                 data = dict(sylkrtc='account_event',
                             account=account_info.id,
                             session=session_id,
@@ -1120,7 +1115,7 @@ class ConnectionHandler(object):
         elif event_type in ('calling', 'accepted', 'hangup'):
             # session event
             try:
-                session_info = self.session_handles_map[handle_id]
+                session_info = self.sip_sessions[handle_id]
             except KeyError:
                 self.log.warning('could not find session for handle ID %s' % handle_id)
                 return
