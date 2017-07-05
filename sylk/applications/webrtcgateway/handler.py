@@ -1187,7 +1187,7 @@ class ConnectionHandler(object):
             try:
                 videoroom_session = self.videoroom_sessions[handle_id]
             except KeyError:
-                self.log.warning('could not find video room session for handle ID %s' % handle_id)
+                self.log.warning('could not find video room session for handle ID %s during webrtcup event' % handle_id)
                 return
             if videoroom_session.parent_session is None:
                 self.log.info('established WEBRTC connection for session {session.id}'.format(session=videoroom_session))
@@ -1206,7 +1206,7 @@ class ConnectionHandler(object):
             try:
                 videoroom_session = self.videoroom_sessions[handle_id]
             except KeyError:
-                self.log.warning('could not find video room session for handle ID %s' % handle_id)
+                self.log.warning('could not find video room session for handle ID %s during hangup event' % handle_id)
                 return
             self._cleanup_videoroom_session(videoroom_session)
             self._maybe_destroy_videoroom(videoroom_session.room)
@@ -1216,7 +1216,7 @@ class ConnectionHandler(object):
             try:
                 videoroom_session = self.videoroom_sessions[handle_id]
             except KeyError:
-                self.log.warning('could not find video room session for handle ID %s' % handle_id)
+                self.log.warning('could not find video room session for handle ID %s during slowlink event' % handle_id)
                 return
             try:
                 uplink = data['event']['uplink']
@@ -1248,7 +1248,7 @@ class ConnectionHandler(object):
             try:
                 videoroom_session = self.videoroom_sessions[handle_id]
             except KeyError:
-                self.log.warning('could not find video room session for handle ID %s' % handle_id)
+                self.log.warning('could not find video room session for handle ID %s during joined event' % handle_id)
                 return
             room = videoroom_session.room
             videoroom_session.publisher_id = event_data['id']
@@ -1270,7 +1270,7 @@ class ConnectionHandler(object):
                 try:
                     publisher_session = room[publisher_id]
                 except KeyError:
-                    self.log.warning('could not find matching session for publisher %s' % publisher_id)
+                    self.log.warning('could not find matching session for publisher %s during joined event' % publisher_id)
                     continue
                 item = {'id': publisher_session.id,
                         'uri': publisher_session.account_id,
@@ -1286,7 +1286,7 @@ class ConnectionHandler(object):
                 try:
                     videoroom_session = self.videoroom_sessions[handle_id]
                 except KeyError:
-                    self.log.warning('could not find video room session for handle ID %s' % handle_id)
+                    self.log.warning('could not find video room session for handle ID %s during publishers event' % handle_id)
                     return
                 room = videoroom_session.room
                 # send information about new publishers
@@ -1297,7 +1297,7 @@ class ConnectionHandler(object):
                     try:
                         publisher_session = room[publisher_id]
                     except KeyError:
-                        self.log.warning('could not find matching session for publisher %s' % publisher_id)
+                        self.log.warning('could not find matching session for publisher %s during publishers event' % publisher_id)
                         continue
                     item = {'id': publisher_session.id,
                             'uri': publisher_session.account_id,
@@ -1312,7 +1312,7 @@ class ConnectionHandler(object):
                 try:
                     base_session = self.videoroom_sessions[handle_id]
                 except KeyError:
-                    self.log.warning('could not find video room session for handle ID %s' % handle_id)
+                    self.log.warning('could not find video room session for handle ID %s during leaving event' % handle_id)
                     return
                 janus_publisher_id = event_data['leaving']
                 if janus_publisher_id == 'ok':  # the id is 'ok' when the notification is about ourselves leaving the room
@@ -1337,7 +1337,7 @@ class ConnectionHandler(object):
             try:
                 videoroom_session = self.videoroom_sessions[handle_id]
             except KeyError:
-                self.log.warning('could not find video room session for handle ID %s' % handle_id)
+                self.log.warning('could not find video room session for handle ID %s during attached event' % handle_id)
                 return
             # get the session which originated the subscription
             base_session = videoroom_session.parent_session
