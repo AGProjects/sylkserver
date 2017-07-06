@@ -49,8 +49,8 @@ api_secret = 0745f2f74f34451c89343afcdcae5809
 
 ; Maximum video bitrate allowed per sender in a room in bits/s. This value is
 ; applied to any room that doesn't define its own. The value is any integer
-; number between 64000 and 4194304. Default value is 4194304 (4Mb/s).
-; max_bitrate = 4194304
+; number between 64000 and 4194304. Default value is 2016000 (~2Mb/s).
+; max_bitrate = 2016000
 
 ; The video codec to be used by all participants in a room. This value is
 ; applied to any room that doesn't define its own.

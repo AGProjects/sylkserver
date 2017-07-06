@@ -111,7 +111,7 @@ class JanusConfig(ConfigSection):
     api_url = 'ws://127.0.0.1:8188'
     api_secret = '0745f2f74f34451c89343afcdcae5809'
     trace_janus = False
-    max_bitrate = ConfigSetting(type=VideoBitrate, value=VideoBitrate(4*1024*1024))  # 4 MBits/s
+    max_bitrate = ConfigSetting(type=VideoBitrate, value=VideoBitrate(2016000))  # ~2 MBits/s
     video_codec = ConfigSetting(type=VideoCodec, value=VideoCodec('vp9'))
 
 
