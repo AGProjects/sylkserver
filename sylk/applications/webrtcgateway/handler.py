@@ -1068,11 +1068,11 @@ class ConnectionHandler(object):
                             data=dict(state=session_info.state, reason=reason))
                 # TODO: SessionEvent model
                 self._send_data(json.dumps(data))
-                self._cleanup_session(session_info)
                 if code >= 300:
                     self.log.info('{session.direction} session {session.id} terminated ({reason})'.format(session=session_info, reason=reason))
                 else:
                     self.log.info('{session.direction} session {session.id} terminated'.format(session=session_info))
+                self._cleanup_session(session_info)
         elif event_type in ('media', 'detached'):
             # ignore
             pass
