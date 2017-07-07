@@ -1054,7 +1054,6 @@ class ConnectionHandler(object):
             try:
                 session_info = self.sip_sessions[handle_id]
             except KeyError:
-                self.log.warning('could not find session for handle ID %s' % handle_id)
                 return
             if session_info.state != 'terminated':
                 session_info.state = 'terminated'
@@ -1180,7 +1179,6 @@ class ConnectionHandler(object):
             try:
                 session_info = self.sip_sessions[handle_id]
             except KeyError:
-                self.log.warning('could not find session for handle ID %s' % handle_id)
                 return
             if session_info.state != 'terminated':
                 session_info.state = 'terminated'
