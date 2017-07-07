@@ -1158,21 +1158,15 @@ class ConnectionHandler(object):
                             data=registration_data)
             # TODO: AccountEvent model
             self._send_data(json.dumps(data))
-        elif event_type in ('calling', 'accepted', 'hangup'):
+        elif event_type in ('calling', 'accepted'):
             # session event
             try:
                 session_info = self.sip_sessions[handle_id]
             except KeyError:
                 self.log.warning('could not find session for handle ID %s' % handle_id)
                 return
-            if event_type == 'hangup' and session_info.state == 'terminated':
-                return
-            if event_type == 'calling':
-                session_info.state = 'progress'
-            elif event_type == 'accepted':
-                session_info.state = 'accepted'
-            elif event_type == 'hangup':
-                session_info.state = 'terminated'
+            state_map = dict(calling='progress', accepted='accepted')
+            session_info.state = state_map[event_type]
             self.log.debug('{session.direction} session {session.id} state: {session.state}'.format(session=session_info))
             data = dict(sylkrtc='session_event',
                         session=session_info.id,
@@ -1181,26 +1175,35 @@ class ConnectionHandler(object):
             if session_info.state == 'accepted' and session_info.direction == 'outgoing':
                 assert jsep is not None
                 data['data']['sdp'] = jsep['sdp']
-            elif session_info.state == 'terminated':
+            self._send_data(json.dumps(data))  # TODO: SessionEvent model
+        elif event_type == 'hangup':  # session hangup event
+            try:
+                session_info = self.sip_sessions[handle_id]
+            except KeyError:
+                self.log.warning('could not find session for handle ID %s' % handle_id)
+                return
+            if session_info.state != 'terminated':
+                session_info.state = 'terminated'
+                self.log.debug('{session.direction} session {session.id} state: {session.state}'.format(session=session_info))
                 code = event_data.get('code', 0)
                 reason = event_data.get('reason', 'Unknown')
                 reason = '%d %s' % (code, reason)
-                data['data']['reason'] = reason
-            self._send_data(json.dumps(data))  # TODO: SessionEvent model
-            if session_info.state == 'terminated':
-                self._cleanup_session(session_info)
-                if code >= 300:
-                    self.log.info('{session.direction} session {session.id} terminated ({reason})'.format(session=session_info, reason=reason))
-                else:
-                    self.log.info('{session.direction} session {session.id} terminated'.format(session=session_info))
-                # check if missed incoming call
-                if session_info.direction == 'incoming' and code == 487:
+                data = dict(sylkrtc='session_event',
+                            session=session_info.id,
+                            event='state',
+                            data=dict(state=session_info.state, reason=reason))
+                self._send_data(json.dumps(data))  # TODO: SessionEvent model
+                if session_info.direction == 'incoming' and code == 487:  # check if missed incoming call
                     data = dict(sylkrtc='account_event',
                                 account=session_info.account_id,
                                 event='missed_session',
                                 data=dict(originator=session_info.remote_identity.__dict__))
-                    # TODO: AccountEvent model
-                    self._send_data(json.dumps(data))
+                    self._send_data(json.dumps(data))  # TODO: AccountEvent model
+                if code >= 300:
+                    self.log.info('{session.direction} session {session.id} terminated ({reason})'.format(session=session_info, reason=reason))
+                else:
+                    self.log.info('{session.direction} session {session.id} terminated'.format(session=session_info))
+                self._cleanup_session(session_info)
         elif event_type == 'missed_call':
             try:
                 account_info = self.account_handles_map[handle_id]
