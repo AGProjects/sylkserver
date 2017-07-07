@@ -1179,8 +1179,7 @@ class ConnectionHandler(object):
                 session_info.state = 'terminated'
                 self.log.debug('{session.direction} session {session.id} state: {session.state}'.format(session=session_info))
                 code = event_data.get('code', 0)
-                reason = event_data.get('reason', 'Unknown')
-                reason = '%d %s' % (code, reason)
+                reason = '%d %s' % (code, event_data.get('reason', 'Unknown'))
                 data = dict(sylkrtc='session_event',
                             session=session_info.id,
                             event='state',
