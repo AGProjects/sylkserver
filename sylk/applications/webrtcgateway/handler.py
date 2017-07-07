@@ -1058,19 +1058,14 @@ class ConnectionHandler(object):
             if session_info.state != 'terminated':
                 session_info.state = 'terminated'
                 self.log.debug('{session.direction} session {session.id} state: {session.state}'.format(session=session_info))
-                code = event.get('code', 0)
-                reason = event.get('reason', 'Unknown')
-                reason = '%d %s' % (code, reason)
+                reason = event.get('reason', 'reason unspecified')
                 data = dict(sylkrtc='session_event',
                             session=session_info.id,
                             event='state',
                             data=dict(state=session_info.state, reason=reason))
                 # TODO: SessionEvent model
                 self._send_data(json.dumps(data))
-                if code >= 300:
-                    self.log.info('{session.direction} session {session.id} terminated ({reason})'.format(session=session_info, reason=reason))
-                else:
-                    self.log.info('{session.direction} session {session.id} terminated'.format(session=session_info))
+                self.log.info('{session.direction} session {session.id} terminated ({reason})'.format(session=session_info, reason=reason))
                 self._cleanup_session(session_info)
         elif event_type in ('media', 'detached'):
             # ignore
