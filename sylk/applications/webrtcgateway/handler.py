@@ -14,7 +14,7 @@ from eventlib.twistedutil import block_on
 from sipsimple.configuration.settings import SIPSimpleSettings
 from sipsimple.core import SIPURI
 from sipsimple.lookup import DNSLookup, DNSLookupError
-from sipsimple.threading.green import run_in_green_thread
+from sipsimple.threading.green import call_in_green_thread, run_in_green_thread
 from twisted.internet import reactor
 
 from sylk.applications.webrtcgateway.configuration import GeneralConfig, get_room_config
@@ -421,66 +421,53 @@ class ConnectionHandler(object):
         self.protocol.sendMessage(data)
 
     def _cleanup_session(self, session):
-        @run_in_green_thread
-        def do_cleanup():
-            if self.janus_session_id is None:  # The connection was closed, there is noting to do here
-                return
-            if session.direction == 'outgoing' and session in self.sip_sessions:
-                # Destroy plugin handle for outgoing sessions. For incoming ones it's the same as the account handle, so don't
-                block_on(self.protocol.backend.janus_detach(self.janus_session_id, session.janus_handle_id))
-                self.protocol.backend.janus_set_event_handler(session.janus_handle_id, None)
-            self.sip_sessions.discard(session)
+        # should only be called from a green thread.
 
-        # give it some time to receive other hangup events
-        reactor.callLater(2, do_cleanup)
-
-    def _cleanup_videoroom_session(self, session):
-        @run_in_green_thread
-        def do_cleanup():
-            if self.janus_session_id is None:  # The connection was closed, there is noting to do here
-                return
-            if session in self.videoroom_sessions:
-                self.videoroom_sessions.remove(session)
-                session.feeds.clear()
-                block_on(self.protocol.backend.janus_detach(self.janus_session_id, session.janus_handle_id))
-                self.protocol.backend.janus_set_event_handler(session.janus_handle_id, None)
-
-        session.room.discard(session)  # remove session from room early. use discard here as _cleanup_videoroom_session can be called more than once
-
-        # give it some time to receive other hangup events
-        reactor.callLater(2, do_cleanup)
-
-    def _maybe_destroy_videoroom(self, videoroom):
-        if videoroom is None:
+        if self.janus_session_id is None:  # The connection was closed, there is noting to do
             return
 
-        @run_in_green_thread
-        def f():
-            if self.protocol is None:
-                # The connection was closed
-                return
-            # destroy the room if empty
-            if not videoroom and not videoroom.destroyed:
-                videoroom.destroyed = True
-                self.protocol.factory.videorooms.remove(videoroom)
+        if session.direction == 'outgoing' and session in self.sip_sessions:
+            # Destroy plugin handle for outgoing sessions. For incoming ones it's the same as the account handle, so don't
+            block_on(self.protocol.backend.janus_detach(self.janus_session_id, session.janus_handle_id))  # todo: do we care to wait for this or not? (we ignore the detached event anyway)
+            self.protocol.backend.janus_set_event_handler(session.janus_handle_id, None)
+        self.sip_sessions.discard(session)
 
-                # create a handle to do the cleanup
-                handle_id = block_on(self.protocol.backend.janus_attach(self.janus_session_id, 'janus.plugin.videoroom'))
-                self.protocol.backend.janus_set_event_handler(handle_id, self._handle_janus_event_videoroom)
+    def _cleanup_videoroom_session(self, session):
+        # should only be called for publisher sessions and only from a green thread.
 
-                data = {'request': 'destroy',
-                        'room': videoroom.id}
-                try:
-                    block_on(self.protocol.backend.janus_message(self.janus_session_id, handle_id, data))
-                except Exception:
-                    pass
-                block_on(self.protocol.backend.janus_detach(self.janus_session_id, handle_id))
-                self.protocol.backend.janus_set_event_handler(handle_id, None)
+        if self.janus_session_id is None:  # The connection was closed, there is noting to do
+            return
 
-                videoroom.log.info('destroyed')
+        if session in self.videoroom_sessions:
+            self.videoroom_sessions.remove(session)
+            session.room.remove(session)
+            session.feeds.clear()
+            block_on(self.protocol.backend.janus_detach(self.janus_session_id, session.janus_handle_id))  # todo: do we care to wait for this or not? (we ignore the detached event anyway)
+            self.protocol.backend.janus_set_event_handler(session.janus_handle_id, None)
+            self._maybe_destroy_videoroom(session.room)
 
-        # don't destroy it immediately
-        reactor.callLater(5, f)
+    def _maybe_destroy_videoroom(self, videoroom):
+        # should only be called from a green thread.
+
+        if self.protocol is None or self.janus_session_id is None:  # The connection was closed, there is nothing to do
+            return
+
+        if videoroom is not None and not videoroom and not videoroom.destroyed:
+            videoroom.destroyed = True
+            self.protocol.factory.videorooms.remove(videoroom)
+
+            # create a handle to do the cleanup
+            handle_id = block_on(self.protocol.backend.janus_attach(self.janus_session_id, 'janus.plugin.videoroom'))
+            self.protocol.backend.janus_set_event_handler(handle_id, self._handle_janus_event_videoroom)
+            data = dict(request='destroy', room=videoroom.id)
+            try:
+                block_on(self.protocol.backend.janus_message(self.janus_session_id, handle_id, data))
+            except Exception:
+                pass
+            block_on(self.protocol.backend.janus_detach(self.janus_session_id, handle_id))
+            self.protocol.backend.janus_set_event_handler(handle_id, None)
+
+            videoroom.log.info('destroyed')
 
     @run_in_green_thread
     def _create_janus_session(self):
@@ -1024,8 +1011,9 @@ class ConnectionHandler(object):
                         event='state',
                         data=dict(state='terminated'))
             self._send_data(json.dumps(data))
-            self._cleanup_videoroom_session(videoroom_session)
-            self._maybe_destroy_videoroom(videoroom_session.room)
+            # safety net in case we do not get any answer for the leave request
+            # todo: to be adjusted later after pseudo-synchronous communication with janus is implemented
+            reactor.callLater(2, call_in_green_thread, self._cleanup_videoroom_session, videoroom_session)
 
     # Event handlers
 
@@ -1249,7 +1237,6 @@ class ConnectionHandler(object):
             except KeyError:
                 return
             self._cleanup_videoroom_session(videoroom_session)
-            self._maybe_destroy_videoroom(videoroom_session.room)
         elif event_type in ('media', 'detached'):
             pass
         elif event_type == 'slowlink':
@@ -1357,6 +1344,7 @@ class ConnectionHandler(object):
                     return
                 if janus_publisher_id == 'ok':
                     self.log.info('left video room {session.room.uri} with session {session.id}'.format(session=base_session))
+                    self._cleanup_videoroom_session(base_session)
                     return
                 try:
                     publisher_session = base_session.feeds.pop(janus_publisher_id)
