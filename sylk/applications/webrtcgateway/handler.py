@@ -1058,6 +1058,7 @@ class ConnectionHandler(object):
                 return
             if session_info.state != 'terminated':
                 session_info.state = 'terminated'
+                self.log.debug('{session.direction} session {session.id} state: {session.state}'.format(session=session_info))
                 code = event.get('code', 0)
                 reason = event.get('reason', 'Unknown')
                 reason = '%d %s' % (code, reason)
