@@ -5,9 +5,8 @@ import random
 import re
 import time
 import uuid
-import weakref
 
-from application.python import Null
+from application.python import Null, limit
 from application.python.weakref import defaultweakobjectmap
 from application.system import makedirs
 from eventlib import coros, proc
@@ -123,8 +122,8 @@ class VideoRoom(object):
         self.config = get_room_config(uri)
         self.destroyed = False
         self.log = VideoroomLogger(self)
-        self._session_id_map = weakref.WeakValueDictionary()
-        self._publisher_id_map = weakref.WeakValueDictionary()
+        self._sessions = set()
+        self._id_map = {}  # map session.id -> session and session.publisher_id -> session
         if self.config.record:
             makedirs(self.config.recording_dir, 0o755)
             self.log.info('created (recording on)')
@@ -132,20 +131,60 @@ class VideoRoom(object):
             self.log.info('created')
 
     def add(self, session):
+        assert session not in self._sessions
         assert session.publisher_id is not None
-        assert session.id not in self._session_id_map
-        assert session.publisher_id not in self._publisher_id_map
-        self._session_id_map[session.id] = session
-        self._publisher_id_map[session.publisher_id] = session
+        assert session.publisher_id not in self._id_map and session.id not in self._id_map
+        self._sessions.add(session)
+        self._id_map[session.id] = self._id_map[session.publisher_id] = session
+        self.log.info('{session.account_id} has joined the room'.format(session=session))
+        self._update_bitrate()
 
-    def __getitem__(self, key):
-        try:
-            return self._session_id_map[key]
-        except KeyError:
-            return self._publisher_id_map[key]
+    def discard(self, session):
+        if session in self._sessions:
+            self._sessions.discard(session)
+            self._id_map.pop(session.id, None)
+            self._id_map.pop(session.publisher_id, None)
+            self.log.info('{session.account_id} has left the room'.format(session=session))
+            self._update_bitrate()
+
+    def remove(self, session):
+        self._sessions.remove(session)
+        self._id_map.pop(session.id)
+        self._id_map.pop(session.publisher_id)
+        self.log.info('{session.account_id} has left the room'.format(session=session))
+        self._update_bitrate()
+
+    def clear(self):
+        for session in self._sessions:
+            self.log.info('{session.account_id} has left the room'.format(session=session))
+        self._sessions.clear()
+        self._id_map.clear()
+
+    def _update_bitrate(self):
+        if self._sessions:
+            bitrate = self.config.max_bitrate // limit(len(self._sessions) - 1, min=1)
+            self.log.info('participant bitrate is {}'.format(bitrate))
+            for session in self._sessions:
+                if session.bitrate != bitrate:
+                    session.bitrate = bitrate
+                    data = dict(request='configure', room=self.id, bitrate=bitrate)
+                    session.owner.protocol.backend.janus_message(session.owner.janus_session_id, session.janus_handle_id, data)
+
+    # todo: make VideoRoom be a context manager that is retained/released on enter/exit and implement __nonzero__ to be different from __len__
+    # todo: so that a videoroom is not accidentally released by the last participant leaving while a new participant waits to join
+    # todo: this needs a new model for communication with janus and the client that is pseudo-synchronous (uses green threads)
 
     def __len__(self):
-        return len(self._session_id_map)
+        return len(self._sessions)
+
+    def __iter__(self):
+        return iter(self._sessions)
+
+    def __getitem__(self, key):
+        return self._id_map[key]
+
+    def __contains__(self, item):
+        return item in self._id_map or item in self._sessions
 
 
 class PublisherFeedContainer(object):
@@ -202,13 +241,15 @@ class VideoRoomSessionInfo(object):
     slow_download = SlowLinkDescriptor()
     slow_upload = SlowLinkDescriptor()
 
-    def __init__(self, id):
+    def __init__(self, id, owner):
         self.id = id
+        self.owner = owner
         self.account_id = None
         self.type = None  # publisher / subscriber
         self.publisher_id = None    # janus publisher ID for publishers / publisher session ID for subscribers
         self.janus_handle_id = None
         self.room = None
+        self.bitrate = None
         self.parent_session = None
         self.slow_download = False
         self.slow_upload = False
@@ -219,6 +260,7 @@ class VideoRoomSessionInfo(object):
         self.account_id = account_id
         self.type = type
         self.room = room
+        self.bitrate = room.config.max_bitrate
 
     def __repr__(self):
         return '<%s: id=%s janus_handle_id=%s type=%s>' % (self.__class__.__name__, self.id, self.janus_handle_id, self.type)
@@ -323,6 +365,7 @@ class ConnectionHandler(object):
                 if handle_id is not None:
                     self.protocol.backend.janus_detach(self.janus_session_id, handle_id)
                     self.protocol.backend.janus_set_event_handler(handle_id, None)
+                session.room.discard(session)
                 session.feeds.clear()
             self.protocol.backend.janus_stop_keepalive(self.janus_session_id)
             self.protocol.backend.janus_destroy_session(self.janus_session_id)
@@ -401,6 +444,8 @@ class ConnectionHandler(object):
                 session.feeds.clear()
                 block_on(self.protocol.backend.janus_detach(self.janus_session_id, session.janus_handle_id))
                 self.protocol.backend.janus_set_event_handler(session.janus_handle_id, None)
+
+        session.room.discard(session)  # remove session from room early. use discard here as _cleanup_videoroom_session can be called more than once
 
         # give it some time to receive other hangup events
         reactor.callLater(2, do_cleanup)
@@ -790,7 +835,7 @@ class ConnectionHandler(object):
             jsep = {'type': 'offer', 'sdp': request.sdp}
             block_on(self.protocol.backend.janus_message(self.janus_session_id, handle_id, data, jsep))
 
-            videoroom_session = VideoRoomSessionInfo(request.session)
+            videoroom_session = VideoRoomSessionInfo(request.session, owner=self)
             videoroom_session.janus_handle_id = handle_id
             videoroom_session.initialize(request.account, 'publisher', videoroom)
             self.videoroom_sessions.add(videoroom_session)
@@ -882,7 +927,7 @@ class ConnectionHandler(object):
                         'feed': publisher_session.publisher_id}
                 block_on(self.protocol.backend.janus_message(self.janus_session_id, handle_id, data))
 
-                videoroom_session = VideoRoomSessionInfo(feed_attach.session)
+                videoroom_session = VideoRoomSessionInfo(feed_attach.session, owner=self)
                 videoroom_session.janus_handle_id = handle_id
                 videoroom_session.parent_session = base_session
                 videoroom_session.publisher_id = publisher_session.id
@@ -1250,8 +1295,9 @@ class ConnectionHandler(object):
             except KeyError:
                 self.log.warning('could not find video room session for handle ID %s during joined event' % handle_id)
                 return
-            room = videoroom_session.room
+            self.log.info('joined video room {session.room.uri} with session {session.id}'.format(session=videoroom_session))
             videoroom_session.publisher_id = event_data['id']
+            room = videoroom_session.room
             room.add(videoroom_session)
             jsep = event.get('jsep', None)
             assert jsep is not None
@@ -1260,8 +1306,6 @@ class ConnectionHandler(object):
                         event='state',
                         data=dict(state='accepted', sdp=jsep['sdp']))
             self._send_data(json.dumps(data))
-            self.log.info('joined video room {session.room.uri} with session {session.id}'.format(session=videoroom_session))
-            room.log.info('{session.account_id} has joined the room'.format(session=videoroom_session))
             # send information about existing publishers
             publishers = []
             for p in event_data['publishers']:
@@ -1316,8 +1360,7 @@ class ConnectionHandler(object):
                     return
                 janus_publisher_id = event_data['leaving']
                 if janus_publisher_id == 'ok':  # the id is 'ok' when the notification is about ourselves leaving the room
-                    self.log.info('left video room {session.room.uri} with session {session.id}'.format(session=base_session))  # todo: include session.id in log?
-                    base_session.room.log.info('{session.account_id} has left the room'.format(session=base_session))
+                    self.log.info('left video room {session.room.uri} with session {session.id}'.format(session=base_session))
                     return
                 try:
                     publisher_session = base_session.feeds.pop(janus_publisher_id)
