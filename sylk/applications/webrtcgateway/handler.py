@@ -1251,7 +1251,6 @@ class ConnectionHandler(object):
             try:
                 videoroom_session = self.videoroom_sessions[handle_id]
             except KeyError:
-                self.log.warning('could not find video room session for handle ID %s during hangup event' % handle_id)
                 return
             self._cleanup_videoroom_session(videoroom_session)
             self._maybe_destroy_videoroom(videoroom_session.room)
@@ -1353,13 +1352,14 @@ class ConnectionHandler(object):
                             data=dict(publishers=publishers))
                 self._send_data(json.dumps(data))
             elif 'leaving' in event_data:
+                janus_publisher_id = event_data['leaving']  # janus_publisher_id == 'ok' when the event is about ourselves leaving the room
                 try:
                     base_session = self.videoroom_sessions[handle_id]
                 except KeyError:
-                    self.log.warning('could not find video room session for handle ID %s during leaving event' % handle_id)
+                    if janus_publisher_id != 'ok':
+                        self.log.warning('could not find video room session for handle ID %s during leaving event' % handle_id)
                     return
-                janus_publisher_id = event_data['leaving']
-                if janus_publisher_id == 'ok':  # the id is 'ok' when the notification is about ourselves leaving the room
+                if janus_publisher_id == 'ok':
                     self.log.info('left video room {session.room.uri} with session {session.id}'.format(session=base_session))
                     return
                 try:
