@@ -933,7 +933,7 @@ class ConnectionHandler(object):
                 return
             try:
                 try:
-                    videoroom_session = self.videoroom_sessions[request.feed_answer.session]
+                    videoroom_session = self.videoroom_sessions[feed_answer.session]
                 except KeyError:
                     raise APIError('feed-answer: unknown video room session: {feed.session}'.format(feed=feed_answer))
                 data = {'request': 'start',
