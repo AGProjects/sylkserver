@@ -841,12 +841,11 @@ class ConnectionHandler(object):
 
     def _OH_videoroom_ctl(self, request):
         if request.option == 'trickle':
-            trickle = request.trickle
-            if not trickle:
+            if not request.trickle:
                 self.log.error("videoroom-ctl: missing 'trickle' field in request")
                 return
-            candidates = [c.to_struct() for c in trickle.candidates]
-            session = trickle.session or request.session
+            candidates = [c.to_struct() for c in request.trickle.candidates]
+            session = request.trickle.session or request.session
             try:
                 try:
                     videoroom_session = self.videoroom_sessions[session]
@@ -882,13 +881,12 @@ class ConnectionHandler(object):
                     self.log.info('updated video room session {request.session} with {modified}'.format(request=request, modified=modified))
                 self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
         elif request.option == 'feed-attach':
-            feed_attach = request.feed_attach
-            if not feed_attach:
+            if not request.feed_attach:
                 self.log.error("videoroom-ctl: missing 'feed_attach' field in request")
                 return
             try:
-                if feed_attach.session in self.videoroom_sessions:
-                    raise APIError('feed-attach: video room session ID {feed.session} already in use'.format(feed=feed_attach))
+                if request.feed_attach.session in self.videoroom_sessions:
+                    raise APIError('feed-attach: video room session ID {request.feed_attach.session} already in use'.format(request=request))
 
                 # get the 'base' session, the one used to join and publish
                 try:
@@ -898,9 +896,9 @@ class ConnectionHandler(object):
 
                 # get the publisher's session
                 try:
-                    publisher_session = base_session.room[feed_attach.publisher]
+                    publisher_session = base_session.room[request.feed_attach.publisher]
                 except KeyError:
-                    raise APIError('feed-attach: unknown publisher video room session to attach to: {feed.publisher}'.format(feed=feed_attach))
+                    raise APIError('feed-attach: unknown publisher video room session to attach to: {request.feed_attach.publisher}'.format(request=request))
                 if publisher_session.publisher_id is None:
                     raise APIError('feed-attach: video room session {session.id} does not have a publisher ID'.format(session=publisher_session))
 
@@ -914,7 +912,7 @@ class ConnectionHandler(object):
                         'feed': publisher_session.publisher_id}
                 block_on(self.protocol.backend.janus_message(self.janus_session_id, handle_id, data))
 
-                videoroom_session = VideoRoomSessionInfo(feed_attach.session, owner=self)
+                videoroom_session = VideoRoomSessionInfo(request.feed_attach.session, owner=self)
                 videoroom_session.janus_handle_id = handle_id
                 videoroom_session.parent_session = base_session
                 videoroom_session.publisher_id = publisher_session.id
@@ -927,18 +925,16 @@ class ConnectionHandler(object):
             else:
                 self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
         elif request.option == 'feed-answer':
-            feed_answer = request.feed_answer
-            if not feed_answer:
+            if not request.feed_answer:
                 self.log.error("videoroom-ctl: missing 'feed_answer' field in request")
                 return
             try:
                 try:
-                    videoroom_session = self.videoroom_sessions[feed_answer.session]
+                    videoroom_session = self.videoroom_sessions[request.feed_answer.session]
                 except KeyError:
-                    raise APIError('feed-answer: unknown video room session: {feed.session}'.format(feed=feed_answer))
-                data = {'request': 'start',
-                        'room': videoroom_session.room.id}
-                jsep = {'type': 'answer', 'sdp': feed_answer.sdp}
+                    raise APIError('feed-answer: unknown video room session: {request.feed_answer.session}'.format(request=request))
+                data = {'request': 'start', 'room': videoroom_session.room.id}
+                jsep = {'type': 'answer', 'sdp': request.feed_answer.sdp}
                 block_on(self.protocol.backend.janus_message(self.janus_session_id, videoroom_session.janus_handle_id, data, jsep))
             except APIError as e:
                 self.log.error('videoroom-ctl: {exception!s}'.format(exception=e))
@@ -946,17 +942,16 @@ class ConnectionHandler(object):
             else:
                 self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
         elif request.option == 'feed-detach':
-            feed_detach = request.feed_detach
-            if not feed_detach:
+            if not request.feed_detach:
                 self.log.error("videoroom-ctl: missing 'feed_detach' field in request")
                 return
             try:
                 try:
-                    videoroom_session = self.videoroom_sessions[feed_detach.session]
+                    videoroom_session = self.videoroom_sessions[request.feed_detach.session]
                 except KeyError:
-                    raise APIError('feed-detach: unknown video room session to detach: {feed.session}'.format(feed=feed_detach))
+                    raise APIError('feed-detach: unknown video room session to detach: {request.feed_detach.session}'.format(request=request))
                 if videoroom_session.parent_session.id != request.session:
-                    raise APIError('feed-detach: {feed.session} is not an attached feed of {request.session}'.format(request=request, feed=feed_detach))
+                    raise APIError('feed-detach: {request.feed_detach.session} is not an attached feed of {request.session}'.format(request=request))
                 data = {'request': 'leave'}
                 block_on(self.protocol.backend.janus_message(self.janus_session_id, videoroom_session.janus_handle_id, data))
             except APIError as e:
@@ -969,8 +964,7 @@ class ConnectionHandler(object):
                 self.videoroom_sessions.remove(videoroom_session)  # this is a subscriber session with no feeds, so no need to clean them up
                 videoroom_session.parent_session.feeds.discard(videoroom_session.publisher_id)
         elif request.option == 'invite-participants':
-            invite_participants = request.invite_participants
-            if not invite_participants:
+            if not request.invite_participants:
                 self.log.error("videoroom-ctl: missing 'invite_participants' field in request")
                 return
             try:
@@ -986,7 +980,7 @@ class ConnectionHandler(object):
                 self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
                 for conn in self.protocol.factory.connections.difference([self]):
                     if conn.connection_handler:
-                        conn.connection_handler._handle_conference_invite(account_info, base_session.room, invite_participants.participants)
+                        conn.connection_handler._handle_conference_invite(account_info, base_session.room, request.invite_participants.participants)
         else:
             self.log.error('videoroom-ctl: unsupported option: {request.option!r}'.format(request=request))
 
