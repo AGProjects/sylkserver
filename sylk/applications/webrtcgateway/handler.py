@@ -857,7 +857,7 @@ class ConnectionHandler(object):
                 self.log.error('videoroom-ctl: {exception!s}'.format(exception=e))
                 self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
             else:
-                if not candidates and videoroom_session.parent_session is None:  # parent_session is None for publishers
+                if not candidates and videoroom_session.type == 'publisher':
                     self.log.debug('video room session {session.id} negotiated ICE'.format(session=videoroom_session))
                 self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
         elif request.option == 'update':
@@ -1218,14 +1218,13 @@ class ConnectionHandler(object):
             except KeyError:
                 self.log.warning('could not find video room session for handle ID %s during webrtcup event' % handle_id)
                 return
-            if videoroom_session.parent_session is None:
+            if videoroom_session.type == 'publisher':
                 self.log.info('established WEBRTC connection for session {session.id}'.format(session=videoroom_session))
                 data = dict(sylkrtc='videoroom_event',
                             session=videoroom_session.id,
                             event='state',
                             data=dict(state='established'))
             else:
-                # this is a subscriber session
                 data = dict(sylkrtc='videoroom_event',
                             session=videoroom_session.parent_session.id,
                             event='feed_established',
