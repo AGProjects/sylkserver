@@ -245,8 +245,8 @@ class VideoRoomSessionInfo(object):
         self.id = id
         self.owner = owner
         self.account_id = None
-        self.type = None  # publisher / subscriber
-        self.publisher_id = None    # janus publisher ID for publishers / publisher session ID for subscribers
+        self.type = None          # publisher / subscriber
+        self.publisher_id = None  # janus publisher ID for publishers / publisher session ID for subscribers
         self.janus_handle_id = None
         self.room = None
         self.bitrate = None
