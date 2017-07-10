@@ -955,6 +955,8 @@ class ConnectionHandler(object):
                     videoroom_session = self.videoroom_sessions[feed_detach.session]
                 except KeyError:
                     raise APIError('feed-detach: unknown video room session to detach: {feed.session}'.format(feed=feed_detach))
+                if videoroom_session.parent_session.id != request.session:
+                    raise APIError('feed-detach: {feed.session} is not an attached feed of {request.session}'.format(request=request, feed=feed_detach))
                 data = {'request': 'leave'}
                 block_on(self.protocol.backend.janus_message(self.janus_session_id, videoroom_session.janus_handle_id, data))
             except APIError as e:
