@@ -434,18 +434,23 @@ class ConnectionHandler(object):
                 self.protocol.backend.janus_set_event_handler(session.janus_handle_id, None)
 
     def _cleanup_videoroom_session(self, session):
-        # should only be called for publisher sessions and only from a green thread.
+        # should only be called from a green thread.
 
         if self.janus_session_id is None:  # The connection was closed, there is noting to do
             return
 
         if session in self.videoroom_sessions:
             self.videoroom_sessions.remove(session)
-            session.room.remove(session)
-            session.feeds.clear()
-            block_on(self.protocol.backend.janus_detach(self.janus_session_id, session.janus_handle_id))  # todo: do we care to wait for this or not? (we ignore the detached event anyway)
-            self.protocol.backend.janus_set_event_handler(session.janus_handle_id, None)
-            self._maybe_destroy_videoroom(session.room)
+            if session.type == 'publisher':
+                session.room.remove(session)
+                session.feeds.clear()
+                block_on(self.protocol.backend.janus_detach(self.janus_session_id, session.janus_handle_id))  # todo: do we care to wait for this or not? (we ignore the detached event anyway)
+                self.protocol.backend.janus_set_event_handler(session.janus_handle_id, None)
+                self._maybe_destroy_videoroom(session.room)
+            else:
+                session.parent_session.feeds.discard(session.publisher_id)
+                block_on(self.protocol.backend.janus_detach(self.janus_session_id, session.janus_handle_id))  # todo: do we care to wait for this or not? (we ignore the detached event anyway)
+                self.protocol.backend.janus_set_event_handler(session.janus_handle_id, None)
 
     def _maybe_destroy_videoroom(self, videoroom):
         # should only be called from a green thread.
@@ -957,10 +962,7 @@ class ConnectionHandler(object):
                 self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
             else:
                 self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
-                block_on(self.protocol.backend.janus_detach(self.janus_session_id, videoroom_session.janus_handle_id))
-                self.protocol.backend.janus_set_event_handler(videoroom_session.janus_handle_id, None)
-                self.videoroom_sessions.remove(videoroom_session)  # this is a subscriber session with no feeds, so no need to clean them up
-                videoroom_session.parent_session.feeds.discard(videoroom_session.publisher_id)
+                self._cleanup_videoroom_session(videoroom_session)
         elif request.option == 'invite-participants':
             if not request.invite_participants:
                 self.log.error("videoroom-ctl: missing 'invite_participants' field in request")
