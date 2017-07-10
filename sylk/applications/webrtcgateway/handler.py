@@ -430,7 +430,7 @@ class ConnectionHandler(object):
             self.sip_sessions.remove(session)
             if session.direction == 'outgoing':
                 # Destroy plugin handle for outgoing sessions. For incoming ones it's the same as the account handle, so don't
-                block_on(self.protocol.backend.janus_detach(self.janus_session_id, session.janus_handle_id))  # todo: do we care to wait for this or not? (we ignore the detached event anyway)
+                block_on(self.protocol.backend.janus_detach(self.janus_session_id, session.janus_handle_id))
                 self.protocol.backend.janus_set_event_handler(session.janus_handle_id, None)
 
     def _cleanup_videoroom_session(self, session):
@@ -444,12 +444,12 @@ class ConnectionHandler(object):
             if session.type == 'publisher':
                 session.room.remove(session)
                 session.feeds.clear()
-                block_on(self.protocol.backend.janus_detach(self.janus_session_id, session.janus_handle_id))  # todo: do we care to wait for this or not? (we ignore the detached event anyway)
+                block_on(self.protocol.backend.janus_detach(self.janus_session_id, session.janus_handle_id))
                 self.protocol.backend.janus_set_event_handler(session.janus_handle_id, None)
                 self._maybe_destroy_videoroom(session.room)
             else:
                 session.parent_session.feeds.discard(session.publisher_id)
-                block_on(self.protocol.backend.janus_detach(self.janus_session_id, session.janus_handle_id))  # todo: do we care to wait for this or not? (we ignore the detached event anyway)
+                block_on(self.protocol.backend.janus_detach(self.janus_session_id, session.janus_handle_id))
                 self.protocol.backend.janus_set_event_handler(session.janus_handle_id, None)
 
     def _maybe_destroy_videoroom(self, videoroom):
