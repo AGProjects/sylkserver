@@ -1368,8 +1368,8 @@ class ConnectionHandler(object):
                 return
             # get the session which originated the subscription
             base_session = videoroom_session.parent_session
-            assert base_session is not None
             jsep = event.get('jsep', None)
+            assert base_session is not None
             assert jsep is not None
             assert jsep['type'] == 'offer'
             data = dict(sylkrtc='videoroom_event',
