@@ -906,10 +906,7 @@ class ConnectionHandler(object):
                 self.protocol.backend.janus_set_event_handler(handle_id, self._handle_janus_event_videoroom)
 
                 # join the room as a listener
-                data = {'request': 'join',
-                        'room': base_session.room.id,
-                        'ptype': 'listener',
-                        'feed': publisher_session.publisher_id}
+                data = dict(request='join', room=base_session.room.id, ptype='listener', feed=publisher_session.publisher_id)
                 block_on(self.protocol.backend.janus_message(self.janus_session_id, handle_id, data))
 
                 videoroom_session = VideoRoomSessionInfo(request.feed_attach.session, owner=self)
@@ -933,8 +930,8 @@ class ConnectionHandler(object):
                     videoroom_session = self.videoroom_sessions[request.feed_answer.session]
                 except KeyError:
                     raise APIError('feed-answer: unknown video room session: {request.feed_answer.session}'.format(request=request))
-                data = {'request': 'start', 'room': videoroom_session.room.id}
-                jsep = {'type': 'answer', 'sdp': request.feed_answer.sdp}
+                data = dict(request='start', room=videoroom_session.room.id)
+                jsep = dict(type='answer', sdp=request.feed_answer.sdp)
                 block_on(self.protocol.backend.janus_message(self.janus_session_id, videoroom_session.janus_handle_id, data, jsep))
             except APIError as e:
                 self.log.error('videoroom-ctl: {exception!s}'.format(exception=e))
@@ -952,7 +949,7 @@ class ConnectionHandler(object):
                     raise APIError('feed-detach: unknown video room session to detach: {request.feed_detach.session}'.format(request=request))
                 if videoroom_session.parent_session.id != request.session:
                     raise APIError('feed-detach: {request.feed_detach.session} is not an attached feed of {request.session}'.format(request=request))
-                data = {'request': 'leave'}
+                data = dict(request='leave')
                 block_on(self.protocol.backend.janus_message(self.janus_session_id, videoroom_session.janus_handle_id, data))
             except APIError as e:
                 self.log.error('videoroom-ctl: {exception!s}'.format(exception=e))
