@@ -426,11 +426,12 @@ class ConnectionHandler(object):
         if self.janus_session_id is None:  # The connection was closed, there is noting to do
             return
 
-        if session.direction == 'outgoing' and session in self.sip_sessions:
-            # Destroy plugin handle for outgoing sessions. For incoming ones it's the same as the account handle, so don't
-            block_on(self.protocol.backend.janus_detach(self.janus_session_id, session.janus_handle_id))  # todo: do we care to wait for this or not? (we ignore the detached event anyway)
-            self.protocol.backend.janus_set_event_handler(session.janus_handle_id, None)
-        self.sip_sessions.discard(session)
+        if session in self.sip_sessions:
+            self.sip_sessions.remove(session)
+            if session.direction == 'outgoing':
+                # Destroy plugin handle for outgoing sessions. For incoming ones it's the same as the account handle, so don't
+                block_on(self.protocol.backend.janus_detach(self.janus_session_id, session.janus_handle_id))  # todo: do we care to wait for this or not? (we ignore the detached event anyway)
+                self.protocol.backend.janus_set_event_handler(session.janus_handle_id, None)
 
     def _cleanup_videoroom_session(self, session):
         # should only be called for publisher sessions and only from a green thread.
