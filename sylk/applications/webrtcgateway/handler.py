@@ -952,10 +952,6 @@ class ConnectionHandler(object):
                 return
             try:
                 try:
-                    base_session = self.videoroom_sessions[request.session]
-                except KeyError:
-                    raise APIError('feed-detach: unknown video room session: {request.session}'.format(request=request))
-                try:
                     videoroom_session = self.videoroom_sessions[feed_detach.session]
                 except KeyError:
                     raise APIError('feed-detach: unknown video room session to detach: {feed.session}'.format(feed=feed_detach))
@@ -969,7 +965,7 @@ class ConnectionHandler(object):
                 block_on(self.protocol.backend.janus_detach(self.janus_session_id, videoroom_session.janus_handle_id))
                 self.protocol.backend.janus_set_event_handler(videoroom_session.janus_handle_id, None)
                 self.videoroom_sessions.remove(videoroom_session)  # this is a subscriber session with no feeds, so no need to clean them up
-                base_session.feeds.discard(videoroom_session.publisher_id)
+                videoroom_session.parent_session.feeds.discard(videoroom_session.publisher_id)
         elif request.option == 'invite-participants':
             invite_participants = request.invite_participants
             if not invite_participants:
