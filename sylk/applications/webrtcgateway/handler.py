@@ -1084,9 +1084,9 @@ class ConnectionHandler(object):
         handle_id = data['handle_id']
         event = data['event']
         plugin_data = event['plugindata']
-        assert(plugin_data['plugin'] == 'janus.plugin.sip')
+        assert plugin_data['plugin'] == 'janus.plugin.sip'
         event_data = plugin_data['data']
-        assert(event_data.get('sip') == 'event')
+        assert event_data.get('sip') == 'event'
 
         if 'result' not in event_data:
             self.log.warning('unexpected event: %s' % event)
