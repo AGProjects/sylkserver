@@ -315,7 +315,7 @@ class SessionContainer(object):
 
 
 class Operation(object):
-    __slots__ = ('name', 'data')
+    __slots__ = 'name', 'data'
 
     def __init__(self, name, data):
         self.name = name
