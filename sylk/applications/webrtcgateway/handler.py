@@ -442,7 +442,7 @@ class ConnectionHandler(object):
         if session in self.videoroom_sessions:
             self.videoroom_sessions.remove(session)
             if session.type == 'publisher':
-                session.room.remove(session)
+                session.room.discard(session)
                 session.feeds.clear()
                 block_on(self.protocol.backend.janus_detach(self.janus_session_id, session.janus_handle_id))
                 self.protocol.backend.janus_set_event_handler(session.janus_handle_id, None)
