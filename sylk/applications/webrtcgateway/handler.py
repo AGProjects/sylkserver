@@ -667,6 +667,8 @@ class ConnectionHandler(object):
             self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
 
     def _OH_session_create(self, request):
+        handle_id = None
+
         try:
             if request.session in self.sip_sessions:
                 raise APIError('Session ID {request.session} already in use'.format(request=request))
@@ -693,18 +695,20 @@ class ConnectionHandler(object):
                     'send_register': False}
             block_on(self.protocol.backend.janus_message(self.janus_session_id, handle_id, data))
 
-            session_info = SIPSessionInfo(request.session)
-            session_info.janus_handle_id = handle_id
-            session_info.init_outgoing(request.account, request.uri)
-
-            self.sip_sessions.add(session_info)
-
             data = {'request': 'call', 'uri': 'sip:%s' % SIP_PREFIX_RE.sub('', request.uri), 'srtp': 'sdes_optional'}
             jsep = {'type': 'offer', 'sdp': request.sdp}
             block_on(self.protocol.backend.janus_message(self.janus_session_id, handle_id, data, jsep))
+
+            session_info = SIPSessionInfo(request.session)
+            session_info.janus_handle_id = handle_id
+            session_info.init_outgoing(request.account, request.uri)
+            self.sip_sessions.add(session_info)
         except (APIError, JanusError) as e:
             self.log.error('session-create: {exception!s}'.format(exception=e))
             self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
+            if handle_id is not None:
+                block_on(self.protocol.backend.janus_detach(self.janus_session_id, handle_id))
+                self.protocol.backend.janus_set_event_handler(handle_id, None)
         else:
             self.log.info('created outgoing session {request.session} from {request.account} to {request.uri}'.format(request=request))
             self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
@@ -776,6 +780,7 @@ class ConnectionHandler(object):
 
     def _OH_videoroom_join(self, request):
         videoroom = None
+        handle_id = None
 
         try:
             if request.session in self.videoroom_sessions:
@@ -814,8 +819,6 @@ class ConnectionHandler(object):
                 block_on(self.protocol.backend.janus_message(self.janus_session_id, handle_id, data))
             except JanusError as e:
                 if e.code != 427:  # 427 means room already exists
-                    block_on(self.protocol.backend.janus_detach(self.janus_session_id, handle_id))
-                    self.protocol.backend.janus_set_event_handler(handle_id, None)
                     raise
 
             # join the room
@@ -839,6 +842,9 @@ class ConnectionHandler(object):
         except JanusError as e:
             self.log.error('videoroom-join: {exception!s}'.format(exception=e))
             self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
+            if handle_id is not None:
+                block_on(self.protocol.backend.janus_detach(self.janus_session_id, handle_id))
+                self.protocol.backend.janus_set_event_handler(handle_id, None)
             self._maybe_destroy_videoroom(videoroom)
         else:
             self.log.info('created session {request.session} from account {request.account} to video room {request.uri}'.format(request=request))
@@ -894,6 +900,7 @@ class ConnectionHandler(object):
             if not request.feed_attach:
                 self.log.error("videoroom-ctl: missing 'feed_attach' field in request")
                 return
+            handle_id = None
             try:
                 if request.feed_attach.session in self.videoroom_sessions:
                     raise APIError('feed-attach: video room session ID {request.feed_attach.session} already in use'.format(request=request))
@@ -929,6 +936,9 @@ class ConnectionHandler(object):
             except (APIError, JanusError) as e:
                 self.log.error('videoroom-ctl: {exception!s}'.format(exception=e))
                 self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
+                if handle_id is not None:
+                    block_on(self.protocol.backend.janus_detach(self.janus_session_id, handle_id))
+                    self.protocol.backend.janus_set_event_handler(handle_id, None)
             else:
                 self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
         elif request.option == 'feed-answer':
