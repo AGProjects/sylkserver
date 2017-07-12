@@ -18,6 +18,7 @@ from sipsimple.threading.green import call_in_green_thread, run_in_green_thread
 from twisted.internet import reactor
 
 from sylk.applications.webrtcgateway.configuration import GeneralConfig, get_room_config
+from sylk.applications.webrtcgateway.janus.backend import JanusError
 from sylk.applications.webrtcgateway.logger import ConnectionLogger, VideoroomLogger
 from sylk.applications.webrtcgateway.models import sylkrtc
 from sylk.applications.webrtcgateway.storage import TokenStorage
@@ -468,7 +469,7 @@ class ConnectionHandler(object):
             data = dict(request='destroy', room=videoroom.id)
             try:
                 block_on(self.protocol.backend.janus_message(self.janus_session_id, handle_id, data))
-            except Exception:
+            except JanusError:
                 pass
             block_on(self.protocol.backend.janus_detach(self.janus_session_id, handle_id))
             self.protocol.backend.janus_set_event_handler(handle_id, None)
@@ -582,7 +583,7 @@ class ConnectionHandler(object):
                 block_on(self.protocol.backend.janus_detach(self.janus_session_id, handle_id))
                 self.protocol.backend.janus_set_event_handler(handle_id, None)
                 self.account_handles_map.pop(handle_id)
-        except APIError as e:
+        except (APIError, JanusError) as e:
             self.log.error('account-remove: {exception!s}'.format(exception=e))
             self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
         else:
@@ -622,7 +623,7 @@ class ConnectionHandler(object):
                     'ha1_secret': account_info.password,
                     'proxy': proxy}
             block_on(self.protocol.backend.janus_message(self.janus_session_id, handle_id, data))
-        except APIError as e:
+        except (APIError, JanusError) as e:
             self.log.error('account-register: {exception!s}'.format(exception=e))
             self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
         else:
@@ -641,7 +642,7 @@ class ConnectionHandler(object):
                 self.protocol.backend.janus_set_event_handler(handle_id, None)
                 account_info.janus_handle_id = None
                 self.account_handles_map.pop(handle_id)
-        except APIError as e:
+        except (APIError, JanusError) as e:
             self.log.error('account-unregister: {exception!s}'.format(exception=e))
             self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
         else:
@@ -701,7 +702,7 @@ class ConnectionHandler(object):
             data = {'request': 'call', 'uri': 'sip:%s' % SIP_PREFIX_RE.sub('', request.uri), 'srtp': 'sdes_optional'}
             jsep = {'type': 'offer', 'sdp': request.sdp}
             block_on(self.protocol.backend.janus_message(self.janus_session_id, handle_id, data, jsep))
-        except APIError as e:
+        except (APIError, JanusError) as e:
             self.log.error('session-create: {exception!s}'.format(exception=e))
             self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
         else:
@@ -723,7 +724,7 @@ class ConnectionHandler(object):
             data = {'request': 'accept'}
             jsep = {'type': 'answer', 'sdp': request.sdp}
             block_on(self.protocol.backend.janus_message(self.janus_session_id, session_info.janus_handle_id, data, jsep))
-        except APIError as e:
+        except (APIError, JanusError) as e:
             self.log.error('session-answer: {exception!s}'.format(exception=e))
             self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
         else:
@@ -743,7 +744,7 @@ class ConnectionHandler(object):
             candidates = [c.to_struct() for c in request.candidates]
 
             block_on(self.protocol.backend.janus_trickle(self.janus_session_id, session_info.janus_handle_id, candidates))
-        except APIError as e:
+        except (APIError, JanusError) as e:
             self.log.error('session-trickle: {exception!s}'.format(exception=e))
             self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
         else:
@@ -766,7 +767,7 @@ class ConnectionHandler(object):
             else:
                 data = {'request': 'hangup'}
             block_on(self.protocol.backend.janus_message(self.janus_session_id, session_info.janus_handle_id, data))
-        except APIError as e:
+        except (APIError, JanusError) as e:
             self.log.error('session-terminate: {exception!s}'.format(exception=e))
             self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
         else:
@@ -790,17 +791,18 @@ class ConnectionHandler(object):
             except KeyError:
                 raise APIError('Unknown account specified: {request.account}'.format(request=request))
 
-            handle_id = block_on(self.protocol.backend.janus_attach(self.janus_session_id, 'janus.plugin.videoroom'))
-            self.protocol.backend.janus_set_event_handler(handle_id, self._handle_janus_event_videoroom)
-
-            # create the room if it doesn't exist
-            #
             try:
                 videoroom = self.protocol.factory.videorooms[request.uri]
             except KeyError:
                 videoroom = VideoRoom(request.uri)
                 self.protocol.factory.videorooms.add(videoroom)
 
+            # Do NOT raise APIError after this point. Any code that can raise APIError should be placed before this.
+
+            handle_id = block_on(self.protocol.backend.janus_attach(self.janus_session_id, 'janus.plugin.videoroom'))
+            self.protocol.backend.janus_set_event_handler(handle_id, self._handle_janus_event_videoroom)
+
+            # create the room if it doesn't exist
             data = {'request': 'create',
                     'room': videoroom.id,
                     'publishers': 10,
@@ -810,12 +812,11 @@ class ConnectionHandler(object):
                     'rec_dir': videoroom.config.recording_dir}
             try:
                 block_on(self.protocol.backend.janus_message(self.janus_session_id, handle_id, data))
-            except Exception as e:
-                code = getattr(e, 'code', -1)
-                if code != 427:  # 427 means room already exists
+            except JanusError as e:
+                if e.code != 427:  # 427 means room already exists
                     block_on(self.protocol.backend.janus_detach(self.janus_session_id, handle_id))
                     self.protocol.backend.janus_set_event_handler(handle_id, None)
-                    raise APIError(str(e))
+                    raise
 
             # join the room
             data = {'request': 'joinandconfigure',
@@ -833,6 +834,9 @@ class ConnectionHandler(object):
             videoroom_session.initialize(request.account, 'publisher', videoroom)
             self.videoroom_sessions.add(videoroom_session)
         except APIError as e:
+            self.log.error('videoroom-join: {exception!s}'.format(exception=e))
+            self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
+        except JanusError as e:
             self.log.error('videoroom-join: {exception!s}'.format(exception=e))
             self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
             self._maybe_destroy_videoroom(videoroom)
@@ -858,7 +862,7 @@ class ConnectionHandler(object):
                 except KeyError:
                     raise APIError('trickle: unknown video room session: {session}'.format(session=session))
                 block_on(self.protocol.backend.janus_trickle(self.janus_session_id, videoroom_session.janus_handle_id, candidates))
-            except APIError as e:
+            except (APIError, JanusError) as e:
                 self.log.error('videoroom-ctl: {exception!s}'.format(exception=e))
                 self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
             else:
@@ -878,7 +882,7 @@ class ConnectionHandler(object):
                 if update_data:
                     data = dict(request='configure', room=videoroom_session.room.id, **update_data)
                     block_on(self.protocol.backend.janus_message(self.janus_session_id, videoroom_session.janus_handle_id, data))
-            except APIError as e:
+            except (APIError, JanusError) as e:
                 self.log.error('videoroom-ctl: {exception!s}'.format(exception=e))
                 self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
             else:
@@ -922,7 +926,7 @@ class ConnectionHandler(object):
                 videoroom_session.initialize(base_session.account_id, 'subscriber', base_session.room)
                 self.videoroom_sessions.add(videoroom_session)
                 base_session.feeds.add(publisher_session)
-            except APIError as e:
+            except (APIError, JanusError) as e:
                 self.log.error('videoroom-ctl: {exception!s}'.format(exception=e))
                 self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
             else:
@@ -939,7 +943,7 @@ class ConnectionHandler(object):
                 data = dict(request='start', room=videoroom_session.room.id)
                 jsep = dict(type='answer', sdp=request.feed_answer.sdp)
                 block_on(self.protocol.backend.janus_message(self.janus_session_id, videoroom_session.janus_handle_id, data, jsep))
-            except APIError as e:
+            except (APIError, JanusError) as e:
                 self.log.error('videoroom-ctl: {exception!s}'.format(exception=e))
                 self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
             else:
@@ -957,7 +961,7 @@ class ConnectionHandler(object):
                     raise APIError('feed-detach: {request.feed_detach.session} is not an attached feed of {request.session}'.format(request=request))
                 data = dict(request='leave')
                 block_on(self.protocol.backend.janus_message(self.janus_session_id, videoroom_session.janus_handle_id, data))
-            except APIError as e:
+            except (APIError, JanusError) as e:
                 self.log.error('videoroom-ctl: {exception!s}'.format(exception=e))
                 self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
             else:
@@ -992,7 +996,7 @@ class ConnectionHandler(object):
                 raise APIError('Unknown video room session: {request.session}'.format(request=request))
             data = {'request': 'leave'}
             block_on(self.protocol.backend.janus_message(self.janus_session_id, videoroom_session.janus_handle_id, data))
-        except APIError as e:
+        except (APIError, JanusError) as e:
             self.log.error('videoroom-terminate: {exception!s}'.format(exception=e))
             self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
         else:
