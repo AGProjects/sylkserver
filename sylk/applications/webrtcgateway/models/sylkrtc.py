@@ -57,7 +57,7 @@ class SylkRTCResponseBase(models.Base):
     transaction = fields.StringField(required=True)
 
 
-# Miscelaneous models
+# Miscellaneous models
 
 class AckResponse(SylkRTCResponseBase):
     sylkrtc = DefaultValueField('ack')
