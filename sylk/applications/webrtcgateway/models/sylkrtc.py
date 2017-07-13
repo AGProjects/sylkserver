@@ -26,11 +26,11 @@ class DefaultValueField(fields.BaseField):
 
 
 def URIValidator(value):
-    account = SIP_PREFIX_RE.sub('', value)
+    uri = SIP_PREFIX_RE.sub('', value)
     try:
-        SIPURI.parse('sip:%s' % account)
+        SIPURI.parse('sip:%s' % uri)
     except SIPCoreError:
-        raise errors.ValidationError('invalid account: %s' % value)
+        raise errors.ValidationError('invalid URI: %s' % value)
 
 
 def URIListValidator(values):
