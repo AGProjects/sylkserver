@@ -19,7 +19,7 @@ class DefaultValueField(fields.BaseField):
 
     def validate(self, value):
         if value != self.default_value:
-            raise errors.ValidationError('%s doesn\'t match the expected value %s' % (value, self.default_value))
+            raise errors.ValidationError('%s does not match the expected value %s' % (value, self.default_value))
 
     def get_default_value(self):
         return self.default_value
