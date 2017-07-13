@@ -503,9 +503,12 @@ class ConnectionHandler(object):
         else:
             sip_uri = SIPURI.parse('sip:%s' % uri)
         settings = SIPSimpleSettings()
-        routes = self.resolver.lookup_sip_proxy(sip_uri, settings.sip.transport_list).wait()
+        try:
+            routes = self.resolver.lookup_sip_proxy(sip_uri, settings.sip.transport_list).wait()
+        except DNSLookupError as e:
+            raise DNSLookupError('DNS lookup error: {exception!s}'.format(exception=e))
         if not routes:
-            raise DNSLookupError('no results found')
+            raise DNSLookupError('DNS lookup error: no results found')
 
         route = random.choice([r for r in routes if r.transport == routes[0].transport])
 
@@ -597,10 +600,7 @@ class ConnectionHandler(object):
             except KeyError:
                 raise APIError('Unknown account specified: {request.account}'.format(request=request))
 
-            try:
-                proxy = self._lookup_sip_proxy(request.account)
-            except DNSLookupError as e:
-                raise APIError('DNS lookup error: {exception!s}'.format(exception=e))
+            proxy = self._lookup_sip_proxy(request.account)
 
             handle_id = account_info.janus_handle_id
             if handle_id is not None:
@@ -623,7 +623,7 @@ class ConnectionHandler(object):
                     'ha1_secret': account_info.password,
                     'proxy': proxy}
             block_on(self.protocol.backend.janus_message(self.janus_session_id, handle_id, data))
-        except (APIError, JanusError) as e:
+        except (APIError, DNSLookupError, JanusError) as e:
             self.log.error('account-register: {exception!s}'.format(exception=e))
             self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
         else:
@@ -678,10 +678,7 @@ class ConnectionHandler(object):
             except KeyError:
                 raise APIError('Unknown account specified: {request.account}'.format(request=request))
 
-            try:
-                proxy = self._lookup_sip_proxy(request.uri)
-            except DNSLookupError:
-                raise APIError('DNS lookup error')
+            proxy = self._lookup_sip_proxy(request.uri)
 
             # Create a new plugin handle and 'register' it, without actually doing so
             handle_id = block_on(self.protocol.backend.janus_attach(self.janus_session_id, 'janus.plugin.sip'))
@@ -703,7 +700,7 @@ class ConnectionHandler(object):
             session_info.janus_handle_id = handle_id
             session_info.init_outgoing(request.account, request.uri)
             self.sip_sessions.add(session_info)
-        except (APIError, JanusError) as e:
+        except (APIError, DNSLookupError, JanusError) as e:
             self.log.error('session-create: {exception!s}'.format(exception=e))
             self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
             if handle_id is not None:
