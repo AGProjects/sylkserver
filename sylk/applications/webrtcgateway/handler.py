@@ -989,9 +989,8 @@ class ConnectionHandler(object):
                 self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
             else:
                 self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
-                for conn in self.protocol.factory.connections.difference([self]):
-                    if conn.connection_handler:
-                        conn.connection_handler._handle_conference_invite(account_info, base_session.room, request.invite_participants.participants)
+                for protocol in self.protocol.factory.connections.difference([self.protocol]):
+                    protocol.connection_handler._handle_conference_invite(account_info, base_session.room, request.invite_participants.participants)
         else:
             self.log.error('videoroom-ctl: unsupported option: {request.option!r}'.format(request=request))
 
