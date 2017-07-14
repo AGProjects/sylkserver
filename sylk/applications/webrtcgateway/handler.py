@@ -403,6 +403,16 @@ class ConnectionHandler(object):
         op = Operation(request_type, request)
         self.operations_queue.send(op)
 
+    def handle_conference_invite(self, originator, room, invited_uris):
+        for account_id in set(self.accounts_map).intersection(invited_uris):
+            data = dict(sylkrtc='account_event',
+                        event='conference_invite',
+                        account=account_id,
+                        data=dict(originator=dict(uri=originator.id, display_name=originator.display_name), room=room.uri))
+            room.log.info('invitation from %s for %s', originator.id, account_id)
+            self.log.info('received an invitation from %s for %s to join video room %s', originator.id, account_id, room.uri)
+            self._send_data(json.dumps(data))
+
     def validate_acl(self, room_uri, from_uri):
         cfg = get_room_config(room_uri)
         if cfg.access_policy == 'allow,deny':
@@ -516,16 +526,6 @@ class ConnectionHandler(object):
 
         # Build a proxy URI Sofia-SIP likes
         return 'sips:{route.address}:{route.port}'.format(route=route) if route.transport == 'tls' else str(route.uri)
-
-    def _handle_conference_invite(self, originator, room, invited_uris):
-        for account_id in set(self.accounts_map).intersection(invited_uris):
-            data = dict(sylkrtc='account_event',
-                        event='conference_invite',
-                        account=account_id,
-                        data=dict(originator=dict(uri=originator.id, display_name=originator.display_name), room=room.uri))
-            room.log.info('invitation from %s for %s', originator.id, account_id)
-            self.log.info('received an invitation from %s for %s to join video room %s', originator.id, account_id, room.uri)
-            self._send_data(json.dumps(data))
 
     def _handle_janus_event_sip(self, handle_id, event_type, event):
         # TODO: use a model
@@ -986,7 +986,7 @@ class ConnectionHandler(object):
             else:
                 self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
                 for protocol in self.protocol.factory.connections.difference([self.protocol]):
-                    protocol.connection_handler._handle_conference_invite(account_info, base_session.room, request.invite_participants.participants)
+                    protocol.connection_handler.handle_conference_invite(account_info, base_session.room, request.invite_participants.participants)
         else:
             self.log.error('videoroom-ctl: unsupported option: {request.option!r}'.format(request=request))
 
