@@ -30,9 +30,6 @@ SIP_PREFIX_RE = re.compile('^sips?:')
 sylkrtc_models = {model.sylkrtc.default_value: model for model in vars(sylkrtc).values() if hasattr(model, 'sylkrtc') and issubclass(model, sylkrtc.SylkRTCRequestBase)}
 
 
-class ACLValidationError(Exception): pass
-
-
 class AccountInfo(object):
     def __init__(self, id, password, display_name=None, user_agent=None):
         self.id = id
@@ -160,6 +157,13 @@ class VideoRoom(object):
             self.log.info('{session.account_id} has left the room'.format(session=session))
         self._sessions.clear()
         self._id_map.clear()
+
+    def allow_uri(self, uri):
+        config = self.config
+        if config.access_policy == 'allow,deny':
+            return config.allow.match(uri) and not config.deny.match(uri)
+        else:
+            return not config.deny.match(uri) or config.allow.match(uri)
 
     def _update_bitrate(self):
         if self._sessions:
@@ -412,15 +416,6 @@ class ConnectionHandler(object):
             room.log.info('invitation from %s for %s', originator.id, account_id)
             self.log.info('received an invitation from %s for %s to join video room %s', originator.id, account_id, room.uri)
             self._send_data(json.dumps(data))
-
-    def validate_acl(self, room_uri, from_uri):
-        cfg = get_room_config(room_uri)
-        if cfg.access_policy == 'allow,deny':
-            if cfg.deny.match(from_uri) or not cfg.allow.match(from_uri):
-                raise ACLValidationError
-        else:
-            if cfg.deny.match(from_uri) and not cfg.allow.match(from_uri):
-                raise ACLValidationError
 
     # internal methods (not overriding / implementing the protocol API)
 
@@ -780,11 +775,6 @@ class ConnectionHandler(object):
                 raise APIError('Session ID {request.session} already in use'.format(request=request))
 
             try:
-                self.validate_acl(request.uri, request.account)
-            except ACLValidationError:
-                raise APIError('{request.account} is not allowed to join room {request.uri}'.format(request=request))
-
-            try:
                 account_info = self.accounts_map[request.account]
             except KeyError:
                 raise APIError('Unknown account specified: {request.account}'.format(request=request))
@@ -793,9 +783,14 @@ class ConnectionHandler(object):
                 videoroom = self.protocol.factory.videorooms[request.uri]
             except KeyError:
                 videoroom = VideoRoom(request.uri)
-                self.protocol.factory.videorooms.add(videoroom)
+
+            if not videoroom.allow_uri(request.account):
+                raise APIError('{request.account} is not allowed to join room {request.uri}'.format(request=request))
 
             # Do NOT raise APIError after this point. Any code that can raise APIError should be placed before this.
+
+            if videoroom not in self.protocol.factory.videorooms:
+                self.protocol.factory.videorooms.add(videoroom)
 
             handle_id = block_on(self.protocol.backend.janus_attach(self.janus_session_id, 'janus.plugin.videoroom'))
             self.protocol.backend.janus_set_event_handler(handle_id, self._handle_janus_event_videoroom)
