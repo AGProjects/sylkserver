@@ -43,6 +43,10 @@ class AccountInfo(object):
     def uri(self):
         return 'sip:%s' % self.id
 
+    @property
+    def user_data(self):
+        return dict(username=self.uri, display_name=self.display_name, user_agent=self.user_agent, ha1_secret=self.password)
+
 
 class SessionPartyIdentity(object):
     def __init__(self, uri, display_name=''):
@@ -605,7 +609,7 @@ class ConnectionHandler(object):
             account_info.janus_handle_id = handle_id
             self.account_handles_map[handle_id] = account_info
 
-            data = dict(request='register', username=account_info.uri, display_name=account_info.display_name, user_agent=account_info.user_agent, ha1_secret=account_info.password, proxy=proxy)
+            data = dict(request='register', proxy=proxy, **account_info.user_data)
             block_on(self.protocol.backend.janus_message(self.janus_session_id, handle_id, data))
         except (APIError, DNSLookupError, JanusError) as e:
             self.log.error('account-register: {exception!s}'.format(exception=e))
@@ -667,7 +671,7 @@ class ConnectionHandler(object):
             # Create a new plugin handle and 'register' it, without actually doing so
             handle_id = block_on(self.protocol.backend.janus_attach(self.janus_session_id, 'janus.plugin.sip'))
             self.protocol.backend.janus_set_event_handler(handle_id, self._handle_janus_event_sip)
-            data = dict(request='register', send_register=False, username=account_info.uri, display_name=account_info.display_name, user_agent=account_info.user_agent, ha1_secret=account_info.password, proxy=proxy)
+            data = dict(request='register', send_register=False, proxy=proxy, **account_info.user_data)
             block_on(self.protocol.backend.janus_message(self.janus_session_id, handle_id, data))
 
             data = dict(request='call', uri='sip:%s' % SIP_PREFIX_RE.sub('', request.uri), srtp='sdes_optional')
