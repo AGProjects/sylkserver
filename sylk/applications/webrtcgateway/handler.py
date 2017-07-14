@@ -464,7 +464,7 @@ class ConnectionHandler(object):
         if self.protocol is None or self.janus_session_id is None:  # The connection was closed, there is nothing to do
             return
 
-        if videoroom is not None and not videoroom and not videoroom.destroyed:
+        if not videoroom and not videoroom.destroyed:
             videoroom.destroyed = True
             self.protocol.factory.videorooms.remove(videoroom)
 
