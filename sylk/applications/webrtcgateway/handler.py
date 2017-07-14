@@ -118,7 +118,6 @@ class VideoRoom(object):
         self.id = random.getrandbits(32)    # janus needs numeric room names
         self.uri = uri
         self.config = get_room_config(uri)
-        self.destroyed = False
         self.log = VideoroomLogger(self)
         self._sessions = set()
         self._id_map = {}  # map session.id -> session and session.publisher_id -> session
@@ -464,8 +463,7 @@ class ConnectionHandler(object):
         if self.protocol is None or self.janus_session_id is None:  # The connection was closed, there is nothing to do
             return
 
-        if not videoroom and not videoroom.destroyed:
-            videoroom.destroyed = True
+        if videoroom in self.protocol.factory.videorooms and not videoroom:
             self.protocol.factory.videorooms.remove(videoroom)
 
             # create a handle to do the cleanup
