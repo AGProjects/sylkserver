@@ -1,4 +1,3 @@
-import weakref
 
 from application.notification import IObserver, NotificationCenter
 from application.python import Null
@@ -11,25 +10,35 @@ from sylk.applications.webrtcgateway.protocol import SylkWebSocketServerProtocol
 class VideoRoomContainer(object):
     def __init__(self):
         self._rooms = set()
-        self._uri_map = weakref.WeakValueDictionary()
-        self._id_map = weakref.WeakValueDictionary()
+        self._id_map = {}  # map videoroom.id -> videoroom and videoroom.uri -> videoroom
 
     def add(self, room):
         self._rooms.add(room)
-        self._uri_map[room.uri] = room
-        self._id_map[room.id] = room
+        self._id_map[room.id] = self._id_map[room.uri] = room
 
-    def remove(self, value):
-        if isinstance(value, int):
-            room = self._id_map.get(value, None)
-        elif isinstance(value, basestring):
-            room = self._uri_map.get(value, None)
-        else:
-            room = value
-        self._rooms.discard(room)
+    def discard(self, item):  # item can be any of room, room.id or room.uri
+        room = self._id_map[item] if item in self._id_map else item if item in self._rooms else None
+        if room is not None:
+            self._rooms.discard(room)
+            self._id_map.pop(room.id, None)
+            self._id_map.pop(room.uri, None)
+
+    def remove(self, item):  # item can be any of room, room.id or room.uri
+        room = self._id_map[item] if item in self._id_map else item
+        self._rooms.remove(room)
+        self._id_map.pop(room.id)
+        self._id_map.pop(room.uri)
+
+    def pop(self, item):  # item can be any of room, room.id or room.uri
+        room = self._id_map[item] if item in self._id_map else item
+        self._rooms.remove(room)
+        self._id_map.pop(room.id)
+        self._id_map.pop(room.uri)
+        return room
 
     def clear(self):
         self._rooms.clear()
+        self._id_map.clear()
 
     def __len__(self):
         return len(self._rooms)
@@ -37,16 +46,11 @@ class VideoRoomContainer(object):
     def __iter__(self):
         return iter(self._rooms)
 
-    def __getitem__(self, item):
-        if isinstance(item, int):
-            return self._id_map[item]
-        elif isinstance(item, basestring):
-            return self._uri_map[item]
-        else:
-            raise KeyError('%s not found' % item)
+    def __getitem__(self, key):
+        return self._id_map[key]
 
     def __contains__(self, item):
-        return item in self._id_map or item in self._uri_map or item in self._rooms
+        return item in self._id_map or item in self._rooms
 
 
 class SylkWebSocketServerFactory(WebSocketServerFactory):
