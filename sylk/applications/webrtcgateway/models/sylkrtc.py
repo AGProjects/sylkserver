@@ -82,14 +82,12 @@ class ReadyEvent(models.Base):
 # Account models
 
 class AccountRequestBase(SylkRTCRequestBase):
-    account = fields.StringField(required=True,
-                                 validators=[URIValidator])
+    account = fields.StringField(required=True, validators=[URIValidator])
 
 
 class AccountAddRequest(AccountRequestBase):
     sylkrtc = DefaultValueField('account-add')
-    password = fields.StringField(required=True,
-                                  validators=[validators.Length(minimum_value=1, maximum_value=9999)])
+    password = fields.StringField(required=True, validators=[validators.Length(minimum_value=1, maximum_value=9999)])
     display_name = fields.StringField(required=False)
     user_agent = fields.StringField(required=False)
 
@@ -149,10 +147,8 @@ class VideoRoomRequestBase(SylkRTCRequestBase):
 
 class VideoRoomJoinRequest(VideoRoomRequestBase):
     sylkrtc = DefaultValueField('videoroom-join')
-    account = fields.StringField(required=True,
-                                 validators=[URIValidator])
-    uri = fields.StringField(required=True,
-                             validators=[URIValidator])
+    account = fields.StringField(required=True, validators=[URIValidator])
+    uri = fields.StringField(required=True, validators=[URIValidator])
     sdp = fields.StringField(required=True)
 
 
