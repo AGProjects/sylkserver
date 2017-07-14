@@ -771,14 +771,10 @@ class ConnectionHandler(object):
                 videoroom = self.protocol.factory.videorooms[request.uri]
             except KeyError:
                 videoroom = VideoRoom(request.uri)
+                self.protocol.factory.videorooms.add(videoroom)
 
             if not videoroom.allow_uri(request.account):
                 raise APIError('{request.account} is not allowed to join room {request.uri}'.format(request=request))
-
-            # Do NOT raise APIError after this point. Any code that can raise APIError should be placed before this.
-
-            if videoroom not in self.protocol.factory.videorooms:
-                self.protocol.factory.videorooms.add(videoroom)
 
             handle_id = block_on(self.protocol.backend.janus_attach(self.janus_session_id, 'janus.plugin.videoroom'))
             self.protocol.backend.janus_set_event_handler(handle_id, self._handle_janus_event_videoroom)
@@ -803,10 +799,7 @@ class ConnectionHandler(object):
             videoroom_session.janus_handle_id = handle_id
             videoroom_session.initialize(request.account, 'publisher', videoroom)
             self.videoroom_sessions.add(videoroom_session)
-        except APIError as e:
-            self.log.error('videoroom-join: {exception!s}'.format(exception=e))
-            self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
-        except JanusError as e:
+        except (APIError, JanusError) as e:
             self.log.error('videoroom-join: {exception!s}'.format(exception=e))
             self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
             if handle_id is not None:
