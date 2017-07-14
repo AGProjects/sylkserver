@@ -517,18 +517,14 @@ class ConnectionHandler(object):
         # Build a proxy URI Sofia-SIP likes
         return 'sips:{route.address}:{route.port}'.format(route=route) if route.transport == 'tls' else str(route.uri)
 
-    def _handle_conference_invite(self, originator, room, participants):
-        for p in participants:
-            try:
-                account_info = self.accounts_map[p]
-            except KeyError:
-                continue
+    def _handle_conference_invite(self, originator, room, invited_uris):
+        for account_id in set(self.accounts_map).intersection(invited_uris):
             data = dict(sylkrtc='account_event',
-                        account=account_info.id,
                         event='conference_invite',
+                        account=account_id,
                         data=dict(originator=dict(uri=originator.id, display_name=originator.display_name), room=room.uri))
-            room.log.info('invitation from %s for %s', originator.id, account_info.id)
-            self.log.info('received an invitation from %s for %s to join video room %s', originator.id, account_info.id, room.uri)
+            room.log.info('invitation from %s for %s', originator.id, account_id)
+            self.log.info('received an invitation from %s for %s to join video room %s', originator.id, account_id, room.uri)
             self._send_data(json.dumps(data))
 
     def _handle_janus_event_sip(self, handle_id, event_type, event):
