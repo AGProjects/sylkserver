@@ -814,16 +814,15 @@ class ConnectionHandler(object):
 
     def _OH_videoroom_ctl(self, request):
         if request.option == 'trickle':
-            if not request.trickle:
-                self.log.error("videoroom-ctl: missing 'trickle' field in request")
-                return
-            candidates = [c.to_struct() for c in request.trickle.candidates]
-            session = request.trickle.session or request.session
             try:
+                if not request.trickle:
+                    raise APIError("missing 'trickle' field in request")
+                session = request.trickle.session or request.session
                 try:
                     videoroom_session = self.videoroom_sessions[session]
                 except KeyError:
                     raise APIError('trickle: unknown video room session: {session}'.format(session=session))
+                candidates = [c.to_struct() for c in request.trickle.candidates]
                 block_on(self.protocol.backend.janus_trickle(self.janus_session_id, videoroom_session.janus_handle_id, candidates))
             except (APIError, JanusError) as e:
                 self.log.error('videoroom-ctl: {exception!s}'.format(exception=e))
@@ -833,10 +832,9 @@ class ConnectionHandler(object):
                     self.log.debug('video room session {session.id} negotiated ICE'.format(session=videoroom_session))
                 self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
         elif request.option == 'update':
-            if not request.update:
-                self.log.error("videoroom-ctl: missing 'update' field in request")
-                return
             try:
+                if not request.update:
+                    raise APIError("missing 'update' field in request")
                 try:
                     videoroom_session = self.videoroom_sessions[request.session]
                 except KeyError:
@@ -854,11 +852,11 @@ class ConnectionHandler(object):
                     self.log.info('updated video room session {request.session} with {modified}'.format(request=request, modified=modified))
                 self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
         elif request.option == 'feed-attach':
-            if not request.feed_attach:
-                self.log.error("videoroom-ctl: missing 'feed_attach' field in request")
-                return
             handle_id = None
             try:
+                if not request.feed_attach:
+                    raise APIError("missing 'feed_attach' field in request")
+
                 if request.feed_attach.session in self.videoroom_sessions:
                     raise APIError('feed-attach: video room session ID {request.feed_attach.session} already in use'.format(request=request))
 
@@ -899,10 +897,9 @@ class ConnectionHandler(object):
             else:
                 self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
         elif request.option == 'feed-answer':
-            if not request.feed_answer:
-                self.log.error("videoroom-ctl: missing 'feed_answer' field in request")
-                return
             try:
+                if not request.feed_answer:
+                    raise APIError("missing 'feed_answer' field in request")
                 try:
                     videoroom_session = self.videoroom_sessions[request.feed_answer.session]
                 except KeyError:
@@ -916,10 +913,9 @@ class ConnectionHandler(object):
             else:
                 self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
         elif request.option == 'feed-detach':
-            if not request.feed_detach:
-                self.log.error("videoroom-ctl: missing 'feed_detach' field in request")
-                return
             try:
+                if not request.feed_detach:
+                    raise APIError("missing 'feed_detach' field in request")
                 try:
                     videoroom_session = self.videoroom_sessions[request.feed_detach.session]
                 except KeyError:
@@ -935,10 +931,9 @@ class ConnectionHandler(object):
                 self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
                 self._cleanup_videoroom_session(videoroom_session)
         elif request.option == 'invite-participants':
-            if not request.invite_participants:
-                self.log.error("videoroom-ctl: missing 'invite_participants' field in request")
-                return
             try:
+                if not request.invite_participants:
+                    raise APIError("missing 'invite_participants' field in request")
                 try:
                     base_session = self.videoroom_sessions[request.session]
                     account_info = self.accounts_map[base_session.account_id]
