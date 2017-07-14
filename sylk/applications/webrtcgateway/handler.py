@@ -412,10 +412,7 @@ class ConnectionHandler(object):
 
     def handle_conference_invite(self, originator, room, invited_uris):
         for account_id in set(self.accounts_map).intersection(invited_uris):
-            data = dict(sylkrtc='account_event',
-                        event='conference_invite',
-                        account=account_id,
-                        data=dict(originator=dict(uri=originator.id, display_name=originator.display_name), room=room.uri))
+            data = dict(sylkrtc='account_event', event='conference_invite', account=account_id, data=dict(originator=dict(uri=originator.id, display_name=originator.display_name), room=room.uri))
             room.log.info('invitation from %s for %s', originator.id, account_id)
             self.log.info('received an invitation from %s for %s to join video room %s', originator.id, account_id, room.uri)
             self._send_data(json.dumps(data))
