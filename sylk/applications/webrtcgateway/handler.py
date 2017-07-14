@@ -1224,16 +1224,14 @@ class ConnectionHandler(object):
             self._send_data(json.dumps(data))
             # send information about existing publishers
             publishers = []
-            for p in event_data['publishers']:
-                publisher_id = p['id']
-                publisher_display = p.get('display', '')
+            for publisher in event_data['publishers']:
+                publisher_id = publisher['id']
                 try:
                     publisher_session = room[publisher_id]
                 except KeyError:
                     self.log.warning('could not find matching session for publisher %s during joined event' % publisher_id)
                     continue
-                item = dict(id=publisher_session.id, uri=publisher_session.account_id, display_name=publisher_display)
-                publishers.append(item)
+                publishers.append(dict(id=publisher_session.id, uri=publisher_session.account_id, display_name=publisher.get('display', '')))
             data = dict(sylkrtc='videoroom_event', session=videoroom_session.id, event='initial_publishers', data=dict(publishers=publishers))
             self._send_data(json.dumps(data))
         elif event_type == 'event':
@@ -1246,16 +1244,14 @@ class ConnectionHandler(object):
                 room = videoroom_session.room
                 # send information about new publishers
                 publishers = []
-                for p in event_data['publishers']:
-                    publisher_id = p['id']
-                    publisher_display = p.get('display', '')
+                for publisher in event_data['publishers']:
+                    publisher_id = publisher['id']
                     try:
                         publisher_session = room[publisher_id]
                     except KeyError:
                         self.log.warning('could not find matching session for publisher %s during publishers event' % publisher_id)
                         continue
-                    item = dict(id=publisher_session.id, uri=publisher_session.account_id, display_name=publisher_display)
-                    publishers.append(item)
+                    publishers.append(dict(id=publisher_session.id, uri=publisher_session.account_id, display_name=publisher.get('display', '')))
                 data = dict(sylkrtc='videoroom_event', session=videoroom_session.id, event='publishers_joined', data=dict(publishers=publishers))
                 self._send_data(json.dumps(data))
             elif 'leaving' in event_data:
