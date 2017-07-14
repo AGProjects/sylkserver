@@ -605,12 +605,7 @@ class ConnectionHandler(object):
             account_info.janus_handle_id = handle_id
             self.account_handles_map[handle_id] = account_info
 
-            data = {'request': 'register',
-                    'username': account_info.uri,
-                    'display_name': account_info.display_name,
-                    'user_agent': account_info.user_agent,
-                    'ha1_secret': account_info.password,
-                    'proxy': proxy}
+            data = dict(request='register', username=account_info.uri, display_name=account_info.display_name, user_agent=account_info.user_agent, ha1_secret=account_info.password, proxy=proxy)
             block_on(self.protocol.backend.janus_message(self.janus_session_id, handle_id, data))
         except (APIError, DNSLookupError, JanusError) as e:
             self.log.error('account-register: {exception!s}'.format(exception=e))
@@ -672,17 +667,11 @@ class ConnectionHandler(object):
             # Create a new plugin handle and 'register' it, without actually doing so
             handle_id = block_on(self.protocol.backend.janus_attach(self.janus_session_id, 'janus.plugin.sip'))
             self.protocol.backend.janus_set_event_handler(handle_id, self._handle_janus_event_sip)
-            data = {'request': 'register',
-                    'username': account_info.uri,
-                    'display_name': account_info.display_name,
-                    'user_agent': account_info.user_agent,
-                    'ha1_secret': account_info.password,
-                    'proxy': proxy,
-                    'send_register': False}
+            data = dict(request='register', send_register=False, username=account_info.uri, display_name=account_info.display_name, user_agent=account_info.user_agent, ha1_secret=account_info.password, proxy=proxy)
             block_on(self.protocol.backend.janus_message(self.janus_session_id, handle_id, data))
 
-            data = {'request': 'call', 'uri': 'sip:%s' % SIP_PREFIX_RE.sub('', request.uri), 'srtp': 'sdes_optional'}
-            jsep = {'type': 'offer', 'sdp': request.sdp}
+            data = dict(request='call', uri='sip:%s' % SIP_PREFIX_RE.sub('', request.uri), srtp='sdes_optional')
+            jsep = dict(type='offer', sdp=request.sdp)
             block_on(self.protocol.backend.janus_message(self.janus_session_id, handle_id, data, jsep))
 
             session_info = SIPSessionInfo(request.session)
@@ -711,8 +700,8 @@ class ConnectionHandler(object):
             if session_info.state != 'connecting':
                 raise APIError('Invalid state for answering session {session.id}: {session.state}'.format(session=session_info))
 
-            data = {'request': 'accept'}
-            jsep = {'type': 'answer', 'sdp': request.sdp}
+            data = dict(request='accept')
+            jsep = dict(type='answer', sdp=request.sdp)
             block_on(self.protocol.backend.janus_message(self.janus_session_id, session_info.janus_handle_id, data, jsep))
         except (APIError, JanusError) as e:
             self.log.error('session-answer: {exception!s}'.format(exception=e))
@@ -753,9 +742,9 @@ class ConnectionHandler(object):
                 raise APIError('Invalid state for terminating session {session.id}: {session.state}'.format(session=session_info))
 
             if session_info.direction == 'incoming' and session_info.state == 'connecting':
-                data = {'request': 'decline', 'code': 486}
+                data = dict(request='decline', code=486)
             else:
-                data = {'request': 'hangup'}
+                data = dict(request='hangup')
             block_on(self.protocol.backend.janus_message(self.janus_session_id, session_info.janus_handle_id, data))
         except (APIError, JanusError) as e:
             self.log.error('session-terminate: {exception!s}'.format(exception=e))
@@ -794,13 +783,8 @@ class ConnectionHandler(object):
             self.protocol.backend.janus_set_event_handler(handle_id, self._handle_janus_event_videoroom)
 
             # create the room if it doesn't exist
-            data = {'request': 'create',
-                    'room': videoroom.id,
-                    'publishers': 10,
-                    'bitrate': videoroom.config.max_bitrate,  # max bitrate for room (if we do not specify this it defaults to 256Kb/s in janus)
-                    'videocodec': videoroom.config.video_codec,
-                    'record': videoroom.config.record,
-                    'rec_dir': videoroom.config.recording_dir}
+            config = videoroom.config
+            data = dict(request='create', room=videoroom.id, publishers=10, bitrate=config.max_bitrate, videocodec=config.video_codec, record=config.record, rec_dir=config.recording_dir)
             try:
                 block_on(self.protocol.backend.janus_message(self.janus_session_id, handle_id, data))
             except JanusError as e:
@@ -808,14 +792,10 @@ class ConnectionHandler(object):
                     raise
 
             # join the room
-            data = {'request': 'joinandconfigure',
-                    'room': videoroom.id,
-                    'ptype': 'publisher',
-                    'audio': True,
-                    'video': True}
+            data = dict(request='joinandconfigure', room=videoroom.id, ptype='publisher', audio=True, video=True)
             if account_info.display_name:
-                data['display'] = account_info.display_name
-            jsep = {'type': 'offer', 'sdp': request.sdp}
+                data.update(display=account_info.display_name)
+            jsep = dict(type='offer', sdp=request.sdp)
             block_on(self.protocol.backend.janus_message(self.janus_session_id, handle_id, data, jsep))
 
             videoroom_session = VideoRoomSessionInfo(request.session, owner=self)
@@ -835,10 +815,7 @@ class ConnectionHandler(object):
         else:
             self.log.info('created session {request.session} from account {request.account} to video room {request.uri}'.format(request=request))
             self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
-            data = dict(sylkrtc='videoroom_event',
-                        session=videoroom_session.id,
-                        event='state',
-                        data=dict(state='progress'))
+            data = dict(sylkrtc='videoroom_event', session=videoroom_session.id, event='state', data=dict(state='progress'))
             self._send_data(json.dumps(data))
 
     def _OH_videoroom_ctl(self, request):
@@ -989,7 +966,7 @@ class ConnectionHandler(object):
                 videoroom_session = self.videoroom_sessions[request.session]
             except KeyError:
                 raise APIError('Unknown video room session: {request.session}'.format(request=request))
-            data = {'request': 'leave'}
+            data = dict(request='leave')
             block_on(self.protocol.backend.janus_message(self.janus_session_id, videoroom_session.janus_handle_id, data))
         except (APIError, JanusError) as e:
             self.log.error('videoroom-terminate: {exception!s}'.format(exception=e))
@@ -997,10 +974,7 @@ class ConnectionHandler(object):
         else:
             self.log.info('requesting termination for video room session {request.session}'.format(request=request))
             self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
-            data = dict(sylkrtc='videoroom_event',
-                        session=videoroom_session.id,
-                        event='state',
-                        data=dict(state='terminated'))
+            data = dict(sylkrtc='videoroom_event', session=videoroom_session.id, event='state', data=dict(state='terminated'))
             self._send_data(json.dumps(data))
             # safety net in case we do not get any answer for the leave request
             # todo: to be adjusted later after pseudo-synchronous communication with janus is implemented
@@ -1022,10 +996,7 @@ class ConnectionHandler(object):
                 self.log.warning('could not find session for handle ID %s' % handle_id)
                 return
             session_info.state = 'established'
-            data = dict(sylkrtc='session_event',
-                        session=session_info.id,
-                        event='state',
-                        data=dict(state=session_info.state))
+            data = dict(sylkrtc='session_event', session=session_info.id, event='state', data=dict(state=session_info.state))
             self._send_data(json.dumps(data))  # TODO: SessionEvent model
             self.log.debug('{session.direction} session {session.id} state: {session.state}'.format(session=session_info))
             self.log.info('established WEBRTC connection for session {session.id}'.format(session=session_info))
@@ -1038,10 +1009,7 @@ class ConnectionHandler(object):
                 session_info.state = 'terminated'
                 self.log.debug('{session.direction} session {session.id} state: {session.state}'.format(session=session_info))
                 reason = event.get('reason', 'reason unspecified')
-                data = dict(sylkrtc='session_event',
-                            session=session_info.id,
-                            event='state',
-                            data=dict(state=session_info.state, reason=reason))
+                data = dict(sylkrtc='session_event', session=session_info.id, event='state', data=dict(state=session_info.state, reason=reason))
                 # TODO: SessionEvent model
                 self._send_data(json.dumps(data))
                 self.log.info('{session.direction} session {session.id} terminated ({reason})'.format(session=session_info, reason=reason))
@@ -1106,11 +1074,7 @@ class ConnectionHandler(object):
                 session.janus_handle_id = handle_id
                 session.init_incoming(account_info.id, originator_uri, originator_display_name)
                 self.sip_sessions.add(session)
-                data = dict(sylkrtc='account_event',
-                            account=account_info.id,
-                            session=session_id,
-                            event='incoming_session',
-                            data=dict(originator=session.remote_identity.__dict__, sdp=jsep['sdp']))
+                data = dict(sylkrtc='account_event', account=account_info.id, session=session_id, event='incoming_session', data=dict(originator=session.remote_identity.__dict__, sdp=jsep['sdp']))
                 self.log.info('received incoming session {session.id} from {session.remote_identity.uri!s} to {session.local_identity.uri!s}'.format(session=session))
             else:
                 registration_state = event_type
@@ -1125,10 +1089,7 @@ class ConnectionHandler(object):
                     self.log.info('registration for {account.id} failed: {reason}'.format(account=account_info, reason=reason))
                 elif registration_state == 'registered':
                     self.log.info('registered {account.id} to receive incoming calls'.format(account=account_info))
-                data = dict(sylkrtc='account_event',
-                            account=account_info.id,
-                            event='registration_state',
-                            data=registration_data)
+                data = dict(sylkrtc='account_event', account=account_info.id, event='registration_state', data=registration_data)
             # TODO: AccountEvent model
             self._send_data(json.dumps(data))
         elif event_type in ('calling', 'accepted'):
@@ -1141,10 +1102,7 @@ class ConnectionHandler(object):
             state_map = dict(calling='progress', accepted='accepted')
             session_info.state = state_map[event_type]
             self.log.debug('{session.direction} session {session.id} state: {session.state}'.format(session=session_info))
-            data = dict(sylkrtc='session_event',
-                        session=session_info.id,
-                        event='state',
-                        data=dict(state=session_info.state))
+            data = dict(sylkrtc='session_event', session=session_info.id, event='state', data=dict(state=session_info.state))
             if session_info.state == 'accepted' and session_info.direction == 'outgoing':
                 assert jsep is not None
                 data['data']['sdp'] = jsep['sdp']
@@ -1159,16 +1117,10 @@ class ConnectionHandler(object):
                 self.log.debug('{session.direction} session {session.id} state: {session.state}'.format(session=session_info))
                 code = event_data.get('code', 0)
                 reason = '%d %s' % (code, event_data.get('reason', 'Unknown'))
-                data = dict(sylkrtc='session_event',
-                            session=session_info.id,
-                            event='state',
-                            data=dict(state=session_info.state, reason=reason))
+                data = dict(sylkrtc='session_event', session=session_info.id, event='state', data=dict(state=session_info.state, reason=reason))
                 self._send_data(json.dumps(data))  # TODO: SessionEvent model
                 if session_info.direction == 'incoming' and code == 487:  # check if missed incoming call
-                    data = dict(sylkrtc='account_event',
-                                account=session_info.account_id,
-                                event='missed_session',
-                                data=dict(originator=session_info.remote_identity.__dict__))
+                    data = dict(sylkrtc='account_event', account=session_info.account_id, event='missed_session', data=dict(originator=session_info.remote_identity.__dict__))
                     self._send_data(json.dumps(data))  # TODO: AccountEvent model
                 if code >= 300:
                     self.log.info('{session.direction} session {session.id} terminated ({reason})'.format(session=session_info, reason=reason))
@@ -1185,10 +1137,7 @@ class ConnectionHandler(object):
             originator_display_name = event_data.get('displayname', '').replace('"', '')
             # We have no session, so create an identity object by hand
             originator = SessionPartyIdentity(originator_uri, originator_display_name)
-            data = dict(sylkrtc='account_event',
-                        account=account_info.id,
-                        event='missed_session',
-                        data=dict(originator=originator.__dict__))
+            data = dict(sylkrtc='account_event', account=account_info.id, event='missed_session', data=dict(originator=originator.__dict__))
             self.log.info('missed incoming call from {originator.uri}'.format(originator=originator))
             # TODO: AccountEvent model
             self._send_data(json.dumps(data))
@@ -1211,15 +1160,9 @@ class ConnectionHandler(object):
                 return
             if videoroom_session.type == 'publisher':
                 self.log.info('established WEBRTC connection for session {session.id}'.format(session=videoroom_session))
-                data = dict(sylkrtc='videoroom_event',
-                            session=videoroom_session.id,
-                            event='state',
-                            data=dict(state='established'))
+                data = dict(sylkrtc='videoroom_event', session=videoroom_session.id, event='state', data=dict(state='established'))
             else:
-                data = dict(sylkrtc='videoroom_event',
-                            session=videoroom_session.parent_session.id,
-                            event='feed_established',
-                            data=dict(state='established', subscription=videoroom_session.id))
+                data = dict(sylkrtc='videoroom_event', session=videoroom_session.parent_session.id, event='feed_established', data=dict(state='established', subscription=videoroom_session.id))
             self._send_data(json.dumps(data))
         elif event_type == 'hangup':
             try:
@@ -1273,10 +1216,7 @@ class ConnectionHandler(object):
             room.add(videoroom_session)
             jsep = event.get('jsep', None)
             assert jsep is not None
-            data = dict(sylkrtc='videoroom_event',
-                        session=videoroom_session.id,
-                        event='state',
-                        data=dict(state='accepted', sdp=jsep['sdp']))
+            data = dict(sylkrtc='videoroom_event', session=videoroom_session.id, event='state', data=dict(state='accepted', sdp=jsep['sdp']))
             self._send_data(json.dumps(data))
             # send information about existing publishers
             publishers = []
@@ -1288,14 +1228,9 @@ class ConnectionHandler(object):
                 except KeyError:
                     self.log.warning('could not find matching session for publisher %s during joined event' % publisher_id)
                     continue
-                item = {'id': publisher_session.id,
-                        'uri': publisher_session.account_id,
-                        'display_name': publisher_display}
+                item = dict(id=publisher_session.id, uri=publisher_session.account_id, display_name=publisher_display)
                 publishers.append(item)
-            data = dict(sylkrtc='videoroom_event',
-                        session=videoroom_session.id,
-                        event='initial_publishers',
-                        data=dict(publishers=publishers))
+            data = dict(sylkrtc='videoroom_event', session=videoroom_session.id, event='initial_publishers', data=dict(publishers=publishers))
             self._send_data(json.dumps(data))
         elif event_type == 'event':
             if 'publishers' in event_data:
@@ -1315,14 +1250,9 @@ class ConnectionHandler(object):
                     except KeyError:
                         self.log.warning('could not find matching session for publisher %s during publishers event' % publisher_id)
                         continue
-                    item = {'id': publisher_session.id,
-                            'uri': publisher_session.account_id,
-                            'display_name': publisher_display}
+                    item = dict(id=publisher_session.id, uri=publisher_session.account_id, display_name=publisher_display)
                     publishers.append(item)
-                data = dict(sylkrtc='videoroom_event',
-                            session=videoroom_session.id,
-                            event='publishers_joined',
-                            data=dict(publishers=publishers))
+                data = dict(sylkrtc='videoroom_event', session=videoroom_session.id, event='publishers_joined', data=dict(publishers=publishers))
                 self._send_data(json.dumps(data))
             elif 'leaving' in event_data:
                 janus_publisher_id = event_data['leaving']  # janus_publisher_id == 'ok' when the event is about ourselves leaving the room
@@ -1340,10 +1270,7 @@ class ConnectionHandler(object):
                     publisher_session = base_session.feeds.pop(janus_publisher_id)
                 except KeyError:
                     return
-                data = dict(sylkrtc='videoroom_event',
-                            session=base_session.id,
-                            event='publishers_left',
-                            data=dict(publishers=[publisher_session.id]))
+                data = dict(sylkrtc='videoroom_event', session=base_session.id, event='publishers_left', data=dict(publishers=[publisher_session.id]))
                 self._send_data(json.dumps(data))
             elif {'started', 'unpublished', 'left', 'configured'}.intersection(event_data):
                 pass
@@ -1362,10 +1289,7 @@ class ConnectionHandler(object):
             assert base_session is not None
             assert jsep is not None
             assert jsep['type'] == 'offer'
-            data = dict(sylkrtc='videoroom_event',
-                        session=base_session.id,
-                        event='feed_attached',
-                        data=dict(sdp=jsep['sdp'], subscription=videoroom_session.id))
+            data = dict(sylkrtc='videoroom_event', session=base_session.id, event='feed_attached', data=dict(sdp=jsep['sdp'], subscription=videoroom_session.id))
             self._send_data(json.dumps(data))
         elif event_type == 'slow_link':
             pass
