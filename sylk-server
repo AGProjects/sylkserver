@@ -1,8 +1,5 @@
 #!/usr/bin/env python
 
-# Copyright (C) 2010-2011 AG Projects. See LICENSE for details
-#
-
 import os
 import signal
 import sys
