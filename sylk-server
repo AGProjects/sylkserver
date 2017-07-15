@@ -25,9 +25,9 @@ def main():
     parser.add_option('--no-fork', action='store_false', dest='fork', default=1,
                       help='run the process in the foreground (for debugging)')
     parser.add_option('--pid', dest='pid_file',
-                      help='pid file ("%s")' % default_pid, metavar='File')
+                      help='pid file (%r)' % default_pid, metavar='File')
     parser.add_option('--config-file', dest='config_file', default=default_config,
-                      help='path to configuration file to read ("%s")' % default_config,
+                      help='path to configuration file to read (%r)' % default_config,
                       metavar='File')
     parser.add_option('--enable-bonjour', action='store_true', dest='enable_bonjour', default=False,
                       help='enable Bonjour services')
