@@ -1,5 +1,4 @@
 
-import random
 import uuid
 
 from application.notification import IObserver, NotificationCenter, NotificationData
@@ -87,7 +86,6 @@ class X2SMucInvitationHandler(object):
             try:
                 routes = lookup.lookup_sip_proxy(uri, settings.sip.transport_list).wait()
             except DNSLookupError, e:
-                timeout = random.uniform(15, 30)
                 raise ReferralError(error='DNS lookup failed: %s' % e)
 
             timeout = time() + 30
