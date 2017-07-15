@@ -405,14 +405,13 @@ class AudioStream(object):
     def _try_next_rtp_transport(self, failure_reason=None):
         if self._stun_servers:
             stun_address, stun_port = self._stun_servers.pop()
-            observer_added = False
+            rtp_transport = None
             try:
                 rtp_transport = RTPTransport(ice_stun_address=stun_address, ice_stun_port=stun_port, **self._rtp_args)
                 self.notification_center.add_observer(self, sender=rtp_transport)
-                observer_added = True
                 rtp_transport.set_INIT()
             except SIPCoreError, e:
-                if observer_added:
+                if rtp_transport is not None:
                     self.notification_center.remove_observer(self, sender=rtp_transport)
                 self._try_next_rtp_transport(e.args[0])
         else:
