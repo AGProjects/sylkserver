@@ -1,6 +1,4 @@
 
-__all__ = ['TokenStorage']
-
 import cPickle as pickle
 import os
 
@@ -9,6 +7,9 @@ from collections import defaultdict
 from sipsimple.threading import run_in_thread
 
 from sylk.configuration import ServerConfig
+
+
+__all__ = 'TokenStorage',
 
 
 # TODO: This implementation is a prototype. It should be refactored to store tokens in a

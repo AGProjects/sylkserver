@@ -30,7 +30,7 @@ from sylk.applications.xmppgateway.xmpp.subscription import XMPPSubscription, XM
 from sylk.configuration import SIPConfig
 
 
-__all__ = ['S2XPresenceHandler', 'X2SPresenceHandler']
+__all__ = 'S2XPresenceHandler', 'X2SPresenceHandler'
 
 
 class S2XPresenceHandler(object):
@@ -213,8 +213,8 @@ class S2XPresenceHandler(object):
 
 
 class InterruptSubscription(Exception): pass
-
 class TerminateSubscription(Exception): pass
+
 
 class SubscriptionError(Exception):
     def __init__(self, error, timeout, refresh_interval=None, fatal=False):
@@ -223,9 +223,11 @@ class SubscriptionError(Exception):
         self.timeout = timeout
         self.fatal = fatal
 
+
 class SIPSubscriptionDidFail(Exception):
     def __init__(self, data):
         self.data = data
+
 
 class X2SPresenceHandler(object):
     implements(IObserver)
@@ -516,5 +518,4 @@ class X2SPresenceHandler(object):
             self._xmpp_subscription.accept()
 
     _NH_XMPPIncomingSubscriptionGotProbe = _NH_XMPPIncomingSubscriptionGotSubscribe
-
 

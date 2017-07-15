@@ -7,13 +7,13 @@ from wokkel import disco, muc, ping, xmppim
 
 from sylk.applications.xmppgateway.configuration import XMPPGatewayConfig
 from sylk.applications.xmppgateway.datatypes import Identity, FrozenURI
-from sylk.applications.xmppgateway.xmpp.stanzas import (RECEIPTS_NS, CHATSTATES_NS, MUC_USER_NS, ErrorStanza,
-        NormalMessage, MessageReceipt, ChatMessage, ChatComposingIndication,
-        AvailabilityPresence, SubscriptionPresence, ProbePresence,
-        MUCAvailabilityPresence, GroupChatMessage, IncomingInvitationMessage)
+from sylk.applications.xmppgateway.xmpp.stanzas import RECEIPTS_NS, CHATSTATES_NS, MUC_USER_NS, ErrorStanza, ChatComposingIndication
+from sylk.applications.xmppgateway.xmpp.stanzas import ChatMessage, GroupChatMessage, IncomingInvitationMessage, NormalMessage, MessageReceipt
+from sylk.applications.xmppgateway.xmpp.stanzas import AvailabilityPresence, SubscriptionPresence, ProbePresence, MUCAvailabilityPresence
 from sylk.applications.xmppgateway.xmpp.stanzas import jingle
 
-__all__ = ['DiscoProtocol', 'JingleProtocol', 'MessageProtocol', 'MUCServerProtocol', 'MUCPresenceProtocol', 'PresenceProtocol']
+
+__all__ = 'DiscoProtocol', 'JingleProtocol', 'MessageProtocol', 'MUCServerProtocol', 'MUCPresenceProtocol', 'PresenceProtocol'
 
 
 class MessageProtocol(xmppim.MessageProtocol):

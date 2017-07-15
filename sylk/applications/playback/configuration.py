@@ -1,12 +1,13 @@
 
-__all__ = ['get_config']
-
 import os
 
 from application.configuration import ConfigFile, ConfigSection, ConfigSetting
 
 from sylk.configuration.datatypes import Path
 from sylk.resources import Resources
+
+
+__all__ = 'get_config',
 
 
 class GeneralConfig(ConfigSection):
@@ -43,4 +44,3 @@ def get_config(uri):
         PlaybackConfig.reset()
         return config
     return None
-

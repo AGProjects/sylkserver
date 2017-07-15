@@ -10,9 +10,11 @@ from twisted.words.protocols.jabber.jid import JID
 
 sylkserver_prefix = hashlib.md5('sylkserver').hexdigest()
 
+
 def generate_sylk_resource():
     r = 'sylk-'+''.join(random.choice(string.ascii_letters+string.digits) for x in range(32))
     return r.encode('hex')
+
 
 def is_sylk_resource(r):
     if r.startswith('urn:uuid:') or len(r) != 74:
@@ -24,8 +26,10 @@ def is_sylk_resource(r):
     else:
         return decoded.startswith('sylk-')
 
+
 def encode_resource(r):
     return r.encode('utf-8').encode('hex')
+
 
 def decode_resource(r):
     return r.decode('hex').decode('utf-8')
@@ -149,5 +153,4 @@ class Identity(object):
 
     def __str__(self):
         return unicode(self).encode('utf-8')
-
 

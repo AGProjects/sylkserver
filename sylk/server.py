@@ -23,8 +23,7 @@ from sipsimple.video import VideoDevice
 from twisted.internet import reactor
 
 # Load stream extensions needed for integration with SIP SIMPLE SDK
-import sylk.streams
-del sylk.streams
+import sylk.streams; del sylk.streams
 
 from sylk.accounts import DefaultAccount
 from sylk.applications import IncomingRequestHandler

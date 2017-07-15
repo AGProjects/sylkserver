@@ -7,7 +7,7 @@ from wokkel.component import InternalComponent, Router
 from wokkel.server import XMPPS2SServerFactory, DeferredS2SClientFactory
 
 
-__all__ = ['SylkRouter', 'SylkInternalComponent']
+__all__ = 'SylkRouter', 'SylkInternalComponent'
 
 
 class SylkInternalComponent(InternalComponent):

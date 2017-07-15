@@ -1,6 +1,4 @@
 
-__all__ = ['ISylkApplication', 'ApplicationRegistry', 'SylkApplication', 'IncomingRequestHandler', 'ApplicationLogger']
-
 import abc
 import imp
 import logging
@@ -21,6 +19,9 @@ from sipsimple.threading import run_in_twisted_thread
 from zope.interface import implements
 
 from sylk.configuration import ServerConfig, SIPConfig, ThorNodeConfig
+
+
+__all__ = 'ISylkApplication', 'ApplicationRegistry', 'SylkApplication', 'IncomingRequestHandler', 'ApplicationLogger'
 
 
 SYLK_APP_HEADER = 'X-Sylk-App'

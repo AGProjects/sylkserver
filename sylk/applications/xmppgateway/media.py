@@ -22,7 +22,7 @@ from sylk.applications.xmppgateway.xmpp.stanzas import jingle
 from sylk.session import Session
 
 
-__all__ = ['MediaSessionHandler']
+__all__ = 'MediaSessionHandler',
 
 
 class MediaSessionHandler(object):

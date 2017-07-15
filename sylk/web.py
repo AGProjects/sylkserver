@@ -1,8 +1,4 @@
 
-__all__ = ['Klein', 'StaticFileResource', 'WebServer', 'server']
-
-import os
-
 from application import log
 from application.python.types import Singleton
 from klein import Klein
@@ -15,8 +11,14 @@ from twisted.web.static import File
 from sylk import __version__
 from sylk.configuration import WebServerConfig
 
-# Set the 'Server' header string which Twisted Web will use
+import os
 import twisted.web.server
+
+
+__all__ = 'Klein', 'StaticFileResource', 'WebServer', 'server'
+
+
+# Set the 'Server' header string which Twisted Web will use
 twisted.web.server.version = b'SylkServer/%s' % __version__
 
 
@@ -88,4 +90,3 @@ class WebServer(object):
             self.listener.stopListening()
 
 server = WebServer()
-

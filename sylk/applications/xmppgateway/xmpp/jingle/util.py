@@ -7,11 +7,12 @@ from sipsimple.core import SDPSession, SDPMediaStream, SDPAttribute, SDPConnecti
 
 from sylk.applications.xmppgateway.xmpp.stanzas import jingle
 
-__all__ = ['jingle_to_sdp', 'sdp_to_jingle']
+__all__ = 'jingle_to_sdp', 'sdp_to_jingle'
 
 
 # IPv4 only for now, I'm sorry
 ipv4_re = re.compile("^\d{1,3}.\d{1,3}.\d{1,3}.\d{1,3}$")
+
 
 def content_to_sdpstream(content):
     if content.description is None or content.transport is None:
@@ -84,6 +85,7 @@ def jingle_to_sdp(payload):
 
 ice_candidate_re = re.compile(r"""^(?P<foundation>[a-zA-Z0-9+/]+) (?P<component>\d+) (?P<protocol>[a-zA-Z]+) (?P<priority>\d+) (?P<ip>[0-9a-fA-F.:]+) (?P<port>\d+) typ (?P<type>[a-zA-Z]+)(?: raddr (?P<raddr>[0-9a-fA-F.:]+) rport (?P<rport>\d+))?$""", re.MULTILINE)
 crypto_re = re.compile(r"""^(?P<tag>\d+) (?P<suite>[a-zA-Z0-9\_]+) (?P<key_params>[a-zA-Z0-9\:\+]+)(?: (?P<session_params>[a-zA-Z0-9\:\+]+))?$""", re.MULTILINE)
+
 
 def sdpstream_to_content(sdp, index):
     media_stream = sdp.media[index]

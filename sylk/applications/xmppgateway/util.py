@@ -2,7 +2,8 @@
 import lxml.html
 import lxml.html.clean
 
-__all__ = ['html2text', 'text2html', 'format_uri']
+
+__all__ = 'html2text', 'text2html', 'format_uri'
 
 
 def html2text(data):
@@ -20,6 +21,7 @@ xhtml_im_template = """<html xmlns='http://jabber.org/protocol/xhtml-im'>
     %(data)s
     </body>
 </html>"""
+
 
 def text2html(data):
     return xhtml_im_template % {'data': data}

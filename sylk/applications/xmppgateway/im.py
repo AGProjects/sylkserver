@@ -26,7 +26,7 @@ from sylk.applications.xmppgateway.xmpp.stanzas import ChatMessage
 from sylk.session import Session
 
 
-__all__ = ['ChatSessionHandler', 'SIPMessageSender', 'SIPMessageError']
+__all__ = 'ChatSessionHandler', 'SIPMessageSender', 'SIPMessageError'
 
 
 SESSION_TIMEOUT = XMPPGatewayConfig.sip_session_timeout
@@ -52,16 +52,21 @@ class ChatSessionHandler(object):
         self._pending_msrp_chunks = {}
         self._pending_xmpp_stanzas = {}
 
+    def _get_started(self):
+        return self.__dict__['started']
+
     def _set_started(self, value):
         old_value = self.__dict__.get('started', False)
         self.__dict__['started'] = value
         if not old_value and value:
             NotificationCenter().post_notification('ChatSessionDidStart', sender=self)
             self._send_queued_messages()
-    def _get_started(self):
-        return self.__dict__['started']
+
     started = property(_get_started, _set_started)
     del _get_started, _set_started
+
+    def _get_xmpp_session(self):
+        return self.__dict__['xmpp_session']
 
     def _set_xmpp_session(self, session):
         self.__dict__['xmpp_session'] = session
@@ -74,8 +79,7 @@ class ChatSessionHandler(object):
             # Reet SIP session timer in case it's active
             if self._sip_session_timer is not None and self._sip_session_timer.active():
                 self._sip_session_timer.reset(SESSION_TIMEOUT)
-    def _get_xmpp_session(self):
-        return self.__dict__['xmpp_session']
+
     xmpp_session = property(_get_xmpp_session, _set_xmpp_session)
     del _get_xmpp_session, _set_xmpp_session
 
@@ -365,11 +369,13 @@ def chunks(text, size):
     for i in xrange(0, len(text), size):
         yield text[i:i+size]
 
+
 class SIPMessageError(Exception):
     def __init__(self, code, reason):
         Exception.__init__(self, reason)
         self.code = code
         self.reason = reason
+
 
 class SIPMessageSender(object):
     implements(IObserver)
@@ -438,5 +444,4 @@ class SIPMessageSender(object):
     def _NH_SIPMessageDidFail(self, notification):
         notification.center.remove_observer(self, sender=notification.sender)
         self._channel.send(notification)
-
 

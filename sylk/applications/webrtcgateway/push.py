@@ -11,7 +11,8 @@ from zope.interface import implementer
 from sylk.applications.webrtcgateway.configuration import GeneralConfig
 from sylk.applications.webrtcgateway.logger import log
 
-__all__ = ['incoming_session', 'missed_session']
+
+__all__ = 'incoming_session', 'missed_session'
 
 
 agent = Agent(reactor)
@@ -40,11 +41,7 @@ class StringProducer(object):
 
 def incoming_session(originator, destination, tokens):
     for token in tokens:
-        data = {'to': token,
-                'notification': {},
-                'data': {'sylkrtc': {}},
-                'content_available': True
-        }
+        data = dict(to=token, notification={}, data={'sylkrtc': {}}, content_available=True)
         data['notification']['body'] = 'Incoming call from %s' % originator
         data['notification']['sound'] = 'Blow'
         data['priority'] = 'high'
@@ -58,11 +55,7 @@ def incoming_session(originator, destination, tokens):
 
 def missed_session(originator, destination, tokens):
     for token in tokens:
-        data = {'to': token,
-                'notification': {},
-                'data': {'sylkrtc': {}},
-                'content_available': True
-        }
+        data = dict(to=token, notification={}, data={'sylkrtc': {}}, content_available=True)
         data['notification']['body'] = 'Missed call from %s' % originator
         data['notification']['sound'] = 'Blow'
         data['priority'] = 'high'

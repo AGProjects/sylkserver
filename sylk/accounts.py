@@ -7,7 +7,8 @@ from sipsimple.core import Engine, Route, SIPURI
 
 from sylk.configuration import SIPConfig
 
-__all__ = ['DefaultAccount']
+
+__all__ = 'DefaultAccount',
 
 
 class DefaultContactURIFactory(object):

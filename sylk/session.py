@@ -1,9 +1,6 @@
 
 import random
 
-from threading import RLock
-from time import time
-
 from application import log
 from application.notification import IObserver, Notification, NotificationCenter, NotificationData
 from application.python import Null, limit
@@ -23,6 +20,8 @@ from sipsimple.streams import MediaStreamRegistry, InvalidStreamError, UnknownSt
 from sipsimple.threading import run_in_twisted_thread
 from sipsimple.threading.green import Command, run_in_green_thread
 from sipsimple.util import ISOTimestamp
+from threading import RLock
+from time import time
 from twisted.internet import reactor
 from zope.interface import implements
 
@@ -35,15 +34,18 @@ class InvitationDisconnectedError(Exception):
         self.invitation = invitation
         self.data = data
 
+
 class MediaStreamDidNotInitializeError(Exception):
     def __init__(self, stream, data):
         self.stream = stream
         self.data = data
 
+
 class MediaStreamDidFailError(Exception):
     def __init__(self, stream, data):
         self.stream = stream
         self.data = data
+
 
 class SubscriptionError(Exception):
     def __init__(self, error, timeout, **attributes):
@@ -51,18 +53,23 @@ class SubscriptionError(Exception):
         self.timeout = timeout
         self.attributes = attributes
 
+
 class SIPSubscriptionDidFail(Exception):
     def __init__(self, data):
         self.data = data
 
+
 class InterruptSubscription(Exception):
     pass
+
 
 class TerminateSubscription(Exception):
     pass
 
+
 class IllegalStateError(RuntimeError):
     pass
+
 
 @decorator
 def transition_state(required_state, new_state):
@@ -76,6 +83,7 @@ def transition_state(required_state, new_state):
             return func(obj, *args, **kwargs)
         return wrapper
     return state_transitioner
+
 
 @decorator
 def check_state(required_states):

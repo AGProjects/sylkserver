@@ -4,8 +4,6 @@ Handling of RTP media streams according to RFC3550, RFC3605, RFC3581,
 RFC2833 and RFC3711, RFC3489 and draft-ietf-mmusic-ice-19.
 """
 
-__all__ = ['AudioStream']
-
 from threading import RLock
 
 from application.notification import IObserver, NotificationCenter, NotificationData
@@ -18,6 +16,9 @@ from sipsimple.core import AudioTransport, PJSIPError, RTPTransport, SIPCoreErro
 from sipsimple.streams.rtp import RTPStreamEncryption
 
 from sylk.applications.xmppgateway.xmpp.jingle.streams import IMediaStream, InvalidStreamError, MediaStreamRegistrar, UnknownStreamError
+
+
+__all__ = 'AudioStream',
 
 
 class AudioStream(object):

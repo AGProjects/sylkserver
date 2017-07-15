@@ -42,6 +42,7 @@ class MucInvitationFailure(object):
     def __init__(self, code, reason):
         self.code = code
         self.reason = reason
+
     def __str__(self):
         return '%s (%s)' % (self.code, self.reason)
 

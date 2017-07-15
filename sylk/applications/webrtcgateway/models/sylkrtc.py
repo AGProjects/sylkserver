@@ -1,13 +1,13 @@
 
-__all__ = ['AccountAddRequest', 'AccountRemoveRequest', 'AccountRegisterRequest', 'AccountUnregisterRequest',
-           'SessionCreateRequest', 'SessionAnswerRequest', 'SessionTrickleRequest', 'SessionTerminateRequest',
-           'AckResponse', 'ErrorResponse',
-           'ReadyEvent']
-
 import re
 
 from jsonmodels import models, fields, errors, validators
 from sipsimple.core import SIPURI, SIPCoreError
+
+__all__ = ('AccountAddRequest', 'AccountRemoveRequest', 'AccountRegisterRequest', 'AccountUnregisterRequest',
+           'SessionCreateRequest', 'SessionAnswerRequest', 'SessionTrickleRequest', 'SessionTerminateRequest',
+           'AckResponse', 'ErrorResponse',
+           'ReadyEvent')
 
 SIP_PREFIX_RE = re.compile('^sips?:')
 
@@ -197,4 +197,3 @@ class VideoRoomControlRequest(VideoRoomRequestBase):
 
 class VideoRoomTerminateRequest(VideoRoomRequestBase):
     sylkrtc = DefaultValueField('videoroom-terminate')
-

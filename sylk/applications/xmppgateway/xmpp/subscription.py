@@ -8,7 +8,8 @@ from zope.interface import implements
 
 from sylk.applications.xmppgateway.xmpp.stanzas import SubscriptionPresence, ProbePresence, AvailabilityPresence
 
-__all__ = ['XMPPSubscription', 'XMPPIncomingSubscription', 'XMPPSubscriptionManager']
+
+__all__ = 'XMPPSubscription', 'XMPPIncomingSubscription', 'XMPPSubscriptionManager'
 
 
 class XMPPSubscription(object):

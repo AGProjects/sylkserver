@@ -1,6 +1,4 @@
 
-__all__ = ['ConferenceNode']
-
 from application import log
 from application.notification import NotificationCenter, NotificationData
 from application.python.types import Singleton
@@ -16,8 +14,12 @@ import sylk
 from sylk.configuration import SIPConfig, ThorNodeConfig
 
 
+__all__ = 'ConferenceNode',
+
+
 class ConferenceNode(EventServiceClient):
     __metaclass__ = Singleton
+
     topics = ["Thor.Members"]
 
     def __init__(self):

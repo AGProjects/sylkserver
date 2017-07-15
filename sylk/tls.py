@@ -1,12 +1,10 @@
 
-"""TLS helper classes"""
-
-__all__ = ['Certificate', 'PrivateKey']
-
-from gnutls.crypto import X509Certificate, X509PrivateKey
-
 from application import log
 from application.process import process
+from gnutls.crypto import X509Certificate, X509PrivateKey
+
+
+__all__ = 'Certificate', 'PrivateKey'
 
 
 def file_content(file):
@@ -22,6 +20,7 @@ def file_content(file):
     finally:
         f.close()
 
+
 class Certificate(object):
     """Configuration data type. Used to create a gnutls.crypto.X509Certificate object
        from a file given in the configuration file."""
@@ -35,6 +34,7 @@ class Certificate(object):
         else:
             raise TypeError('value should be a string')
 
+
 class PrivateKey(object):
     """Configuration data type. Used to create a gnutls.crypto.X509PrivateKey object
        from a file given in the configuration file."""
@@ -47,4 +47,3 @@ class PrivateKey(object):
                 return None
         else:
             raise TypeError('value should be a string')
-

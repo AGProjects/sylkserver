@@ -17,7 +17,9 @@ from zope.interface import implements
 from sylk.accounts import DefaultAccount
 
 
-class RestartSelect(Exception): pass
+class RestartSelect(Exception):
+    pass
+
 
 class BonjourService(object):
     implements(IObserver)

@@ -1,9 +1,5 @@
 
-"""
-SIP SIMPLE SDK settings extensions.
-"""
-
-__all__ = ['AccountExtension', 'BonjourAccountExtension', 'SylkServerSettingsExtension']
+"""SIP SIMPLE SDK settings extensions"""
 
 import os
 
@@ -18,6 +14,9 @@ from sipsimple.configuration.settings import AudioSettings, EchoCancellerSetting
 from sylk import __version__ as server_version
 from sylk.configuration import ServerConfig, SIPConfig, MSRPConfig, RTPConfig
 from sylk.configuration.datatypes import AudioCodecs, Path, Port, SIPProxyAddress
+
+
+__all__ = 'AccountExtension', 'BonjourAccountExtension', 'SylkServerSettingsExtension'
 
 
 # Account settings extensions
@@ -48,6 +47,7 @@ elif RTPConfig.srtp_encryption == 'sdes':
 else:
     srtp_key_negotiation = RTPConfig.srtp_encryption
 
+
 class AccountSRTPEncryptionSettingsExtension(AccountSRTPEncryptionSettings):
     enabled = Setting(type=bool, default=RTPConfig.srtp_encryption!='disabled')
     key_negotiation = Setting(type=SRTPKeyNegotiation, default=srtp_key_negotiation)
@@ -66,6 +66,7 @@ class AccountSIPSettingsExtension(AccountSIPSettings):
 account_cert = ServerConfig.certificate
 if account_cert is not None and not os.path.isfile(account_cert):
     account_cert = None
+
 
 class AccountTLSSettingsExtension(AccountTLSSettings):
     certificate = Setting(type=Path, default=account_cert, nillable=True)
@@ -166,5 +167,4 @@ class SylkServerSettingsExtension(SettingsObjectExtension):
     rtp = RTPSettingsExtension
     sip = SIPSettingsExtension
     tls = TLSSettingsExtension
-
 

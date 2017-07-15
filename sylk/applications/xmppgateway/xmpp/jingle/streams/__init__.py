@@ -9,7 +9,6 @@ For actual usage see rtp.py and msrp.py that implement media streams
 based on their respective RTP and MSRP protocols.
 """
 
-
 from operator import attrgetter
 from application.python.types import Singleton
 from zope.interface import Interface, Attribute
@@ -67,15 +66,19 @@ class IMediaStream(Interface):
     def reset(self, stream_index):
         pass
 
+
 # The MediaStream registry
 #
 class StreamDescriptor(object):
     def __init__(self, type):
         self.type = type
+
     def __get__(self, obj, objtype):
         return self if obj is None else obj.get(self.type)
+
     def __set__(self, obj, value):
         raise AttributeError('cannot set attribute')
+
     def __delete__(self, obj):
         raise AttributeError('cannot delete attribute')
 
@@ -116,5 +119,5 @@ class MediaStreamRegistrar(type):
 from sylk.applications.xmppgateway.xmpp.jingle.streams import rtp
 from sylk.applications.xmppgateway.xmpp.jingle.streams.rtp import *
 
-__all__ = ['StreamError', 'InvalidStreamError', 'UnknownStreamError', 'IMediaStream', 'MediaStreamRegistry', 'MediaStreamRegistrar'] + rtp.__all__
+__all__ = ('StreamError', 'InvalidStreamError', 'UnknownStreamError', 'IMediaStream', 'MediaStreamRegistry', 'MediaStreamRegistrar') + rtp.__all__
 
