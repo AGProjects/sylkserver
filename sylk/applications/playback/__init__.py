@@ -103,11 +103,11 @@ class PlaybackHandler(object):
             return
         player = WavePlayer(audio_stream.mixer, config.file)
         audio_stream.bridge.add(player)
-        log.info(u"Playing file %s for session %s" % (config.file, self.session.call_id))
+        log.info(u'Playing file %s for session %s' % (config.file, self.session.call_id))
         try:
             player.play().wait()
         except (ValueError, WavePlayerError), e:
-            log.warning(u"Error playing file %s: %s" % (config.file, e))
+            log.warning(u'Error playing file %s: %s' % (config.file, e))
         except proc.ProcExit:
             pass
         finally:

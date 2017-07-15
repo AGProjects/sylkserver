@@ -63,7 +63,7 @@ class SylkServer(SIPApplication):
         try:
             super(SylkServer, self).start(MemoryStorage())
         except Exception, e:
-            log.fatal("Error starting SIP Application: %s" % e)
+            log.fatal('Error starting SIP Application: %s' % e)
             sys.exit(1)
 
     def _initialize_core(self):

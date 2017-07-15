@@ -866,7 +866,7 @@ class WelcomeHandler(object):
         try:
             player.play().wait()
         except WavePlayerError, e:
-            log.warning(u"Error playing file %s: %s" % (file, e))
+            log.warning(u'Error playing file %s: %s' % (file, e))
 
     def audio_welcome(self, stream):
         player = WavePlayer(stream.mixer, '', pause_time=1, initial_delay=1, volume=50)

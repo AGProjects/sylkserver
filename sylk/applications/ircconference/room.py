@@ -493,7 +493,7 @@ class WelcomeHandler(object):
         try:
             player.play().wait()
         except WavePlayerError, e:
-            log.warning(u"Error playing file %s: %s" % (file, e))
+            log.warning(u'Error playing file %s: %s' % (file, e))
 
     def play_audio_welcome(self, welcome_prompt):
         try:
