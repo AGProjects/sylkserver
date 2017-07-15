@@ -133,7 +133,7 @@ class JingleSession(object):
         remote_sdp = jingle_to_sdp(stanza.jingle)
         try:
             self._sdp_negotiator = SDPNegotiator.create_with_remote_offer(remote_sdp)
-        except SIPCoreError, e:
+        except SIPCoreError as e:
             self._fail(originator='local', reason='general-error', description=str(e))
             return
 
@@ -340,7 +340,7 @@ class JingleSession(object):
             try:
                 self._sdp_negotiator.set_local_answer(local_sdp)
                 self._sdp_negotiator.negotiate()
-            except SIPCoreError, e:
+            except SIPCoreError as e:
                 self._fail(originator='local', reason='incompatible-parameters', description=str(e))
                 return
 
@@ -388,7 +388,7 @@ class JingleSession(object):
                     notification = operation.channel.wait()
                     if notification.name == 'MediaStreamDidStart':
                         wait_count -= 1
-        except (MediaStreamDidNotInitializeError, MediaStreamDidFailError, api.TimeoutError, IqTimeoutError, StanzaError), e:
+        except (MediaStreamDidNotInitializeError, MediaStreamDidFailError, api.TimeoutError, IqTimeoutError, StanzaError) as e:
             for stream in self.proposed_streams:
                 notification_center.remove_observer(self, sender=stream)
                 stream.deactivate()
@@ -454,7 +454,7 @@ class JingleSession(object):
             stanza = self._protocol.sessionInitiate(self._local_jid, self._remote_jid, payload)
             d = self._send_stanza(stanza)
             block_on(d)
-        except (MediaStreamDidNotInitializeError, MediaStreamDidFailError, IqTimeoutError, StanzaError, SIPCoreError), e:
+        except (MediaStreamDidNotInitializeError, MediaStreamDidFailError, IqTimeoutError, StanzaError, SIPCoreError) as e:
             for stream in self.proposed_streams:
                 notification_center.remove_observer(self, sender=stream)
                 stream.deactivate()
@@ -662,7 +662,7 @@ class JingleSession(object):
                         notification = operation.channel.wait()
                         if notification.name == 'MediaStreamDidStart':
                             wait_count -= 1
-            except (MediaStreamDidFailError, api.TimeoutError), e:
+            except (MediaStreamDidFailError, api.TimeoutError) as e:
                 for stream in self.proposed_streams:
                     notification.center.remove_observer(self, sender=stream)
                     stream.deactivate()
@@ -712,7 +712,7 @@ class JingleSession(object):
             try:
                 self._sdp_negotiator.set_remote_answer(remote_sdp)
                 self._sdp_negotiator.negotiate()
-            except SIPCoreError, e:
+            except SIPCoreError as e:
                 for stream in self.proposed_streams:
                     notification.center.remove_observer(self, sender=stream)
                     stream.deactivate()
@@ -752,7 +752,7 @@ class JingleSession(object):
                         notification = operation.channel.wait()
                         if notification.name == 'MediaStreamDidStart':
                             wait_count -= 1
-            except (MediaStreamDidFailError, api.TimeoutError), e:
+            except (MediaStreamDidFailError, api.TimeoutError) as e:
                 for stream in self.proposed_streams:
                     notification.center.remove_observer(self, sender=stream)
                     stream.deactivate()

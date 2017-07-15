@@ -242,7 +242,7 @@ class AudioStream(object):
                 self._transport.stop()
                 try:
                     self._transport = AudioTransport(self.mixer, self._rtp_transport, remote_sdp, stream_index, codecs=list(self.session.account.rtp.audio_codec_list or settings.rtp.audio_codec_list))
-                except SIPCoreError, e:
+                except SIPCoreError as e:
                     self.state = 'ENDED'
                     self._failure_reason = e.args[0]
                     self.notification_center.post_notification('MediaStreamDidFail', sender=self, data=NotificationData(reason=self._failure_reason))
@@ -313,7 +313,7 @@ class AudioStream(object):
                 raise RuntimeError('AudioStream.send_dtmf() cannot be used in %s state' % self.state)
             try:
                 self._transport.send_dtmf(digit)
-            except PJSIPError, e:
+            except PJSIPError as e:
                 if not e.args[0].endswith('(PJ_ETOOMANY)'):
                     raise
 
@@ -349,7 +349,7 @@ class AudioStream(object):
                         del self._incoming_stream_index
                 else:
                     audio_transport = AudioTransport(self.mixer, rtp_transport, codecs=list(self.session.account.rtp.audio_codec_list or settings.rtp.audio_codec_list))
-            except SIPCoreError, e:
+            except SIPCoreError as e:
                 self.state = "ENDED"
                 self.notification_center.post_notification('MediaStreamDidNotInitialize', sender=self, data=NotificationData(reason=e.args[0]))
                 return
@@ -410,7 +410,7 @@ class AudioStream(object):
                 rtp_transport = RTPTransport(ice_stun_address=stun_address, ice_stun_port=stun_port, **self._rtp_args)
                 self.notification_center.add_observer(self, sender=rtp_transport)
                 rtp_transport.set_INIT()
-            except SIPCoreError, e:
+            except SIPCoreError as e:
                 if rtp_transport is not None:
                     self.notification_center.remove_observer(self, sender=rtp_transport)
                 self._try_next_rtp_transport(e.args[0])

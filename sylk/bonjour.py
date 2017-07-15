@@ -166,7 +166,7 @@ class BonjourService(object):
                                                   port=contact_uri.port,
                                                   callBack=self._register_cb,
                                                   txtRecord=_bonjour.TXTRecord(items=txtdata))
-            except (_bonjour.BonjourError, KeyError), e:
+            except (_bonjour.BonjourError, KeyError) as e:
                 notification_center.post_notification('BonjourServiceRegistrationDidFail', sender=self,
                                                       data=NotificationData(reason=str(e), transport=transport))
             else:
@@ -206,7 +206,7 @@ class BonjourService(object):
                     txtdata['state'] = state.state
                     txtdata['note'] = state.note.encode('utf-8')
                 _bonjour.DNSServiceUpdateRecord(file.file, None, flags=0, rdata=_bonjour.TXTRecord(items=txtdata), ttl=0)
-            except (_bonjour.BonjourError, KeyError), e:
+            except (_bonjour.BonjourError, KeyError) as e:
                 notification_center.post_notification('BonjourServiceRegistrationUpdateDidFail', sender=self,
                                                       data=NotificationData(reason=str(e), transport=file.transport))
                 update_failure = True

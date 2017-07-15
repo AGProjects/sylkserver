@@ -86,13 +86,13 @@ class S2XPresenceHandler(object):
             content_type = pidf.PIDFDocument.content_type if pidf_doc is not None else None
             try:
                 subscription.accept(content_type, pidf_doc)
-            except SIPCoreError, e:
+            except SIPCoreError as e:
                 log.warning('Error accepting SIP subscription: %s' % e)
                 subscription.end()
         else:
             try:
                 subscription.accept_pending()
-            except SIPCoreError, e:
+            except SIPCoreError as e:
                 log.warning('Error accepting SIP subscription: %s' % e)
                 subscription.end()
         if XMPPGatewayConfig.log_presence:
@@ -197,7 +197,7 @@ class S2XPresenceHandler(object):
         for subscription in self._sip_subscriptions:
             try:
                 subscription.push_content(pidf.PIDFDocument.content_type, pidf_doc)
-            except SIPCoreError, e:
+            except SIPCoreError as e:
                 if XMPPGatewayConfig.log_presence:
                     log.info('Failed to send SIP NOTIFY from %s to %s for presence flow 0x%x: %s' % (format_uri(self.xmpp_identity.uri, 'xmpp'), format_uri(self.sip_identity.uri, 'sip'), id(self), e))
         if not stanza.available:
@@ -312,7 +312,7 @@ class X2SPresenceHandler(object):
     def _process_pidf(self, body):
         try:
             pidf_doc = pidf.PIDF.parse(body)
-        except ParserError, e:
+        except ParserError as e:
             log.warn('Error parsing PIDF document: %s' % e)
             return
         # Build XML stanzas out of PIDF documents
@@ -367,7 +367,7 @@ class X2SPresenceHandler(object):
             lookup = DNSLookup()
             try:
                 routes = lookup.lookup_sip_proxy(uri, settings.sip.transport_list).wait()
-            except DNSLookupError, e:
+            except DNSLookupError as e:
                 timeout = random.uniform(15, 30)
                 raise SubscriptionError(error='DNS lookup failed: %s' % e, timeout=timeout)
 
@@ -397,7 +397,7 @@ class X2SPresenceHandler(object):
                             notification = self._data_channel.wait()
                             if notification.sender is subscription and notification.name == 'SIPSubscriptionDidStart':
                                 break
-                    except SIPSubscriptionDidFail, e:
+                    except SIPSubscriptionDidFail as e:
                         notification_center.remove_observer(self, sender=subscription)
                         self._sip_subscription = None
                         if e.data.code == 407:
@@ -449,13 +449,13 @@ class X2SPresenceHandler(object):
                                 self._process_pidf(notification.data.body)
                     elif notification.name == 'SIPSubscriptionDidEnd':
                         break
-            except SIPSubscriptionDidFail, e:
+            except SIPSubscriptionDidFail as e:
                 if e.data.code == 0 and e.data.reason == 'rejected':
                     self._xmpp_subscription.reject()
                 else:
                     self._command_channel.send(Command('subscribe'))
             notification_center.remove_observer(self, sender=self._sip_subscription)
-        except InterruptSubscription, e:
+        except InterruptSubscription as e:
             if not self.subscribed:
                 command.signal(e)
             if self._sip_subscription is not None:
@@ -464,7 +464,7 @@ class X2SPresenceHandler(object):
                     self._sip_subscription.end(timeout=2)
                 except SIPCoreError:
                     pass
-        except TerminateSubscription, e:
+        except TerminateSubscription as e:
             if not self.subscribed:
                 command.signal(e)
             if self._sip_subscription is not None:
@@ -482,7 +482,7 @@ class X2SPresenceHandler(object):
                         pass
                 finally:
                     notification_center.remove_observer(self, sender=self._sip_subscription)
-        except SubscriptionError, e:
+        except SubscriptionError as e:
             if not e.fatal:
                 self._sip_subscription_timer = reactor.callLater(e.timeout, self._command_channel.send, Command('subscribe', command.event, refresh_interval=e.refresh_interval))
         finally:

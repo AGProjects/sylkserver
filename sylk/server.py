@@ -62,7 +62,7 @@ class SylkServer(SIPApplication):
 
         try:
             super(SylkServer, self).start(MemoryStorage())
-        except Exception, e:
+        except Exception as e:
             log.fatal('Error starting SIP Application: %s' % e)
             sys.exit(1)
 

@@ -59,7 +59,7 @@ def MSRPStreamBase_initialize(self, session, direction):
                 self.local_role = 'actpass' if outgoing else 'passive'
         full_local_path = self.msrp_connector.prepare(local_uri=URI(host=SIPConfig.local_ip.normalized, port=0, use_tls=self.transport=='tls', credentials=self.session.account.tls_credentials))
         self.local_media = self._create_local_media(full_local_path)
-    except Exception, e:
+    except Exception as e:
         notification_center.post_notification('MediaStreamDidNotInitialize', self, NotificationData(reason=str(e)))
     else:
         self._initialized = True
@@ -279,7 +279,7 @@ class ChatStream(_MSRPStreamBase):
                     message.recipients = message.recipients or [self.remote_identity]
                     message.timestamp = message.timestamp or ISOTimestamp.now()
                     payload = CPIMPayload(charset=charset, **{name: getattr(message, name) for name in Message.__slots__})
-                except ChatStreamError, e:
+                except ChatStreamError as e:
                     if message.notify_progress:
                         data = NotificationData(message_id=message.id, message=None, code=0, reason=e.args[0])
                         notification_center.post_notification('ChatStreamDidNotDeliverMessage', sender=self, data=data)
@@ -297,7 +297,7 @@ class ChatStream(_MSRPStreamBase):
 
                 try:
                     self.msrp_session.send_chunk(chunk, response_cb=partial(self._on_transaction_response, message_id))
-                except Exception, e:
+                except Exception as e:
                     if notify_progress:
                         data = NotificationData(message_id=message_id, message=None, code=0, reason=str(e))
                         notification_center.post_notification('ChatStreamDidNotDeliverMessage', sender=self, data=data)
@@ -370,7 +370,7 @@ class ChatStream(_MSRPStreamBase):
         chunk.add_header(UseNicknameHeader(nickname or u''))
         try:
             self.msrp_session.send_chunk(chunk, response_cb=partial(self._on_nickname_transaction_response, message_id))
-        except Exception, e:
+        except Exception as e:
             self._failure_reason = str(e)
             NotificationCenter().post_notification('MediaStreamDidFail', sender=self, data=NotificationData(context='sending', reason=self._failure_reason))
 

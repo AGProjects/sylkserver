@@ -106,7 +106,7 @@ class PlaybackHandler(object):
         log.info(u'Playing file %s for session %s' % (config.file, self.session.call_id))
         try:
             player.play().wait()
-        except (ValueError, WavePlayerError), e:
+        except (ValueError, WavePlayerError) as e:
             log.warning(u'Error playing file %s: %s' % (config.file, e))
         except proc.ProcExit:
             pass

@@ -75,7 +75,7 @@ class ScreenImage(object):
         try:
             with open(tmp_filename, 'wb') as file:
                 file.write(image)
-        except EnvironmentError, e:
+        except EnvironmentError as e:
             log.info('Room %s - cannot write screen sharing image: %s: %s' % (self.room_uri, self.filename, e))
         else:
             try:
@@ -472,7 +472,7 @@ class Room(object):
         self.subscriptions.append(subscribe_request)
         try:
             subscribe_request.accept(conference.ConferenceDocument.content_type, self.conference_info)
-        except SIPCoreError, e:
+        except SIPCoreError as e:
             log.warning('Error accepting SIP subscription: %s' % e)
             subscribe_request.end()
 
@@ -865,7 +865,7 @@ class WelcomeHandler(object):
         player.pause_time = delay
         try:
             player.play().wait()
-        except WavePlayerError, e:
+        except WavePlayerError as e:
             log.warning(u'Error playing file %s: %s' % (file, e))
 
     def audio_welcome(self, stream):

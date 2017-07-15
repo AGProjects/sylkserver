@@ -306,7 +306,7 @@ class IRCRoom(object):
         self.subscriptions.append(subscribe_request)
         try:
             subscribe_request.accept()
-        except SIPCoreError, e:
+        except SIPCoreError as e:
             log.warning('Error accepting SIP subscription: %s' % e)
             subscribe_request.end()
         self.get_conference_info()
@@ -492,7 +492,7 @@ class WelcomeHandler(object):
         player.pause_time = delay
         try:
             player.play().wait()
-        except WavePlayerError, e:
+        except WavePlayerError as e:
             log.warning(u'Error playing file %s: %s' % (file, e))
 
     def play_audio_welcome(self, welcome_prompt):

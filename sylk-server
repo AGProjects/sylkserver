@@ -53,7 +53,7 @@ def main():
         try:
             process.runtime_directory = runtime_directory
             process.daemonize(pid_file)
-        except ProcessError, e:
+        except ProcessError as e:
             log.fatal('Cannot start {name}: {exception!s}'.format(name=fullname, exception=e))
             sys.exit(1)
         log.start_syslog(name)
@@ -96,7 +96,7 @@ def main():
 
     try:
         server.start(options)
-    except Exception, e:
+    except Exception as e:
         log.fatal('Failed to run {name}: {exception!s}'.format(name=fullname, exception=e))
         log.exception()
         sys.exit(1)

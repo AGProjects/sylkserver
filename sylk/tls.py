@@ -29,7 +29,7 @@ class Certificate(object):
         if isinstance(value, basestring):
             try:
                 return X509Certificate(file_content(value))
-            except Exception, e:
+            except Exception as e:
                 log.warn("Certificate file '%s' could not be loaded: %s" % (value, str(e)))
                 return None
         else:
@@ -42,7 +42,7 @@ class PrivateKey(object):
         if isinstance(value, basestring):
             try:
                 return X509PrivateKey(file_content(value))
-            except Exception, e:
+            except Exception as e:
                 log.warn("Private key file '%s' could not be loaded: %s" % (value, str(e)))
                 return None
         else:

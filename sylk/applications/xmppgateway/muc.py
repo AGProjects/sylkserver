@@ -85,7 +85,7 @@ class X2SMucInvitationHandler(object):
             lookup = DNSLookup()
             try:
                 routes = lookup.lookup_sip_proxy(uri, settings.sip.transport_list).wait()
-            except DNSLookupError, e:
+            except DNSLookupError as e:
                 raise ReferralError(error='DNS lookup failed: %s' % e)
 
             timeout = time() + 30
@@ -117,7 +117,7 @@ class X2SMucInvitationHandler(object):
                             notification = self._channel.wait()
                             if notification.name == 'SIPReferralDidStart':
                                 break
-                    except SIPReferralDidFail, e:
+                    except SIPReferralDidFail as e:
                         notification_center.remove_observer(self, sender=referral)
                         self._referral = None
                         if e.data.code in (403, 405):
@@ -137,14 +137,14 @@ class X2SMucInvitationHandler(object):
                     notification = self._channel.wait()
                     if notification.name == 'SIPReferralDidEnd':
                         break
-            except SIPReferralDidFail, e:
+            except SIPReferralDidFail as e:
                 notification_center.remove_observer(self, sender=self._referral)
                 raise ReferralError(error=e.data.reason, code=e.data.code)
             else:
                 notification_center.remove_observer(self, sender=self._referral)
             finally:
                 self.active = False
-        except ReferralError, e:
+        except ReferralError as e:
             self._failure = MucInvitationFailure(e.code, e.error)
         finally:
             notification_center.remove_observer(self, name='NetworkConditionsDidChange')

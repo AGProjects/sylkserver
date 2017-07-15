@@ -132,7 +132,7 @@ class ConferenceApplication(SylkApplication):
                     return
                 try:
                     transfer_stream.file_selector = file.file_selector
-                except EnvironmentError, e:
+                except EnvironmentError as e:
                     log.info(u'Session rejected: error opening requested file: %s' % e)
                     session.reject(404)
                     return
