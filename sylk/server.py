@@ -43,7 +43,7 @@ class SylkServer(SIPApplication):
         self.options = Null
 
         self.stopping_event = Event()
-        self.stop_event = Event()
+        self.stopped_event = Event()
         self.failed = False
 
     def start(self, options):
@@ -235,7 +235,7 @@ class SylkServer(SIPApplication):
         if not self.stopping_event.is_set():
             log.warning('SIP application ended without shutting down all subsystems')
             self.stopping_event.set()
-        self.stop_event.set()
+        self.stopped_event.set()
 
     def _NH_SIPEngineDidFail(self, notification):
         log.error('SIP engine failed')

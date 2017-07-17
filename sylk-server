@@ -100,8 +100,8 @@ def main():
     else:
         while not server.stopping_event.wait(9999):
             pass
-        server.stop_event.wait(5)
-        if server.stop_event.is_set():
+        server.stopped_event.wait(5)
+        if server.stopped_event.is_set():
             log.info('{name} stopped'.format(name=fullname))
         else:
             log.info('Forcefully exiting {name}...'.format(name=fullname))
