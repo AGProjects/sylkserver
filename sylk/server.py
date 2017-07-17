@@ -61,6 +61,14 @@ class SylkServer(SIPApplication):
 
         super(SylkServer, self).start(MemoryStorage())
 
+    def run(self, options):
+        """Start the server and wait for it to finish before returning control to the caller"""
+
+        self.start(options)
+        while not self.stopping_event.wait(9999):
+            pass
+        self.stopped_event.wait(5)
+
     def _initialize_core(self):
         # SylkServer needs to listen for extra events and request types
 
