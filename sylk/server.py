@@ -59,11 +59,7 @@ class SylkServer(SIPApplication):
         BonjourAccount.register_extension(BonjourAccountExtension)
         SIPSimpleSettings.register_extension(SylkServerSettingsExtension)
 
-        try:
-            super(SylkServer, self).start(MemoryStorage())
-        except Exception as e:
-            log.fatal('Failed to start SIP Application: %s' % e)
-            sys.exit(1)
+        super(SylkServer, self).start(MemoryStorage())
 
     def _initialize_core(self):
         # SylkServer needs to listen for extra events and request types
