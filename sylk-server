@@ -5,7 +5,6 @@ import signal
 import sys
 
 from application import log
-from application.configuration import ConfigFile
 from application.process import process, ProcessError
 from optparse import OptionParser
 
@@ -56,11 +55,11 @@ def main():
             sys.exit(1)
         log.start_syslog(name)
 
-    from sylk.server import SylkServer
+    from sylk.server import SylkServer, ServerConfig
 
     log.info('Starting {name} {module.__version__}, using SIP SIMPLE SDK {sipsimple.__version__}'.format(name=fullname, module=sylk, sipsimple=sipsimple))
 
-    config_file = ConfigFile(sylk.configuration_filename)
+    config_file = ServerConfig.__cfgtype__(ServerConfig.__cfgfile__)
     if config_file.files:
         log.info('Reading configuration from {}'.format(', '.join(config_file.files)))
     else:
