@@ -94,7 +94,7 @@ def main():
     try:
         server.start(options)
     except Exception as e:
-        log.fatal('Failed to run {name}: {exception!s}'.format(name=fullname, exception=e))
+        log.fatal('Failed to start {name}: {exception!s}'.format(name=fullname, exception=e))
         log.exception()
         sys.exit(1)
     else:
