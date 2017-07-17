@@ -33,7 +33,8 @@ def main():
                       help='enable Bonjour services')
     parser.add_option('--debug-memory', action='store_true', dest='debug_memory', default=False,
                       help='enable memory debugging (only works with --no-fork)')
-    (options, args) = parser.parse_args()
+
+    options, args = parser.parse_args()
 
     path, configuration_filename = os.path.split(options.config_file)
     if path:
