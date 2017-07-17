@@ -62,7 +62,7 @@ class SylkServer(SIPApplication):
         try:
             super(SylkServer, self).start(MemoryStorage())
         except Exception as e:
-            log.fatal('Error starting SIP Application: %s' % e)
+            log.fatal('Failed to start SIP Application: %s' % e)
             sys.exit(1)
 
     def _initialize_core(self):
@@ -251,5 +251,5 @@ class SylkServer(SIPApplication):
         super(SylkServer, self)._NH_SIPEngineDidFail(notification)
 
     def _NH_ThorNetworkGotFatalError(self, notification):
-        log.error("All Thor Event Servers have unrecoverable errors.")
+        log.error('All Thor Event Servers have unrecoverable errors')
 
