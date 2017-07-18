@@ -16,7 +16,7 @@ INSTALL_DIR="/usr/bin"
 RUNTIME_DIR="/var/run/sylkserver"
 DEFAULTS="/etc/default/sylkserver"
 SERVER="$INSTALL_DIR/sylk-server"
-PID="$RUNTIME_DIR/server.pid"
+PID="$RUNTIME_DIR/sylk-server.pid"
 OPTIONS=""
 
 NAME="sylk-server"

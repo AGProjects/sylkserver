@@ -4,14 +4,13 @@ from application.configuration.datatypes import NetworkRangeList, StringList
 from application.system import host
 from sipsimple.configuration.datatypes import NonNegativeInteger, SampleRate
 
-from sylk import configuration_filename
 from sylk.configuration.datatypes import AudioCodecs, IPAddress, Path, Port, PortRange, SIPProxyAddress, SRTPEncryption, LogLevel
 from sylk.resources import Resources, VarResources
 from sylk.tls import Certificate, PrivateKey
 
 
 class ServerConfig(ConfigSection):
-    __cfgfile__ = configuration_filename
+    __cfgfile__ = 'config.ini'
     __section__ = 'Server'
 
     ca_file = ConfigSetting(type=Path, value=Path(Resources.get('tls/ca.crt')))
@@ -33,7 +32,7 @@ class ServerConfig(ConfigSection):
 
 
 class SIPConfig(ConfigSection):
-    __cfgfile__ = configuration_filename
+    __cfgfile__ = 'config.ini'
     __section__ = 'SIP'
 
     local_ip = ConfigSetting(type=IPAddress, value=IPAddress(host.default_ip))
@@ -47,14 +46,14 @@ class SIPConfig(ConfigSection):
 
 
 class MSRPConfig(ConfigSection):
-    __cfgfile__ = configuration_filename
+    __cfgfile__ = 'config.ini'
     __section__ = 'MSRP'
 
     use_tls = True
 
 
 class RTPConfig(ConfigSection):
-    __cfgfile__ = configuration_filename
+    __cfgfile__ = 'config.ini'
     __section__ = 'RTP'
 
     audio_codecs = ConfigSetting(type=AudioCodecs, value=['opus', 'G722', 'speex', 'PCMA', 'PCMU'])
@@ -65,7 +64,7 @@ class RTPConfig(ConfigSection):
 
 
 class WebServerConfig(ConfigSection):
-    __cfgfile__ = configuration_filename
+    __cfgfile__ = 'config.ini'
     __section__ = 'WebServer'
 
     local_ip = ConfigSetting(type=IPAddress, value=IPAddress(host.default_ip))
@@ -76,7 +75,7 @@ class WebServerConfig(ConfigSection):
 
 
 class ThorNodeConfig(ConfigSection):
-    __cfgfile__ = configuration_filename
+    __cfgfile__ = 'config.ini'
     __section__ = 'ThorNetwork'
 
     enabled = False
@@ -85,5 +84,3 @@ class ThorNodeConfig(ConfigSection):
     certificate = ConfigSetting(type=Certificate, value=None)
     private_key = ConfigSetting(type=PrivateKey, value=None)
     ca = ConfigSetting(type=Certificate, value=None)
-
-
