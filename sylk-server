@@ -12,7 +12,23 @@ import sipsimple
 import sylk
 
 
-def main():
+# noinspection PyUnusedLocal
+def stop_server(signum, frame):
+    sylk_server = SylkServer()
+    sylk_server.stop()
+
+
+# noinspection PyUnusedLocal
+def toggle_debugging(signum, frame):
+    if log.level.current != log.level.DEBUG:
+        log.level.current = log.level.DEBUG
+        log.info('Switched logging level to DEBUG')
+    else:
+        log.info('Switched logging level to {}'.format(ServerConfig.log_level))
+        log.level.current = ServerConfig.log_level
+
+
+if __name__ == '__main__':
     name = 'sylk-server'
     fullname = 'SylkServer'
     runtime_directory = '/var/run/sylkserver'
@@ -70,27 +86,11 @@ def main():
         from application.debug.memory import memory_dump
         atexit.register(memory_dump)
 
-    server = SylkServer()
-
-    def stop_server(*args):
-        if not server.stopping_event.is_set():
-            log.info('Stopping {name}...'.format(name=fullname))
-            server.stop()
-
     process.signals.add_handler(signal.SIGTERM, stop_server)
     process.signals.add_handler(signal.SIGINT, stop_server)
-
-    def toggle_debugging(*args):
-        from sylk.configuration import ServerConfig
-        if log.level.current != log.level.DEBUG:
-            log.level.current = log.level.DEBUG
-            log.info('Switched logging level to DEBUG')
-        else:
-            log.info('Switched logging level to {}'.format(ServerConfig.log_level))
-            log.level.current = ServerConfig.log_level
-
     process.signals.add_handler(signal.SIGUSR1, toggle_debugging)
 
+    server = SylkServer()
     try:
         server.run(options)
     except Exception as e:
@@ -107,6 +107,3 @@ def main():
         log.info('Forcefully exiting {name}...'.format(name=fullname))
         # noinspection PyProtectedMember
         os._exit(1)
-
-if __name__ == "__main__":
-    main()

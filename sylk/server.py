@@ -234,6 +234,7 @@ class SylkServer(SIPApplication):
                 pass
 
     def _NH_SIPApplicationWillEnd(self, notification):
+        log.info('Stopping SylkServer...')
         self.stopping_event.set()
 
     def _NH_SIPApplicationDidEnd(self, notification):
