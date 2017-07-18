@@ -92,23 +92,21 @@ def main():
     process.signals.add_handler(signal.SIGUSR1, toggle_debugging)
 
     try:
-        server.start(options)
+        server.run(options)
     except Exception as e:
         log.fatal('Failed to start {name}: {exception!s}'.format(name=fullname, exception=e))
         log.exception()
         sys.exit(1)
+
+    # the run() method returns after the server is stopped
+
+    if server.state == 'stopped':
+        log.info('{name} stopped'.format(name=fullname))
+        sys.exit(int(server.failed))
     else:
-        while not server.stopping_event.wait(9999):
-            pass
-        server.stopped_event.wait(5)
-        if server.stopped_event.is_set():
-            log.info('{name} stopped'.format(name=fullname))
-        else:
-            log.info('Forcefully exiting {name}...'.format(name=fullname))
-            os._exit(1)
-
-    sys.exit(int(server.failed))
-
+        log.info('Forcefully exiting {name}...'.format(name=fullname))
+        # noinspection PyProtectedMember
+        os._exit(1)
 
 if __name__ == "__main__":
     main()
