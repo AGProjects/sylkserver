@@ -226,7 +226,7 @@ class SylkServer(SIPApplication):
     def _NH_SIPApplicationDidStart(self, notification):
         settings = SIPSimpleSettings()
         local_ip = SIPConfig.local_ip
-        log.info('SylkServer started, listening on:')
+        log.info('SylkServer started; listening on:')
         for transport in settings.sip.transport_list:
             try:
                 log.info('  %s:%d (%s)' % (local_ip, getattr(self.engine, '%s_port' % transport), transport.upper()))
