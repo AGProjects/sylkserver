@@ -40,7 +40,7 @@ if __name__ == '__main__':
     parser.add_option('--config-dir', dest='config_directory', default=None,
                       help='the configuration directory', metavar='Path')
     parser.add_option('--runtime-dir', dest='runtime_directory', default=default_runtime_directory,
-                      help='the runtime directory (%r)' % default_runtime_directory, metavar='Path')
+                      help='the runtime directory (%s)' % default_runtime_directory, metavar='Path')
     parser.add_option('--enable-bonjour', action='store_true', dest='enable_bonjour', default=False,
                       help='enable Bonjour services')
     parser.add_option('--debug-memory', action='store_true', dest='debug_memory', default=False,
