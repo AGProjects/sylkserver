@@ -21,6 +21,7 @@ class DefaultValueField(fields.BaseField):
         if value != self.default_value:
             raise errors.ValidationError('%s does not match the expected value %s' % (value, self.default_value))
 
+    # noinspection PyMethodOverriding
     def get_default_value(self):
         return self.default_value
 
@@ -118,10 +119,8 @@ class SessionRequestBase(SylkRTCRequestBase):
 
 class SessionCreateRequest(SessionRequestBase):
     sylkrtc = DefaultValueField('session-create')
-    account = fields.StringField(required=True,
-                                 validators=[URIValidator])
-    uri = fields.StringField(required=True,
-                             validators=[URIValidator])
+    account = fields.StringField(required=True, validators=[URIValidator])
+    uri = fields.StringField(required=True, validators=[URIValidator])
     sdp = fields.StringField(required=True)
 
 
