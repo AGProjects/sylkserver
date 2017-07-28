@@ -26,24 +26,28 @@ class DefaultValueField(fields.BaseField):
         return self.default_value
 
 
-def URIValidator(value):
-    uri = SIP_PREFIX_RE.sub('', value)
-    try:
-        SIPURI.parse('sip:%s' % uri)
-    except SIPCoreError:
-        raise errors.ValidationError('invalid URI: %s' % value)
+class URIValidator(object):
+    @staticmethod
+    def validate(value):
+        uri = SIP_PREFIX_RE.sub('', value)
+        try:
+            SIPURI.parse('sip:%s' % uri)
+        except SIPCoreError:
+            raise errors.ValidationError('invalid URI: %s' % value)
 
 
-def URIListValidator(values):
-    for item in values:
-        URIValidator(item)
+class URIListValidator(object):
+    @staticmethod
+    def validate(values):
+        for item in values:
+            URIValidator.validate(item)
 
 
 class OptionsValidator(object):
     def __init__(self, options):
         self.options = options
 
-    def __call__(self, value):
+    def validate(self, value):
         if value not in self.options:
             raise errors.ValidationError('invalid option: %s' % value)
 
