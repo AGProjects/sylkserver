@@ -34,6 +34,8 @@ setup(
         'Programming Language :: Python'
     ],
 
+    requires=['jsonmodels'],
+
     packages=find_packages('sylk'),
     scripts=['sylk-server'],
     data_files=[('/etc/sylkserver', glob.glob('*.ini.sample')),
