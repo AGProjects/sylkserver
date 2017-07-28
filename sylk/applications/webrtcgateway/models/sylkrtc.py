@@ -1,6 +1,4 @@
 
-import re
-
 from jsonmodels import models, fields, errors, validators
 from sipsimple.core import SIPURI, SIPCoreError
 
@@ -8,8 +6,6 @@ __all__ = ('AccountAddRequest', 'AccountRemoveRequest', 'AccountRegisterRequest'
            'SessionCreateRequest', 'SessionAnswerRequest', 'SessionTrickleRequest', 'SessionTerminateRequest',
            'AckResponse', 'ErrorResponse',
            'ReadyEvent')
-
-SIP_PREFIX_RE = re.compile('^sips?:')
 
 
 class DefaultValueField(fields.BaseField):
@@ -29,9 +25,12 @@ class DefaultValueField(fields.BaseField):
 class URIValidator(object):
     @staticmethod
     def validate(value):
-        uri = SIP_PREFIX_RE.sub('', value)
+        if value.startswith(('sip:', 'sips:')):
+            uri = value
+        else:
+            uri = 'sip:' + value
         try:
-            SIPURI.parse('sip:%s' % uri)
+            SIPURI.parse(uri)
         except SIPCoreError:
             raise errors.ValidationError('invalid URI: %s' % value)
 
