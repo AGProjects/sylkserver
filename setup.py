@@ -1,39 +1,41 @@
 #!/usr/bin/python
 
-import glob
-import os
-import re
-
 from distutils.core import setup
 
+import glob
+import os
 
-def get_version():
-    return re.search(r"""__version__\s+=\s+(?P<quote>['"])(?P<version>.+?)(?P=quote)""", open('sylk/__init__.py').read()).group('version')
+import sylk
 
-def find_packages(toplevel):
-    return [directory.replace(os.path.sep, '.') for directory, subdirs, files in os.walk(toplevel) if '__init__.py' in files]
 
-def get_resource_files():
-    for root, dirs, files in os.walk('resources'):
-        yield (os.path.join('share/sylkserver', root[10:]), [os.path.join(root, f) for f in files])
+def find_packages(root):
+    return [directory.replace(os.path.sep, '.') for directory, sub_dirs, files in os.walk(root) if '__init__.py' in files]
 
-setup(name         = "sylkserver",
-      version      = get_version(),
-      author       = "AG Projects",
-      author_email = "support@ag-projects.com",
-      url          = "http://sylkserver.com",
-      description  = "SylkServer - An Extensible RTC Application Server",
-      classifiers  = [
-            "Development Status :: 5 - Production/Stable",
-            "Intended Audience :: Service Providers",
-            "License :: GNU General Public License 3",
-            "Operating System :: OS Independent",
-            "Programming Language :: Python"
-                     ],
-      packages     = find_packages('sylk'),
-      scripts      = ['sylk-server'],
-      data_files   = [('/var/lib/sylkserver', []),
-                      ('/etc/sylkserver', glob.glob('*.ini.sample')),
-                      ('/etc/sylkserver/tls', glob.glob('resources/tls/*.crt'))] + \
-                      list(get_resource_files())
+
+def list_resources(source_directory, destination_directory):
+    return [(directory.replace(source_directory, destination_directory), [os.path.join(directory, f) for f in files]) for directory, sub_dirs, files in os.walk(source_directory)]
+
+
+setup(
+    name='sylkserver',
+    version=sylk.__version__,
+
+    description='SylkServer - An Extensible RTC Application Server',
+    url='http://sylkserver.com/',
+
+    author='AG Projects',
+    author_email='support@ag-projects.com',
+
+    classifiers=[
+        'Development Status :: 5 - Production/Stable',
+        'Intended Audience :: Service Providers',
+        'License :: GNU General Public License 3',
+        'Operating System :: OS Independent',
+        'Programming Language :: Python'
+    ],
+
+    packages=find_packages('sylk'),
+    scripts=['sylk-server'],
+    data_files=[('/etc/sylkserver', glob.glob('*.ini.sample')),
+                ('/etc/sylkserver/tls', glob.glob('resources/tls/*.crt'))] + list_resources('resources', destination_directory='share/sylkserver')
 )
