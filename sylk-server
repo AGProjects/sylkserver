@@ -63,6 +63,7 @@ if __name__ == '__main__':
             sys.exit(1)
         log.start_syslog(name)
 
+    from sylk.resources import Resources
     from sylk.server import SylkServer, ServerConfig
 
     log.info('Starting {name} {sylk.__version__}, using SIP SIMPLE SDK {sipsimple.__version__}'.format(name=fullname, sylk=sylk, sipsimple=sipsimple))
@@ -72,6 +73,8 @@ if __name__ == '__main__':
         log.info('Reading configuration from {}'.format(', '.join(config_file.files)))
     else:
         log.info('Not reading any configuration files (using internal defaults)')
+
+    log.info('Using resources from {}'.format(Resources.directory))
 
     if not options.fork and options.debug_memory:
         import atexit
