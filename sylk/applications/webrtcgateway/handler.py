@@ -27,7 +27,7 @@ from sylk.applications.webrtcgateway.util import GreenEvent
 
 SIP_PREFIX_RE = re.compile('^sips?:')
 
-sylkrtc_models = {model.sylkrtc.default_value: model for model in vars(sylkrtc).values() if hasattr(model, 'sylkrtc') and issubclass(model, sylkrtc.SylkRTCRequestBase)}
+sylkrtc_models = {model.sylkrtc.value: model for model in vars(sylkrtc).values() if hasattr(model, 'sylkrtc') and issubclass(model, sylkrtc.SylkRTCRequestBase)}
 
 
 class AccountInfo(object):

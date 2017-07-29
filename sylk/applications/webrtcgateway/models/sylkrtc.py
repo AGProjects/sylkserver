@@ -8,18 +8,18 @@ __all__ = ('AccountAddRequest', 'AccountRemoveRequest', 'AccountRegisterRequest'
            'ReadyEvent')
 
 
-class DefaultValueField(fields.BaseField):
+class FixedValueField(fields.BaseField):
     def __init__(self, value):
-        self.default_value = value
-        super(DefaultValueField, self).__init__()
+        super(FixedValueField, self).__init__()
+        self.value = value
 
     def validate(self, value):
-        if value != self.default_value:
-            raise errors.ValidationError('%s does not match the expected value %s' % (value, self.default_value))
+        if value != self.value:
+            raise errors.ValidationError('%s does not match the expected value %s' % (value, self.value))
 
     # noinspection PyMethodOverriding
     def get_default_value(self):
-        return self.default_value
+        return self.value
 
 
 class URIValidator(object):
@@ -64,11 +64,11 @@ class SylkRTCResponseBase(models.Base):
 # Miscellaneous models
 
 class AckResponse(SylkRTCResponseBase):
-    sylkrtc = DefaultValueField('ack')
+    sylkrtc = FixedValueField('ack')
 
 
 class ErrorResponse(SylkRTCResponseBase):
-    sylkrtc = DefaultValueField('error')
+    sylkrtc = FixedValueField('error')
     error = fields.StringField(required=True)
 
 
@@ -79,8 +79,8 @@ class ICECandidate(models.Base):
 
 
 class ReadyEvent(models.Base):
-    sylkrtc = DefaultValueField('event')
-    event = DefaultValueField('ready')
+    sylkrtc = FixedValueField('event')
+    event = FixedValueField('ready')
 
 
 # Account models
@@ -90,26 +90,26 @@ class AccountRequestBase(SylkRTCRequestBase):
 
 
 class AccountAddRequest(AccountRequestBase):
-    sylkrtc = DefaultValueField('account-add')
+    sylkrtc = FixedValueField('account-add')
     password = fields.StringField(required=True, validators=[validators.Length(minimum_value=1, maximum_value=9999)])
     display_name = fields.StringField(required=False)
     user_agent = fields.StringField(required=False)
 
 
 class AccountRemoveRequest(AccountRequestBase):
-    sylkrtc = DefaultValueField('account-remove')
+    sylkrtc = FixedValueField('account-remove')
 
 
 class AccountRegisterRequest(AccountRequestBase):
-    sylkrtc = DefaultValueField('account-register')
+    sylkrtc = FixedValueField('account-register')
 
 
 class AccountUnregisterRequest(AccountRequestBase):
-    sylkrtc = DefaultValueField('account-unregister')
+    sylkrtc = FixedValueField('account-unregister')
 
 
 class AccountDeviceTokenRequest(AccountRequestBase):
-    sylkrtc = DefaultValueField('account-devicetoken')
+    sylkrtc = FixedValueField('account-devicetoken')
     old_token = fields.StringField(required=False)
     new_token = fields.StringField(required=False)
 
@@ -121,24 +121,24 @@ class SessionRequestBase(SylkRTCRequestBase):
 
 
 class SessionCreateRequest(SessionRequestBase):
-    sylkrtc = DefaultValueField('session-create')
+    sylkrtc = FixedValueField('session-create')
     account = fields.StringField(required=True, validators=[URIValidator])
     uri = fields.StringField(required=True, validators=[URIValidator])
     sdp = fields.StringField(required=True)
 
 
 class SessionAnswerRequest(SessionRequestBase):
-    sylkrtc = DefaultValueField('session-answer')
+    sylkrtc = FixedValueField('session-answer')
     sdp = fields.StringField(required=True)
 
 
 class SessionTrickleRequest(SessionRequestBase):
-    sylkrtc = DefaultValueField('session-trickle')
+    sylkrtc = FixedValueField('session-trickle')
     candidates = fields.ListField([ICECandidate])
 
 
 class SessionTerminateRequest(SessionRequestBase):
-    sylkrtc = DefaultValueField('session-terminate')
+    sylkrtc = FixedValueField('session-terminate')
 
 
 # VideoRoom models
@@ -148,54 +148,54 @@ class VideoRoomRequestBase(SylkRTCRequestBase):
 
 
 class VideoRoomJoinRequest(VideoRoomRequestBase):
-    sylkrtc = DefaultValueField('videoroom-join')
+    sylkrtc = FixedValueField('videoroom-join')
     account = fields.StringField(required=True, validators=[URIValidator])
     uri = fields.StringField(required=True, validators=[URIValidator])
     sdp = fields.StringField(required=True)
 
 
-class VideoRoomControlTrickleRequest(models.Base):
+class VideoRoomControlTrickleOptions(models.Base):
     # ID for the subscriber session, if specified, otherwise the publisher is considered
     session = fields.StringField(required=False)
     candidates = fields.ListField([ICECandidate])
 
 
-class VideoRoomControlUpdateRequest(models.Base):
+class VideoRoomControlUpdateOptions(models.Base):
     audio = fields.BoolField(required=False)
     video = fields.BoolField(required=False)
     bitrate = fields.IntField(required=False)
 
 
-class VideoRoomControlFeedAttachRequest(models.Base):
+class VideoRoomControlFeedAttachOptions(models.Base):
     session = fields.StringField(required=True)
     publisher = fields.StringField(required=True)
 
 
-class VideoRoomControlFeedAnswerRequest(models.Base):
+class VideoRoomControlFeedAnswerOptions(models.Base):
     session = fields.StringField(required=True)
     sdp = fields.StringField(required=True)
 
 
-class VideoRoomControlFeedDetachRequest(models.Base):
+class VideoRoomControlFeedDetachOptions(models.Base):
     session = fields.StringField(required=True)
 
 
-class VideoRoomControlInviteParticipantsRequest(models.Base):
+class VideoRoomControlInviteParticipantsOptions(models.Base):
     participants = fields.ListField([str, unicode], validators=[URIListValidator])
 
 
 class VideoRoomControlRequest(VideoRoomRequestBase):
-    sylkrtc = DefaultValueField('videoroom-ctl')
+    sylkrtc = FixedValueField('videoroom-ctl')
     option = fields.StringField(required=True, validators=[OptionsValidator(['trickle', 'update', 'feed-attach', 'feed-answer', 'feed-detach', 'invite-participants'])])
 
     # all other options should have optional fields below, and the application needs to do a little validation
-    trickle = fields.EmbeddedField(VideoRoomControlTrickleRequest, required=False)
-    update = fields.EmbeddedField(VideoRoomControlUpdateRequest, required=False)
-    feed_attach = fields.EmbeddedField(VideoRoomControlFeedAttachRequest, required=False)
-    feed_answer = fields.EmbeddedField(VideoRoomControlFeedAnswerRequest, required=False)
-    feed_detach = fields.EmbeddedField(VideoRoomControlFeedDetachRequest, required=False)
-    invite_participants = fields.EmbeddedField(VideoRoomControlInviteParticipantsRequest, required=False)
+    trickle = fields.EmbeddedField(VideoRoomControlTrickleOptions, required=False)
+    update = fields.EmbeddedField(VideoRoomControlUpdateOptions, required=False)
+    feed_attach = fields.EmbeddedField(VideoRoomControlFeedAttachOptions, required=False)
+    feed_answer = fields.EmbeddedField(VideoRoomControlFeedAnswerOptions, required=False)
+    feed_detach = fields.EmbeddedField(VideoRoomControlFeedDetachOptions, required=False)
+    invite_participants = fields.EmbeddedField(VideoRoomControlInviteParticipantsOptions, required=False)
 
 
 class VideoRoomTerminateRequest(VideoRoomRequestBase):
-    sylkrtc = DefaultValueField('videoroom-terminate')
+    sylkrtc = FixedValueField('videoroom-terminate')
