@@ -53,6 +53,7 @@ if __name__ == '__main__':
     process.system_config_directory = system_config_directory
 
     if options.fork:
+        sys.argv[0] = os.path.realpath(sys.argv[0])  # on fork the current directory changes to / resulting in the wrong resources directory if started with a relative path
         pid_file = '{}.pid'.format(name)
         try:
             process.runtime_directory = options.runtime_directory
