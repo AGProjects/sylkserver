@@ -8,6 +8,30 @@ __all__ = ('AccountAddRequest', 'AccountRemoveRequest', 'AccountRegisterRequest'
            'ReadyEvent')
 
 
+# Validators
+
+class URIValidator(object):
+    @staticmethod
+    def validate(value):
+        if value.startswith(('sip:', 'sips:')):
+            uri = value
+        else:
+            uri = 'sip:' + value
+        try:
+            SIPURI.parse(uri)
+        except SIPCoreError:
+            raise errors.ValidationError('invalid URI: %s' % value)
+
+
+class URIListValidator(object):
+    @staticmethod
+    def validate(values):
+        for item in values:
+            URIValidator.validate(item)
+
+
+# Custom fields
+
 class FixedValueField(fields.BaseField):
     def __init__(self, value):
         super(FixedValueField, self).__init__(required=True)
@@ -32,46 +56,7 @@ class LimitedChoiceField(fields.BaseField):
             raise errors.ValidationError('field value should be one of: {!s}'.format(', '.join(repr(item) for item in sorted(self.values))))
 
 
-class URIValidator(object):
-    @staticmethod
-    def validate(value):
-        if value.startswith(('sip:', 'sips:')):
-            uri = value
-        else:
-            uri = 'sip:' + value
-        try:
-            SIPURI.parse(uri)
-        except SIPCoreError:
-            raise errors.ValidationError('invalid URI: %s' % value)
-
-
-class URIListValidator(object):
-    @staticmethod
-    def validate(values):
-        for item in values:
-            URIValidator.validate(item)
-
-
-# Base models
-
-class SylkRTCRequestBase(models.Base):
-    transaction = fields.StringField(required=True)
-
-
-class SylkRTCResponseBase(models.Base):
-    transaction = fields.StringField(required=True)
-
-
 # Miscellaneous models
-
-class AckResponse(SylkRTCResponseBase):
-    sylkrtc = FixedValueField('ack')
-
-
-class ErrorResponse(SylkRTCResponseBase):
-    sylkrtc = FixedValueField('error')
-    error = fields.StringField(required=True)
-
 
 class ICECandidate(models.Base):
     candidate = fields.StringField(required=True)
@@ -84,11 +69,40 @@ class ReadyEvent(models.Base):
     event = FixedValueField('ready')
 
 
-# Account models
+# Base models
+
+class SylkRTCRequestBase(models.Base):
+    transaction = fields.StringField(required=True)
+
+
+class SylkRTCResponseBase(models.Base):
+    transaction = fields.StringField(required=True)
+
 
 class AccountRequestBase(SylkRTCRequestBase):
     account = fields.StringField(required=True, validators=[URIValidator])
 
+
+class SessionRequestBase(SylkRTCRequestBase):
+    session = fields.StringField(required=True)
+
+
+class VideoRoomRequestBase(SylkRTCRequestBase):
+    session = fields.StringField(required=True)
+
+
+# Response models
+
+class AckResponse(SylkRTCResponseBase):
+    sylkrtc = FixedValueField('ack')
+
+
+class ErrorResponse(SylkRTCResponseBase):
+    sylkrtc = FixedValueField('error')
+    error = fields.StringField(required=True)
+
+
+# Account models
 
 class AccountAddRequest(AccountRequestBase):
     sylkrtc = FixedValueField('account-add')
@@ -117,10 +131,6 @@ class AccountDeviceTokenRequest(AccountRequestBase):
 
 # Session models
 
-class SessionRequestBase(SylkRTCRequestBase):
-    session = fields.StringField(required=True)
-
-
 class SessionCreateRequest(SessionRequestBase):
     sylkrtc = FixedValueField('session-create')
     account = fields.StringField(required=True, validators=[URIValidator])
@@ -142,30 +152,7 @@ class SessionTerminateRequest(SessionRequestBase):
     sylkrtc = FixedValueField('session-terminate')
 
 
-# VideoRoom models
-
-class VideoRoomRequestBase(SylkRTCRequestBase):
-    session = fields.StringField(required=True)
-
-
-class VideoRoomJoinRequest(VideoRoomRequestBase):
-    sylkrtc = FixedValueField('videoroom-join')
-    account = fields.StringField(required=True, validators=[URIValidator])
-    uri = fields.StringField(required=True, validators=[URIValidator])
-    sdp = fields.StringField(required=True)
-
-
-class VideoRoomControlTrickleOptions(models.Base):
-    # ID for the subscriber session, if specified, otherwise the publisher is considered
-    session = fields.StringField(required=False)
-    candidates = fields.ListField([ICECandidate])
-
-
-class VideoRoomControlUpdateOptions(models.Base):
-    audio = fields.BoolField(required=False)
-    video = fields.BoolField(required=False)
-    bitrate = fields.IntField(required=False)
-
+# VideoRoomControlRequest embedded models
 
 class VideoRoomControlFeedAttachOptions(models.Base):
     session = fields.StringField(required=True)
@@ -185,17 +172,38 @@ class VideoRoomControlInviteParticipantsOptions(models.Base):
     participants = fields.ListField([str, unicode], validators=[URIListValidator])
 
 
+class VideoRoomControlTrickleOptions(models.Base):
+    # ID for the subscriber session, if specified, otherwise the publisher is considered
+    session = fields.StringField(required=False)
+    candidates = fields.ListField([ICECandidate])
+
+
+class VideoRoomControlUpdateOptions(models.Base):
+    audio = fields.BoolField(required=False)
+    video = fields.BoolField(required=False)
+    bitrate = fields.IntField(required=False)
+
+
+# VideoRoom models
+
+class VideoRoomJoinRequest(VideoRoomRequestBase):
+    sylkrtc = FixedValueField('videoroom-join')
+    account = fields.StringField(required=True, validators=[URIValidator])
+    uri = fields.StringField(required=True, validators=[URIValidator])
+    sdp = fields.StringField(required=True)
+
+
 class VideoRoomControlRequest(VideoRoomRequestBase):
     sylkrtc = FixedValueField('videoroom-ctl')
     option = LimitedChoiceField({'feed-attach', 'feed-answer', 'feed-detach', 'invite-participants', 'trickle', 'update'})
 
     # all other options should have optional fields below, and the application needs to do a little validation
-    trickle = fields.EmbeddedField(VideoRoomControlTrickleOptions, required=False)
-    update = fields.EmbeddedField(VideoRoomControlUpdateOptions, required=False)
     feed_attach = fields.EmbeddedField(VideoRoomControlFeedAttachOptions, required=False)
     feed_answer = fields.EmbeddedField(VideoRoomControlFeedAnswerOptions, required=False)
     feed_detach = fields.EmbeddedField(VideoRoomControlFeedDetachOptions, required=False)
     invite_participants = fields.EmbeddedField(VideoRoomControlInviteParticipantsOptions, required=False)
+    trickle = fields.EmbeddedField(VideoRoomControlTrickleOptions, required=False)
+    update = fields.EmbeddedField(VideoRoomControlUpdateOptions, required=False)
 
 
 class VideoRoomTerminateRequest(VideoRoomRequestBase):
