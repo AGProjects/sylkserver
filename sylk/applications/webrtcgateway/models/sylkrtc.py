@@ -10,7 +10,7 @@ __all__ = ('AccountAddRequest', 'AccountRemoveRequest', 'AccountRegisterRequest'
 
 class FixedValueField(fields.BaseField):
     def __init__(self, value):
-        super(FixedValueField, self).__init__()
+        super(FixedValueField, self).__init__(required=True)
         self.value = value
 
     def validate(self, value):
