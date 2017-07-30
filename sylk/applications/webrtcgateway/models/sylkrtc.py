@@ -22,6 +22,16 @@ class FixedValueField(fields.BaseField):
         return self.value
 
 
+class LimitedChoiceField(fields.BaseField):
+    def __init__(self, values):
+        super(LimitedChoiceField, self).__init__(required=True)
+        self.values = set(values)
+
+    def validate(self, value):
+        if value not in self.values:
+            raise errors.ValidationError('field value should be one of: {!s}'.format(', '.join(repr(item) for item in sorted(self.values))))
+
+
 class URIValidator(object):
     @staticmethod
     def validate(value):
@@ -40,15 +50,6 @@ class URIListValidator(object):
     def validate(values):
         for item in values:
             URIValidator.validate(item)
-
-
-class OptionsValidator(object):
-    def __init__(self, options):
-        self.options = options
-
-    def validate(self, value):
-        if value not in self.options:
-            raise errors.ValidationError('invalid option: %s' % value)
 
 
 # Base models
@@ -186,7 +187,7 @@ class VideoRoomControlInviteParticipantsOptions(models.Base):
 
 class VideoRoomControlRequest(VideoRoomRequestBase):
     sylkrtc = FixedValueField('videoroom-ctl')
-    option = fields.StringField(required=True, validators=[OptionsValidator(['trickle', 'update', 'feed-attach', 'feed-answer', 'feed-detach', 'invite-participants'])])
+    option = LimitedChoiceField({'feed-attach', 'feed-answer', 'feed-detach', 'invite-participants', 'trickle', 'update'})
 
     # all other options should have optional fields below, and the application needs to do a little validation
     trickle = fields.EmbeddedField(VideoRoomControlTrickleOptions, required=False)
