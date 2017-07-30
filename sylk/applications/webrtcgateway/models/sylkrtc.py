@@ -15,7 +15,7 @@ class FixedValueField(fields.BaseField):
 
     def validate(self, value):
         if value != self.value:
-            raise errors.ValidationError('%s does not match the expected value %s' % (value, self.value))
+            raise errors.ValidationError('field value should be {!r}'.format(self.value))
 
     # noinspection PyMethodOverriding
     def get_default_value(self):
