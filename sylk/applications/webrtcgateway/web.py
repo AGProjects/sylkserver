@@ -43,6 +43,13 @@ class WebRTCGatewayWeb(object):
         r.isLeaf = True
         return r
 
+    @app.route('/bootstrap.min.css')
+    def bootstrap_min_css(self, request):
+        path = Resources.get('html/webrtcgateway/bootstrap.min.css')
+        r = StaticFileResource(path)
+        r.isLeaf = True
+        return r
+
     @app.route('/ws')
     def ws(self, request):
         return self._ws_resource
