@@ -24,7 +24,7 @@
 ; dead client connections
 ; websocket_ping_interval = 120
 
-; IP and port for the HTTP management interface
+; IP and port for the HTTP management interface as IP[:PORT]
 ; http_management_interface = 127.0.0.1:20888
 
 ; Shared secret for the HTTP management interface (Authorization: THE_KEY)
