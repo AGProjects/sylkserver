@@ -813,141 +813,110 @@ class ConnectionHandler(object):
             self._send_data(json.dumps(data))
 
     def _OH_videoroom_ctl(self, request):
-        if request.option == 'trickle':
-            try:
-                if not request.trickle:
-                    raise APIError("missing 'trickle' field in request")
-                session = request.trickle.session or request.session
-                try:
-                    videoroom_session = self.videoroom_sessions[session]
-                except KeyError:
-                    raise APIError('trickle: unknown video room session: {session}'.format(session=session))
-                candidates = [c.to_struct() for c in request.trickle.candidates]
-                block_on(self.protocol.backend.janus_trickle(self.janus_session_id, videoroom_session.janus_handle_id, candidates))
-            except (APIError, JanusError) as e:
-                self.log.error('videoroom-ctl: {exception!s}'.format(exception=e))
-                self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
-            else:
-                if not candidates and videoroom_session.type == 'publisher':
-                    self.log.debug('video room session {session.id} negotiated ICE'.format(session=videoroom_session))
-                self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
-        elif request.option == 'update':
-            try:
-                if not request.update:
-                    raise APIError("missing 'update' field in request")
-                try:
-                    videoroom_session = self.videoroom_sessions[request.session]
-                except KeyError:
-                    raise APIError('update: unknown video room session: {request.session}'.format(request=request))
-                update_data = request.update.to_struct()
-                if update_data:
-                    data = dict(request='configure', room=videoroom_session.room.id, **update_data)
-                    block_on(self.protocol.backend.janus_message(self.janus_session_id, videoroom_session.janus_handle_id, data))
-            except (APIError, JanusError) as e:
-                self.log.error('videoroom-ctl: {exception!s}'.format(exception=e))
-                self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
-            else:
-                if update_data:
-                    modified = ', '.join('{}={}'.format(key, update_data[key]) for key in update_data)
-                    self.log.info('updated video room session {request.session} with {modified}'.format(request=request, modified=modified))
-                self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
-        elif request.option == 'feed-attach':
-            handle_id = None
-            try:
-                if not request.feed_attach:
-                    raise APIError("missing 'feed_attach' field in request")
-
-                if request.feed_attach.session in self.videoroom_sessions:
-                    raise APIError('feed-attach: video room session ID {request.feed_attach.session} already in use'.format(request=request))
-
-                # get the 'base' session, the one used to join and publish
-                try:
-                    base_session = self.videoroom_sessions[request.session]
-                except KeyError:
-                    raise APIError('feed-attach: unknown video room session: {request.session}'.format(request=request))
-
-                # get the publisher's session
-                try:
-                    publisher_session = base_session.room[request.feed_attach.publisher]
-                except KeyError:
-                    raise APIError('feed-attach: unknown publisher video room session to attach to: {request.feed_attach.publisher}'.format(request=request))
-                if publisher_session.publisher_id is None:
-                    raise APIError('feed-attach: video room session {session.id} does not have a publisher ID'.format(session=publisher_session))
-
-                handle_id = block_on(self.protocol.backend.janus_attach(self.janus_session_id, 'janus.plugin.videoroom'))
-                self.protocol.backend.janus_set_event_handler(handle_id, self._handle_janus_event_videoroom)
-
-                # join the room as a listener
-                data = dict(request='join', room=base_session.room.id, ptype='listener', feed=publisher_session.publisher_id)
-                block_on(self.protocol.backend.janus_message(self.janus_session_id, handle_id, data))
-
-                videoroom_session = VideoRoomSessionInfo(request.feed_attach.session, owner=self)
-                videoroom_session.janus_handle_id = handle_id
-                videoroom_session.parent_session = base_session
-                videoroom_session.publisher_id = publisher_session.id
-                videoroom_session.initialize(base_session.account_id, 'subscriber', base_session.room)
-                self.videoroom_sessions.add(videoroom_session)
-                base_session.feeds.add(publisher_session)
-            except (APIError, JanusError) as e:
-                self.log.error('videoroom-ctl: {exception!s}'.format(exception=e))
-                self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
-                if handle_id is not None:
-                    block_on(self.protocol.backend.janus_detach(self.janus_session_id, handle_id))
-                    self.protocol.backend.janus_set_event_handler(handle_id, None)
-            else:
-                self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
-        elif request.option == 'feed-answer':
-            try:
-                if not request.feed_answer:
-                    raise APIError("missing 'feed_answer' field in request")
-                try:
-                    videoroom_session = self.videoroom_sessions[request.feed_answer.session]
-                except KeyError:
-                    raise APIError('feed-answer: unknown video room session: {request.feed_answer.session}'.format(request=request))
-                data = dict(request='start', room=videoroom_session.room.id)
-                jsep = dict(type='answer', sdp=request.feed_answer.sdp)
-                block_on(self.protocol.backend.janus_message(self.janus_session_id, videoroom_session.janus_handle_id, data, jsep))
-            except (APIError, JanusError) as e:
-                self.log.error('videoroom-ctl: {exception!s}'.format(exception=e))
-                self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
-            else:
-                self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
-        elif request.option == 'feed-detach':
-            try:
-                if not request.feed_detach:
-                    raise APIError("missing 'feed_detach' field in request")
-                try:
-                    videoroom_session = self.videoroom_sessions[request.feed_detach.session]
-                except KeyError:
-                    raise APIError('feed-detach: unknown video room session to detach: {request.feed_detach.session}'.format(request=request))
-                if videoroom_session.parent_session.id != request.session:
-                    raise APIError('feed-detach: {request.feed_detach.session} is not an attached feed of {request.session}'.format(request=request))
-                data = dict(request='leave')
-                block_on(self.protocol.backend.janus_message(self.janus_session_id, videoroom_session.janus_handle_id, data))
-            except (APIError, JanusError) as e:
-                self.log.error('videoroom-ctl: {exception!s}'.format(exception=e))
-                self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
-            else:
-                self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
-                self._cleanup_videoroom_session(videoroom_session)
-        elif request.option == 'invite-participants':
-            try:
-                if not request.invite_participants:
-                    raise APIError("missing 'invite_participants' field in request")
-                try:
-                    base_session = self.videoroom_sessions[request.session]
-                    account_info = self.accounts_map[base_session.account_id]
-                except KeyError:
-                    raise APIError('invite-participants: unknown video room session: {request.session}'.format(request=request))
-            except APIError as e:
-                self.log.error('videoroom-ctl: {exception!s}'.format(exception=e))
-                self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
-            else:
-                self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
-                for protocol in self.protocol.factory.connections.difference([self.protocol]):
-                    protocol.connection_handler.handle_conference_invite(account_info, base_session.room, request.invite_participants.participants)
+        try:
+            option_name = request.option.replace('-', '_')
+            if getattr(request, option_name) is None:
+                raise APIError('missing {!r} field in request'.format(option_name))
+            sub_handler = getattr(self, '_OH_videoroom_ctl_{}'.format(option_name))
+            sub_handler(request)
+        except (APIError, JanusError) as e:
+            self.log.error('videoroom-ctl: {exception!s}'.format(exception=e))
+            self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
         else:
-            self.log.error('videoroom-ctl: unsupported option: {request.option!r}'.format(request=request))
+            self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
+
+    def _OH_videoroom_ctl_feed_attach(self, request):
+        if request.feed_attach.session in self.videoroom_sessions:
+            raise APIError('feed-attach: video room session ID {request.feed_attach.session} already in use'.format(request=request))
+
+        # get the 'base' session, the one used to join and publish
+        try:
+            base_session = self.videoroom_sessions[request.session]
+        except KeyError:
+            raise APIError('feed-attach: unknown video room session: {request.session}'.format(request=request))
+
+        # get the publisher's session
+        try:
+            publisher_session = base_session.room[request.feed_attach.publisher]
+        except KeyError:
+            raise APIError('feed-attach: unknown publisher video room session to attach to: {request.feed_attach.publisher}'.format(request=request))
+        if publisher_session.publisher_id is None:
+            raise APIError('feed-attach: video room session {session.id} does not have a publisher ID'.format(session=publisher_session))
+
+        handle_id = block_on(self.protocol.backend.janus_attach(self.janus_session_id, 'janus.plugin.videoroom'))
+        self.protocol.backend.janus_set_event_handler(handle_id, self._handle_janus_event_videoroom)
+
+        # join the room as a listener
+        try:
+            data = dict(request='join', room=base_session.room.id, ptype='listener', feed=publisher_session.publisher_id)
+            block_on(self.protocol.backend.janus_message(self.janus_session_id, handle_id, data))
+        except JanusError:
+            try:
+                block_on(self.protocol.backend.janus_detach(self.janus_session_id, handle_id))
+            except JanusError:
+                pass
+            self.protocol.backend.janus_set_event_handler(handle_id, None)
+            raise
+
+        videoroom_session = VideoRoomSessionInfo(request.feed_attach.session, owner=self)
+        videoroom_session.janus_handle_id = handle_id
+        videoroom_session.parent_session = base_session
+        videoroom_session.publisher_id = publisher_session.id
+        videoroom_session.initialize(base_session.account_id, 'subscriber', base_session.room)
+        self.videoroom_sessions.add(videoroom_session)
+        base_session.feeds.add(publisher_session)
+
+    def _OH_videoroom_ctl_feed_answer(self, request):
+        try:
+            videoroom_session = self.videoroom_sessions[request.feed_answer.session]
+        except KeyError:
+            raise APIError('feed-answer: unknown video room session: {request.feed_answer.session}'.format(request=request))
+        data = dict(request='start', room=videoroom_session.room.id)
+        jsep = dict(type='answer', sdp=request.feed_answer.sdp)
+        block_on(self.protocol.backend.janus_message(self.janus_session_id, videoroom_session.janus_handle_id, data, jsep))
+
+    def _OH_videoroom_ctl_feed_detach(self, request):
+        try:
+            videoroom_session = self.videoroom_sessions[request.feed_detach.session]
+        except KeyError:
+            raise APIError('feed-detach: unknown video room session to detach: {request.feed_detach.session}'.format(request=request))
+        if videoroom_session.parent_session.id != request.session:
+            raise APIError('feed-detach: {request.feed_detach.session} is not an attached feed of {request.session}'.format(request=request))
+        data = dict(request='leave')
+        block_on(self.protocol.backend.janus_message(self.janus_session_id, videoroom_session.janus_handle_id, data))
+        self._cleanup_videoroom_session(videoroom_session)
+
+    def _OH_videoroom_ctl_invite_participants(self, request):
+        try:
+            base_session = self.videoroom_sessions[request.session]
+            account_info = self.accounts_map[base_session.account_id]
+        except KeyError:
+            raise APIError('invite-participants: unknown video room session: {request.session}'.format(request=request))
+        for protocol in self.protocol.factory.connections.difference([self.protocol]):
+            protocol.connection_handler.handle_conference_invite(account_info, base_session.room, request.invite_participants.participants)
+
+    def _OH_videoroom_ctl_trickle(self, request):
+        session = request.trickle.session or request.session
+        try:
+            videoroom_session = self.videoroom_sessions[session]
+        except KeyError:
+            raise APIError('trickle: unknown video room session: {session}'.format(session=session))
+        candidates = [c.to_struct() for c in request.trickle.candidates]
+        block_on(self.protocol.backend.janus_trickle(self.janus_session_id, videoroom_session.janus_handle_id, candidates))
+        if not candidates and videoroom_session.type == 'publisher':
+            self.log.debug('video room session {session.id} negotiated ICE'.format(session=videoroom_session))
+
+    def _OH_videoroom_ctl_update(self, request):
+        try:
+            videoroom_session = self.videoroom_sessions[request.session]
+        except KeyError:
+            raise APIError('update: unknown video room session: {request.session}'.format(request=request))
+        update_data = request.update.to_struct()
+        if update_data:
+            data = dict(request='configure', room=videoroom_session.room.id, **update_data)
+            block_on(self.protocol.backend.janus_message(self.janus_session_id, videoroom_session.janus_handle_id, data))
+            modified = ', '.join('{}={}'.format(key, update_data[key]) for key in update_data)
+            self.log.info('updated video room session {request.session} with {modified}'.format(request=request, modified=modified))
 
     def _OH_videoroom_terminate(self, request):
         try:
