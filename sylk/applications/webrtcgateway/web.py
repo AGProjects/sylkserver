@@ -36,19 +36,9 @@ class WebRTCGatewayWeb(object):
             self._resource = self.app.resource()
         return self._resource
 
-    @app.route('/')
+    @app.route('/', branch=True)
     def index(self, request):
-        path = Resources.get('html/webrtcgateway/index.html')
-        r = StaticFileResource(path)
-        r.isLeaf = True
-        return r
-
-    @app.route('/bootstrap.min.css')
-    def bootstrap_min_css(self, request):
-        path = Resources.get('html/webrtcgateway/bootstrap.min.css')
-        r = StaticFileResource(path)
-        r.isLeaf = True
-        return r
+        return StaticFileResource(Resources.get('html/webrtcgateway/'))
 
     @app.route('/ws')
     def ws(self, request):
