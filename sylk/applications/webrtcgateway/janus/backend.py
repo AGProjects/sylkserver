@@ -90,6 +90,7 @@ class JanusClientProtocol(WebSocketClientProtocol):
             log.warn('Discarding unexpected response: %s' % payload)
             return
         # events were handled above, so the only message types we get here are ack, success and error
+        # todo: some plugin errors are delivered with message_type == 'success' and the error code is buried somewhere in plugindata
         if message_type == 'error':
             code = data['error']['code']
             reason = data['error']['reason']
