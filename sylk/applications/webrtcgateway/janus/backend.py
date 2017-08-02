@@ -89,26 +89,20 @@ class JanusClientProtocol(WebSocketClientProtocol):
         except KeyError:
             log.warn('Discarding unexpected response: %s' % payload)
             return
+        # events were handled above, so the only message types we get here are ack, success and error
         if message_type == 'error':
             code = data['error']['code']
             reason = data['error']['reason']
             d.errback(JanusError(code, reason))
         elif message_type == 'ack':
             d.callback(None)
-        else:
-            if req.type == 'info':
-                result = data
-            elif req.type == 'create':
+        else:  # success
+            # keepalive and trickle only receive an ACK, thus are handled above in message_type == 'ack', not here
+            if req.type in ('create', 'attach'):
                 result = data['data']['id']
-            elif req.type == 'destroy':
+            elif req.type in ('destroy', 'detach'):
                 result = None
-            elif req.type == 'attach':
-                result = data['data']['id']
-            elif req.type == 'detach':
-                result = None
-            elif req.type == 'keepalive':
-                result = None
-            else:
+            else:  # info, message (for synchronous message requests only)
                 result = data
             d.callback(result)
 
