@@ -42,10 +42,12 @@ class ConferenceWeb(object):
     """
 
     def __init__(self, conference):
+        self._resource = self.app.resource()
         self.conference = conference
 
+    @property
     def resource(self):
-        return self.app.resource()
+        return self._resource
 
     @app.route('/')
     def home(self, request):

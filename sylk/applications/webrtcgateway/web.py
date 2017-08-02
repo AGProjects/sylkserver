@@ -25,15 +25,13 @@ class WebRTCGatewayWeb(object):
     __metaclass__ = Singleton
 
     app = Klein()
-    _resource = None
-    _ws_resource = None
 
     def __init__(self, ws_factory):
+        self._resource = self.app.resource()
         self._ws_resource = WebSocketResource(ws_factory)
 
+    @property
     def resource(self):
-        if self._resource is None:
-            self._resource = self.app.resource()
         return self._resource
 
     @app.route('/', branch=True)
@@ -60,7 +58,7 @@ class WebHandler(object):
                                         autoPingTimeout=GeneralConfig.websocket_ping_interval/2)
 
         self.web = WebRTCGatewayWeb(self.factory)
-        server.register_resource('webrtcgateway', self.web.resource())
+        server.register_resource('webrtcgateway', self.web.resource)
 
         log.info('WebSocket handler started at %s' % ws_url)
         log.info('Allowed web origins: %s' % ', '.join(GeneralConfig.web_origins))
