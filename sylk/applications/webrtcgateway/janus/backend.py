@@ -93,6 +93,8 @@ class JanusClientProtocol(WebSocketClientProtocol):
             code = data['error']['code']
             reason = data['error']['reason']
             d.errback(JanusError(code, reason))
+        elif message_type == 'ack':
+            d.callback(None)
         else:
             if req.type == 'info':
                 result = data
@@ -105,8 +107,6 @@ class JanusClientProtocol(WebSocketClientProtocol):
             elif req.type == 'detach':
                 result = None
             elif req.type == 'keepalive':
-                result = None
-            elif req.type == 'ack':
                 result = None
             else:
                 result = data
