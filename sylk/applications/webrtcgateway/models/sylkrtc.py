@@ -6,7 +6,7 @@ from sipsimple.core import SIPURI, SIPCoreError
 __all__ = ('AccountAddRequest', 'AccountRemoveRequest', 'AccountRegisterRequest', 'AccountUnregisterRequest',
            'SessionCreateRequest', 'SessionAnswerRequest', 'SessionTrickleRequest', 'SessionTerminateRequest',
            'AckResponse', 'ErrorResponse',
-           'ReadyEvent')
+           'ReadyEvent', 'VideoRoomConfigurationEvent')
 
 
 # Validators
@@ -68,6 +68,14 @@ class ICECandidate(models.Base):
 class ReadyEvent(models.Base):
     sylkrtc = FixedValueField('event')
     event = FixedValueField('ready')
+
+
+class VideoRoomConfigurationEvent(models.Base):
+    sylkrtc = FixedValueField('videoroom_event')  # todo: rename with dashes or underscores?
+    event = FixedValueField('configure-room')
+    session = fields.StringField(required=True)
+    originator = fields.StringField(required=True)
+    active_participants = fields.ListField([str, unicode], required=True, validators=[validators.Length(minimum_value=0, maximum_value=2)])
 
 
 # Base models
@@ -155,6 +163,10 @@ class SessionTerminateRequest(SessionRequestBase):
 
 # VideoRoomControlRequest embedded models
 
+class VideoRoomControlConfigureRoomOptions(models.Base):
+    active_participants = fields.ListField([str, unicode], validators=[validators.Length(minimum_value=0, maximum_value=2)])
+
+
 class VideoRoomControlFeedAttachOptions(models.Base):
     session = fields.StringField(required=True)
     publisher = fields.StringField(required=True)
@@ -196,9 +208,10 @@ class VideoRoomJoinRequest(VideoRoomRequestBase):
 
 class VideoRoomControlRequest(VideoRoomRequestBase):
     sylkrtc = FixedValueField('videoroom-ctl')
-    option = LimitedChoiceField({'feed-attach', 'feed-answer', 'feed-detach', 'invite-participants', 'trickle', 'update'})
+    option = LimitedChoiceField({'configure-room', 'feed-attach', 'feed-answer', 'feed-detach', 'invite-participants', 'trickle', 'update'})
 
     # all other options should have optional fields below, and the application needs to do a little validation
+    configure_room = fields.EmbeddedField(VideoRoomControlConfigureRoomOptions, required=False)
     feed_attach = fields.EmbeddedField(VideoRoomControlFeedAttachOptions, required=False)
     feed_answer = fields.EmbeddedField(VideoRoomControlFeedAnswerOptions, required=False)
     feed_detach = fields.EmbeddedField(VideoRoomControlFeedDetachOptions, required=False)

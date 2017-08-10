@@ -9,6 +9,7 @@ import uuid
 from application.python import Null, limit
 from application.python.weakref import defaultweakobjectmap
 from application.system import makedirs
+from collections import OrderedDict
 from eventlib import coros, proc
 from eventlib.twistedutil import block_on
 from sipsimple.configuration.settings import SIPSimpleSettings
@@ -123,6 +124,7 @@ class VideoRoom(object):
         self.uri = uri
         self.config = get_room_config(uri)
         self.log = VideoroomLogger(self)
+        self._active_participants = []
         self._sessions = set()
         self._id_map = {}  # map session.id -> session and session.publisher_id -> session
         if self.config.record:
@@ -130,6 +132,20 @@ class VideoRoom(object):
             self.log.info('created (recording on)')
         else:
             self.log.info('created')
+
+    @property
+    def active_participants(self):
+        return self._active_participants
+
+    @active_participants.setter
+    def active_participants(self, participant_list):
+        participant_list = OrderedDict.fromkeys(participant_list).keys()  # remove duplicates
+        unknown_participants = set(participant_list).difference(self._id_map)
+        if unknown_participants:
+            raise ValueError('unknown participant session id: {}'.format(', '.join(unknown_participants)))
+        self._active_participants = participant_list
+        self.log.info('active participants: {}'.format(', '.join(self._active_participants) or None))
+        self._update_bitrate()
 
     def add(self, session):
         assert session not in self._sessions
@@ -139,6 +155,8 @@ class VideoRoom(object):
         self._id_map[session.id] = self._id_map[session.publisher_id] = session
         self.log.info('{session.account_id} has joined the room'.format(session=session))
         self._update_bitrate()
+        if self._active_participants:
+            session.owner.notify(sylkrtc.VideoRoomConfigurationEvent(session=session.id, active_participants=self._active_participants, originator='videoroom'))
 
     def discard(self, session):
         if session in self._sessions:
@@ -146,6 +164,11 @@ class VideoRoom(object):
             self._id_map.pop(session.id, None)
             self._id_map.pop(session.publisher_id, None)
             self.log.info('{session.account_id} has left the room'.format(session=session))
+            if session.id in self._active_participants:
+                self._active_participants.remove(session.id)
+                self.log.info('active participants: {}'.format(', '.join(self._active_participants) or None))
+                for session in self._sessions:
+                    session.owner.notify(sylkrtc.VideoRoomConfigurationEvent(session=session.id, active_participants=self._active_participants, originator='videoroom'))
             self._update_bitrate()
 
     def remove(self, session):
@@ -153,11 +176,17 @@ class VideoRoom(object):
         self._id_map.pop(session.id)
         self._id_map.pop(session.publisher_id)
         self.log.info('{session.account_id} has left the room'.format(session=session))
+        if session.id in self._active_participants:
+            self._active_participants.remove(session.id)
+            self.log.info('active participants: {}'.format(', '.join(self._active_participants) or None))
+            for session in self._sessions:
+                session.owner.notify(sylkrtc.VideoRoomConfigurationEvent(session=session.id, active_participants=self._active_participants, originator='videoroom'))
         self._update_bitrate()
 
     def clear(self):
         for session in self._sessions:
             self.log.info('{session.account_id} has left the room'.format(session=session))
+        self._active_participants = []
         self._sessions.clear()
         self._id_map.clear()
 
@@ -170,13 +199,28 @@ class VideoRoom(object):
 
     def _update_bitrate(self):
         if self._sessions:
-            bitrate = self.config.max_bitrate // limit(len(self._sessions) - 1, min=1)
-            self.log.info('participant bitrate is {}'.format(bitrate))
-            for session in self._sessions:
-                if session.bitrate != bitrate:
-                    session.bitrate = bitrate
-                    data = dict(request='configure', room=self.id, bitrate=bitrate)
-                    session.owner.protocol.backend.janus_message(session.owner.janus_session_id, session.janus_handle_id, data)
+            if self._active_participants:
+                # todo: should we use max_bitrate / 2 or max_bitrate for each active participant if there are 2 active participants?
+                active_participant_bitrate = self.config.max_bitrate // len(self._active_participants)
+                other_participant_bitrate = 100000
+                self.log.info('participant bitrate is {} (active) / {} (others)'.format(active_participant_bitrate, other_participant_bitrate))
+                for session in self._sessions:
+                    if session.id in self._active_participants:
+                        bitrate = active_participant_bitrate
+                    else:
+                        bitrate = other_participant_bitrate
+                    if session.bitrate != bitrate:
+                        session.bitrate = bitrate
+                        data = dict(request='configure', room=self.id, bitrate=bitrate)
+                        session.owner.protocol.backend.janus_message(session.owner.janus_session_id, session.janus_handle_id, data)
+            else:
+                bitrate = self.config.max_bitrate // limit(len(self._sessions) - 1, min=1)
+                self.log.info('participant bitrate is {}'.format(bitrate))
+                for session in self._sessions:
+                    if session.bitrate != bitrate:
+                        session.bitrate = bitrate
+                        data = dict(request='configure', room=self.id, bitrate=bitrate)
+                        session.owner.protocol.backend.janus_message(session.owner.janus_session_id, session.janus_handle_id, data)
 
     # todo: make VideoRoom be a context manager that is retained/released on enter/exit and implement __nonzero__ to be different from __len__
     # todo: so that a videoroom is not accidentally released by the last participant leaving while a new participant waits to join
@@ -416,6 +460,10 @@ class ConnectionHandler(object):
             room.log.info('invitation from %s for %s', originator.id, account_id)
             self.log.info('received an invitation from %s for %s to join video room %s', originator.id, account_id, room.uri)
             self._send_data(json.dumps(data))
+
+    def notify(self, event):
+        event.validate()
+        self._send_data(json.dumps(event.to_struct()))
 
     # internal methods (not overriding / implementing the protocol API)
 
@@ -825,6 +873,19 @@ class ConnectionHandler(object):
         else:
             self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
 
+    def _OH_videoroom_ctl_configure_room(self, request):
+        try:
+            videoroom_session = self.videoroom_sessions[request.session]
+        except KeyError:
+            raise APIError('configure-room: unknown video room session: {request.session}'.format(request=request))
+        videoroom = videoroom_session.room
+        try:
+            videoroom.active_participants = request.configure_room.active_participants
+        except ValueError as e:
+            raise APIError('configure-room: {exception!s}'.format(exception=e))
+        for session in videoroom:
+            session.owner.notify(sylkrtc.VideoRoomConfigurationEvent(session=session.id, active_participants=videoroom.active_participants, originator=request.session))
+
     def _OH_videoroom_ctl_feed_attach(self, request):
         if request.feed_attach.session in self.videoroom_sessions:
             raise APIError('feed-attach: video room session ID {request.feed_attach.session} already in use'.format(request=request))
@@ -1171,7 +1232,6 @@ class ConnectionHandler(object):
             self.log.info('joined video room {session.room.uri} with session {session.id}'.format(session=videoroom_session))
             videoroom_session.publisher_id = event_data['id']
             room = videoroom_session.room
-            room.add(videoroom_session)
             jsep = event.get('jsep', None)
             assert jsep is not None
             data = dict(sylkrtc='videoroom_event', session=videoroom_session.id, event='state', data=dict(state='accepted', sdp=jsep['sdp']))
@@ -1188,6 +1248,7 @@ class ConnectionHandler(object):
                 publishers.append(dict(id=publisher_session.id, uri=publisher_session.account_id, display_name=publisher.get('display', '')))
             data = dict(sylkrtc='videoroom_event', session=videoroom_session.id, event='initial_publishers', data=dict(publishers=publishers))
             self._send_data(json.dumps(data))
+            room.add(videoroom_session)  # adding the session to the room might also trigger sending an event with the active participants which must be sent last
         elif event_type == 'event':
             if 'publishers' in event_data:
                 try:
