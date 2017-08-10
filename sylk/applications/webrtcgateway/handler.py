@@ -587,8 +587,8 @@ class ConnectionHandler(object):
             handler = getattr(self, '_OH_%s' % op.name.replace('-', '_'), Null)
             try:
                 handler(op.data)
-            except Exception:
-                self.log.exception('unhandled exception in operation %r' % op.name)
+            except Exception as e:
+                self.log.exception('unhandled exception in operation {operation.name!r}: {exception!s}'.format(operation=op, exception=e))
             del op, handler
 
     def _OH_account_add(self, request):
