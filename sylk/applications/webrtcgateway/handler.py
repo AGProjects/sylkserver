@@ -143,9 +143,10 @@ class VideoRoom(object):
         unknown_participants = set(participant_list).difference(self._id_map)
         if unknown_participants:
             raise ValueError('unknown participant session id: {}'.format(', '.join(unknown_participants)))
-        self._active_participants = participant_list
-        self.log.info('active participants: {}'.format(', '.join(self._active_participants) or None))
-        self._update_bitrate()
+        if self._active_participants != participant_list:
+            self._active_participants = participant_list
+            self.log.info('active participants: {}'.format(', '.join(self._active_participants) or None))
+            self._update_bitrate()
 
     def add(self, session):
         assert session not in self._sessions
