@@ -139,7 +139,7 @@ class VideoRoom(object):
 
     @active_participants.setter
     def active_participants(self, participant_list):
-        participant_list = OrderedDict.fromkeys(participant_list).keys()  # remove duplicates
+        participant_list = OrderedDict.fromkeys(participant_list).keys()  # remove duplicates but preserve order
         unknown_participants = set(participant_list).difference(self._id_map)
         if unknown_participants:
             raise ValueError('unknown participant session id: {}'.format(', '.join(unknown_participants)))
