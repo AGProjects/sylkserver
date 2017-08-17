@@ -879,6 +879,7 @@ class ConnectionHandler(object):
         except KeyError:
             raise APIError('configure-room: unknown video room session: {request.session}'.format(request=request))
         videoroom = videoroom_session.room
+        # todo: should we send out events if the active participant list did not change?
         try:
             videoroom.active_participants = request.configure_room.active_participants
         except ValueError as e:
