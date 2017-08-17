@@ -85,7 +85,7 @@ class VideoRoomConfigurationEvent(models.Base):
     event = FixedValueField('configure-room')
     session = fields.StringField(required=True)
     originator = fields.StringField(required=True)
-    active_participants = fields.ListField([str, unicode], required=True, validators=[validators.Length(minimum_value=0, maximum_value=2)])
+    active_participants = UniqueStringListField(validators=[validators.Length(minimum_value=0, maximum_value=2)])
 
 
 # Base models
@@ -174,7 +174,7 @@ class SessionTerminateRequest(SessionRequestBase):
 # VideoRoomControlRequest embedded models
 
 class VideoRoomControlConfigureRoomOptions(models.Base):
-    active_participants = fields.ListField([str, unicode], validators=[validators.Length(minimum_value=0, maximum_value=2)])
+    active_participants = UniqueStringListField(validators=[validators.Length(minimum_value=0, maximum_value=2)])
 
 
 class VideoRoomControlFeedAttachOptions(models.Base):
