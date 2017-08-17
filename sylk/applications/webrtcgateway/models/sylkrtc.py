@@ -1,4 +1,5 @@
 
+from collections import OrderedDict
 from jsonmodels import models, fields, errors, validators
 from sipsimple.core import SIPURI, SIPCoreError
 
@@ -55,6 +56,15 @@ class LimitedChoiceField(fields.BaseField):
     def validate(self, value):
         if value not in self.values:
             raise errors.ValidationError('field value should be one of: {!s}'.format(', '.join(repr(item) for item in sorted(self.values))))
+
+
+class UniqueStringListField(fields.ListField):
+    def __init__(self, *args, **kw):
+        super(UniqueStringListField, self).__init__(items_types=[str, unicode], *args, **kw)
+
+    def parse_value(self, value):
+        # remove duplicate entries while preserving order
+        return OrderedDict.fromkeys(value).keys() if isinstance(value, self.types) else value
 
 
 # Miscellaneous models
