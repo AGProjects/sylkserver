@@ -192,7 +192,7 @@ class VideoRoomControlFeedDetachOptions(models.Base):
 
 
 class VideoRoomControlInviteParticipantsOptions(models.Base):
-    participants = fields.ListField([str, unicode], validators=[URIListValidator])
+    participants = UniqueStringListField(validators=[URIListValidator])
 
 
 class VideoRoomControlTrickleOptions(models.Base):
