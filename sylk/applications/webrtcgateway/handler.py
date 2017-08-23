@@ -9,7 +9,6 @@ import uuid
 from application.python import Null, limit
 from application.python.weakref import defaultweakobjectmap
 from application.system import makedirs
-from collections import OrderedDict
 from eventlib import coros, proc
 from eventlib.twistedutil import block_on
 from sipsimple.configuration.settings import SIPSimpleSettings
