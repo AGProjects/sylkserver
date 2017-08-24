@@ -606,7 +606,14 @@ class ConnectionHandler(object):
 
     def _OH_Request(self, operation):
         handler = getattr(self, '_RH_' + operation.name.normalized)
-        handler(operation.data)
+        request = operation.data
+        try:
+            handler(request)
+        except (APIError, DNSLookupError, JanusError) as e:
+            self.log.error('{operation.name}: {exception!s}'.format(operation=operation, exception=e))
+            self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
+        else:
+            self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
 
     def _OH_Event(self, operation):
         handler = getattr(self, '_EH_' + operation.name.normalized)
@@ -615,286 +622,234 @@ class ConnectionHandler(object):
     # Request handlers
 
     def _RH_account_add(self, request):
-        try:
-            if request.account in self.accounts_map:
-                raise APIError('Account {request.account} already added'.format(request=request))
+        if request.account in self.accounts_map:
+            raise APIError('Account {request.account} already added'.format(request=request))
 
-            # check if domain is acceptable
-            domain = request.account.partition('@')[2]
-            if not {'*', domain}.intersection(GeneralConfig.sip_domains):
-                raise APIError('SIP domain not allowed: %s' % domain)
+        # check if domain is acceptable
+        domain = request.account.partition('@')[2]
+        if not {'*', domain}.intersection(GeneralConfig.sip_domains):
+            raise APIError('SIP domain not allowed: %s' % domain)
 
-            # Create and store our mapping
-            account_info = AccountInfo(request.account, request.password, request.display_name, request.user_agent)
-            self.accounts_map[account_info.id] = account_info
-        except APIError as e:
-            self.log.error('account-add: {exception!s}'.format(exception=e))
-            self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
-        else:
-            self.log.info('added account {request.account} using {request.user_agent}'.format(request=request))
-            self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
+        # Create and store our mapping
+        account_info = AccountInfo(request.account, request.password, request.display_name, request.user_agent)
+        self.accounts_map[account_info.id] = account_info
+        self.log.info('added account {request.account} using {request.user_agent}'.format(request=request))
 
     def _RH_account_remove(self, request):
         try:
-            try:
-                account_info = self.accounts_map.pop(request.account)
-            except KeyError:
-                raise APIError('Unknown account specified: {request.account}'.format(request=request))
+            account_info = self.accounts_map.pop(request.account)
+        except KeyError:
+            raise APIError('Unknown account specified: {request.account}'.format(request=request))
 
-            # cleanup in case the client didn't unregister before removing the account
-            handle_id = account_info.janus_handle_id
-            if handle_id is not None:
-                block_on(self.protocol.backend.janus_detach(self.janus_session_id, handle_id))
-                self.protocol.backend.janus_set_event_handler(handle_id, None)
-                self.account_handles_map.pop(handle_id)
-        except (APIError, JanusError) as e:
-            self.log.error('account-remove: {exception!s}'.format(exception=e))
-            self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
-        else:
-            self.log.info('removed account {request.account}'.format(request=request))
-            self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
+        # cleanup in case the client didn't unregister before removing the account
+        handle_id = account_info.janus_handle_id
+        if handle_id is not None:
+            block_on(self.protocol.backend.janus_detach(self.janus_session_id, handle_id))
+            self.protocol.backend.janus_set_event_handler(handle_id, None)
+            self.account_handles_map.pop(handle_id)
+        self.log.info('removed account {request.account}'.format(request=request))
 
     def _RH_account_register(self, request):
         try:
-            try:
-                account_info = self.accounts_map[request.account]
-            except KeyError:
-                raise APIError('Unknown account specified: {request.account}'.format(request=request))
+            account_info = self.accounts_map[request.account]
+        except KeyError:
+            raise APIError('Unknown account specified: {request.account}'.format(request=request))
 
-            proxy = self._lookup_sip_proxy(request.account)
+        proxy = self._lookup_sip_proxy(request.account)
 
-            handle_id = account_info.janus_handle_id
-            if handle_id is not None:
-                # Destroy the existing plugin handle
-                block_on(self.protocol.backend.janus_detach(self.janus_session_id, handle_id))
-                self.protocol.backend.janus_set_event_handler(handle_id, None)
-                self.account_handles_map.pop(handle_id)
-                account_info.janus_handle_id = None
+        handle_id = account_info.janus_handle_id
+        if handle_id is not None:
+            # Destroy the existing plugin handle
+            block_on(self.protocol.backend.janus_detach(self.janus_session_id, handle_id))
+            self.protocol.backend.janus_set_event_handler(handle_id, None)
+            self.account_handles_map.pop(handle_id)
+            account_info.janus_handle_id = None
 
-            # Create a plugin handle
-            handle_id = block_on(self.protocol.backend.janus_attach(self.janus_session_id, 'janus.plugin.sip'))
-            self.protocol.backend.janus_set_event_handler(handle_id, self._handle_janus_event_sip)
-            account_info.janus_handle_id = handle_id
-            self.account_handles_map[handle_id] = account_info
+        # Create a plugin handle
+        handle_id = block_on(self.protocol.backend.janus_attach(self.janus_session_id, 'janus.plugin.sip'))
+        self.protocol.backend.janus_set_event_handler(handle_id, self._handle_janus_event_sip)
+        account_info.janus_handle_id = handle_id
+        self.account_handles_map[handle_id] = account_info
 
-            data = dict(request='register', proxy=proxy, **account_info.user_data)
-            block_on(self.protocol.backend.janus_message(self.janus_session_id, handle_id, data))
-        except (APIError, DNSLookupError, JanusError) as e:
-            self.log.error('account-register: {exception!s}'.format(exception=e))
-            self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
-        else:
-            self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
+        data = dict(request='register', proxy=proxy, **account_info.user_data)
+        block_on(self.protocol.backend.janus_message(self.janus_session_id, handle_id, data))
 
     def _RH_account_unregister(self, request):
         try:
-            try:
-                account_info = self.accounts_map[request.account]
-            except KeyError:
-                raise APIError('Unknown account specified: {request.account}'.format(request=request))
+            account_info = self.accounts_map[request.account]
+        except KeyError:
+            raise APIError('Unknown account specified: {request.account}'.format(request=request))
 
-            handle_id = account_info.janus_handle_id
-            if handle_id is not None:
-                block_on(self.protocol.backend.janus_detach(self.janus_session_id, handle_id))
-                self.protocol.backend.janus_set_event_handler(handle_id, None)
-                account_info.janus_handle_id = None
-                self.account_handles_map.pop(handle_id)
-        except (APIError, JanusError) as e:
-            self.log.error('account-unregister: {exception!s}'.format(exception=e))
-            self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
-        else:
-            self.log.info('unregistered {request.account} from receiving incoming calls'.format(request=request))
-            self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
+        handle_id = account_info.janus_handle_id
+        if handle_id is not None:
+            block_on(self.protocol.backend.janus_detach(self.janus_session_id, handle_id))
+            self.protocol.backend.janus_set_event_handler(handle_id, None)
+            account_info.janus_handle_id = None
+            self.account_handles_map.pop(handle_id)
+        self.log.info('unregistered {request.account} from receiving incoming calls'.format(request=request))
 
     def _RH_account_devicetoken(self, request):
-        try:
-            if request.account not in self.accounts_map:
-                raise APIError('Unknown account specified: {request.account}'.format(request=request))
-            storage = TokenStorage()
-            if request.old_token is not None:
-                storage.remove(request.account, request.old_token)
-                self.log.debug('removed token {request.old_token} for {request.account}'.format(request=request))
-            if request.new_token is not None:
-                storage.add(request.account, request.new_token)
-                self.log.debug('added token {request.new_token} for {request.account}'.format(request=request))
-        except APIError as e:
-            self.log.error('account-devicetoken: {exception!s}'.format(exception=e))
-            self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
-        else:
-            self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
+        if request.account not in self.accounts_map:
+            raise APIError('Unknown account specified: {request.account}'.format(request=request))
+        storage = TokenStorage()
+        if request.old_token is not None:
+            storage.remove(request.account, request.old_token)
+            self.log.debug('removed token {request.old_token} for {request.account}'.format(request=request))
+        if request.new_token is not None:
+            storage.add(request.account, request.new_token)
+            self.log.debug('added token {request.new_token} for {request.account}'.format(request=request))
 
     def _RH_session_create(self, request):
-        handle_id = None
+        if request.session in self.sip_sessions:
+            raise APIError('Session ID {request.session} already in use'.format(request=request))
 
         try:
-            if request.session in self.sip_sessions:
-                raise APIError('Session ID {request.session} already in use'.format(request=request))
+            account_info = self.accounts_map[request.account]
+        except KeyError:
+            raise APIError('Unknown account specified: {request.account}'.format(request=request))
 
-            try:
-                account_info = self.accounts_map[request.account]
-            except KeyError:
-                raise APIError('Unknown account specified: {request.account}'.format(request=request))
+        proxy = self._lookup_sip_proxy(request.uri)
 
-            proxy = self._lookup_sip_proxy(request.uri)
+        # Create a new plugin handle and 'register' it, without actually doing so
+        handle_id = block_on(self.protocol.backend.janus_attach(self.janus_session_id, 'janus.plugin.sip'))
+        self.protocol.backend.janus_set_event_handler(handle_id, self._handle_janus_event_sip)
 
-            # Create a new plugin handle and 'register' it, without actually doing so
-            handle_id = block_on(self.protocol.backend.janus_attach(self.janus_session_id, 'janus.plugin.sip'))
-            self.protocol.backend.janus_set_event_handler(handle_id, self._handle_janus_event_sip)
+        try:
             data = dict(request='register', send_register=False, proxy=proxy, **account_info.user_data)
             block_on(self.protocol.backend.janus_message(self.janus_session_id, handle_id, data))
 
             data = dict(request='call', uri='sip:%s' % SIP_PREFIX_RE.sub('', request.uri), srtp='sdes_optional')
             jsep = dict(type='offer', sdp=request.sdp)
             block_on(self.protocol.backend.janus_message(self.janus_session_id, handle_id, data, jsep))
-
-            session_info = SIPSessionInfo(request.session)
-            session_info.janus_handle_id = handle_id
-            session_info.init_outgoing(request.account, request.uri)
-            self.sip_sessions.add(session_info)
-        except (APIError, DNSLookupError, JanusError) as e:
-            self.log.error('session-create: {exception!s}'.format(exception=e))
-            self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
-            if handle_id is not None:
+        except:
+            try:
                 block_on(self.protocol.backend.janus_detach(self.janus_session_id, handle_id))
-                self.protocol.backend.janus_set_event_handler(handle_id, None)
-        else:
-            self.log.info('created outgoing session {request.session} from {request.account} to {request.uri}'.format(request=request))
-            self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
+            except JanusError:
+                pass
+            self.protocol.backend.janus_set_event_handler(handle_id, None)
+            raise
+
+        session_info = SIPSessionInfo(request.session)
+        session_info.janus_handle_id = handle_id
+        session_info.init_outgoing(request.account, request.uri)
+        self.sip_sessions.add(session_info)
+
+        self.log.info('created outgoing session {request.session} from {request.account} to {request.uri}'.format(request=request))
 
     def _RH_session_answer(self, request):
         try:
-            try:
-                session_info = self.sip_sessions[request.session]
-            except KeyError:
-                raise APIError('Unknown session specified: {request.session}'.format(request=request))
+            session_info = self.sip_sessions[request.session]
+        except KeyError:
+            raise APIError('Unknown session specified: {request.session}'.format(request=request))
 
-            if session_info.direction != 'incoming':
-                raise APIError('Cannot answer outgoing session {request.session}'.format(request=request))
-            if session_info.state != 'connecting':
-                raise APIError('Invalid state for answering session {session.id}: {session.state}'.format(session=session_info))
+        if session_info.direction != 'incoming':
+            raise APIError('Cannot answer outgoing session {request.session}'.format(request=request))
+        if session_info.state != 'connecting':
+            raise APIError('Invalid state for answering session {session.id}: {session.state}'.format(session=session_info))
 
-            data = dict(request='accept')
-            jsep = dict(type='answer', sdp=request.sdp)
-            block_on(self.protocol.backend.janus_message(self.janus_session_id, session_info.janus_handle_id, data, jsep))
-        except (APIError, JanusError) as e:
-            self.log.error('session-answer: {exception!s}'.format(exception=e))
-            self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
-        else:
-            self.log.info('answered incoming session {session.id}'.format(session=session_info))
-            self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
+        data = dict(request='accept')
+        jsep = dict(type='answer', sdp=request.sdp)
+        block_on(self.protocol.backend.janus_message(self.janus_session_id, session_info.janus_handle_id, data, jsep))
+        self.log.info('answered incoming session {session.id}'.format(session=session_info))
 
     def _RH_session_trickle(self, request):
         try:
-            try:
-                session_info = self.sip_sessions[request.session]
-            except KeyError:
-                raise APIError('Unknown session specified: {request.session}'.format(request=request))
+            session_info = self.sip_sessions[request.session]
+        except KeyError:
+            raise APIError('Unknown session specified: {request.session}'.format(request=request))
 
-            if session_info.state == 'terminated':
-                raise APIError('Session {request.session} is terminated'.format(request=request))
+        if session_info.state == 'terminated':
+            raise APIError('Session {request.session} is terminated'.format(request=request))
 
-            candidates = [c.to_struct() for c in request.candidates]
+        candidates = [c.to_struct() for c in request.candidates]
 
-            block_on(self.protocol.backend.janus_trickle(self.janus_session_id, session_info.janus_handle_id, candidates))
-        except (APIError, JanusError) as e:
-            self.log.error('session-trickle: {exception!s}'.format(exception=e))
-            self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
-        else:
-            if not candidates:
-                self.log.debug('session {session.id} negotiated ICE'.format(session=session_info))
-            self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
+        block_on(self.protocol.backend.janus_trickle(self.janus_session_id, session_info.janus_handle_id, candidates))
+
+        if not candidates:
+            self.log.debug('session {session.id} negotiated ICE'.format(session=session_info))
 
     def _RH_session_terminate(self, request):
         try:
-            try:
-                session_info = self.sip_sessions[request.session]
-            except KeyError:
-                raise APIError('Unknown session specified: {request.session}'.format(request=request))
+            session_info = self.sip_sessions[request.session]
+        except KeyError:
+            raise APIError('Unknown session specified: {request.session}'.format(request=request))
 
-            if session_info.state not in ('connecting', 'progress', 'accepted', 'established'):
-                raise APIError('Invalid state for terminating session {session.id}: {session.state}'.format(session=session_info))
+        if session_info.state not in ('connecting', 'progress', 'accepted', 'established'):
+            raise APIError('Invalid state for terminating session {session.id}: {session.state}'.format(session=session_info))
 
-            if session_info.direction == 'incoming' and session_info.state == 'connecting':
-                data = dict(request='decline', code=486)
-            else:
-                data = dict(request='hangup')
-            block_on(self.protocol.backend.janus_message(self.janus_session_id, session_info.janus_handle_id, data))
-        except (APIError, JanusError) as e:
-            self.log.error('session-terminate: {exception!s}'.format(exception=e))
-            self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
+        if session_info.direction == 'incoming' and session_info.state == 'connecting':
+            data = dict(request='decline', code=486)
         else:
-            self.log.info('requested termination for session {session.id}'.format(session=session_info))
-            self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
+            data = dict(request='hangup')
+        block_on(self.protocol.backend.janus_message(self.janus_session_id, session_info.janus_handle_id, data))
+        self.log.info('requested termination for session {session.id}'.format(session=session_info))
 
     def _RH_videoroom_join(self, request):
-        videoroom = None
-        handle_id = None
+        if request.session in self.videoroom_sessions:
+            raise APIError('Session ID {request.session} already in use'.format(request=request))
 
         try:
-            if request.session in self.videoroom_sessions:
-                raise APIError('Session ID {request.session} already in use'.format(request=request))
+            account_info = self.accounts_map[request.account]
+        except KeyError:
+            raise APIError('Unknown account specified: {request.account}'.format(request=request))
 
-            try:
-                account_info = self.accounts_map[request.account]
-            except KeyError:
-                raise APIError('Unknown account specified: {request.account}'.format(request=request))
+        try:
+            videoroom = self.protocol.factory.videorooms[request.uri]
+        except KeyError:
+            videoroom = VideoRoom(request.uri)
+            self.protocol.factory.videorooms.add(videoroom)
 
-            try:
-                videoroom = self.protocol.factory.videorooms[request.uri]
-            except KeyError:
-                videoroom = VideoRoom(request.uri)
-                self.protocol.factory.videorooms.add(videoroom)
+        if not videoroom.allow_uri(request.account):
+            self._maybe_destroy_videoroom(videoroom)
+            raise APIError('{request.account} is not allowed to join room {request.uri}'.format(request=request))
 
-            if not videoroom.allow_uri(request.account):
-                raise APIError('{request.account} is not allowed to join room {request.uri}'.format(request=request))
-
+        try:
             handle_id = block_on(self.protocol.backend.janus_attach(self.janus_session_id, 'janus.plugin.videoroom'))
             self.protocol.backend.janus_set_event_handler(handle_id, self._handle_janus_event_videoroom)
 
-            # create the room if it doesn't exist
-            config = videoroom.config
-            data = dict(request='create', room=videoroom.id, publishers=10, bitrate=config.max_bitrate, videocodec=config.video_codec, record=config.record, rec_dir=config.recording_dir)
             try:
-                block_on(self.protocol.backend.janus_message(self.janus_session_id, handle_id, data))
-            except JanusError as e:
-                if e.code != 427:  # 427 means room already exists
-                    raise
+                # create the room if it doesn't exist
+                config = videoroom.config
+                data = dict(request='create', room=videoroom.id, publishers=10, bitrate=config.max_bitrate, videocodec=config.video_codec, record=config.record, rec_dir=config.recording_dir)
+                try:
+                    block_on(self.protocol.backend.janus_message(self.janus_session_id, handle_id, data))
+                except JanusError as e:
+                    if e.code != 427:  # 427 means room already exists
+                        raise
 
-            # join the room
-            data = dict(request='joinandconfigure', room=videoroom.id, ptype='publisher', audio=True, video=True)
-            if account_info.display_name:
-                data.update(display=account_info.display_name)
-            jsep = dict(type='offer', sdp=request.sdp)
-            block_on(self.protocol.backend.janus_message(self.janus_session_id, handle_id, data, jsep))
-
-            videoroom_session = VideoRoomSessionInfo(request.session, owner=self)
-            videoroom_session.janus_handle_id = handle_id
-            videoroom_session.initialize(request.account, 'publisher', videoroom)
-            self.videoroom_sessions.add(videoroom_session)
-        except (APIError, JanusError) as e:
-            self.log.error('videoroom-join: {exception!s}'.format(exception=e))
-            self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
-            if handle_id is not None:
-                block_on(self.protocol.backend.janus_detach(self.janus_session_id, handle_id))
+                # join the room
+                data = dict(request='joinandconfigure', room=videoroom.id, ptype='publisher', audio=True, video=True)
+                if account_info.display_name:
+                    data.update(display=account_info.display_name)
+                jsep = dict(type='offer', sdp=request.sdp)
+                block_on(self.protocol.backend.janus_message(self.janus_session_id, handle_id, data, jsep))
+            except:
+                try:
+                    block_on(self.protocol.backend.janus_detach(self.janus_session_id, handle_id))
+                except JanusError:
+                    pass
                 self.protocol.backend.janus_set_event_handler(handle_id, None)
+                raise
+        except:
             self._maybe_destroy_videoroom(videoroom)
-        else:
-            self.log.info('created session {request.session} from account {request.account} to video room {request.uri}'.format(request=request))
-            self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
-            data = dict(sylkrtc='videoroom_event', session=videoroom_session.id, event='state', data=dict(state='progress'))
-            self._send_data(json.dumps(data))
+            raise
+
+        videoroom_session = VideoRoomSessionInfo(request.session, owner=self)
+        videoroom_session.janus_handle_id = handle_id
+        videoroom_session.initialize(request.account, 'publisher', videoroom)
+        self.videoroom_sessions.add(videoroom_session)
+
+        data = dict(sylkrtc='videoroom_event', session=videoroom_session.id, event='state', data=dict(state='progress'))
+        self._send_data(json.dumps(data))
+
+        self.log.info('created session {request.session} from account {request.account} to video room {request.uri}'.format(request=request))
 
     def _RH_videoroom_ctl(self, request):
-        try:
-            option_name = request.option.replace('-', '_')
-            if getattr(request, option_name) is None:
-                raise APIError('missing {!r} field in request'.format(option_name))
-            sub_handler = getattr(self, '_RH_videoroom_ctl_{}'.format(option_name))
-            sub_handler(request)
-        except (APIError, JanusError) as e:
-            self.log.error('videoroom-ctl: {exception!s}'.format(exception=e))
-            self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
-        else:
-            self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
+        option_name = request.option.replace('-', '_')
+        if getattr(request, option_name) is None:
+            raise APIError('missing {!r} field in request'.format(option_name))
+        sub_handler = getattr(self, '_RH_videoroom_ctl_{}'.format(option_name))
+        sub_handler(request)
 
     def _RH_videoroom_ctl_configure_room(self, request):
         try:
@@ -935,7 +890,7 @@ class ConnectionHandler(object):
         try:
             data = dict(request='join', room=base_session.room.id, ptype='listener', feed=publisher_session.publisher_id)
             block_on(self.protocol.backend.janus_message(self.janus_session_id, handle_id, data))
-        except JanusError:
+        except:
             try:
                 block_on(self.protocol.backend.janus_detach(self.janus_session_id, handle_id))
             except JanusError:
@@ -1005,23 +960,21 @@ class ConnectionHandler(object):
 
     def _RH_videoroom_terminate(self, request):
         try:
-            try:
-                videoroom_session = self.videoroom_sessions[request.session]
-            except KeyError:
-                raise APIError('Unknown video room session: {request.session}'.format(request=request))
-            data = dict(request='leave')
-            block_on(self.protocol.backend.janus_message(self.janus_session_id, videoroom_session.janus_handle_id, data))
-        except (APIError, JanusError) as e:
-            self.log.error('videoroom-terminate: {exception!s}'.format(exception=e))
-            self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
-        else:
-            self.log.info('requesting termination for video room session {request.session}'.format(request=request))
-            self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
-            data = dict(sylkrtc='videoroom_event', session=videoroom_session.id, event='state', data=dict(state='terminated'))
-            self._send_data(json.dumps(data))
-            # safety net in case we do not get any answer for the leave request
-            # todo: to be adjusted later after pseudo-synchronous communication with janus is implemented
-            reactor.callLater(2, call_in_green_thread, self._cleanup_videoroom_session, videoroom_session)
+            videoroom_session = self.videoroom_sessions[request.session]
+        except KeyError:
+            raise APIError('Unknown video room session: {request.session}'.format(request=request))
+
+        data = dict(request='leave')
+        block_on(self.protocol.backend.janus_message(self.janus_session_id, videoroom_session.janus_handle_id, data))
+
+        data = dict(sylkrtc='videoroom_event', session=videoroom_session.id, event='state', data=dict(state='terminated'))
+        self._send_data(json.dumps(data))
+
+        # safety net in case we do not get any answer for the leave request
+        # todo: to be adjusted later after pseudo-synchronous communication with janus is implemented
+        reactor.callLater(2, call_in_green_thread, self._cleanup_videoroom_session, videoroom_session)
+
+        self.log.info('requested termination for video room session {request.session}'.format(request=request))
 
     # Event handlers
 
