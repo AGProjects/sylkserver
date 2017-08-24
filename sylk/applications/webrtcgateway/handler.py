@@ -6,7 +6,7 @@ import re
 import time
 import uuid
 
-from application.python import Null, limit
+from application.python import limit
 from application.python.weakref import defaultweakobjectmap
 from application.system import makedirs
 from eventlib import coros, proc
@@ -15,6 +15,7 @@ from sipsimple.configuration.settings import SIPSimpleSettings
 from sipsimple.core import SIPURI
 from sipsimple.lookup import DNSLookup, DNSLookupError
 from sipsimple.threading.green import call_in_green_thread, run_in_green_thread
+from string import maketrans
 from twisted.internet import reactor
 
 from sylk.applications.webrtcgateway.configuration import GeneralConfig, get_room_config
@@ -365,11 +366,24 @@ class SessionContainer(object):
         return item in self._id_map or item in self._sessions
 
 
-class Operation(object):
-    __slots__ = 'name', 'data'
+class OperationName(str):
+    __normalizer__ = maketrans('-', '_')
 
-    def __init__(self, name, data):
-        self.name = name
+    @property
+    def normalized(self):
+        return self.translate(self.__normalizer__)
+
+
+class Operation(object):
+    __slots__ = 'type', 'name', 'data'
+    __types__ = 'Request', 'Event'
+
+    # noinspection PyShadowingBuiltins
+    def __init__(self, type, name, data):
+        if type not in self.__types__:
+            raise ValueError("Can't instantiate class {.__class__.__name__} with unknown type: {!r}".format(self, type))
+        self.type = type
+        self.name = OperationName(name)
         self.data = data
 
 
@@ -450,8 +464,8 @@ class ConnectionHandler(object):
             if transaction:
                 self._send_response(sylkrtc.ErrorResponse(transaction=transaction, error=str(e)))
             return
-        op = Operation(request_type, request)
-        self.operations_queue.send(op)
+        operation = Operation(type='Request', name=request_type, data=request)
+        self.operations_queue.send(operation)
 
     def handle_conference_invite(self, originator, room, invited_uris):
         for account_id in set(self.accounts_map).intersection(invited_uris):
@@ -571,26 +585,36 @@ class ConnectionHandler(object):
     def _handle_janus_event_sip(self, handle_id, event_type, event):
         # TODO: use a model
         self.log.debug('janus SIP event: type={event_type} handle_id={handle_id} event={event}'.format(event_type=event_type, handle_id=handle_id, event=event))
-        op = Operation('janus-event-sip', data=dict(handle_id=handle_id, event_type=event_type, event=event))
-        self.operations_queue.send(op)
+        operation = Operation(type='Event', name='janus-event-sip', data=dict(handle_id=handle_id, event_type=event_type, event=event))
+        self.operations_queue.send(operation)
 
     def _handle_janus_event_videoroom(self, handle_id, event_type, event):
         # TODO: use a model
         self.log.debug('janus video room event: type={event_type} handle_id={handle_id} event={event}'.format(event_type=event_type, handle_id=handle_id, event=event))
-        op = Operation('janus-event-videoroom', data=dict(handle_id=handle_id, event_type=event_type, event=event))
-        self.operations_queue.send(op)
+        operation = Operation(type='Event', name='janus-event-videoroom', data=dict(handle_id=handle_id, event_type=event_type, event=event))
+        self.operations_queue.send(operation)
 
     def _operations_handler(self):
         while True:
-            op = self.operations_queue.wait()
-            handler = getattr(self, '_OH_%s' % op.name.replace('-', '_'), Null)
+            operation = self.operations_queue.wait()
+            handler = getattr(self, '_OH_' + operation.type)
             try:
-                handler(op.data)
+                handler(operation)
             except Exception as e:
-                self.log.exception('unhandled exception in operation {operation.name!r}: {exception!s}'.format(operation=op, exception=e))
-            del op, handler
+                self.log.exception('unhandled exception in operation {operation.type} {operation.name}: {exception!s}'.format(operation=operation, exception=e))
+            del operation, handler
 
-    def _OH_account_add(self, request):
+    def _OH_Request(self, operation):
+        handler = getattr(self, '_RH_' + operation.name.normalized)
+        handler(operation.data)
+
+    def _OH_Event(self, operation):
+        handler = getattr(self, '_EH_' + operation.name.normalized)
+        handler(operation.data)
+
+    # Request handlers
+
+    def _RH_account_add(self, request):
         try:
             if request.account in self.accounts_map:
                 raise APIError('Account {request.account} already added'.format(request=request))
@@ -610,7 +634,7 @@ class ConnectionHandler(object):
             self.log.info('added account {request.account} using {request.user_agent}'.format(request=request))
             self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
 
-    def _OH_account_remove(self, request):
+    def _RH_account_remove(self, request):
         try:
             try:
                 account_info = self.accounts_map.pop(request.account)
@@ -630,7 +654,7 @@ class ConnectionHandler(object):
             self.log.info('removed account {request.account}'.format(request=request))
             self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
 
-    def _OH_account_register(self, request):
+    def _RH_account_register(self, request):
         try:
             try:
                 account_info = self.accounts_map[request.account]
@@ -661,7 +685,7 @@ class ConnectionHandler(object):
         else:
             self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
 
-    def _OH_account_unregister(self, request):
+    def _RH_account_unregister(self, request):
         try:
             try:
                 account_info = self.accounts_map[request.account]
@@ -681,7 +705,7 @@ class ConnectionHandler(object):
             self.log.info('unregistered {request.account} from receiving incoming calls'.format(request=request))
             self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
 
-    def _OH_account_devicetoken(self, request):
+    def _RH_account_devicetoken(self, request):
         try:
             if request.account not in self.accounts_map:
                 raise APIError('Unknown account specified: {request.account}'.format(request=request))
@@ -698,7 +722,7 @@ class ConnectionHandler(object):
         else:
             self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
 
-    def _OH_session_create(self, request):
+    def _RH_session_create(self, request):
         handle_id = None
 
         try:
@@ -736,7 +760,7 @@ class ConnectionHandler(object):
             self.log.info('created outgoing session {request.session} from {request.account} to {request.uri}'.format(request=request))
             self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
 
-    def _OH_session_answer(self, request):
+    def _RH_session_answer(self, request):
         try:
             try:
                 session_info = self.sip_sessions[request.session]
@@ -758,7 +782,7 @@ class ConnectionHandler(object):
             self.log.info('answered incoming session {session.id}'.format(session=session_info))
             self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
 
-    def _OH_session_trickle(self, request):
+    def _RH_session_trickle(self, request):
         try:
             try:
                 session_info = self.sip_sessions[request.session]
@@ -779,7 +803,7 @@ class ConnectionHandler(object):
                 self.log.debug('session {session.id} negotiated ICE'.format(session=session_info))
             self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
 
-    def _OH_session_terminate(self, request):
+    def _RH_session_terminate(self, request):
         try:
             try:
                 session_info = self.sip_sessions[request.session]
@@ -801,7 +825,7 @@ class ConnectionHandler(object):
             self.log.info('requested termination for session {session.id}'.format(session=session_info))
             self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
 
-    def _OH_videoroom_join(self, request):
+    def _RH_videoroom_join(self, request):
         videoroom = None
         handle_id = None
 
@@ -859,12 +883,12 @@ class ConnectionHandler(object):
             data = dict(sylkrtc='videoroom_event', session=videoroom_session.id, event='state', data=dict(state='progress'))
             self._send_data(json.dumps(data))
 
-    def _OH_videoroom_ctl(self, request):
+    def _RH_videoroom_ctl(self, request):
         try:
             option_name = request.option.replace('-', '_')
             if getattr(request, option_name) is None:
                 raise APIError('missing {!r} field in request'.format(option_name))
-            sub_handler = getattr(self, '_OH_videoroom_ctl_{}'.format(option_name))
+            sub_handler = getattr(self, '_RH_videoroom_ctl_{}'.format(option_name))
             sub_handler(request)
         except (APIError, JanusError) as e:
             self.log.error('videoroom-ctl: {exception!s}'.format(exception=e))
@@ -872,7 +896,7 @@ class ConnectionHandler(object):
         else:
             self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
 
-    def _OH_videoroom_ctl_configure_room(self, request):
+    def _RH_videoroom_ctl_configure_room(self, request):
         try:
             videoroom_session = self.videoroom_sessions[request.session]
         except KeyError:
@@ -886,7 +910,7 @@ class ConnectionHandler(object):
         for session in videoroom:
             session.owner.notify(sylkrtc.VideoRoomConfigurationEvent(session=session.id, active_participants=videoroom.active_participants, originator=request.session))
 
-    def _OH_videoroom_ctl_feed_attach(self, request):
+    def _RH_videoroom_ctl_feed_attach(self, request):
         if request.feed_attach.session in self.videoroom_sessions:
             raise APIError('feed-attach: video room session ID {request.feed_attach.session} already in use'.format(request=request))
 
@@ -927,7 +951,7 @@ class ConnectionHandler(object):
         self.videoroom_sessions.add(videoroom_session)
         base_session.feeds.add(publisher_session)
 
-    def _OH_videoroom_ctl_feed_answer(self, request):
+    def _RH_videoroom_ctl_feed_answer(self, request):
         try:
             videoroom_session = self.videoroom_sessions[request.feed_answer.session]
         except KeyError:
@@ -936,7 +960,7 @@ class ConnectionHandler(object):
         jsep = dict(type='answer', sdp=request.feed_answer.sdp)
         block_on(self.protocol.backend.janus_message(self.janus_session_id, videoroom_session.janus_handle_id, data, jsep))
 
-    def _OH_videoroom_ctl_feed_detach(self, request):
+    def _RH_videoroom_ctl_feed_detach(self, request):
         try:
             videoroom_session = self.videoroom_sessions[request.feed_detach.session]
         except KeyError:
@@ -947,7 +971,7 @@ class ConnectionHandler(object):
         block_on(self.protocol.backend.janus_message(self.janus_session_id, videoroom_session.janus_handle_id, data))
         self._cleanup_videoroom_session(videoroom_session)
 
-    def _OH_videoroom_ctl_invite_participants(self, request):
+    def _RH_videoroom_ctl_invite_participants(self, request):
         try:
             base_session = self.videoroom_sessions[request.session]
             account_info = self.accounts_map[base_session.account_id]
@@ -956,7 +980,7 @@ class ConnectionHandler(object):
         for protocol in self.protocol.factory.connections.difference([self.protocol]):
             protocol.connection_handler.handle_conference_invite(account_info, base_session.room, request.invite_participants.participants)
 
-    def _OH_videoroom_ctl_trickle(self, request):
+    def _RH_videoroom_ctl_trickle(self, request):
         session = request.trickle.session or request.session
         try:
             videoroom_session = self.videoroom_sessions[session]
@@ -967,7 +991,7 @@ class ConnectionHandler(object):
         if not candidates and videoroom_session.type == 'publisher':
             self.log.debug('video room session {session.id} negotiated ICE'.format(session=videoroom_session))
 
-    def _OH_videoroom_ctl_update(self, request):
+    def _RH_videoroom_ctl_update(self, request):
         try:
             videoroom_session = self.videoroom_sessions[request.session]
         except KeyError:
@@ -979,7 +1003,7 @@ class ConnectionHandler(object):
             modified = ', '.join('{}={}'.format(key, update_data[key]) for key in update_data)
             self.log.info('updated video room session {request.session} with {modified}'.format(request=request, modified=modified))
 
-    def _OH_videoroom_terminate(self, request):
+    def _RH_videoroom_terminate(self, request):
         try:
             try:
                 videoroom_session = self.videoroom_sessions[request.session]
@@ -1001,7 +1025,7 @@ class ConnectionHandler(object):
 
     # Event handlers
 
-    def _OH_janus_event_sip(self, data):
+    def _EH_janus_event_sip(self, data):
         handle_id = data['handle_id']
         event_type = data['event_type']
         event = data['event']
@@ -1165,7 +1189,7 @@ class ConnectionHandler(object):
         else:
             self.log.warning('unexpected SIP plugin event type: %s' % event_type)
 
-    def _OH_janus_event_videoroom(self, data):
+    def _EH_janus_event_videoroom(self, data):
         handle_id = data['handle_id']
         event_type = data['event_type']
 
