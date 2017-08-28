@@ -598,10 +598,7 @@ class ConnectionHandler(object):
         while True:
             operation = self.operations_queue.wait()
             handler = getattr(self, '_OH_' + operation.type)
-            try:
-                handler(operation)
-            except Exception as e:
-                self.log.exception('unhandled exception in operation {operation.type} {operation.name}: {exception!s}'.format(operation=operation, exception=e))
+            handler(operation)
             del operation, handler
 
     def _OH_request(self, operation):
@@ -612,12 +609,18 @@ class ConnectionHandler(object):
         except (APIError, DNSLookupError, JanusError) as e:
             self.log.error('{operation.name}: {exception!s}'.format(operation=operation, exception=e))
             self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
+        except Exception as e:
+            self.log.exception('{operation.type} {operation.name}: {exception!s}'.format(operation=operation, exception=e))
+            self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error='Internal error'))
         else:
             self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
 
     def _OH_event(self, operation):
         handler = getattr(self, '_EH_' + operation.name.normalized)
-        handler(operation.data)
+        try:
+            handler(operation.data)
+        except Exception as e:
+            self.log.exception('{operation.type} {operation.name}: {exception!s}'.format(operation=operation, exception=e))
 
     # Request handlers
 
