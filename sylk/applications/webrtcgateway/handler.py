@@ -376,7 +376,7 @@ class OperationName(str):
 
 class Operation(object):
     __slots__ = 'type', 'name', 'data'
-    __types__ = 'Request', 'Event'
+    __types__ = 'request', 'event'
 
     # noinspection PyShadowingBuiltins
     def __init__(self, type, name, data):
@@ -464,7 +464,7 @@ class ConnectionHandler(object):
             if transaction:
                 self._send_response(sylkrtc.ErrorResponse(transaction=transaction, error=str(e)))
             return
-        operation = Operation(type='Request', name=request_type, data=request)
+        operation = Operation(type='request', name=request_type, data=request)
         self.operations_queue.send(operation)
 
     def handle_conference_invite(self, originator, room, invited_uris):
@@ -585,13 +585,13 @@ class ConnectionHandler(object):
     def _handle_janus_event_sip(self, handle_id, event_type, event):
         # TODO: use a model
         self.log.debug('janus SIP event: type={event_type} handle_id={handle_id} event={event}'.format(event_type=event_type, handle_id=handle_id, event=event))
-        operation = Operation(type='Event', name='janus-event-sip', data=dict(handle_id=handle_id, event_type=event_type, event=event))
+        operation = Operation(type='event', name='janus-event-sip', data=dict(handle_id=handle_id, event_type=event_type, event=event))
         self.operations_queue.send(operation)
 
     def _handle_janus_event_videoroom(self, handle_id, event_type, event):
         # TODO: use a model
         self.log.debug('janus video room event: type={event_type} handle_id={handle_id} event={event}'.format(event_type=event_type, handle_id=handle_id, event=event))
-        operation = Operation(type='Event', name='janus-event-videoroom', data=dict(handle_id=handle_id, event_type=event_type, event=event))
+        operation = Operation(type='event', name='janus-event-videoroom', data=dict(handle_id=handle_id, event_type=event_type, event=event))
         self.operations_queue.send(operation)
 
     def _operations_handler(self):
@@ -604,7 +604,7 @@ class ConnectionHandler(object):
                 self.log.exception('unhandled exception in operation {operation.type} {operation.name}: {exception!s}'.format(operation=operation, exception=e))
             del operation, handler
 
-    def _OH_Request(self, operation):
+    def _OH_request(self, operation):
         handler = getattr(self, '_RH_' + operation.name.normalized)
         request = operation.data
         try:
@@ -615,7 +615,7 @@ class ConnectionHandler(object):
         else:
             self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
 
-    def _OH_Event(self, operation):
+    def _OH_event(self, operation):
         handler = getattr(self, '_EH_' + operation.name.normalized)
         handler(operation.data)
 
