@@ -28,8 +28,6 @@ from sylk.applications.webrtcgateway.util import GreenEvent
 
 SIP_PREFIX_RE = re.compile('^sips?:')
 
-sylkrtc_models = {model.sylkrtc.value: model for model in vars(sylkrtc).values() if hasattr(model, 'sylkrtc') and issubclass(model, sylkrtc.SylkRTCRequestBase)}
-
 
 class AccountInfo(object):
     def __init__(self, id, password, display_name=None, user_agent=None):
@@ -443,28 +441,18 @@ class ConnectionHandler(object):
         self.janus_session_id = None
         self.protocol = None
 
-    def handle_message(self, data):
+    def handle_message(self, message):
         try:
-            request_type = data.pop('sylkrtc')
-        except KeyError:
-            self.log.error('could not get WebSocket message type')
-            return
-        try:
-            model = sylkrtc_models[request_type]
-        except KeyError:
-            self.log.error('unknown WebSocket request type: %s' % request_type)
-            return
-        try:
-            request = model(**data)
-            request.validate()
+            request = sylkrtc.SylkRTCRequest.from_message(message)
+        except sylkrtc.ProtocolError as e:
+            self.log.error(str(e))
         except Exception as e:
-            self.log.error('%s: %s' % (request_type, e))
-            transaction = data.get('transaction')  # we cannot rely on request.transaction as request may not have been created
-            if transaction:
-                self._send_response(sylkrtc.ErrorResponse(transaction=transaction, error=str(e)))
-            return
-        operation = Operation(type='request', name=request_type, data=request)
-        self.operations_queue.send(operation)
+            self.log.error('{request_type}: {exception!s}'.format(request_type=message['sylkrtc'], exception=e))
+            if 'transaction' in message:
+                self._send_response(sylkrtc.ErrorResponse(transaction=message['transaction'], error=str(e)))
+        else:
+            operation = Operation(type='request', name=request.sylkrtc, data=request)
+            self.operations_queue.send(operation)
 
     def handle_conference_invite(self, originator, room, invited_uris):
         for account_id in set(self.accounts_map).intersection(invited_uris):
