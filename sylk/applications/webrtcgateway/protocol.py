@@ -51,8 +51,7 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
             self.connection_handler.handle_message(data)
 
     def onClose(self, clean, code, reason):
-        if self.connection_handler is None:
-            # Very early connection closed, onOpen wasn't even called
+        if self.connection_handler is None:  # Connection was closed very early before onOpen was even called
             return
         self.connection_handler.log.info('disconnected')
         self.factory.connections.discard(self)
