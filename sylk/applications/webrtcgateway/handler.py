@@ -449,7 +449,6 @@ class ConnectionHandler(object):
         except KeyError:
             self.log.error('could not get WebSocket message type')
             return
-        self.ready_event.wait()
         try:
             model = sylkrtc_models[request_type]
         except KeyError:
@@ -595,6 +594,7 @@ class ConnectionHandler(object):
         self.operations_queue.send(operation)
 
     def _operations_handler(self):
+        self.ready_event.wait()
         while True:
             operation = self.operations_queue.wait()
             handler = getattr(self, '_OH_' + operation.type)
