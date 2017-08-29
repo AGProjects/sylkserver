@@ -1,4 +1,5 @@
 
+from application.python import subclasses
 from collections import OrderedDict
 from jsonmodels import models, fields, errors, validators
 from sipsimple.core import SIPURI, SIPCoreError
@@ -7,7 +8,8 @@ from sipsimple.core import SIPURI, SIPCoreError
 __all__ = ('AccountAddRequest', 'AccountRemoveRequest', 'AccountRegisterRequest', 'AccountUnregisterRequest',
            'SessionCreateRequest', 'SessionAnswerRequest', 'SessionTrickleRequest', 'SessionTerminateRequest',
            'AckResponse', 'ErrorResponse',
-           'ReadyEvent', 'VideoRoomConfigurationEvent')
+           'ReadyEvent', 'VideoRoomConfigurationEvent',
+           'SylkRTCRequest', 'ProtocolError')
 
 
 # Validators
@@ -232,3 +234,27 @@ class VideoRoomControlRequest(VideoRoomRequestBase):
 
 class VideoRoomTerminateRequest(VideoRoomRequestBase):
     sylkrtc = FixedValueField('videoroom-terminate')
+
+
+# SylkRTC request to model mapping
+
+class ProtocolError(Exception):
+    pass
+
+
+class SylkRTCRequest(object):
+    __classmap__ = {cls.sylkrtc.value: cls for cls in subclasses(SylkRTCRequestBase) if hasattr(cls, 'sylkrtc')}
+
+    @classmethod
+    def from_message(cls, message):
+        try:
+            request_type = message['sylkrtc']
+        except KeyError:
+            raise ProtocolError('could not get WebSocket message type')
+        try:
+            request_class = cls.__classmap__[request_type]
+        except KeyError:
+            raise ProtocolError('unknown WebSocket request: %s' % request_type)
+        request = request_class(**message)
+        request.validate()
+        return request
