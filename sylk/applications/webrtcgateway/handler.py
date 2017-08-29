@@ -536,9 +536,9 @@ class ConnectionHandler(object):
         except Exception as e:
             self.log.warning('could not create session, disconnecting: %s' % e)
             self.protocol.disconnect(3000, unicode(e))
-            return
-        self._send_response(sylkrtc.ReadyEvent())
-        self.ready_event.set()
+        else:
+            self._send_response(sylkrtc.ReadyEvent())
+            self.ready_event.set()
 
     def _lookup_sip_proxy(self, uri):
         # The proxy dance: Sofia-SIP seems to do a DNS lookup per SIP message when a domain is passed

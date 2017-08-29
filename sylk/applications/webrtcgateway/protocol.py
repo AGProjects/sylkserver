@@ -47,8 +47,8 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
             data = json.loads(payload)
         except Exception as e:
             self.connection_handler.log.error('could not parse WebSocket payload: {exception!s}'.format(exception=e))
-            return
-        self.connection_handler.handle_message(data)
+        else:
+            self.connection_handler.handle_message(data)
 
     def onClose(self, clean, code, reason):
         if self.connection_handler is None:
