@@ -530,9 +530,6 @@ class ConnectionHandler(object):
 
     @run_in_green_thread
     def _create_janus_session(self):
-        if self.ready_event.is_set():
-            self._send_response(sylkrtc.ReadyEvent())
-            return
         try:
             self.janus_session_id = block_on(self.protocol.backend.janus_create_session())
             self.protocol.backend.janus_start_keepalive(self.janus_session_id)
