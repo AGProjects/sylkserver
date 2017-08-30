@@ -437,25 +437,23 @@ class ConnectionHandler(object):
             self.proc.kill()        # Also proc.kill() will switch to another green thread, which is another reason to do it first so that
             self.proc = None        # we do not switch to another green thread in the middle of the cleanup with a partially deleted handler
         if self.ready_event.is_set():
+            # Do not explicitly detach the janus plugin handles before destroying the janus session. Janus runs each request in a different
+            # thread, so making detach and destroy request without waiting for the detach to finish can result in errors from race conditions.
+            # Because we do not want to wait for them, we will rely instead on the fact that janus automatically detaches the plugin handles
+            # when it destroys a session, so we only remove our event handlers and issue a destroy request for the session.
             for account_info in self.accounts_map.values():
-                handle_id = account_info.janus_handle_id
-                if handle_id is not None:
-                    self.protocol.backend.janus_detach(self.janus_session_id, handle_id)
-                    self.protocol.backend.janus_set_event_handler(handle_id, None)
+                if account_info.janus_handle_id is not None:
+                    self.protocol.backend.janus_set_event_handler(account_info.janus_handle_id, None)
             for session in self.sip_sessions:
-                handle_id = session.janus_handle_id
-                if handle_id is not None:
-                    self.protocol.backend.janus_detach(self.janus_session_id, handle_id)
-                    self.protocol.backend.janus_set_event_handler(handle_id, None)
+                if session.janus_handle_id is not None:
+                    self.protocol.backend.janus_set_event_handler(session.janus_handle_id, None)
             for session in self.videoroom_sessions:
-                handle_id = session.janus_handle_id
-                if handle_id is not None:
-                    self.protocol.backend.janus_detach(self.janus_session_id, handle_id)
-                    self.protocol.backend.janus_set_event_handler(handle_id, None)
+                if session.janus_handle_id is not None:
+                    self.protocol.backend.janus_set_event_handler(session.janus_handle_id, None)
                 session.room.discard(session)
                 session.feeds.clear()
             self.protocol.backend.janus_stop_keepalive(self.janus_session_id)
-            self.protocol.backend.janus_destroy_session(self.janus_session_id)
+            self.protocol.backend.janus_destroy_session(self.janus_session_id)  # this automatically detaches all plugin handles associated with it, not need to manually do it
         # cleanup
         self.ready_event.clear()
         self.accounts_map.clear()
