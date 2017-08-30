@@ -404,8 +404,17 @@ class ConnectionHandler(object):
         self.operations_queue = coros.queue()
         self.log = ConnectionLogger(self)
 
+    @run_in_green_thread
     def start(self):
-        self._create_janus_session()
+        try:
+            self.janus_session_id = block_on(self.protocol.backend.janus_create_session())
+            self.protocol.backend.janus_start_keepalive(self.janus_session_id)
+        except Exception as e:
+            self.log.warning('could not create session, disconnecting: %s' % e)
+            self.protocol.disconnect(3000, unicode(e))
+        else:
+            self._send_response(sylkrtc.ReadyEvent())
+            self.ready_event.set()
 
     def stop(self):
         if self.proc is not None:  # Kill the operation's handler proc first, in order to not have any operations active while we cleanup.
@@ -527,18 +536,6 @@ class ConnectionHandler(object):
             self.protocol.backend.janus_set_event_handler(handle_id, None)
 
             videoroom.log.info('destroyed')
-
-    @run_in_green_thread
-    def _create_janus_session(self):
-        try:
-            self.janus_session_id = block_on(self.protocol.backend.janus_create_session())
-            self.protocol.backend.janus_start_keepalive(self.janus_session_id)
-        except Exception as e:
-            self.log.warning('could not create session, disconnecting: %s' % e)
-            self.protocol.disconnect(3000, unicode(e))
-        else:
-            self._send_response(sylkrtc.ReadyEvent())
-            self.ready_event.set()
 
     def _lookup_sip_proxy(self, uri):
         # The proxy dance: Sofia-SIP seems to do a DNS lookup per SIP message when a domain is passed
