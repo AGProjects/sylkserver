@@ -421,7 +421,6 @@ class ConnectionHandler(object):
             self.proc.kill()        # Also proc.kill() will switch to another green thread, which is another reason to do it first so that
             self.proc = None        # we do not switch to another green thread in the middle of the cleanup with a partially deleted handler
         if self.ready_event.is_set():
-            assert self.janus_session_id is not None
             for account_info in self.accounts_map.values():
                 handle_id = account_info.janus_handle_id
                 if handle_id is not None:
