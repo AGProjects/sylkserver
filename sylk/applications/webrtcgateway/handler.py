@@ -403,20 +403,36 @@ class ConnectionHandler(object):
         self.proc = proc.spawn(self._operations_handler)
         self.operations_queue = coros.queue()
         self.log = ConnectionLogger(self)
+        self.state = None
+        self._stop_pending = False
 
     @run_in_green_thread
     def start(self):
+        self.state = 'starting'
         try:
             self.janus_session_id = block_on(self.protocol.backend.janus_create_session())
             self.protocol.backend.janus_start_keepalive(self.janus_session_id)
         except Exception as e:
+            self.state = 'failed'
             self.log.warning('could not create session, disconnecting: %s' % e)
-            self.protocol.disconnect(3000, unicode(e))
+            if self._stop_pending:  # if stop was already called it means we were already disconnected
+                self.stop()
+            else:
+                self.protocol.disconnect(3000, unicode(e))
         else:
-            self._send_response(sylkrtc.ReadyEvent())
+            self.state = 'started'
             self.ready_event.set()
+            if self._stop_pending:
+                self.stop()
+            else:
+                self._send_response(sylkrtc.ReadyEvent())
 
     def stop(self):
+        if self.state in (None, 'starting'):
+            self._stop_pending = True
+            return
+        self.state = 'stopping'
+        self._stop_pending = False
         if self.proc is not None:  # Kill the operation's handler proc first, in order to not have any operations active while we cleanup.
             self.proc.kill()        # Also proc.kill() will switch to another green thread, which is another reason to do it first so that
             self.proc = None        # we do not switch to another green thread in the middle of the cleanup with a partially deleted handler
@@ -448,6 +464,7 @@ class ConnectionHandler(object):
         self.videoroom_sessions.clear()
         self.janus_session_id = None
         self.protocol = None
+        self.state = 'stopped'
 
     def handle_message(self, message):
         try:
