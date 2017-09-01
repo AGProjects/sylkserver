@@ -167,9 +167,9 @@ class JanusClientProtocol(WebSocketClientProtocol):
 
     def _janus_keepalive_cb(self, result, session_id):
         if isinstance(result, Failure):
-            self.janus_stop_keepalive(session_id)
-            return
-        self._janus_keepalive_timers[session_id] = reactor.callLater(self._janus_keepalive_interval, self._janus_send_keepalive, session_id)
+            self._janus_keepalive_timers.pop(session_id)
+        else:
+            self._janus_keepalive_timers[session_id] = reactor.callLater(self._janus_keepalive_interval, self._janus_send_keepalive, session_id)
 
     def _janus_send_keepalive(self, session_id):
         req = JanusRequest('keepalive', session_id=session_id)
