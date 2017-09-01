@@ -165,7 +165,7 @@ class JanusClientProtocol(WebSocketClientProtocol):
             req.candidate = {'completed': True}
         return self._janus_send_request(req)
 
-    def _janus_keepalive_cb(self, result, session_id):
+    def _janus_keepalive_callback(self, result, session_id):
         if isinstance(result, Failure):
             self._janus_keepalive_timers.pop(session_id)
         else:
@@ -174,7 +174,7 @@ class JanusClientProtocol(WebSocketClientProtocol):
     def _janus_send_keepalive(self, session_id):
         req = JanusRequest('keepalive', session_id=session_id)
         d = self._janus_send_request(req)
-        d.addBoth(self._janus_keepalive_cb, session_id)
+        d.addBoth(self._janus_keepalive_callback, session_id)
         return d
 
     def janus_start_keepalive(self, session_id):
