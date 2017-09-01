@@ -116,6 +116,9 @@ class JanusClientProtocol(WebSocketClientProtocol):
     def _send_request(self, request):
         deferred = defer.Deferred()
         data = json.dumps(request.as_dict())
+        if request.type != 'keepalive' and 'session_id' in data:  # postpone keepalive messages as long as we have non-keepalive traffic for a given session
+            keepalive_timer = self._keepalive_timers.get(request.session_id, Null)
+            keepalive_timer.reset(self._keepalive_interval)
         self.notification_center.post_notification('WebRTCJanusTrace', sender=self, data=NotificationData(direction='OUTGOING', message=data, peer=self.peer))
         self.sendMessage(data)
         self._pending_transactions[request.transaction_id] = (request, deferred)
