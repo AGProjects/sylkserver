@@ -182,9 +182,8 @@ class JanusClientProtocol(WebSocketClientProtocol):
         self._janus_keepalive_timers[session_id] = reactor.callLater(self._janus_keepalive_interval, self._janus_send_keepalive, session_id)
 
     def _janus_stop_keepalive(self, session_id):
-        timer = self._janus_keepalive_timers.pop(session_id, None)
-        if timer is not None and timer.active():
-            timer.cancel()
+        timer = self._janus_keepalive_timers.pop(session_id, Null)
+        timer.cancel()
 
 
 class JanusClientFactory(ReconnectingClientFactory, WebSocketClientFactory):
