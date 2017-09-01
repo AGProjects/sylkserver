@@ -413,7 +413,6 @@ class ConnectionHandler(object):
         self.state = 'starting'
         try:
             self.janus_session_id = block_on(self.janus.janus_create_session())
-            self.janus.janus_start_keepalive(self.janus_session_id)
         except Exception as e:
             self.state = 'failed'
             self.log.warning('could not create session, disconnecting: %s' % e)
@@ -454,7 +453,6 @@ class ConnectionHandler(object):
                     self.janus.janus_set_event_handler(session.janus_handle_id, None)
                 session.room.discard(session)
                 session.feeds.clear()
-            self.janus.janus_stop_keepalive(self.janus_session_id)
             self.janus.janus_destroy_session(self.janus_session_id)  # this automatically detaches all plugin handles associated with it, not need to manually do it
         # cleanup
         self.ready_event.clear()

@@ -134,9 +134,10 @@ class JanusClientProtocol(WebSocketClientProtocol):
 
     def janus_create_session(self):
         request = JanusRequest('create')
-        return self._janus_send_request(request)
+        return self._janus_send_request(request).addCallback(self._janus_start_keepalive)
 
     def janus_destroy_session(self, session_id):
+        self._janus_stop_keepalive(session_id)
         request = JanusRequest('destroy', session_id=session_id)
         return self._janus_send_request(request)
 
@@ -177,11 +178,10 @@ class JanusClientProtocol(WebSocketClientProtocol):
         deferred.addBoth(self._janus_keepalive_callback, session_id)
         return deferred
 
-    def janus_start_keepalive(self, session_id):
-        self.janus_stop_keepalive(session_id)
+    def _janus_start_keepalive(self, session_id):
         self._janus_keepalive_timers[session_id] = reactor.callLater(self._janus_keepalive_interval, self._janus_send_keepalive, session_id)
 
-    def janus_stop_keepalive(self, session_id):
+    def _janus_stop_keepalive(self, session_id):
         timer = self._janus_keepalive_timers.pop(session_id, None)
         if timer is not None and timer.active():
             timer.cancel()
