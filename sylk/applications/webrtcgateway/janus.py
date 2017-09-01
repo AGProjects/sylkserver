@@ -132,10 +132,8 @@ class JanusClientProtocol(WebSocketClientProtocol):
         timer.cancel()
 
     def _send_keepalive(self, session_id):
-        request = Request('keepalive', session_id=session_id)
-        deferred = self._send_request(request)
+        deferred = self._send_request(Request('keepalive', session_id=session_id))
         deferred.addBoth(self._keepalive_callback, session_id)
-        return deferred
 
     def _keepalive_callback(self, result, session_id):
         if isinstance(result, Failure):
@@ -153,42 +151,31 @@ class JanusClientProtocol(WebSocketClientProtocol):
             self._event_handlers[handle_id] = event_handler
 
     def info(self):
-        request = Request('info')
-        return self._send_request(request)
+        return self._send_request(Request('info'))
 
     def create_session(self):
-        request = Request('create')
-        return self._send_request(request).addCallback(self._start_keepalive)
+        return self._send_request(Request('create')).addCallback(self._start_keepalive)
 
     def destroy_session(self, session_id):
         self._stop_keepalive(session_id)
-        request = Request('destroy', session_id=session_id)
-        return self._send_request(request)
+        return self._send_request(Request('destroy', session_id=session_id))
 
     def attach(self, session_id, plugin):
-        request = Request('attach', session_id=session_id, plugin=plugin)
-        return self._send_request(request)
+        return self._send_request(Request('attach', session_id=session_id, plugin=plugin))
 
     def detach(self, session_id, handle_id):
-        request = Request('detach', session_id=session_id, handle_id=handle_id)
-        return self._send_request(request)
+        return self._send_request(Request('detach', session_id=session_id, handle_id=handle_id))
 
     def message(self, session_id, handle_id, body, jsep=None):
-        request = Request('message', session_id=session_id, handle_id=handle_id, body=body)
-        if jsep is not None:
-            request.jsep = jsep
-        return self._send_request(request)
+        extra_kw = {} if jsep is None else {'jsep': jsep}
+        return self._send_request(Request('message', session_id=session_id, handle_id=handle_id, body=body, **extra_kw))
 
     def trickle(self, session_id, handle_id, candidates):
-        request = Request('trickle', session_id=session_id, handle_id=handle_id)
         if candidates:
-            if len(candidates) == 1:
-                request.candidate = candidates[0]
-            else:
-                request.candidates = candidates
+            candidates_kw = {'candidate': candidates[0]} if len(candidates) == 1 else {'candidates': candidates}  # todo: why handle single candidate differently?
         else:
-            request.candidate = {'completed': True}
-        return self._send_request(request)
+            candidates_kw = {'candidate': {'completed': True}}
+        return self._send_request(Request('trickle', session_id=session_id, handle_id=handle_id, **candidates_kw))
 
 
 class JanusClientFactory(ReconnectingClientFactory, WebSocketClientFactory):
