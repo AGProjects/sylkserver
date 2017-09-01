@@ -194,22 +194,23 @@ class JanusClientFactory(ReconnectingClientFactory, WebSocketClientFactory):
 
 class JanusBackend(object):
     __metaclass__ = Singleton
+
     implements(IObserver)
 
     def __init__(self):
         self.factory = JanusClientFactory(url=JanusConfig.api_url, protocols=['janus-protocol'], useragent='SylkServer/%s' % SYLK_VERSION)
         self.connector = None
-        self.connection = Null
+        self.protocol = Null
         self._stopped = False
 
     def __getattr__(self, attr):
         if attr.startswith('janus_'):
-            return getattr(self.connection, attr)
+            return getattr(self.protocol, attr)
         return self.attr
 
     @property
     def ready(self):
-        return self.connection is not Null
+        return self.protocol is not Null
 
     def start(self):
         notification_center = NotificationCenter()
@@ -228,21 +229,20 @@ class JanusBackend(object):
         if self.connector is not None:
             self.connector.disconnect()
             self.connector = None
-        if self.connection is not None:
-            self.connection.disconnect()
-            self.connection = Null
+        if self.protocol is not None:
+            self.protocol.disconnect()
+            self.protocol = Null
 
     def handle_notification(self, notification):
         handler = getattr(self, '_NH_%s' % notification.name, Null)
         handler(notification)
 
     def _NH_JanusBackendConnected(self, notification):
-        assert self.connection is Null
-        self.connection = notification.sender
+        assert self.protocol is Null
+        self.protocol = notification.sender
         log.info('Janus backend connection up')
         self.factory.resetDelay()
 
     def _NH_JanusBackendDisconnected(self, notification):
         log.info('Janus backend connection down: %s' % notification.data.reason)
-        self.connection = Null
-
+        self.protocol = Null
