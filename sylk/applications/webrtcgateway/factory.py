@@ -59,7 +59,6 @@ class SylkWebSocketServerFactory(WebSocketServerFactory):
     protocol = SylkWebSocketServerProtocol
     connections = set()
     videorooms = VideoRoomContainer()
-    backend = None    # assigned by WebHandler
 
     def __init__(self, *args, **kw):
         super(SylkWebSocketServerFactory, self).__init__(*args, **kw)
@@ -69,7 +68,6 @@ class SylkWebSocketServerFactory(WebSocketServerFactory):
     def buildProtocol(self, addr):
         protocol = self.protocol()
         protocol.factory = self
-        protocol.backend = self.backend
         return protocol
 
     def handle_notification(self, notification):

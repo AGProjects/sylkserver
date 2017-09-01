@@ -19,7 +19,7 @@ from string import maketrans
 from twisted.internet import reactor
 
 from sylk.applications.webrtcgateway.configuration import GeneralConfig, get_room_config
-from sylk.applications.webrtcgateway.janus import JanusError
+from sylk.applications.webrtcgateway.janus import JanusBackend, JanusError
 from sylk.applications.webrtcgateway.logger import ConnectionLogger, VideoroomLogger
 from sylk.applications.webrtcgateway.models import sylkrtc
 from sylk.applications.webrtcgateway.storage import TokenStorage
@@ -210,7 +210,7 @@ class VideoRoom(object):
                     if session.bitrate != bitrate:
                         session.bitrate = bitrate
                         data = dict(request='configure', room=self.id, bitrate=bitrate)
-                        session.owner.protocol.backend.janus_message(session.owner.janus_session_id, session.janus_handle_id, data)
+                        session.owner.janus.janus_message(session.owner.janus_session_id, session.janus_handle_id, data)
             else:
                 bitrate = self.config.max_bitrate // limit(len(self._sessions) - 1, min=1)
                 self.log.info('participant bitrate is {}'.format(bitrate))
@@ -218,7 +218,7 @@ class VideoRoom(object):
                     if session.bitrate != bitrate:
                         session.bitrate = bitrate
                         data = dict(request='configure', room=self.id, bitrate=bitrate)
-                        session.owner.protocol.backend.janus_message(session.owner.janus_session_id, session.janus_handle_id, data)
+                        session.owner.janus.janus_message(session.owner.janus_session_id, session.janus_handle_id, data)
 
     # todo: make VideoRoom be a context manager that is retained/released on enter/exit and implement __nonzero__ to be different from __len__
     # todo: so that a videoroom is not accidentally released by the last participant leaving while a new participant waits to join
@@ -390,6 +390,8 @@ class APIError(Exception):
 
 
 class ConnectionHandler(object):
+    janus = JanusBackend()
+
     def __init__(self, protocol):
         self.protocol = protocol
         self.device_id = hashlib.md5(protocol.peer).digest().encode('base64').rstrip('=\n')
@@ -410,8 +412,8 @@ class ConnectionHandler(object):
     def start(self):
         self.state = 'starting'
         try:
-            self.janus_session_id = block_on(self.protocol.backend.janus_create_session())
-            self.protocol.backend.janus_start_keepalive(self.janus_session_id)
+            self.janus_session_id = block_on(self.janus.janus_create_session())
+            self.janus.janus_start_keepalive(self.janus_session_id)
         except Exception as e:
             self.state = 'failed'
             self.log.warning('could not create session, disconnecting: %s' % e)
@@ -443,17 +445,17 @@ class ConnectionHandler(object):
             # when it destroys a session, so we only remove our event handlers and issue a destroy request for the session.
             for account_info in self.accounts_map.values():
                 if account_info.janus_handle_id is not None:
-                    self.protocol.backend.janus_set_event_handler(account_info.janus_handle_id, None)
+                    self.janus.janus_set_event_handler(account_info.janus_handle_id, None)
             for session in self.sip_sessions:
                 if session.janus_handle_id is not None:
-                    self.protocol.backend.janus_set_event_handler(session.janus_handle_id, None)
+                    self.janus.janus_set_event_handler(session.janus_handle_id, None)
             for session in self.videoroom_sessions:
                 if session.janus_handle_id is not None:
-                    self.protocol.backend.janus_set_event_handler(session.janus_handle_id, None)
+                    self.janus.janus_set_event_handler(session.janus_handle_id, None)
                 session.room.discard(session)
                 session.feeds.clear()
-            self.protocol.backend.janus_stop_keepalive(self.janus_session_id)
-            self.protocol.backend.janus_destroy_session(self.janus_session_id)  # this automatically detaches all plugin handles associated with it, not need to manually do it
+            self.janus.janus_stop_keepalive(self.janus_session_id)
+            self.janus.janus_destroy_session(self.janus_session_id)  # this automatically detaches all plugin handles associated with it, not need to manually do it
         # cleanup
         self.ready_event.clear()
         self.accounts_map.clear()
@@ -507,8 +509,8 @@ class ConnectionHandler(object):
             self.sip_sessions.remove(session)
             if session.direction == 'outgoing':
                 # Destroy plugin handle for outgoing sessions. For incoming ones it's the same as the account handle, so don't
-                block_on(self.protocol.backend.janus_detach(self.janus_session_id, session.janus_handle_id))
-                self.protocol.backend.janus_set_event_handler(session.janus_handle_id, None)
+                block_on(self.janus.janus_detach(self.janus_session_id, session.janus_handle_id))
+                self.janus.janus_set_event_handler(session.janus_handle_id, None)
 
     def _cleanup_videoroom_session(self, session):
         # should only be called from a green thread.
@@ -521,13 +523,13 @@ class ConnectionHandler(object):
             if session.type == 'publisher':
                 session.room.discard(session)
                 session.feeds.clear()
-                block_on(self.protocol.backend.janus_detach(self.janus_session_id, session.janus_handle_id))
-                self.protocol.backend.janus_set_event_handler(session.janus_handle_id, None)
+                block_on(self.janus.janus_detach(self.janus_session_id, session.janus_handle_id))
+                self.janus.janus_set_event_handler(session.janus_handle_id, None)
                 self._maybe_destroy_videoroom(session.room)
             else:
                 session.parent_session.feeds.discard(session.publisher_id)
-                block_on(self.protocol.backend.janus_detach(self.janus_session_id, session.janus_handle_id))
-                self.protocol.backend.janus_set_event_handler(session.janus_handle_id, None)
+                block_on(self.janus.janus_detach(self.janus_session_id, session.janus_handle_id))
+                self.janus.janus_set_event_handler(session.janus_handle_id, None)
 
     def _maybe_destroy_videoroom(self, videoroom):
         # should only be called from a green thread.
@@ -539,15 +541,15 @@ class ConnectionHandler(object):
             self.protocol.factory.videorooms.remove(videoroom)
 
             # create a handle to do the cleanup
-            handle_id = block_on(self.protocol.backend.janus_attach(self.janus_session_id, 'janus.plugin.videoroom'))
-            self.protocol.backend.janus_set_event_handler(handle_id, self._handle_janus_event_videoroom)
+            handle_id = block_on(self.janus.janus_attach(self.janus_session_id, 'janus.plugin.videoroom'))
+            self.janus.janus_set_event_handler(handle_id, self._handle_janus_event_videoroom)
             data = dict(request='destroy', room=videoroom.id)
             try:
-                block_on(self.protocol.backend.janus_message(self.janus_session_id, handle_id, data))
+                block_on(self.janus.janus_message(self.janus_session_id, handle_id, data))
             except JanusError:
                 pass
-            block_on(self.protocol.backend.janus_detach(self.janus_session_id, handle_id))
-            self.protocol.backend.janus_set_event_handler(handle_id, None)
+            block_on(self.janus.janus_detach(self.janus_session_id, handle_id))
+            self.janus.janus_set_event_handler(handle_id, None)
 
             videoroom.log.info('destroyed')
 
@@ -643,8 +645,8 @@ class ConnectionHandler(object):
         # cleanup in case the client didn't unregister before removing the account
         handle_id = account_info.janus_handle_id
         if handle_id is not None:
-            block_on(self.protocol.backend.janus_detach(self.janus_session_id, handle_id))
-            self.protocol.backend.janus_set_event_handler(handle_id, None)
+            block_on(self.janus.janus_detach(self.janus_session_id, handle_id))
+            self.janus.janus_set_event_handler(handle_id, None)
             self.account_handles_map.pop(handle_id)
         self.log.info('removed account {request.account}'.format(request=request))
 
@@ -659,19 +661,19 @@ class ConnectionHandler(object):
         handle_id = account_info.janus_handle_id
         if handle_id is not None:
             # Destroy the existing plugin handle
-            block_on(self.protocol.backend.janus_detach(self.janus_session_id, handle_id))
-            self.protocol.backend.janus_set_event_handler(handle_id, None)
+            block_on(self.janus.janus_detach(self.janus_session_id, handle_id))
+            self.janus.janus_set_event_handler(handle_id, None)
             self.account_handles_map.pop(handle_id)
             account_info.janus_handle_id = None
 
         # Create a plugin handle
-        handle_id = block_on(self.protocol.backend.janus_attach(self.janus_session_id, 'janus.plugin.sip'))
-        self.protocol.backend.janus_set_event_handler(handle_id, self._handle_janus_event_sip)
+        handle_id = block_on(self.janus.janus_attach(self.janus_session_id, 'janus.plugin.sip'))
+        self.janus.janus_set_event_handler(handle_id, self._handle_janus_event_sip)
         account_info.janus_handle_id = handle_id
         self.account_handles_map[handle_id] = account_info
 
         data = dict(request='register', proxy=proxy, **account_info.user_data)
-        block_on(self.protocol.backend.janus_message(self.janus_session_id, handle_id, data))
+        block_on(self.janus.janus_message(self.janus_session_id, handle_id, data))
 
     def _RH_account_unregister(self, request):
         try:
@@ -681,8 +683,8 @@ class ConnectionHandler(object):
 
         handle_id = account_info.janus_handle_id
         if handle_id is not None:
-            block_on(self.protocol.backend.janus_detach(self.janus_session_id, handle_id))
-            self.protocol.backend.janus_set_event_handler(handle_id, None)
+            block_on(self.janus.janus_detach(self.janus_session_id, handle_id))
+            self.janus.janus_set_event_handler(handle_id, None)
             account_info.janus_handle_id = None
             self.account_handles_map.pop(handle_id)
         self.log.info('unregistered {request.account} from receiving incoming calls'.format(request=request))
@@ -710,22 +712,22 @@ class ConnectionHandler(object):
         proxy = self._lookup_sip_proxy(request.uri)
 
         # Create a new plugin handle and 'register' it, without actually doing so
-        handle_id = block_on(self.protocol.backend.janus_attach(self.janus_session_id, 'janus.plugin.sip'))
-        self.protocol.backend.janus_set_event_handler(handle_id, self._handle_janus_event_sip)
+        handle_id = block_on(self.janus.janus_attach(self.janus_session_id, 'janus.plugin.sip'))
+        self.janus.janus_set_event_handler(handle_id, self._handle_janus_event_sip)
 
         try:
             data = dict(request='register', send_register=False, proxy=proxy, **account_info.user_data)
-            block_on(self.protocol.backend.janus_message(self.janus_session_id, handle_id, data))
+            block_on(self.janus.janus_message(self.janus_session_id, handle_id, data))
 
             data = dict(request='call', uri='sip:%s' % SIP_PREFIX_RE.sub('', request.uri), srtp='sdes_optional')
             jsep = dict(type='offer', sdp=request.sdp)
-            block_on(self.protocol.backend.janus_message(self.janus_session_id, handle_id, data, jsep))
+            block_on(self.janus.janus_message(self.janus_session_id, handle_id, data, jsep))
         except:
             try:
-                block_on(self.protocol.backend.janus_detach(self.janus_session_id, handle_id))
+                block_on(self.janus.janus_detach(self.janus_session_id, handle_id))
             except JanusError:
                 pass
-            self.protocol.backend.janus_set_event_handler(handle_id, None)
+            self.janus.janus_set_event_handler(handle_id, None)
             raise
 
         session_info = SIPSessionInfo(request.session)
@@ -748,7 +750,7 @@ class ConnectionHandler(object):
 
         data = dict(request='accept')
         jsep = dict(type='answer', sdp=request.sdp)
-        block_on(self.protocol.backend.janus_message(self.janus_session_id, session_info.janus_handle_id, data, jsep))
+        block_on(self.janus.janus_message(self.janus_session_id, session_info.janus_handle_id, data, jsep))
         self.log.info('answered incoming session {session.id}'.format(session=session_info))
 
     def _RH_session_trickle(self, request):
@@ -762,7 +764,7 @@ class ConnectionHandler(object):
 
         candidates = [c.to_struct() for c in request.candidates]
 
-        block_on(self.protocol.backend.janus_trickle(self.janus_session_id, session_info.janus_handle_id, candidates))
+        block_on(self.janus.janus_trickle(self.janus_session_id, session_info.janus_handle_id, candidates))
 
         if not candidates:
             self.log.debug('session {session.id} negotiated ICE'.format(session=session_info))
@@ -780,7 +782,7 @@ class ConnectionHandler(object):
             data = dict(request='decline', code=486)
         else:
             data = dict(request='hangup')
-        block_on(self.protocol.backend.janus_message(self.janus_session_id, session_info.janus_handle_id, data))
+        block_on(self.janus.janus_message(self.janus_session_id, session_info.janus_handle_id, data))
         self.log.info('requested termination for session {session.id}'.format(session=session_info))
 
     def _RH_videoroom_join(self, request):
@@ -803,15 +805,15 @@ class ConnectionHandler(object):
             raise APIError('{request.account} is not allowed to join room {request.uri}'.format(request=request))
 
         try:
-            handle_id = block_on(self.protocol.backend.janus_attach(self.janus_session_id, 'janus.plugin.videoroom'))
-            self.protocol.backend.janus_set_event_handler(handle_id, self._handle_janus_event_videoroom)
+            handle_id = block_on(self.janus.janus_attach(self.janus_session_id, 'janus.plugin.videoroom'))
+            self.janus.janus_set_event_handler(handle_id, self._handle_janus_event_videoroom)
 
             try:
                 # create the room if it doesn't exist
                 config = videoroom.config
                 data = dict(request='create', room=videoroom.id, publishers=10, bitrate=config.max_bitrate, videocodec=config.video_codec, record=config.record, rec_dir=config.recording_dir)
                 try:
-                    block_on(self.protocol.backend.janus_message(self.janus_session_id, handle_id, data))
+                    block_on(self.janus.janus_message(self.janus_session_id, handle_id, data))
                 except JanusError as e:
                     if e.code != 427:  # 427 means room already exists
                         raise
@@ -821,13 +823,13 @@ class ConnectionHandler(object):
                 if account_info.display_name:
                     data.update(display=account_info.display_name)
                 jsep = dict(type='offer', sdp=request.sdp)
-                block_on(self.protocol.backend.janus_message(self.janus_session_id, handle_id, data, jsep))
+                block_on(self.janus.janus_message(self.janus_session_id, handle_id, data, jsep))
             except:
                 try:
-                    block_on(self.protocol.backend.janus_detach(self.janus_session_id, handle_id))
+                    block_on(self.janus.janus_detach(self.janus_session_id, handle_id))
                 except JanusError:
                     pass
-                self.protocol.backend.janus_set_event_handler(handle_id, None)
+                self.janus.janus_set_event_handler(handle_id, None)
                 raise
         except:
             self._maybe_destroy_videoroom(videoroom)
@@ -882,19 +884,19 @@ class ConnectionHandler(object):
         if publisher_session.publisher_id is None:
             raise APIError('feed-attach: video room session {session.id} does not have a publisher ID'.format(session=publisher_session))
 
-        handle_id = block_on(self.protocol.backend.janus_attach(self.janus_session_id, 'janus.plugin.videoroom'))
-        self.protocol.backend.janus_set_event_handler(handle_id, self._handle_janus_event_videoroom)
+        handle_id = block_on(self.janus.janus_attach(self.janus_session_id, 'janus.plugin.videoroom'))
+        self.janus.janus_set_event_handler(handle_id, self._handle_janus_event_videoroom)
 
         # join the room as a listener
         try:
             data = dict(request='join', room=base_session.room.id, ptype='listener', feed=publisher_session.publisher_id)
-            block_on(self.protocol.backend.janus_message(self.janus_session_id, handle_id, data))
+            block_on(self.janus.janus_message(self.janus_session_id, handle_id, data))
         except:
             try:
-                block_on(self.protocol.backend.janus_detach(self.janus_session_id, handle_id))
+                block_on(self.janus.janus_detach(self.janus_session_id, handle_id))
             except JanusError:
                 pass
-            self.protocol.backend.janus_set_event_handler(handle_id, None)
+            self.janus.janus_set_event_handler(handle_id, None)
             raise
 
         videoroom_session = VideoRoomSessionInfo(request.feed_attach.session, owner=self)
@@ -912,7 +914,7 @@ class ConnectionHandler(object):
             raise APIError('feed-answer: unknown video room session: {request.feed_answer.session}'.format(request=request))
         data = dict(request='start', room=videoroom_session.room.id)
         jsep = dict(type='answer', sdp=request.feed_answer.sdp)
-        block_on(self.protocol.backend.janus_message(self.janus_session_id, videoroom_session.janus_handle_id, data, jsep))
+        block_on(self.janus.janus_message(self.janus_session_id, videoroom_session.janus_handle_id, data, jsep))
 
     def _RH_videoroom_ctl_feed_detach(self, request):
         try:
@@ -922,7 +924,7 @@ class ConnectionHandler(object):
         if videoroom_session.parent_session.id != request.session:
             raise APIError('feed-detach: {request.feed_detach.session} is not an attached feed of {request.session}'.format(request=request))
         data = dict(request='leave')
-        block_on(self.protocol.backend.janus_message(self.janus_session_id, videoroom_session.janus_handle_id, data))
+        block_on(self.janus.janus_message(self.janus_session_id, videoroom_session.janus_handle_id, data))
         self._cleanup_videoroom_session(videoroom_session)
 
     def _RH_videoroom_ctl_invite_participants(self, request):
@@ -941,7 +943,7 @@ class ConnectionHandler(object):
         except KeyError:
             raise APIError('trickle: unknown video room session: {session}'.format(session=session))
         candidates = [c.to_struct() for c in request.trickle.candidates]
-        block_on(self.protocol.backend.janus_trickle(self.janus_session_id, videoroom_session.janus_handle_id, candidates))
+        block_on(self.janus.janus_trickle(self.janus_session_id, videoroom_session.janus_handle_id, candidates))
         if not candidates and videoroom_session.type == 'publisher':
             self.log.debug('video room session {session.id} negotiated ICE'.format(session=videoroom_session))
 
@@ -953,7 +955,7 @@ class ConnectionHandler(object):
         update_data = request.update.to_struct()
         if update_data:
             data = dict(request='configure', room=videoroom_session.room.id, **update_data)
-            block_on(self.protocol.backend.janus_message(self.janus_session_id, videoroom_session.janus_handle_id, data))
+            block_on(self.janus.janus_message(self.janus_session_id, videoroom_session.janus_handle_id, data))
             modified = ', '.join('{}={}'.format(key, update_data[key]) for key in update_data)
             self.log.info('updated video room session {request.session} with {modified}'.format(request=request, modified=modified))
 
@@ -964,7 +966,7 @@ class ConnectionHandler(object):
             raise APIError('Unknown video room session: {request.session}'.format(request=request))
 
         data = dict(request='leave')
-        block_on(self.protocol.backend.janus_message(self.janus_session_id, videoroom_session.janus_handle_id, data))
+        block_on(self.janus.janus_message(self.janus_session_id, videoroom_session.janus_handle_id, data))
 
         data = dict(sylkrtc='videoroom_event', session=videoroom_session.id, event='state', data=dict(state='terminated'))
         self._send_data(json.dumps(data))

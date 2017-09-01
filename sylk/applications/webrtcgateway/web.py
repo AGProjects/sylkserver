@@ -68,8 +68,6 @@ class WebHandler(object):
         self.backend = JanusBackend()
         self.backend.start()
 
-        self.factory.backend = self.backend
-
     def stop(self):
         if self.factory is not None:
             for conn in self.factory.connections.copy():
