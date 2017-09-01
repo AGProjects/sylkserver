@@ -204,11 +204,6 @@ class JanusBackend(object):
         self.protocol = Null
         self._stopped = False
 
-    def __getattr__(self, attr):
-        if attr.startswith('janus_'):
-            return getattr(self.protocol, attr)
-        return self.attr
-
     @property
     def ready(self):
         return self.protocol is not Null
@@ -233,6 +228,32 @@ class JanusBackend(object):
         if self.protocol is not None:
             self.protocol.disconnect()
             self.protocol = Null
+
+    def janus_set_event_handler(self, handle_id, event_handler):
+        self.protocol.janus_set_event_handler(handle_id, event_handler)
+
+    def janus_info(self):
+        return self.protocol.janus_info()
+
+    def janus_create_session(self):
+        return self.protocol.janus_create_session()
+
+    def janus_destroy_session(self, session_id):
+        return self.protocol.janus_destroy_session(session_id)
+
+    def janus_attach(self, session_id, plugin):
+        return self.protocol.janus_attach(session_id, plugin)
+
+    def janus_detach(self, session_id, handle_id):
+        return self.protocol.janus_detach(session_id, handle_id)
+
+    def janus_message(self, session_id, handle_id, body, jsep=None):
+        return self.protocol.janus_message(session_id, handle_id, body, jsep)
+
+    def janus_trickle(self, session_id, handle_id, candidates):
+        return self.protocol.janus_trickle(session_id, handle_id, candidates)
+
+    # Notification handling
 
     def handle_notification(self, notification):
         handler = getattr(self, '_NH_%s' % notification.name, Null)
