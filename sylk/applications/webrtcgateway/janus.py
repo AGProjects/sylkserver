@@ -84,7 +84,7 @@ class JanusClientProtocol(WebSocketClientProtocol):
                 log.exception()
             return
         try:
-            req, d = self._janus_pending_transactions.pop(transaction_id)
+            request, deferred = self._janus_pending_transactions.pop(transaction_id)
         except KeyError:
             log.warn('Discarding unexpected response: %s' % payload)
             return
@@ -93,18 +93,18 @@ class JanusClientProtocol(WebSocketClientProtocol):
         if message_type == 'error':
             code = data['error']['code']
             reason = data['error']['reason']
-            d.errback(JanusError(code, reason))
+            deferred.errback(JanusError(code, reason))
         elif message_type == 'ack':
-            d.callback(None)
+            deferred.callback(None)
         else:  # success
             # keepalive and trickle only receive an ACK, thus are handled above in message_type == 'ack', not here
-            if req.type in ('create', 'attach'):
+            if request.type in ('create', 'attach'):
                 result = data['data']['id']
-            elif req.type in ('destroy', 'detach'):
+            elif request.type in ('destroy', 'detach'):
                 result = None
             else:  # info, message (for synchronous message requests only)
                 result = data
-            d.callback(result)
+            deferred.callback(result)
 
     def connectionLost(self, reason):
         super(JanusClientProtocol, self).connectionLost(reason)
@@ -120,50 +120,50 @@ class JanusClientProtocol(WebSocketClientProtocol):
             assert callable(event_handler)
             self._janus_event_handlers[handle_id] = event_handler
 
-    def _janus_send_request(self, req):
-        data = json.dumps(req.as_dict())
+    def _janus_send_request(self, request):
+        deferred = defer.Deferred()
+        data = json.dumps(request.as_dict())
         self.notification_center.post_notification('WebRTCJanusTrace', sender=self, data=NotificationData(direction='OUTGOING', message=data, peer=self.peer))
         self.sendMessage(data)
-        d = defer.Deferred()
-        self._janus_pending_transactions[req.transaction_id] = (req, d)
-        return d
+        self._janus_pending_transactions[request.transaction_id] = (request, deferred)
+        return deferred
 
     def janus_info(self):
-        req = JanusRequest('info')
-        return self._janus_send_request(req)
+        request = JanusRequest('info')
+        return self._janus_send_request(request)
 
     def janus_create_session(self):
-        req = JanusRequest('create')
-        return self._janus_send_request(req)
+        request = JanusRequest('create')
+        return self._janus_send_request(request)
 
     def janus_destroy_session(self, session_id):
-        req = JanusRequest('destroy', session_id=session_id)
-        return self._janus_send_request(req)
+        request = JanusRequest('destroy', session_id=session_id)
+        return self._janus_send_request(request)
 
     def janus_attach(self, session_id, plugin):
-        req = JanusRequest('attach', session_id=session_id, plugin=plugin)
-        return self._janus_send_request(req)
+        request = JanusRequest('attach', session_id=session_id, plugin=plugin)
+        return self._janus_send_request(request)
 
     def janus_detach(self, session_id, handle_id):
-        req = JanusRequest('detach', session_id=session_id, handle_id=handle_id)
-        return self._janus_send_request(req)
+        request = JanusRequest('detach', session_id=session_id, handle_id=handle_id)
+        return self._janus_send_request(request)
 
     def janus_message(self, session_id, handle_id, body, jsep=None):
-        req = JanusRequest('message', session_id=session_id, handle_id=handle_id, body=body)
+        request = JanusRequest('message', session_id=session_id, handle_id=handle_id, body=body)
         if jsep is not None:
-            req.jsep = jsep
-        return self._janus_send_request(req)
+            request.jsep = jsep
+        return self._janus_send_request(request)
 
     def janus_trickle(self, session_id, handle_id, candidates):
-        req = JanusRequest('trickle', session_id=session_id, handle_id=handle_id)
+        request = JanusRequest('trickle', session_id=session_id, handle_id=handle_id)
         if candidates:
             if len(candidates) == 1:
-                req.candidate = candidates[0]
+                request.candidate = candidates[0]
             else:
-                req.candidates = candidates
+                request.candidates = candidates
         else:
-            req.candidate = {'completed': True}
-        return self._janus_send_request(req)
+            request.candidate = {'completed': True}
+        return self._janus_send_request(request)
 
     def _janus_keepalive_callback(self, result, session_id):
         if isinstance(result, Failure):
@@ -172,10 +172,10 @@ class JanusClientProtocol(WebSocketClientProtocol):
             self._janus_keepalive_timers[session_id] = reactor.callLater(self._janus_keepalive_interval, self._janus_send_keepalive, session_id)
 
     def _janus_send_keepalive(self, session_id):
-        req = JanusRequest('keepalive', session_id=session_id)
-        d = self._janus_send_request(req)
-        d.addBoth(self._janus_keepalive_callback, session_id)
-        return d
+        request = JanusRequest('keepalive', session_id=session_id)
+        deferred = self._janus_send_request(request)
+        deferred.addBoth(self._janus_keepalive_callback, session_id)
+        return deferred
 
     def janus_start_keepalive(self, session_id):
         self.janus_stop_keepalive(session_id)
