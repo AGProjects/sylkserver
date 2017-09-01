@@ -19,7 +19,7 @@ from string import maketrans
 from twisted.internet import reactor
 
 from sylk.applications.webrtcgateway.configuration import GeneralConfig, get_room_config
-from sylk.applications.webrtcgateway.janus.backend import JanusError
+from sylk.applications.webrtcgateway.janus import JanusError
 from sylk.applications.webrtcgateway.logger import ConnectionLogger, VideoroomLogger
 from sylk.applications.webrtcgateway.models import sylkrtc
 from sylk.applications.webrtcgateway.storage import TokenStorage
