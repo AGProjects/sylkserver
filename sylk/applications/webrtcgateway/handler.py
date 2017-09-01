@@ -495,7 +495,8 @@ class ConnectionHandler(object):
         self._send_data(json.dumps(response.to_struct()))
 
     def _send_data(self, data):
-        self.protocol.sendMessage(data)
+        if self.protocol is not None:
+            self.protocol.sendMessage(data)
 
     def _cleanup_session(self, session):
         # should only be called from a green thread.
