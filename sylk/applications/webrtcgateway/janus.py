@@ -16,7 +16,7 @@ from sylk.applications.webrtcgateway.configuration import JanusConfig
 from sylk.applications.webrtcgateway.logger import log
 
 
-class JanusRequest(object):
+class Request(object):
     def __init__(self, request_type, **kwargs):
         self.janus = request_type
         self.transaction = uuid.uuid4().hex
@@ -44,18 +44,18 @@ class JanusError(Exception):
 
 
 class JanusClientProtocol(WebSocketClientProtocol):
-    _janus_event_handlers = None
-    _janus_pending_transactions = None
-    _janus_keepalive_timers = None
-    _janus_keepalive_interval = 45
+    _event_handlers = None
+    _pending_transactions = None
+    _keepalive_timers = None
+    _keepalive_interval = 45
 
     notification_center = NotificationCenter()
 
     def onOpen(self):
         self.notification_center.post_notification('JanusBackendConnected', sender=self)
-        self._janus_pending_transactions = {}
-        self._janus_keepalive_timers = {}
-        self._janus_event_handlers = {}
+        self._pending_transactions = {}
+        self._keepalive_timers = {}
+        self._event_handlers = {}
 
     def onMessage(self, payload, isBinary):
         if isBinary:
@@ -77,14 +77,14 @@ class JanusClientProtocol(WebSocketClientProtocol):
             # This is an event. Janus is not very consistent here, some 'events'
             # do have the transaction id set. So we check for the message type as well.
             handle_id = data.pop('sender', -1)
-            handler = self._janus_event_handlers.get(handle_id, Null)
+            handler = self._event_handlers.get(handle_id, Null)
             try:
                 handler(handle_id, message_type, data)
             except Exception:
                 log.exception()
             return
         try:
-            request, deferred = self._janus_pending_transactions.pop(transaction_id)
+            request, deferred = self._pending_transactions.pop(transaction_id)
         except KeyError:
             log.warn('Discarding unexpected response: %s' % payload)
             return
@@ -113,71 +113,71 @@ class JanusClientProtocol(WebSocketClientProtocol):
     def disconnect(self, code=1000, reason=u''):
         self.sendClose(code, reason)
 
-    def _janus_send_request(self, request):
+    def _send_request(self, request):
         deferred = defer.Deferred()
         data = json.dumps(request.as_dict())
         self.notification_center.post_notification('WebRTCJanusTrace', sender=self, data=NotificationData(direction='OUTGOING', message=data, peer=self.peer))
         self.sendMessage(data)
-        self._janus_pending_transactions[request.transaction_id] = (request, deferred)
+        self._pending_transactions[request.transaction_id] = (request, deferred)
         return deferred
 
-    def _janus_start_keepalive(self, session_id):
-        self._janus_keepalive_timers[session_id] = reactor.callLater(self._janus_keepalive_interval, self._janus_send_keepalive, session_id)
+    def _start_keepalive(self, session_id):
+        self._keepalive_timers[session_id] = reactor.callLater(self._keepalive_interval, self._send_keepalive, session_id)
 
-    def _janus_stop_keepalive(self, session_id):
-        timer = self._janus_keepalive_timers.pop(session_id, Null)
+    def _stop_keepalive(self, session_id):
+        timer = self._keepalive_timers.pop(session_id, Null)
         timer.cancel()
 
-    def _janus_send_keepalive(self, session_id):
-        request = JanusRequest('keepalive', session_id=session_id)
-        deferred = self._janus_send_request(request)
-        deferred.addBoth(self._janus_keepalive_callback, session_id)
+    def _send_keepalive(self, session_id):
+        request = Request('keepalive', session_id=session_id)
+        deferred = self._send_request(request)
+        deferred.addBoth(self._keepalive_callback, session_id)
         return deferred
 
-    def _janus_keepalive_callback(self, result, session_id):
+    def _keepalive_callback(self, result, session_id):
         if isinstance(result, Failure):
-            self._janus_keepalive_timers.pop(session_id)
+            self._keepalive_timers.pop(session_id)
         else:
-            self._janus_keepalive_timers[session_id] = reactor.callLater(self._janus_keepalive_interval, self._janus_send_keepalive, session_id)
+            self._keepalive_timers[session_id] = reactor.callLater(self._keepalive_interval, self._send_keepalive, session_id)
 
     # Public API
 
-    def janus_set_event_handler(self, handle_id, event_handler):
+    def set_event_handler(self, handle_id, event_handler):
         if event_handler is None:
-            self._janus_event_handlers.pop(handle_id, None)
+            self._event_handlers.pop(handle_id, None)
         else:
             assert callable(event_handler)
-            self._janus_event_handlers[handle_id] = event_handler
+            self._event_handlers[handle_id] = event_handler
 
-    def janus_info(self):
-        request = JanusRequest('info')
-        return self._janus_send_request(request)
+    def info(self):
+        request = Request('info')
+        return self._send_request(request)
 
-    def janus_create_session(self):
-        request = JanusRequest('create')
-        return self._janus_send_request(request).addCallback(self._janus_start_keepalive)
+    def create_session(self):
+        request = Request('create')
+        return self._send_request(request).addCallback(self._start_keepalive)
 
-    def janus_destroy_session(self, session_id):
-        self._janus_stop_keepalive(session_id)
-        request = JanusRequest('destroy', session_id=session_id)
-        return self._janus_send_request(request)
+    def destroy_session(self, session_id):
+        self._stop_keepalive(session_id)
+        request = Request('destroy', session_id=session_id)
+        return self._send_request(request)
 
-    def janus_attach(self, session_id, plugin):
-        request = JanusRequest('attach', session_id=session_id, plugin=plugin)
-        return self._janus_send_request(request)
+    def attach(self, session_id, plugin):
+        request = Request('attach', session_id=session_id, plugin=plugin)
+        return self._send_request(request)
 
-    def janus_detach(self, session_id, handle_id):
-        request = JanusRequest('detach', session_id=session_id, handle_id=handle_id)
-        return self._janus_send_request(request)
+    def detach(self, session_id, handle_id):
+        request = Request('detach', session_id=session_id, handle_id=handle_id)
+        return self._send_request(request)
 
-    def janus_message(self, session_id, handle_id, body, jsep=None):
-        request = JanusRequest('message', session_id=session_id, handle_id=handle_id, body=body)
+    def message(self, session_id, handle_id, body, jsep=None):
+        request = Request('message', session_id=session_id, handle_id=handle_id, body=body)
         if jsep is not None:
             request.jsep = jsep
-        return self._janus_send_request(request)
+        return self._send_request(request)
 
-    def janus_trickle(self, session_id, handle_id, candidates):
-        request = JanusRequest('trickle', session_id=session_id, handle_id=handle_id)
+    def trickle(self, session_id, handle_id, candidates):
+        request = Request('trickle', session_id=session_id, handle_id=handle_id)
         if candidates:
             if len(candidates) == 1:
                 request.candidate = candidates[0]
@@ -185,7 +185,7 @@ class JanusClientProtocol(WebSocketClientProtocol):
                 request.candidates = candidates
         else:
             request.candidate = {'completed': True}
-        return self._janus_send_request(request)
+        return self._send_request(request)
 
 
 class JanusClientFactory(ReconnectingClientFactory, WebSocketClientFactory):
@@ -229,29 +229,29 @@ class JanusBackend(object):
             self.protocol.disconnect()
             self.protocol = Null
 
-    def janus_set_event_handler(self, handle_id, event_handler):
-        self.protocol.janus_set_event_handler(handle_id, event_handler)
+    def set_event_handler(self, handle_id, event_handler):
+        self.protocol.set_event_handler(handle_id, event_handler)
 
-    def janus_info(self):
-        return self.protocol.janus_info()
+    def info(self):
+        return self.protocol.info()
 
-    def janus_create_session(self):
-        return self.protocol.janus_create_session()
+    def create_session(self):
+        return self.protocol.create_session()
 
-    def janus_destroy_session(self, session_id):
-        return self.protocol.janus_destroy_session(session_id)
+    def destroy_session(self, session_id):
+        return self.protocol.destroy_session(session_id)
 
-    def janus_attach(self, session_id, plugin):
-        return self.protocol.janus_attach(session_id, plugin)
+    def attach(self, session_id, plugin):
+        return self.protocol.attach(session_id, plugin)
 
-    def janus_detach(self, session_id, handle_id):
-        return self.protocol.janus_detach(session_id, handle_id)
+    def detach(self, session_id, handle_id):
+        return self.protocol.detach(session_id, handle_id)
 
-    def janus_message(self, session_id, handle_id, body, jsep=None):
-        return self.protocol.janus_message(session_id, handle_id, body, jsep)
+    def message(self, session_id, handle_id, body, jsep=None):
+        return self.protocol.message(session_id, handle_id, body, jsep)
 
-    def janus_trickle(self, session_id, handle_id, candidates):
-        return self.protocol.janus_trickle(session_id, handle_id, candidates)
+    def trickle(self, session_id, handle_id, candidates):
+        return self.protocol.trickle(session_id, handle_id, candidates)
 
     # Notification handling
 
