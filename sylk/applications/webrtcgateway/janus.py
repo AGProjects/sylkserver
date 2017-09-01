@@ -17,12 +17,15 @@ from sylk.applications.webrtcgateway.logger import log
 
 
 class Request(object):
-    def __init__(self, request_type, **kwargs):
+    def __init__(self, request_type, **kw):
         self.janus = request_type
         self.transaction = uuid.uuid4().hex
         if JanusConfig.api_secret:
             self.apisecret = JanusConfig.api_secret
-        self.__dict__.update(**kwargs)
+        conflicting_keywords = set(self.__dict__).intersection(kw)
+        if conflicting_keywords:
+            raise KeyError('request specified keyword arguments that are already in use: {}'.format(', '.join(sorted(conflicting_keywords))))
+        self.__dict__.update(**kw)
 
     @property
     def type(self):
