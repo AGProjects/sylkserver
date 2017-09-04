@@ -132,8 +132,9 @@ class JanusClientProtocol(WebSocketClientProtocol):
         return session_id
 
     def _stop_keepalive(self, session_id):
-        timer = self._keepalive_timers.pop(session_id, Null)
-        timer.cancel()
+        timer = self._keepalive_timers.pop(session_id, None)
+        if timer is not None and timer.active():
+            timer.cancel()
 
     def _send_keepalive(self, session_id):
         deferred = self._send_request(Request('keepalive', session_id=session_id))
