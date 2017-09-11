@@ -5,4 +5,12 @@ Roadmap
  - [webrtcgateway] Video bandwidth management
  - [webrtcgateway] SIP connect for multi-party video conference 
  - [webrtcgateway] Recording
- 
+
+Improvements
+------------
+
+ - change disabled_applications to active_applications which accepts a list
+   which can contain the keyword ALL and [+/-]app_name tokens
+ - debian package should rename config samples as .ini
+ - for debian check if we can use the snakeoil cert from the ssl-cert package
+
