@@ -18,28 +18,29 @@ Description
 -----------
 
 SylkServer allows creation and delivery of rich multimedia applications
-accessed by SIP Clients, XMPP endpoints and Web applications.  The server
+accessed by SIP Clients, XMPP endpoints and WebRTC applications.  The server
 supports SIP and XMPP signaling, RTP, MSRP and WebRTC media planes, has
 built in capabilities for creating multiparty conferences with Audio and
 Video, IM/ File Transfers and can be extended with custom applications by
 using Python language.
 
 
-Deployment Scenarios
+Deployment scenarios
 --------------------
 
-SylkServer is typically deployed behind a SIP Proxy that is designed to
-route the inbound and outbound traffic, handle the authentication,
-authorization and accounting.
+For its SIP functionality, SylkServer is typically deployed behind a SIP
+Proxy that is designed to route the inbound and outbound traffic, handle the
+authentication, authorization and accounting.
 
-SylkServer can be deployed as multimedia SIP conference server on a private
-network to serve SIP clients on the same LAN by using bonjour mode.  Blink
-for MacOSX can be used for automatic discovery of SylkServer instances in
-the neighborhood.
+SylkServer can be deployed as a multimedia SIP conference server on a
+private network to serve SIP clients on the same LAN by using bonjour mode. 
+Blink for MacOSX can be used for automatic discovery of SylkServer instances
+in the neighborhood.
 
-SylkServer can be deployed as a standalone video conference server.  The
-client side can be a standalone application (like the companion Sylk client)
-or a standard web browser with WebRTC support (like Chrome or Firefox).
+SylkServer can be deployed as a standalone WebRTC video conference server. 
+The client side can be a standalone application (like the companion Sylk
+client) or a standard web browser with WebRTC support (like Chrome or
+Firefox).
 
 
 Features
@@ -70,7 +71,7 @@ Audio
 
 Video
 
- - H.264 and VP8 codecs
+ - H.264, VP8 and VP9 codecs
  - SRTP encryption (SDES and ZRTP key-exchange)
 
 Instant Messaging
@@ -101,7 +102,8 @@ Video conferencing
  - Encryption (TLS, sRTP)
  - H.264 and VP8 video codecs
  - Opus wideband audio
- - Selective Forwarding Unit
+ - SFU scaling methodology
+ - Floor control
 
 XMPP Gateway
 
@@ -109,7 +111,7 @@ XMPP Gateway
  - IM (MSRP sessions and SIP Messages)
  - Presence (SIMPLE and XMPP)
 
-WebRTC Gateway
+P2P WebRTC Gateway
 
 See README.webrtc file.
 
@@ -117,11 +119,11 @@ See README.webrtc file.
 Applications
 ------------
 
-When a request arrives at SylkServer, an application is selected depending
-on the Request URI.  The selection mechanism is described in detail in the
-sample configuration file config.ini.sample.
+When a SIP request arrives at SylkServer, an application is selected
+depending on the Request URI.  The selection mechanism is described in
+detail in the sample configuration file config.ini.sample.
 
-Conference
+SIP conference
 
 SylkServer allows SIP end-points to create ad-hoc conference rooms by
 sending INVITE to a random username at the hostname or domain where the
@@ -175,12 +177,13 @@ WebRTC video conference
 This application allows WebRTC enabled end-points to organize ad-hoc video
 conferences.  SylkServer implements Selective Forwarding Unit (SFU)
 functionality that uses little resources on the server side allowing for
-handling much more load than classic MCUs.  For scalling up beyond one
-server AG Projects provides SIP Thor, which provides horizontal scalability
-for all components present in a RTC platform.
+handling much more load than classic MCUs.  
 
 Sylk WebRTC client is provided as a sample client and other clients can be
 developed using sylkrtc API.
+
+For scalling up beyond one instance, AG Projects provides a commercial
+product called SIP Thor.
 
 
 Standards
@@ -242,10 +245,12 @@ Special thanks to our sponsors:
  - SIDN Fonds https://sidnfonds.nl
  - ISOC Nederland http://isoc.nl
 
-Developers:
 
- - Saul Ibarra Corretge
- - Tijmen de Mes
+Developers
+----------
+
  - Dan Pascu
+ - Tijmen de Mes
+ - Saul Ibarra Corretge
  - Adrian Georgescu
 
