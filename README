@@ -2,7 +2,7 @@
 SylkServer
 ----------
 
-A State of the art, extensible RTC Application Server
+A State of the art, extensible RTC Application Server.
 
 Home page: http://sylkserver.com
 
@@ -18,7 +18,7 @@ Description
 -----------
 
 SylkServer allows creation and delivery of rich multimedia applications
-accessed by SIP Clients, XMPP endpoints and WebRTC applications.  The server
+accessed by WebRTC applications, SIP clients and XMPP endpoints.  The server
 supports SIP and XMPP signaling, RTP, MSRP and WebRTC media planes, has
 built in capabilities for creating multiparty conferences with Audio and
 Video, IM/ File Transfers and can be extended with custom applications by
@@ -28,19 +28,19 @@ using Python language.
 Deployment scenarios
 --------------------
 
-For its SIP functionality, SylkServer is typically deployed behind a SIP
-Proxy that is designed to route the inbound and outbound traffic, handle the
+For SIP functionality, SylkServer is typically deployed behind a SIP Proxy
+that is designed to route the inbound and outbound traffic, handle the
 authentication, authorization and accounting.
 
-SylkServer can be deployed as a multimedia SIP conference server on a
-private network to serve SIP clients on the same LAN by using bonjour mode. 
-Blink for MacOSX can be used for automatic discovery of SylkServer instances
-in the neighborhood.
+SylkServer can be deployed as a standalone conference server on a private
+network to serve SIP clients on the same LAN by using bonjour mode.  Blink
+for MacOSX can be used for automatic discovery of SylkServer instances in
+their neighborhood.
 
 SylkServer can be deployed as a standalone WebRTC video conference server. 
 The client side can be a standalone application (like the companion Sylk
-client) or a standard web browser with WebRTC support (like Chrome or
-Firefox).
+client) and modern web browsers with WebRTC support (like Chrome, Firefox,
+Safari and Edge browsers).
 
 
 Features
@@ -100,7 +100,7 @@ Video conferencing
 
  - WebRTC media
  - Encryption (TLS, sRTP)
- - H.264 and VP8 video codecs
+ - VP8/VP9/H.264 video codecs
  - Opus wideband audio
  - SFU scaling methodology
  - Floor control
@@ -119,9 +119,14 @@ See README.webrtc file.
 Applications
 ------------
 
-When a SIP request arrives at SylkServer, an application is selected
-depending on the Request URI.  The selection mechanism is described in
-detail in the sample configuration file config.ini.sample.
+SIP applications
+
+When a SIP request arrives at SylkServer, an application can be selected
+depending on the SIP Request URI.  The selection mechanism is described in
+detail in the sample configuration file config.ini.sample.  SIP requests can
+be bridged to WebRTC aplications or XMPP endpoints using the applications
+described below.
+
 
 SIP conference
 
@@ -161,29 +166,34 @@ exists into the DNS zone for the domain that needs the gateway service.
 
 WebRTC gateway
 
-This application can be used to bridge audio/video calls between SIP clients
-and Web applications.  Any SIP service can be used and a simple to use
-client API is provided for developing web pages that include such
-functionality.  This application supports transparently any audio/video
-codec negotiated by the end-points, however WebRTC has standardized
-particular codecs for the use on the web, therfore the SIP clients must
-support the same set.
+Used to bridge audio and video calls between SIP clients and WebRTC
+applications.  A simple to use client API (sylkrtc.js) is provided for
+developing web pages that include such functionality.  This application
+supports transparently any audio/video codec negotiated by the end-points,
+however WebRTC has standardized particular codecs for the use on the web,
+therfore the SIP clients must support the same set of codecs.
 
 See https://webrtc.sipthor.net for a working example.
 
 
 WebRTC video conference
 
-This application allows WebRTC enabled end-points to organize ad-hoc video
-conferences.  SylkServer implements Selective Forwarding Unit (SFU)
-functionality that uses little resources on the server side allowing for
-handling much more load than classic MCUs.  
+This application allows WebRTC enabled end-points to organize ad-hoc audio
+and video conferences.  SylkServer implements Selective Forwarding Unit
+(SFU) functionality by using Janus backend.  SFUs in general use little
+resources on the server side, allowing for handling much more load than
+classic MCUs.
 
 Sylk WebRTC client is provided as a sample client and other clients can be
 developed using sylkrtc API.
 
-For scalling up beyond one instance, AG Projects provides a commercial
-product called SIP Thor.
+The bandwidth usage is optimized in such a way that independent of the
+number of participants present in the conference, the bandwith required by
+each participant is not greater than for a direct video call between only
+two participants.
+
+For scalling up beyond one server instance, AG Projects provides a
+commercial product called SIP Thor.
 
 
 Standards
