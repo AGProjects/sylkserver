@@ -485,14 +485,12 @@ class ConnectionHandler(object):
             self._send_data(json.dumps(data))
 
     def notify(self, event):
-        event.validate()
-        self._send_data(json.dumps(event.to_struct()))
+        self._send_data(json.dumps(event.__data__))
 
     # internal methods (not overriding / implementing the protocol API)
 
     def _send_response(self, response):
-        response.validate()
-        self._send_data(json.dumps(response.to_struct()))
+        self._send_data(json.dumps(response.__data__))
 
     def _send_data(self, data):
         if self.protocol is not None:
@@ -761,7 +759,7 @@ class ConnectionHandler(object):
         if session_info.state == 'terminated':
             raise APIError('Session {request.session} is terminated'.format(request=request))
 
-        candidates = [c.to_struct() for c in request.candidates]
+        candidates = request.candidates.__data__
 
         block_on(self.janus.trickle(self.janus_session_id, session_info.janus_handle_id, candidates))
 
@@ -941,7 +939,7 @@ class ConnectionHandler(object):
             videoroom_session = self.videoroom_sessions[session]
         except KeyError:
             raise APIError('trickle: unknown video room session: {session}'.format(session=session))
-        candidates = [c.to_struct() for c in request.trickle.candidates]
+        candidates = request.trickle.candidates.__data__
         block_on(self.janus.trickle(self.janus_session_id, videoroom_session.janus_handle_id, candidates))
         if not candidates and videoroom_session.type == 'publisher':
             self.log.debug('video room session {session.id} negotiated ICE'.format(session=videoroom_session))
@@ -951,7 +949,7 @@ class ConnectionHandler(object):
             videoroom_session = self.videoroom_sessions[request.session]
         except KeyError:
             raise APIError('update: unknown video room session: {request.session}'.format(request=request))
-        update_data = request.update.to_struct()
+        update_data = request.update.__data__
         if update_data:
             data = dict(request='configure', room=videoroom_session.room.id, **update_data)
             block_on(self.janus.message(self.janus_session_id, videoroom_session.janus_handle_id, data))

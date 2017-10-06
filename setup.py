@@ -34,7 +34,7 @@ setup(
         'Programming Language :: Python'
     ],
 
-    requires=['jsonmodels'],
+    requires=[],
 
     packages=find_packages('sylk'),
     scripts=['sylk-server'],

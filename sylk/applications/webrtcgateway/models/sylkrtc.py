@@ -1,22 +1,16 @@
 
 from application.python import subclasses
-from collections import OrderedDict
-from jsonmodels import models, fields, errors, validators
 from sipsimple.core import SIPURI, SIPCoreError
 
-
-__all__ = ('AccountAddRequest', 'AccountRemoveRequest', 'AccountRegisterRequest', 'AccountUnregisterRequest',
-           'SessionCreateRequest', 'SessionAnswerRequest', 'SessionTrickleRequest', 'SessionTerminateRequest',
-           'AckResponse', 'ErrorResponse',
-           'ReadyEvent', 'VideoRoomConfigurationEvent',
-           'SylkRTCRequest', 'ProtocolError')
+from .jsonobjects import Validator, CompositeValidator
+from .jsonobjects import JSONObject, AbstractProperty, BooleanProperty, IntegerProperty, StringProperty, ArrayProperty, ObjectProperty
+from .jsonobjects import JSONArray, StringArray
 
 
 # Validators
 
-class URIValidator(object):
-    @staticmethod
-    def validate(value):
+class URIValidator(Validator):
+    def validate(self, value):
         if value.startswith(('sip:', 'sips:')):
             uri = value
         else:
@@ -24,216 +18,240 @@ class URIValidator(object):
         try:
             SIPURI.parse(uri)
         except SIPCoreError:
-            raise errors.ValidationError('invalid URI: %s' % value)
+            raise ValueError('invalid SIP URI: {}'.format(value))
+        return value
 
 
-class URIListValidator(object):
-    @staticmethod
-    def validate(values):
-        for item in values:
-            URIValidator.validate(item)
+class UniqueItemsValidator(Validator):
+    def validate(self, sequence):
+        seen = set()
+        unique = []
+        for item in sequence:
+            if item not in seen:
+                seen.add(item)
+                unique.append(item)
+        return unique
 
 
-# Custom fields
+class LengthValidator(Validator):
+    def __init__(self, minimum=0, maximum=float('inf')):
+        self.minimum = minimum
+        self.maximum = maximum
 
-class FixedValueField(fields.BaseField):
+    def validate(self, value):
+        if self.minimum <= len(value) <= self.maximum:
+            return value
+        else:
+            raise ValueError("the value's length must be between {0.minimum} and {0.maximum} inclusive".format(self))
+
+
+# Custom JSONObject properties
+
+class FixedValueProperty(AbstractProperty):
     def __init__(self, value):
-        super(FixedValueField, self).__init__(required=True)
+        super(FixedValueProperty, self).__init__(optional=True, default=value)
         self.value = value
 
-    def validate(self, value):
+    def _parse(self, value):
         if value != self.value:
-            raise errors.ValidationError('field value should be {!r}'.format(self.value))
-
-    # noinspection PyMethodOverriding
-    def get_default_value(self):
-        return self.value
+            raise ValueError('Invalid value for {property.name!r} property: {value!r} (should be {property.value!r})'.format(property=self, value=value))
+        return value
 
 
-class LimitedChoiceField(fields.BaseField):
-    def __init__(self, values):
-        super(LimitedChoiceField, self).__init__(required=True)
-        self.values = set(values)
+class LimitedChoiceProperty(AbstractProperty):
+    def __init__(self, *values):
+        if len(values) == 0:
+            raise ValueError('{.__class__.__name__} needs at least one argument'.format(self))
+        super(LimitedChoiceProperty, self).__init__()
+        self.values = frozenset(values)
+        self.values_string = ' or '.join(', '.join(sorted(values)).rsplit(', ', 1))
 
-    def validate(self, value):
+    def _parse(self, value):
         if value not in self.values:
-            raise errors.ValidationError('field value should be one of: {!s}'.format(', '.join(repr(item) for item in sorted(self.values))))
-
-
-class UniqueStringListField(fields.ListField):
-    def __init__(self, *args, **kw):
-        super(UniqueStringListField, self).__init__(items_types=[str, unicode], *args, **kw)
-
-    def parse_value(self, value):
-        # remove duplicate entries while preserving order
-        return OrderedDict.fromkeys(value).keys() if isinstance(value, self.types) else value
+            raise ValueError('Invalid value for {property.name!r} property: {value!r} (expected: {property.values_string})'.format(property=self, value=value))
+        return value
 
 
 # Miscellaneous models
 
-class ICECandidate(models.Base):
-    candidate = fields.StringField(required=True)
-    sdpMLineIndex = fields.IntField(required=True)
-    sdpMid = fields.StringField(required=True)
+class ICECandidate(JSONObject):
+    candidate = StringProperty()
+    sdpMLineIndex = IntegerProperty()
+    sdpMid = StringProperty()
 
 
-class ReadyEvent(models.Base):
-    sylkrtc = FixedValueField('event')
-    event = FixedValueField('ready')
+class ICECandidates(JSONArray):
+    item_type = ICECandidate
 
 
-class VideoRoomConfigurationEvent(models.Base):
-    sylkrtc = FixedValueField('videoroom_event')  # todo: rename with dashes or underscores?
-    event = FixedValueField('configure-room')
-    session = fields.StringField(required=True)
-    originator = fields.StringField(required=True)
-    active_participants = UniqueStringListField(validators=[validators.Length(minimum_value=0, maximum_value=2)])
+class URIList(StringArray):
+    list_validator = UniqueItemsValidator()
+    item_validator = URIValidator()
+
+
+class VideoRoomActiveParticipants(StringArray):
+    list_validator = CompositeValidator(UniqueItemsValidator(), LengthValidator(maximum=2))
+
+
+# Events
+
+class ReadyEvent(JSONObject):
+    sylkrtc = FixedValueProperty('event')
+    event = FixedValueProperty('ready')
+
+
+class VideoRoomConfigurationEvent(JSONObject):
+    sylkrtc = FixedValueProperty('videoroom_event')  # todo: rename with dashes or underscores?
+    event = FixedValueProperty('configure-room')
+    session = StringProperty()
+    originator = StringProperty()
+    active_participants = ArrayProperty(VideoRoomActiveParticipants)
 
 
 # Base models
 
-class SylkRTCRequestBase(models.Base):
-    transaction = fields.StringField(required=True)
+class SylkRTCRequestBase(JSONObject):
+    transaction = StringProperty()
 
 
-class SylkRTCResponseBase(models.Base):
-    transaction = fields.StringField(required=True)
+class SylkRTCResponseBase(JSONObject):
+    transaction = StringProperty()
 
 
 class AccountRequestBase(SylkRTCRequestBase):
-    account = fields.StringField(required=True, validators=[URIValidator])
+    account = StringProperty(validator=URIValidator())
 
 
 class SessionRequestBase(SylkRTCRequestBase):
-    session = fields.StringField(required=True)
+    session = StringProperty()
 
 
 class VideoRoomRequestBase(SylkRTCRequestBase):
-    session = fields.StringField(required=True)
+    session = StringProperty()
 
 
 # Response models
 
 class AckResponse(SylkRTCResponseBase):
-    sylkrtc = FixedValueField('ack')
+    sylkrtc = FixedValueProperty('ack')
 
 
 class ErrorResponse(SylkRTCResponseBase):
-    sylkrtc = FixedValueField('error')
-    error = fields.StringField(required=True)
+    sylkrtc = FixedValueProperty('error')
+    error = StringProperty()
 
 
-# Account models
+# Account request models
 
 class AccountAddRequest(AccountRequestBase):
-    sylkrtc = FixedValueField('account-add')
-    password = fields.StringField(required=True, validators=[validators.Length(minimum_value=1, maximum_value=9999)])
-    display_name = fields.StringField(required=False)
-    user_agent = fields.StringField(required=False)
+    sylkrtc = FixedValueProperty('account-add')
+    password = StringProperty(validator=LengthValidator(minimum=1, maximum=9999))
+    display_name = StringProperty(optional=True)
+    user_agent = StringProperty(optional=True)
 
 
 class AccountRemoveRequest(AccountRequestBase):
-    sylkrtc = FixedValueField('account-remove')
+    sylkrtc = FixedValueProperty('account-remove')
 
 
 class AccountRegisterRequest(AccountRequestBase):
-    sylkrtc = FixedValueField('account-register')
+    sylkrtc = FixedValueProperty('account-register')
 
 
 class AccountUnregisterRequest(AccountRequestBase):
-    sylkrtc = FixedValueField('account-unregister')
+    sylkrtc = FixedValueProperty('account-unregister')
 
 
 class AccountDeviceTokenRequest(AccountRequestBase):
-    sylkrtc = FixedValueField('account-devicetoken')
-    old_token = fields.StringField(required=False)
-    new_token = fields.StringField(required=False)
+    sylkrtc = FixedValueProperty('account-devicetoken')
+    old_token = StringProperty(optional=True)
+    new_token = StringProperty(optional=True)
 
 
-# Session models
+# Session request models
 
 class SessionCreateRequest(SessionRequestBase):
-    sylkrtc = FixedValueField('session-create')
-    account = fields.StringField(required=True, validators=[URIValidator])
-    uri = fields.StringField(required=True, validators=[URIValidator])
-    sdp = fields.StringField(required=True)
+    sylkrtc = FixedValueProperty('session-create')
+    account = StringProperty(validator=URIValidator())
+    uri = StringProperty(validator=URIValidator())
+    sdp = StringProperty()
 
 
 class SessionAnswerRequest(SessionRequestBase):
-    sylkrtc = FixedValueField('session-answer')
-    sdp = fields.StringField(required=True)
+    sylkrtc = FixedValueProperty('session-answer')
+    sdp = StringProperty()
 
 
 class SessionTrickleRequest(SessionRequestBase):
-    sylkrtc = FixedValueField('session-trickle')
-    candidates = fields.ListField([ICECandidate])
+    sylkrtc = FixedValueProperty('session-trickle')
+    candidates = ArrayProperty(ICECandidates)
 
 
 class SessionTerminateRequest(SessionRequestBase):
-    sylkrtc = FixedValueField('session-terminate')
+    sylkrtc = FixedValueProperty('session-terminate')
 
 
 # VideoRoomControlRequest embedded models
 
-class VideoRoomControlConfigureRoomOptions(models.Base):
-    active_participants = UniqueStringListField(validators=[validators.Length(minimum_value=0, maximum_value=2)])
+class VideoRoomControlConfigureRoomOptions(JSONObject):
+    active_participants = ArrayProperty(VideoRoomActiveParticipants)
 
 
-class VideoRoomControlFeedAttachOptions(models.Base):
-    session = fields.StringField(required=True)
-    publisher = fields.StringField(required=True)
+class VideoRoomControlFeedAttachOptions(JSONObject):
+    session = StringProperty()
+    publisher = StringProperty()
 
 
-class VideoRoomControlFeedAnswerOptions(models.Base):
-    session = fields.StringField(required=True)
-    sdp = fields.StringField(required=True)
+class VideoRoomControlFeedAnswerOptions(JSONObject):
+    session = StringProperty()
+    sdp = StringProperty()
 
 
-class VideoRoomControlFeedDetachOptions(models.Base):
-    session = fields.StringField(required=True)
+class VideoRoomControlFeedDetachOptions(JSONObject):
+    session = StringProperty()
 
 
-class VideoRoomControlInviteParticipantsOptions(models.Base):
-    participants = UniqueStringListField(validators=[URIListValidator])
+class VideoRoomControlInviteParticipantsOptions(JSONObject):
+    participants = ArrayProperty(URIList)
 
 
-class VideoRoomControlTrickleOptions(models.Base):
+class VideoRoomControlTrickleOptions(JSONObject):
     # ID for the subscriber session, if specified, otherwise the publisher is considered
-    session = fields.StringField(required=False)
-    candidates = fields.ListField([ICECandidate])
+    session = StringProperty(optional=True)
+    candidates = ArrayProperty(ICECandidates)
 
 
-class VideoRoomControlUpdateOptions(models.Base):
-    audio = fields.BoolField(required=False)
-    video = fields.BoolField(required=False)
-    bitrate = fields.IntField(required=False)
+class VideoRoomControlUpdateOptions(JSONObject):
+    audio = BooleanProperty(optional=True)
+    video = BooleanProperty(optional=True)
+    bitrate = IntegerProperty(optional=True)
 
 
-# VideoRoom models
+# VideoRoom request models
 
 class VideoRoomJoinRequest(VideoRoomRequestBase):
-    sylkrtc = FixedValueField('videoroom-join')
-    account = fields.StringField(required=True, validators=[URIValidator])
-    uri = fields.StringField(required=True, validators=[URIValidator])
-    sdp = fields.StringField(required=True)
+    sylkrtc = FixedValueProperty('videoroom-join')
+    account = StringProperty(validator=URIValidator())
+    uri = StringProperty(validator=URIValidator())
+    sdp = StringProperty()
 
 
 class VideoRoomControlRequest(VideoRoomRequestBase):
-    sylkrtc = FixedValueField('videoroom-ctl')
-    option = LimitedChoiceField({'configure-room', 'feed-attach', 'feed-answer', 'feed-detach', 'invite-participants', 'trickle', 'update'})
+    sylkrtc = FixedValueProperty('videoroom-ctl')
+    option = LimitedChoiceProperty('configure-room', 'feed-attach', 'feed-answer', 'feed-detach', 'invite-participants', 'trickle', 'update')
 
     # all other options should have optional fields below, and the application needs to do a little validation
-    configure_room = fields.EmbeddedField(VideoRoomControlConfigureRoomOptions, required=False)
-    feed_attach = fields.EmbeddedField(VideoRoomControlFeedAttachOptions, required=False)
-    feed_answer = fields.EmbeddedField(VideoRoomControlFeedAnswerOptions, required=False)
-    feed_detach = fields.EmbeddedField(VideoRoomControlFeedDetachOptions, required=False)
-    invite_participants = fields.EmbeddedField(VideoRoomControlInviteParticipantsOptions, required=False)
-    trickle = fields.EmbeddedField(VideoRoomControlTrickleOptions, required=False)
-    update = fields.EmbeddedField(VideoRoomControlUpdateOptions, required=False)
+    configure_room = ObjectProperty(VideoRoomControlConfigureRoomOptions, optional=True)
+    feed_attach = ObjectProperty(VideoRoomControlFeedAttachOptions, optional=True)
+    feed_answer = ObjectProperty(VideoRoomControlFeedAnswerOptions, optional=True)
+    feed_detach = ObjectProperty(VideoRoomControlFeedDetachOptions, optional=True)
+    invite_participants = ObjectProperty(VideoRoomControlInviteParticipantsOptions, optional=True)
+    trickle = ObjectProperty(VideoRoomControlTrickleOptions, optional=True)
+    update = ObjectProperty(VideoRoomControlUpdateOptions, optional=True)
 
 
 class VideoRoomTerminateRequest(VideoRoomRequestBase):
-    sylkrtc = FixedValueField('videoroom-terminate')
+    sylkrtc = FixedValueProperty('videoroom-terminate')
 
 
 # SylkRTC request to model mapping
@@ -255,6 +273,4 @@ class SylkRTCRequest(object):
             request_class = cls.__classmap__[request_type]
         except KeyError:
             raise ProtocolError('unknown WebSocket request: %s' % request_type)
-        request = request_class(**message)
-        request.validate()
-        return request
+        return request_class(**message)
