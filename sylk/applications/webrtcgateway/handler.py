@@ -154,7 +154,7 @@ class VideoRoom(object):
         self.log.info('{session.account_id} has joined the room'.format(session=session))
         self._update_bitrate()
         if self._active_participants:
-            session.owner.notify(sylkrtc.VideoRoomConfigurationEvent(session=session.id, active_participants=self._active_participants, originator='videoroom'))
+            session.owner.send(sylkrtc.VideoRoomConfigurationEvent(session=session.id, active_participants=self._active_participants, originator='videoroom'))
 
     def discard(self, session):
         if session in self._sessions:
@@ -166,7 +166,7 @@ class VideoRoom(object):
                 self._active_participants.remove(session.id)
                 self.log.info('active participants: {}'.format(', '.join(self._active_participants) or None))
                 for session in self._sessions:
-                    session.owner.notify(sylkrtc.VideoRoomConfigurationEvent(session=session.id, active_participants=self._active_participants, originator='videoroom'))
+                    session.owner.send(sylkrtc.VideoRoomConfigurationEvent(session=session.id, active_participants=self._active_participants, originator='videoroom'))
             self._update_bitrate()
 
     def remove(self, session):
@@ -178,7 +178,7 @@ class VideoRoom(object):
             self._active_participants.remove(session.id)
             self.log.info('active participants: {}'.format(', '.join(self._active_participants) or None))
             for session in self._sessions:
-                session.owner.notify(sylkrtc.VideoRoomConfigurationEvent(session=session.id, active_participants=self._active_participants, originator='videoroom'))
+                session.owner.send(sylkrtc.VideoRoomConfigurationEvent(session=session.id, active_participants=self._active_participants, originator='videoroom'))
         self._update_bitrate()
 
     def clear(self):
@@ -426,7 +426,7 @@ class ConnectionHandler(object):
             if self._stop_pending:
                 self.stop()
             else:
-                self._send_response(sylkrtc.ReadyEvent())
+                self.send(sylkrtc.ReadyEvent())
 
     def stop(self):
         if self.state in (None, 'starting'):
@@ -472,7 +472,7 @@ class ConnectionHandler(object):
         except Exception as e:
             self.log.error('{request_type}: {exception!s}'.format(request_type=message['sylkrtc'], exception=e))
             if 'transaction' in message:
-                self._send_response(sylkrtc.ErrorResponse(transaction=message['transaction'], error=str(e)))
+                self.send(sylkrtc.ErrorResponse(transaction=message['transaction'], error=str(e)))
         else:
             operation = Operation(type='request', name=request.sylkrtc, data=request)
             self.operations_queue.send(operation)
@@ -484,13 +484,11 @@ class ConnectionHandler(object):
             self.log.info('received an invitation from %s for %s to join video room %s', originator.id, account_id, room.uri)
             self._send_data(json.dumps(data))
 
-    def notify(self, event):
-        self._send_data(json.dumps(event.__data__))
+    def send(self, message):
+        if self.protocol is not None:
+            self.protocol.sendMessage(json.dumps(message.__data__))
 
     # internal methods (not overriding / implementing the protocol API)
-
-    def _send_response(self, response):
-        self._send_data(json.dumps(response.__data__))
 
     def _send_data(self, data):
         if self.protocol is not None:
@@ -603,12 +601,12 @@ class ConnectionHandler(object):
             handler(request)
         except (APIError, DNSLookupError, JanusError) as e:
             self.log.error('{operation.name}: {exception!s}'.format(operation=operation, exception=e))
-            self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
+            self.send(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
         except Exception as e:
             self.log.exception('{operation.type} {operation.name}: {exception!s}'.format(operation=operation, exception=e))
-            self._send_response(sylkrtc.ErrorResponse(transaction=request.transaction, error='Internal error'))
+            self.send(sylkrtc.ErrorResponse(transaction=request.transaction, error='Internal error'))
         else:
-            self._send_response(sylkrtc.AckResponse(transaction=request.transaction))
+            self.send(sylkrtc.AckResponse(transaction=request.transaction))
 
     def _OH_event(self, operation):
         handler = getattr(self, '_EH_' + operation.name.normalized)
@@ -861,7 +859,7 @@ class ConnectionHandler(object):
         except ValueError as e:
             raise APIError('configure-room: {exception!s}'.format(exception=e))
         for session in videoroom:
-            session.owner.notify(sylkrtc.VideoRoomConfigurationEvent(session=session.id, active_participants=videoroom.active_participants, originator=request.session))
+            session.owner.send(sylkrtc.VideoRoomConfigurationEvent(session=session.id, active_participants=videoroom.active_participants, originator=request.session))
 
     def _RH_videoroom_ctl_feed_attach(self, request):
         if request.feed_attach.session in self.videoroom_sessions:
