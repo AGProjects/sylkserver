@@ -154,7 +154,7 @@ class Videoroom(object):
         self.log.info('{session.account_id} has joined the room'.format(session=session))
         self._update_bitrate()
         if self._active_participants:
-            session.owner.send(sylkrtc.VideoroomConfigurationEvent(session=session.id, active_participants=self._active_participants, originator='videoroom'))
+            session.owner.send(sylkrtc.VideoroomConfigureEvent(session=session.id, active_participants=self._active_participants, originator='videoroom'))
 
     def discard(self, session):
         if session in self._sessions:
@@ -166,7 +166,7 @@ class Videoroom(object):
                 self._active_participants.remove(session.id)
                 self.log.info('active participants: {}'.format(', '.join(self._active_participants) or None))
                 for session in self._sessions:
-                    session.owner.send(sylkrtc.VideoroomConfigurationEvent(session=session.id, active_participants=self._active_participants, originator='videoroom'))
+                    session.owner.send(sylkrtc.VideoroomConfigureEvent(session=session.id, active_participants=self._active_participants, originator='videoroom'))
             self._update_bitrate()
 
     def remove(self, session):
@@ -178,7 +178,7 @@ class Videoroom(object):
             self._active_participants.remove(session.id)
             self.log.info('active participants: {}'.format(', '.join(self._active_participants) or None))
             for session in self._sessions:
-                session.owner.send(sylkrtc.VideoroomConfigurationEvent(session=session.id, active_participants=self._active_participants, originator='videoroom'))
+                session.owner.send(sylkrtc.VideoroomConfigureEvent(session=session.id, active_participants=self._active_participants, originator='videoroom'))
         self._update_bitrate()
 
     def clear(self):
@@ -477,22 +477,11 @@ class ConnectionHandler(object):
             operation = Operation(type='request', name=request.sylkrtc, data=request)
             self.operations_queue.send(operation)
 
-    def handle_conference_invite(self, originator, room, invited_uris):
-        for account_id in set(self.accounts_map).intersection(invited_uris):
-            data = dict(sylkrtc='account_event', event='conference_invite', account=account_id, data=dict(originator=dict(uri=originator.id, display_name=originator.display_name), room=room.uri))
-            room.log.info('invitation from %s for %s', originator.id, account_id)
-            self.log.info('received an invitation from %s for %s to join video room %s', originator.id, account_id, room.uri)
-            self._send_data(json.dumps(data))
-
     def send(self, message):
         if self.protocol is not None:
             self.protocol.sendMessage(json.dumps(message.__data__))
 
     # internal methods (not overriding / implementing the protocol API)
-
-    def _send_data(self, data):
-        if self.protocol is not None:
-            self.protocol.sendMessage(data)
 
     def _cleanup_session(self, session):
         # should only be called from a green thread.
@@ -835,49 +824,58 @@ class ConnectionHandler(object):
         videoroom_session.initialize(request.account, 'publisher', videoroom)
         self.videoroom_sessions.add(videoroom_session)
 
-        data = dict(sylkrtc='videoroom_event', session=videoroom_session.id, event='state', data=dict(state='progress'))
-        self._send_data(json.dumps(data))
+        self.send(sylkrtc.VideoroomSessionProgressEvent(session=videoroom_session.id))
 
         self.log.info('created session {request.session} from account {request.account} to video room {request.uri}'.format(request=request))
 
-    def _RH_videoroom_ctl(self, request):
-        option_name = request.option.replace('-', '_')
-        if getattr(request, option_name) is None:
-            raise APIError('missing {!r} field in request'.format(option_name))
-        sub_handler = getattr(self, '_RH_videoroom_ctl_{}'.format(option_name))
-        sub_handler(request)
-
-    def _RH_videoroom_ctl_configure_room(self, request):
+    def _RH_videoroom_leave(self, request):
         try:
             videoroom_session = self.videoroom_sessions[request.session]
         except KeyError:
-            raise APIError('configure-room: unknown video room session: {request.session}'.format(request=request))
+            raise APIError('Unknown video room session: {request.session}'.format(request=request))
+
+        data = dict(request='leave')
+        block_on(self.janus.message(self.janus_session_id, videoroom_session.janus_handle_id, data))
+
+        self.send(sylkrtc.VideoroomSessionTerminatedEvent(session=videoroom_session.id))
+
+        # safety net in case we do not get any answer for the leave request
+        # todo: to be adjusted later after pseudo-synchronous communication with janus is implemented
+        reactor.callLater(2, call_in_green_thread, self._cleanup_videoroom_session, videoroom_session)
+
+        self.log.info('leaving video room session {request.session}'.format(request=request))
+
+    def _RH_videoroom_configure(self, request):
+        try:
+            videoroom_session = self.videoroom_sessions[request.session]
+        except KeyError:
+            raise APIError('Unknown video room session: {request.session}'.format(request=request))
         videoroom = videoroom_session.room
         # todo: should we send out events if the active participant list did not change?
         try:
-            videoroom.active_participants = request.configure_room.active_participants
+            videoroom.active_participants = request.active_participants
         except ValueError as e:
-            raise APIError('configure-room: {exception!s}'.format(exception=e))
+            raise APIError(str(e))
         for session in videoroom:
-            session.owner.send(sylkrtc.VideoroomConfigurationEvent(session=session.id, active_participants=videoroom.active_participants, originator=request.session))
+            session.owner.send(sylkrtc.VideoroomConfigureEvent(session=session.id, active_participants=videoroom.active_participants, originator=request.session))
 
-    def _RH_videoroom_ctl_feed_attach(self, request):
-        if request.feed_attach.session in self.videoroom_sessions:
-            raise APIError('feed-attach: video room session ID {request.feed_attach.session} already in use'.format(request=request))
+    def _RH_videoroom_feed_attach(self, request):
+        if request.feed in self.videoroom_sessions:
+            raise APIError('Video room session ID {request.feed} already in use'.format(request=request))
 
         # get the 'base' session, the one used to join and publish
         try:
             base_session = self.videoroom_sessions[request.session]
         except KeyError:
-            raise APIError('feed-attach: unknown video room session: {request.session}'.format(request=request))
+            raise APIError('Unknown video room session: {request.session}'.format(request=request))
 
         # get the publisher's session
         try:
-            publisher_session = base_session.room[request.feed_attach.publisher]
+            publisher_session = base_session.room[request.publisher]
         except KeyError:
-            raise APIError('feed-attach: unknown publisher video room session to attach to: {request.feed_attach.publisher}'.format(request=request))
+            raise APIError('Unknown publisher video room session to attach to: {request.publisher}'.format(request=request))
         if publisher_session.publisher_id is None:
-            raise APIError('feed-attach: video room session {session.id} does not have a publisher ID'.format(session=publisher_session))
+            raise APIError('Video room session {session.id} does not have a publisher ID'.format(session=publisher_session))
 
         handle_id = block_on(self.janus.attach(self.janus_session_id, 'janus.plugin.videoroom'))
         self.janus.set_event_handler(handle_id, self._handle_janus_event_videoroom)
@@ -894,7 +892,7 @@ class ConnectionHandler(object):
             self.janus.set_event_handler(handle_id, None)
             raise
 
-        videoroom_session = VideoroomSessionInfo(request.feed_attach.session, owner=self)
+        videoroom_session = VideoroomSessionInfo(request.feed, owner=self)
         videoroom_session.janus_handle_id = handle_id
         videoroom_session.parent_session = base_session
         videoroom_session.publisher_id = publisher_session.id
@@ -902,75 +900,67 @@ class ConnectionHandler(object):
         self.videoroom_sessions.add(videoroom_session)
         base_session.feeds.add(publisher_session)
 
-    def _RH_videoroom_ctl_feed_answer(self, request):
+    def _RH_videoroom_feed_answer(self, request):
         try:
-            videoroom_session = self.videoroom_sessions[request.feed_answer.session]
+            videoroom_session = self.videoroom_sessions[request.feed]
         except KeyError:
-            raise APIError('feed-answer: unknown video room session: {request.feed_answer.session}'.format(request=request))
+            raise APIError('Unknown video room session: {request.feed}'.format(request=request))
+        if videoroom_session.parent_session.id != request.session:
+            raise APIError('{request.feed} is not an attached feed of {request.session}'.format(request=request))
         data = dict(request='start', room=videoroom_session.room.id)
-        jsep = dict(type='answer', sdp=request.feed_answer.sdp)
+        jsep = dict(type='answer', sdp=request.sdp)
         block_on(self.janus.message(self.janus_session_id, videoroom_session.janus_handle_id, data, jsep))
 
-    def _RH_videoroom_ctl_feed_detach(self, request):
+    def _RH_videoroom_feed_detach(self, request):
         try:
-            videoroom_session = self.videoroom_sessions[request.feed_detach.session]
+            videoroom_session = self.videoroom_sessions[request.feed]
         except KeyError:
-            raise APIError('feed-detach: unknown video room session to detach: {request.feed_detach.session}'.format(request=request))
+            raise APIError('Unknown video room session to detach: {request.feed}'.format(request=request))
         if videoroom_session.parent_session.id != request.session:
-            raise APIError('feed-detach: {request.feed_detach.session} is not an attached feed of {request.session}'.format(request=request))
+            raise APIError('{request.feed} is not an attached feed of {request.session}'.format(request=request))
         data = dict(request='leave')
         block_on(self.janus.message(self.janus_session_id, videoroom_session.janus_handle_id, data))
         self._cleanup_videoroom_session(videoroom_session)
 
-    def _RH_videoroom_ctl_invite_participants(self, request):
+    def _RH_videoroom_invite(self, request):
         try:
             base_session = self.videoroom_sessions[request.session]
             account_info = self.accounts_map[base_session.account_id]
         except KeyError:
-            raise APIError('invite-participants: unknown video room session: {request.session}'.format(request=request))
+            raise APIError('Unknown video room session: {request.session}'.format(request=request))
+        room = base_session.room
+        participants = set(request.participants)
+        originator = sylkrtc.SIPIdentity(uri=account_info.id, display_name=account_info.display_name)
+        event = sylkrtc.AccountConferenceInviteEvent(account='placeholder', room=room.uri, originator=originator)
         for protocol in self.protocol.factory.connections.difference([self.protocol]):
-            protocol.connection_handler.handle_conference_invite(account_info, base_session.room, request.invite_participants.participants)
+            connection_handler = protocol.connection_handler
+            for account in participants.intersection(connection_handler.accounts_map):
+                event.account = account
+                connection_handler.send(event)
+                room.log.info('invitation from %s for %s', originator.uri, account)
+                connection_handler.log.info('received an invitation from %s for %s to join video room %s', originator.uri, account, room.uri)
 
-    def _RH_videoroom_ctl_trickle(self, request):
-        session = request.trickle.session or request.session
+    def _RH_videoroom_session_trickle(self, request):
         try:
-            videoroom_session = self.videoroom_sessions[session]
+            videoroom_session = self.videoroom_sessions[request.session]
         except KeyError:
-            raise APIError('trickle: unknown video room session: {session}'.format(session=session))
-        candidates = request.trickle.candidates.__data__
+            raise APIError('Unknown video room session: {request.session}'.format(request=request))
+        candidates = request.candidates.__data__
         block_on(self.janus.trickle(self.janus_session_id, videoroom_session.janus_handle_id, candidates))
         if not candidates and videoroom_session.type == 'publisher':
             self.log.debug('video room session {session.id} negotiated ICE'.format(session=videoroom_session))
 
-    def _RH_videoroom_ctl_update(self, request):
+    def _RH_videoroom_session_update(self, request):
         try:
             videoroom_session = self.videoroom_sessions[request.session]
         except KeyError:
-            raise APIError('update: unknown video room session: {request.session}'.format(request=request))
-        update_data = request.update.__data__
+            raise APIError('Unknown video room session: {request.session}'.format(request=request))
+        update_data = request.options.__data__
         if update_data:
             data = dict(request='configure', room=videoroom_session.room.id, **update_data)
             block_on(self.janus.message(self.janus_session_id, videoroom_session.janus_handle_id, data))
             modified = ', '.join('{}={}'.format(key, update_data[key]) for key in update_data)
             self.log.info('updated video room session {request.session} with {modified}'.format(request=request, modified=modified))
-
-    def _RH_videoroom_terminate(self, request):
-        try:
-            videoroom_session = self.videoroom_sessions[request.session]
-        except KeyError:
-            raise APIError('Unknown video room session: {request.session}'.format(request=request))
-
-        data = dict(request='leave')
-        block_on(self.janus.message(self.janus_session_id, videoroom_session.janus_handle_id, data))
-
-        data = dict(sylkrtc='videoroom_event', session=videoroom_session.id, event='state', data=dict(state='terminated'))
-        self._send_data(json.dumps(data))
-
-        # safety net in case we do not get any answer for the leave request
-        # todo: to be adjusted later after pseudo-synchronous communication with janus is implemented
-        reactor.callLater(2, call_in_green_thread, self._cleanup_videoroom_session, videoroom_session)
-
-        self.log.info('requested termination for video room session {request.session}'.format(request=request))
 
     # Event handlers
 
@@ -988,8 +978,7 @@ class ConnectionHandler(object):
                 self.log.warning('could not find session for handle ID %s' % handle_id)
                 return
             session_info.state = 'established'
-            data = dict(sylkrtc='session_event', session=session_info.id, event='state', data=dict(state=session_info.state))
-            self._send_data(json.dumps(data))  # TODO: SessionEvent model
+            self.send(sylkrtc.SessionEstablishedEvent(session=session_info.id))
             self.log.debug('{session.direction} session {session.id} state: {session.state}'.format(session=session_info))
             self.log.info('established WEBRTC connection for session {session.id}'.format(session=session_info))
         elif event_type == 'hangup':
@@ -999,11 +988,8 @@ class ConnectionHandler(object):
                 return
             if session_info.state != 'terminated':
                 session_info.state = 'terminated'
-                self.log.debug('{session.direction} session {session.id} state: {session.state}'.format(session=session_info))
                 reason = event.get('reason', 'reason unspecified')
-                data = dict(sylkrtc='session_event', session=session_info.id, event='state', data=dict(state=session_info.state, reason=reason))
-                # TODO: SessionEvent model
-                self._send_data(json.dumps(data))
+                self.send(sylkrtc.SessionTerminatedEvent(session=session_info.id, reason=reason))
                 self.log.info('{session.direction} session {session.id} terminated ({reason})'.format(session=session_info, reason=reason))
                 self._cleanup_session(session_info)
         elif event_type in ('media', 'detached'):
@@ -1046,93 +1032,109 @@ class ConnectionHandler(object):
         event_data = event_data['result']
         jsep = event.get('jsep', None)
         event_type = event_data['event']
-        if event_type in ('registering', 'registered', 'registration_failed', 'incomingcall'):
-            # skip 'registered' events from session handles
-            if event_type == 'registered' and event_data['register_sent'] in (False, 'false'):
-                return
-            # account event
+
+        # if event_type == 'registering':
+        #     account_info = self.account_handles_map.get(handle_id)
+        #     if account_info is None:
+        #         self.log.warning('could not find account for handle ID %s' % handle_id)
+        #     elif account_info.registration_state != event_type:
+        #         account_info.registration_state = event_type
+        #         self.send(sylkrtc.AccountRegisteringEvent(account=account_info.id))
+        if event_type == 'registering':
             try:
                 account_info = self.account_handles_map[handle_id]
             except KeyError:
                 self.log.warning('could not find account for handle ID %s' % handle_id)
                 return
-            if event_type == 'incomingcall':
-                originator_uri = SIP_PREFIX_RE.sub('', event_data['username'])
-                originator_display_name = event_data.get('displayname', '').replace('"', '')
-                jsep = event.get('jsep', None)
-                assert jsep is not None
-                session_id = uuid.uuid4().hex
-                session = SIPSessionInfo(session_id)
-                session.janus_handle_id = handle_id
-                session.init_incoming(account_info.id, originator_uri, originator_display_name)
-                self.sip_sessions.add(session)
-                data = dict(sylkrtc='account_event', account=account_info.id, session=session_id, event='incoming_session', data=dict(originator=session.remote_identity.__dict__, sdp=jsep['sdp']))
-                self.log.info('received incoming session {session.id} from {session.remote_identity.uri!s} to {session.local_identity.uri!s}'.format(session=session))
-            else:
-                registration_state = event_type
-                if registration_state == 'registration_failed':
-                    registration_state = 'failed'
-                if account_info.registration_state == registration_state:
-                    return
-                account_info.registration_state = registration_state
-                registration_data = dict(state=registration_state)
-                if registration_state == 'failed':
-                    registration_data['reason'] = reason = '{0[code]} {0[reason]}'.format(event_data)
-                    self.log.info('registration for {account.id} failed: {reason}'.format(account=account_info, reason=reason))
-                elif registration_state == 'registered':
-                    self.log.info('registered {account.id} to receive incoming calls'.format(account=account_info))
-                data = dict(sylkrtc='account_event', account=account_info.id, event='registration_state', data=registration_data)
-            # TODO: AccountEvent model
-            self._send_data(json.dumps(data))
-        elif event_type in ('calling', 'accepted'):
-            # session event
-            try:
-                session_info = self.sip_sessions[handle_id]
-            except KeyError:
-                self.log.warning('could not find session for handle ID %s' % handle_id)
+            if account_info.registration_state != event_type:
+                account_info.registration_state = event_type
+                self.send(sylkrtc.AccountRegisteringEvent(account=account_info.id))
+        elif event_type == 'registered':
+            if event_data['register_sent'] in (False, 'false'):  # skip 'registered' events from outgoing session handles
                 return
-            state_map = dict(calling='progress', accepted='accepted')
-            session_info.state = state_map[event_type]
-            self.log.debug('{session.direction} session {session.id} state: {session.state}'.format(session=session_info))
-            data = dict(sylkrtc='session_event', session=session_info.id, event='state', data=dict(state=session_info.state))
-            if session_info.state == 'accepted' and session_info.direction == 'outgoing':
-                assert jsep is not None
-                data['data']['sdp'] = jsep['sdp']
-            self._send_data(json.dumps(data))  # TODO: SessionEvent model
-        elif event_type == 'hangup':  # session hangup event
             try:
-                session_info = self.sip_sessions[handle_id]
+                account_info = self.account_handles_map[handle_id]
             except KeyError:
+                self.log.warning('could not find account for handle ID %s' % handle_id)
                 return
-            if session_info.state != 'terminated':
-                session_info.state = 'terminated'
-                self.log.debug('{session.direction} session {session.id} state: {session.state}'.format(session=session_info))
-                code = event_data.get('code', 0)
-                reason = '%d %s' % (code, event_data.get('reason', 'Unknown'))
-                data = dict(sylkrtc='session_event', session=session_info.id, event='state', data=dict(state=session_info.state, reason=reason))
-                self._send_data(json.dumps(data))  # TODO: SessionEvent model
-                if session_info.direction == 'incoming' and code == 487:  # check if missed incoming call
-                    data = dict(sylkrtc='account_event', account=session_info.account_id, event='missed_session', data=dict(originator=session_info.remote_identity.__dict__))
-                    self._send_data(json.dumps(data))  # TODO: AccountEvent model
-                if code >= 300:
-                    self.log.info('{session.direction} session {session.id} terminated ({reason})'.format(session=session_info, reason=reason))
-                else:
-                    self.log.info('{session.direction} session {session.id} terminated'.format(session=session_info))
-                self._cleanup_session(session_info)
+            if account_info.registration_state != event_type:
+                account_info.registration_state = event_type
+                self.send(sylkrtc.AccountRegisteredEvent(account=account_info.id))
+                self.log.info('registered {account.id} to receive incoming calls'.format(account=account_info))
+        elif event_type == 'registration_failed':
+            try:
+                account_info = self.account_handles_map[handle_id]
+            except KeyError:
+                self.log.warning('could not find account for handle ID %s' % handle_id)
+                return
+            if account_info.registration_state != 'failed':
+                account_info.registration_state = 'failed'
+                reason = '{0[code]} {0[reason]}'.format(event_data)
+                self.send(sylkrtc.AccountRegistrationFailedEvent(account=account_info.id, reason=reason))
+                self.log.info('registration for {account.id} failed: {reason}'.format(account=account_info, reason=reason))
+        elif event_type == 'incomingcall':
+            try:
+                account_info = self.account_handles_map[handle_id]
+            except KeyError:
+                self.log.warning('could not find account for handle ID %s' % handle_id)
+                return
+            jsep = event.get('jsep', None)
+            assert jsep is not None
+            originator = sylkrtc.SIPIdentity(uri=SIP_PREFIX_RE.sub('', event_data['username']), display_name=event_data.get('displayname', '').replace('"', ''))
+            session = SIPSessionInfo(uuid.uuid4().hex)
+            session.janus_handle_id = handle_id
+            session.init_incoming(account_info.id, originator.uri, originator.display_name)
+            self.sip_sessions.add(session)
+            self.send(sylkrtc.AccountIncomingSessionEvent(account=account_info.id, session=session.id, originator=originator, sdp=jsep['sdp']))
+            self.log.info('received incoming session {session.id} from {session.remote_identity.uri!s} to {session.local_identity.uri!s}'.format(session=session))
         elif event_type == 'missed_call':
             try:
                 account_info = self.account_handles_map[handle_id]
             except KeyError:
                 self.log.warning('could not find account for handle ID %s' % handle_id)
                 return
-            originator_uri = SIP_PREFIX_RE.sub('', event_data['caller'])
-            originator_display_name = event_data.get('displayname', '').replace('"', '')
-            # We have no session, so create an identity object by hand
-            originator = SessionPartyIdentity(originator_uri, originator_display_name)
-            data = dict(sylkrtc='account_event', account=account_info.id, event='missed_session', data=dict(originator=originator.__dict__))
+            originator = sylkrtc.SIPIdentity(uri=SIP_PREFIX_RE.sub('', event_data['caller']), display_name=event_data.get('displayname', '').replace('"', ''))
+            self.send(sylkrtc.AccountMissedSessionEvent(account=account_info.id, originator=originator))
             self.log.info('missed incoming call from {originator.uri}'.format(originator=originator))
-            # TODO: AccountEvent model
-            self._send_data(json.dumps(data))
+        elif event_type == 'calling':
+            try:
+                session_info = self.sip_sessions[handle_id]
+            except KeyError:
+                self.log.warning('could not find session for handle ID %s' % handle_id)
+                return
+            session_info.state = 'progress'
+            self.send(sylkrtc.SessionProgressEvent(session=session_info.id))
+            self.log.debug('{session.direction} session {session.id} state: {session.state}'.format(session=session_info))
+        elif event_type == 'accepted':
+            try:
+                session_info = self.sip_sessions[handle_id]
+            except KeyError:
+                self.log.warning('could not find session for handle ID %s' % handle_id)
+                return
+            session_info.state = 'accepted'
+            event = sylkrtc.SessionAcceptedEvent(session=session_info.id)
+            if session_info.direction == 'outgoing':
+                assert jsep is not None
+                event.sdp = jsep['sdp']
+            self.send(event)
+            self.log.debug('{session.direction} session {session.id} state: {session.state}'.format(session=session_info))
+        elif event_type == 'hangup':
+            try:
+                session_info = self.sip_sessions[handle_id]
+            except KeyError:
+                return
+            if session_info.state != 'terminated':
+                session_info.state = 'terminated'
+                code = event_data.get('code', 0)
+                reason = '%d %s' % (code, event_data.get('reason', 'Unknown'))
+                self.send(sylkrtc.SessionTerminatedEvent(session=session_info.id, reason=reason))
+                if session_info.direction == 'incoming' and code == 487:  # incoming call was cancelled -> missed
+                    self.send(sylkrtc.AccountMissedSessionEvent(account=session_info.account_id, originator=session_info.remote_identity.__dict__))
+                if code >= 300:
+                    self.log.info('{session.direction} session {session.id} terminated ({reason})'.format(session=session_info, reason=reason))
+                else:
+                    self.log.info('{session.direction} session {session.id} terminated'.format(session=session_info))
+                self._cleanup_session(session_info)
         elif event_type in ('ack', 'declining', 'hangingup', 'proceeding'):
             pass  # ignore
         else:
@@ -1152,10 +1154,9 @@ class ConnectionHandler(object):
                 return
             if videoroom_session.type == 'publisher':
                 self.log.info('established WEBRTC connection for session {session.id}'.format(session=videoroom_session))
-                data = dict(sylkrtc='videoroom_event', session=videoroom_session.id, event='state', data=dict(state='established'))
+                self.send(sylkrtc.VideoroomSessionEstablishedEvent(session=videoroom_session.id))
             else:
-                data = dict(sylkrtc='videoroom_event', session=videoroom_session.parent_session.id, event='feed_established', data=dict(state='established', subscription=videoroom_session.id))
-            self._send_data(json.dumps(data))
+                self.send(sylkrtc.VideoroomFeedEstablishedEvent(session=videoroom_session.parent_session.id, feed=videoroom_session.id))
         elif event_type == 'hangup':
             try:
                 videoroom_session = self.videoroom_sessions[handle_id]
@@ -1207,8 +1208,7 @@ class ConnectionHandler(object):
             room = videoroom_session.room
             jsep = event.get('jsep', None)
             assert jsep is not None
-            data = dict(sylkrtc='videoroom_event', session=videoroom_session.id, event='state', data=dict(state='accepted', sdp=jsep['sdp']))
-            self._send_data(json.dumps(data))
+            self.send(sylkrtc.VideoroomSessionAcceptedEvent(session=videoroom_session.id, sdp=jsep['sdp']))
             # send information about existing publishers
             publishers = []
             for publisher in event_data['publishers']:
@@ -1217,10 +1217,9 @@ class ConnectionHandler(object):
                     publisher_session = room[publisher_id]
                 except KeyError:
                     self.log.warning('could not find matching session for publisher %s during joined event' % publisher_id)
-                    continue
-                publishers.append(dict(id=publisher_session.id, uri=publisher_session.account_id, display_name=publisher.get('display', '')))
-            data = dict(sylkrtc='videoroom_event', session=videoroom_session.id, event='initial_publishers', data=dict(publishers=publishers))
-            self._send_data(json.dumps(data))
+                else:
+                    publishers.append(dict(id=publisher_session.id, uri=publisher_session.account_id, display_name=publisher.get('display', '')))
+            self.send(sylkrtc.VideoroomInitialPublishersEvent(session=videoroom_session.id, publishers=publishers))
             room.add(videoroom_session)  # adding the session to the room might also trigger sending an event with the active participants which must be sent last
         elif event_type == 'event':
             if 'publishers' in event_data:
@@ -1240,8 +1239,7 @@ class ConnectionHandler(object):
                         self.log.warning('could not find matching session for publisher %s during publishers event' % publisher_id)
                         continue
                     publishers.append(dict(id=publisher_session.id, uri=publisher_session.account_id, display_name=publisher.get('display', '')))
-                data = dict(sylkrtc='videoroom_event', session=videoroom_session.id, event='publishers_joined', data=dict(publishers=publishers))
-                self._send_data(json.dumps(data))
+                self.send(sylkrtc.VideoroomPublishersJoinedEvent(session=videoroom_session.id, publishers=publishers))
             elif 'leaving' in event_data:
                 janus_publisher_id = event_data['leaving']  # janus_publisher_id == 'ok' when the event is about ourselves leaving the room
                 try:
@@ -1258,8 +1256,7 @@ class ConnectionHandler(object):
                     publisher_session = base_session.feeds.pop(janus_publisher_id)
                 except KeyError:
                     return
-                data = dict(sylkrtc='videoroom_event', session=base_session.id, event='publishers_left', data=dict(publishers=[publisher_session.id]))
-                self._send_data(json.dumps(data))
+                self.send(sylkrtc.VideoroomPublishersLeftEvent(session=base_session.id, publishers=[publisher_session.id]))
             elif {'started', 'unpublished', 'left', 'configured'}.intersection(event_data):
                 pass
             else:
@@ -1277,8 +1274,7 @@ class ConnectionHandler(object):
             assert base_session is not None
             assert jsep is not None
             assert jsep['type'] == 'offer'
-            data = dict(sylkrtc='videoroom_event', session=base_session.id, event='feed_attached', data=dict(sdp=jsep['sdp'], subscription=videoroom_session.id))
-            self._send_data(json.dumps(data))
+            self.send(sylkrtc.VideoroomFeedAttachedEvent(session=base_session.id, feed=videoroom_session.id, sdp=jsep['sdp']))
         elif event_type == 'slow_link':
             pass
         else:

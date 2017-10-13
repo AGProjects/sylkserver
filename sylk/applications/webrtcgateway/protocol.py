@@ -15,7 +15,7 @@ from sylk.applications.webrtcgateway.janus import JanusBackend
 from sylk.applications.webrtcgateway.logger import log
 
 
-SYLK_WS_PROTOCOL = 'sylkRTC-1'
+SYLK_WS_PROTOCOL = 'sylkRTC-2'
 
 
 class SylkWebSocketServerProtocol(WebSocketServerProtocol):

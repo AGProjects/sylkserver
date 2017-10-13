@@ -72,43 +72,7 @@ class LimitedChoiceProperty(AbstractProperty):
         return value
 
 
-# Miscellaneous models
-
-class ICECandidate(JSONObject):
-    candidate = StringProperty()
-    sdpMLineIndex = IntegerProperty()
-    sdpMid = StringProperty()
-
-
-class ICECandidates(JSONArray):
-    item_type = ICECandidate
-
-
-class URIList(StringArray):
-    list_validator = UniqueItemsValidator()
-    item_validator = URIValidator()
-
-
-class VideoroomActiveParticipants(StringArray):
-    list_validator = CompositeValidator(UniqueItemsValidator(), LengthValidator(maximum=2))
-
-
-# Events
-
-class ReadyEvent(JSONObject):
-    sylkrtc = FixedValueProperty('event')
-    event = FixedValueProperty('ready')
-
-
-class VideoroomConfigurationEvent(JSONObject):
-    sylkrtc = FixedValueProperty('videoroom_event')  # todo: rename with dashes or underscores?
-    event = FixedValueProperty('configure-room')
-    session = StringProperty()
-    originator = StringProperty()
-    active_participants = ArrayProperty(VideoroomActiveParticipants)
-
-
-# Base models
+# Base models (these are abstract and should not be used directly)
 
 class SylkRTCRequestBase(JSONObject):
     transaction = StringProperty()
@@ -130,6 +94,75 @@ class VideoroomRequestBase(SylkRTCRequestBase):
     session = StringProperty()
 
 
+class AccountEventBase(JSONObject):
+    sylkrtc = FixedValueProperty('account-event')
+    account = StringProperty(validator=URIValidator())
+
+
+class SessionEventBase(JSONObject):
+    sylkrtc = FixedValueProperty('session-event')
+    session = StringProperty()
+
+
+class VideoroomEventBase(JSONObject):
+    sylkrtc = FixedValueProperty('videoroom-event')
+    session = StringProperty()
+
+
+class AccountRegistrationStateEvent(AccountEventBase):
+    event = FixedValueProperty('registration-state')
+
+
+class SessionStateEvent(SessionEventBase):
+    event = FixedValueProperty('state')
+
+
+class VideoroomSessionStateEvent(VideoroomEventBase):
+    event = FixedValueProperty('session-state')
+
+
+# Miscellaneous models
+
+class SIPIdentity(JSONObject):
+    uri = StringProperty(validator=URIValidator())
+    display_name = StringProperty(optional=True)
+
+
+class ICECandidate(JSONObject):
+    candidate = StringProperty()
+    sdpMLineIndex = IntegerProperty()
+    sdpMid = StringProperty()
+
+
+class ICECandidates(JSONArray):
+    item_type = ICECandidate
+
+
+class URIList(StringArray):
+    list_validator = UniqueItemsValidator()
+    item_validator = URIValidator()
+
+
+class VideoroomPublisher(JSONObject):
+    id = StringProperty()
+    uri = StringProperty(validator=URIValidator())
+    display_name = StringProperty(optional=True)
+
+
+class VideoroomPublishers(JSONArray):
+    item_type = VideoroomPublisher
+
+
+class VideoroomActiveParticipants(StringArray):
+    list_validator = CompositeValidator(UniqueItemsValidator(), LengthValidator(maximum=2))
+
+
+class VideoroomSessionOptions(JSONObject):
+    audio = BooleanProperty(optional=True)
+    video = BooleanProperty(optional=True)
+    bitrate = IntegerProperty(optional=True)
+
+
 # Response models
 
 class AckResponse(SylkRTCResponseBase):
@@ -139,6 +172,117 @@ class AckResponse(SylkRTCResponseBase):
 class ErrorResponse(SylkRTCResponseBase):
     sylkrtc = FixedValueProperty('error')
     error = StringProperty()
+
+
+# Connection events
+
+class ReadyEvent(JSONObject):
+    sylkrtc = FixedValueProperty('ready-event')
+
+
+# Account events
+
+class AccountIncomingSessionEvent(AccountEventBase):
+    event = FixedValueProperty('incoming-session')
+    session = StringProperty()
+    originator = ObjectProperty(SIPIdentity)
+    sdp = StringProperty()
+
+
+class AccountMissedSessionEvent(AccountEventBase):
+    event = FixedValueProperty('missed-session')
+    originator = ObjectProperty(SIPIdentity)
+
+
+class AccountConferenceInviteEvent(AccountEventBase):
+    event = FixedValueProperty('conference-invite')
+    room = StringProperty(validator=URIValidator())
+    originator = ObjectProperty(SIPIdentity)
+
+
+class AccountRegisteringEvent(AccountRegistrationStateEvent):
+    state = FixedValueProperty('registering')
+
+
+class AccountRegisteredEvent(AccountRegistrationStateEvent):
+    state = FixedValueProperty('registered')
+
+
+class AccountRegistrationFailedEvent(AccountRegistrationStateEvent):
+    state = FixedValueProperty('failed')
+    reason = StringProperty(optional=True)
+
+
+# Session events
+
+class SessionProgressEvent(SessionStateEvent):
+    state = FixedValueProperty('progress')
+
+
+class SessionAcceptedEvent(SessionStateEvent):
+    state = FixedValueProperty('accepted')
+    sdp = StringProperty(optional=True)  # missing for incoming sessions
+
+
+class SessionEstablishedEvent(SessionStateEvent):
+    state = FixedValueProperty('established')
+
+
+class SessionTerminatedEvent(SessionStateEvent):
+    state = FixedValueProperty('terminated')
+    reason = StringProperty(optional=True)
+
+
+# Video room events
+
+class VideoroomConfigureEvent(VideoroomEventBase):
+    event = FixedValueProperty('configure')
+    originator = StringProperty()
+    active_participants = ArrayProperty(VideoroomActiveParticipants)
+
+
+class VideoroomSessionProgressEvent(VideoroomSessionStateEvent):
+    state = FixedValueProperty('progress')
+
+
+class VideoroomSessionAcceptedEvent(VideoroomSessionStateEvent):
+    state = FixedValueProperty('accepted')
+    sdp = StringProperty()
+
+
+class VideoroomSessionEstablishedEvent(VideoroomSessionStateEvent):
+    state = FixedValueProperty('established')
+
+
+class VideoroomSessionTerminatedEvent(VideoroomSessionStateEvent):
+    state = FixedValueProperty('terminated')
+    reason = StringProperty(optional=True)
+
+
+class VideoroomFeedAttachedEvent(VideoroomEventBase):
+    event = FixedValueProperty('feed-attached')
+    feed = StringProperty()
+    sdp = StringProperty()
+
+
+class VideoroomFeedEstablishedEvent(VideoroomEventBase):
+    event = FixedValueProperty('feed-established')
+    feed = StringProperty()
+
+
+class VideoroomInitialPublishersEvent(VideoroomEventBase):
+    event = FixedValueProperty('initial-publishers')
+    publishers = ArrayProperty(VideoroomPublishers)
+
+
+class VideoroomPublishersJoinedEvent(VideoroomEventBase):
+    event = FixedValueProperty('publishers-joined')
+    publishers = ArrayProperty(VideoroomPublishers)
+
+
+class VideoroomPublishersLeftEvent(VideoroomEventBase):
+    event = FixedValueProperty('publishers-left')
+    publishers = ArrayProperty(StringArray)
 
 
 # Account request models
@@ -191,42 +335,6 @@ class SessionTerminateRequest(SessionRequestBase):
     sylkrtc = FixedValueProperty('session-terminate')
 
 
-# VideoroomControlRequest embedded models
-
-class VideoroomControlConfigureRoomOptions(JSONObject):
-    active_participants = ArrayProperty(VideoroomActiveParticipants)
-
-
-class VideoroomControlFeedAttachOptions(JSONObject):
-    session = StringProperty()
-    publisher = StringProperty()
-
-
-class VideoroomControlFeedAnswerOptions(JSONObject):
-    session = StringProperty()
-    sdp = StringProperty()
-
-
-class VideoroomControlFeedDetachOptions(JSONObject):
-    session = StringProperty()
-
-
-class VideoroomControlInviteParticipantsOptions(JSONObject):
-    participants = ArrayProperty(URIList)
-
-
-class VideoroomControlTrickleOptions(JSONObject):
-    # ID for the subscriber session, if specified, otherwise the publisher is considered
-    session = StringProperty(optional=True)
-    candidates = ArrayProperty(ICECandidates)
-
-
-class VideoroomControlUpdateOptions(JSONObject):
-    audio = BooleanProperty(optional=True)
-    video = BooleanProperty(optional=True)
-    bitrate = IntegerProperty(optional=True)
-
-
 # Videoroom request models
 
 class VideoroomJoinRequest(VideoroomRequestBase):
@@ -236,22 +344,45 @@ class VideoroomJoinRequest(VideoroomRequestBase):
     sdp = StringProperty()
 
 
-class VideoroomControlRequest(VideoroomRequestBase):
-    sylkrtc = FixedValueProperty('videoroom-ctl')
-    option = LimitedChoiceProperty('configure-room', 'feed-attach', 'feed-answer', 'feed-detach', 'invite-participants', 'trickle', 'update')
-
-    # all other options should have optional fields below, and the application needs to do a little validation
-    configure_room = ObjectProperty(VideoroomControlConfigureRoomOptions, optional=True)
-    feed_attach = ObjectProperty(VideoroomControlFeedAttachOptions, optional=True)
-    feed_answer = ObjectProperty(VideoroomControlFeedAnswerOptions, optional=True)
-    feed_detach = ObjectProperty(VideoroomControlFeedDetachOptions, optional=True)
-    invite_participants = ObjectProperty(VideoroomControlInviteParticipantsOptions, optional=True)
-    trickle = ObjectProperty(VideoroomControlTrickleOptions, optional=True)
-    update = ObjectProperty(VideoroomControlUpdateOptions, optional=True)
+class VideoroomLeaveRequest(VideoroomRequestBase):
+    sylkrtc = FixedValueProperty('videoroom-leave')
 
 
-class VideoroomTerminateRequest(VideoroomRequestBase):
-    sylkrtc = FixedValueProperty('videoroom-terminate')
+class VideoroomConfigureRequest(VideoroomRequestBase):
+    sylkrtc = FixedValueProperty('videoroom-configure')
+    active_participants = ArrayProperty(VideoroomActiveParticipants)
+
+
+class VideoroomFeedAttachRequest(VideoroomRequestBase):
+    sylkrtc = FixedValueProperty('videoroom-feed-attach')
+    publisher = StringProperty()
+    feed = StringProperty()
+
+
+class VideoroomFeedAnswerRequest(VideoroomRequestBase):
+    sylkrtc = FixedValueProperty('videoroom-feed-answer')
+    feed = StringProperty()
+    sdp = StringProperty()
+
+
+class VideoroomFeedDetachRequest(VideoroomRequestBase):
+    sylkrtc = FixedValueProperty('videoroom-feed-detach')
+    feed = StringProperty()
+
+
+class VideoroomInviteRequest(VideoroomRequestBase):
+    sylkrtc = FixedValueProperty('videoroom-invite')
+    participants = ArrayProperty(URIList)
+
+
+class VideoroomSessionTrickleRequest(VideoroomRequestBase):
+    sylkrtc = FixedValueProperty('videoroom-session-trickle')
+    candidates = ArrayProperty(ICECandidates)
+
+
+class VideoroomSessionUpdateRequest(VideoroomRequestBase):
+    sylkrtc = FixedValueProperty('videoroom-session-update')
+    options = ObjectProperty(VideoroomSessionOptions)
 
 
 # SylkRTC request to model mapping
