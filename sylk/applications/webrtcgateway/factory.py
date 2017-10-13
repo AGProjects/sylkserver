@@ -7,7 +7,7 @@ from zope.interface import implements
 from sylk.applications.webrtcgateway.protocol import SylkWebSocketServerProtocol
 
 
-class VideoRoomContainer(object):
+class VideoroomContainer(object):
     def __init__(self):
         self._rooms = set()
         self._id_map = {}  # map videoroom.id -> videoroom and videoroom.uri -> videoroom
@@ -58,7 +58,7 @@ class SylkWebSocketServerFactory(WebSocketServerFactory):
 
     protocol = SylkWebSocketServerProtocol
     connections = set()
-    videorooms = VideoRoomContainer()
+    videorooms = VideoroomContainer()
 
     def __init__(self, *args, **kw):
         super(SylkWebSocketServerFactory, self).__init__(*args, **kw)

@@ -116,7 +116,7 @@ class SIPSessionInfo(object):
         self.remote_identity = SessionPartyIdentity(originator, originator_display_name)
 
 
-class VideoRoom(object):
+class Videoroom(object):
     def __init__(self, uri):
         self.id = random.getrandbits(32)    # janus needs numeric room names
         self.uri = uri
@@ -154,7 +154,7 @@ class VideoRoom(object):
         self.log.info('{session.account_id} has joined the room'.format(session=session))
         self._update_bitrate()
         if self._active_participants:
-            session.owner.send(sylkrtc.VideoRoomConfigurationEvent(session=session.id, active_participants=self._active_participants, originator='videoroom'))
+            session.owner.send(sylkrtc.VideoroomConfigurationEvent(session=session.id, active_participants=self._active_participants, originator='videoroom'))
 
     def discard(self, session):
         if session in self._sessions:
@@ -166,7 +166,7 @@ class VideoRoom(object):
                 self._active_participants.remove(session.id)
                 self.log.info('active participants: {}'.format(', '.join(self._active_participants) or None))
                 for session in self._sessions:
-                    session.owner.send(sylkrtc.VideoRoomConfigurationEvent(session=session.id, active_participants=self._active_participants, originator='videoroom'))
+                    session.owner.send(sylkrtc.VideoroomConfigurationEvent(session=session.id, active_participants=self._active_participants, originator='videoroom'))
             self._update_bitrate()
 
     def remove(self, session):
@@ -178,7 +178,7 @@ class VideoRoom(object):
             self._active_participants.remove(session.id)
             self.log.info('active participants: {}'.format(', '.join(self._active_participants) or None))
             for session in self._sessions:
-                session.owner.send(sylkrtc.VideoRoomConfigurationEvent(session=session.id, active_participants=self._active_participants, originator='videoroom'))
+                session.owner.send(sylkrtc.VideoroomConfigurationEvent(session=session.id, active_participants=self._active_participants, originator='videoroom'))
         self._update_bitrate()
 
     def clear(self):
@@ -220,7 +220,7 @@ class VideoRoom(object):
                         data = dict(request='configure', room=self.id, bitrate=bitrate)
                         session.owner.janus.message(session.owner.janus_session_id, session.janus_handle_id, data)
 
-    # todo: make VideoRoom be a context manager that is retained/released on enter/exit and implement __nonzero__ to be different from __len__
+    # todo: make Videoroom be a context manager that is retained/released on enter/exit and implement __nonzero__ to be different from __len__
     # todo: so that a videoroom is not accidentally released by the last participant leaving while a new participant waits to join
     # todo: this needs a new model for communication with janus and the client that is pseudo-synchronous (uses green threads)
 
@@ -287,7 +287,7 @@ class PublisherFeedContainer(object):
         return item in self._id_map or item in self._publishers
 
 
-class VideoRoomSessionInfo(object):
+class VideoroomSessionInfo(object):
     slow_download = SlowLinkDescriptor()
     slow_upload = SlowLinkDescriptor()
 
@@ -792,7 +792,7 @@ class ConnectionHandler(object):
         try:
             videoroom = self.protocol.factory.videorooms[request.uri]
         except KeyError:
-            videoroom = VideoRoom(request.uri)
+            videoroom = Videoroom(request.uri)
             self.protocol.factory.videorooms.add(videoroom)
 
         if not videoroom.allow_uri(request.account):
@@ -830,7 +830,7 @@ class ConnectionHandler(object):
             self._maybe_destroy_videoroom(videoroom)
             raise
 
-        videoroom_session = VideoRoomSessionInfo(request.session, owner=self)
+        videoroom_session = VideoroomSessionInfo(request.session, owner=self)
         videoroom_session.janus_handle_id = handle_id
         videoroom_session.initialize(request.account, 'publisher', videoroom)
         self.videoroom_sessions.add(videoroom_session)
@@ -859,7 +859,7 @@ class ConnectionHandler(object):
         except ValueError as e:
             raise APIError('configure-room: {exception!s}'.format(exception=e))
         for session in videoroom:
-            session.owner.send(sylkrtc.VideoRoomConfigurationEvent(session=session.id, active_participants=videoroom.active_participants, originator=request.session))
+            session.owner.send(sylkrtc.VideoroomConfigurationEvent(session=session.id, active_participants=videoroom.active_participants, originator=request.session))
 
     def _RH_videoroom_ctl_feed_attach(self, request):
         if request.feed_attach.session in self.videoroom_sessions:
@@ -894,7 +894,7 @@ class ConnectionHandler(object):
             self.janus.set_event_handler(handle_id, None)
             raise
 
-        videoroom_session = VideoRoomSessionInfo(request.feed_attach.session, owner=self)
+        videoroom_session = VideoroomSessionInfo(request.feed_attach.session, owner=self)
         videoroom_session.janus_handle_id = handle_id
         videoroom_session.parent_session = base_session
         videoroom_session.publisher_id = publisher_session.id
