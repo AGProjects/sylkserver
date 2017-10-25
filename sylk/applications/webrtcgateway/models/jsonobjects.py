@@ -119,7 +119,6 @@ class ArrayProperty(AbstractProperty):
 
 class ObjectProperty(AbstractProperty):
     data_type = dict
-    container = True
 
     def __init__(self, object_type, optional=False):
         if not issubclass(object_type, JSONObject):
