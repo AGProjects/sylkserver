@@ -54,12 +54,7 @@ class AbstractProperty(object):
     def __get__(self, instance, owner):
         if instance is None:
             return self
-        if self.optional:
-            return instance.__dict__.get(self.name, self.default)
-        try:
-            return instance.__dict__[self.name]
-        except KeyError:
-            raise AttributeError('{instance.__class__.__name__!r} object has no attribute {property.name!r}'.format(instance=instance, property=self))
+        return instance.__dict__.get(self.name, self.default)  # mandatory properties are guaranteed to be present, only optional ones can be missing
 
     def __set__(self, instance, value):
         if value is None and self.optional:
