@@ -42,6 +42,7 @@ class MultiType(tuple):
 
 class AbstractProperty(object):
     data_type = object
+    container = False
 
     def __init__(self, optional=False, default=None, validator=None):
         if validator is not None and not isinstance(validator, Validator):
@@ -96,6 +97,7 @@ class StringProperty(AbstractProperty):
 
 class ArrayProperty(AbstractProperty):
     data_type = list, tuple
+    container = True
 
     def __init__(self, array_type, optional=False):
         if not issubclass(array_type, JSONArray):
@@ -114,6 +116,7 @@ class ArrayProperty(AbstractProperty):
 
 class ObjectProperty(AbstractProperty):
     data_type = dict
+    container = True
 
     def __init__(self, object_type, optional=False):
         if not issubclass(object_type, JSONObject):
@@ -147,10 +150,6 @@ class PropertyContainer(object):
     def names(self):
         return set(self.__dict__)
 
-    # noinspection PyShadowingBuiltins
-    def items(self, instance):
-        return [(property.name, property.__get__(instance, None)) for property in self.__dict__.itervalues()]
-
 
 class JSONObjectType(type):
     # noinspection PyShadowingBuiltins
@@ -172,9 +171,17 @@ class JSONObject(object):
             elif not property.optional:
                 raise ValueError('Mandatory property {property.name!r} of {object.__class__.__name__!r} object is missing'.format(property=property, object=self))
 
+    # noinspection PyShadowingBuiltins
     @property
     def __data__(self):
-        return {name: value.__data__ if isinstance(value, (JSONArray, JSONObject)) else value for name, value in self.__properties__.items(self) if value is not None or name in self.__dict__}
+        data = {}
+        for property in self.__properties__:
+            value = self.__dict__.get(property.name, property.default)
+            if value is not None:
+                data[property.name] = value.__data__ if property.container else value
+            elif property.name in self.__dict__:
+                data[property.name] = None
+        return data
 
 
 class ArrayParser(object):
