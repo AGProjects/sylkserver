@@ -183,6 +183,9 @@ class JSONObject(object):
                 data[property.name] = None
         return data
 
+    def __contains__(self, name):
+        return name in self.__properties__
+
 
 class ArrayParser(object):
     def __init__(self, cls):
