@@ -23,7 +23,6 @@ from sylk.applications.webrtcgateway.janus import JanusBackend, JanusError
 from sylk.applications.webrtcgateway.logger import ConnectionLogger, VideoroomLogger
 from sylk.applications.webrtcgateway.models import sylkrtc
 from sylk.applications.webrtcgateway.storage import TokenStorage
-from sylk.applications.webrtcgateway.util import GreenEvent
 
 
 SIP_PREFIX_RE = re.compile('^sips?:')
@@ -387,6 +386,26 @@ class Operation(object):
 
 class APIError(Exception):
     pass
+
+
+class GreenEvent(object):
+    def __init__(self):
+        self._event = coros.event()
+
+    def set(self):
+        if self._event.ready():
+            return
+        self._event.send(True)
+
+    def is_set(self):
+        return self._event.ready()
+
+    def clear(self):
+        if self._event.ready():
+            self._event.reset()
+
+    def wait(self):
+        return self._event.wait()
 
 
 class ConnectionHandler(object):
