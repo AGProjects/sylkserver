@@ -3,7 +3,7 @@ from application.python import subclasses
 from sipsimple.core import SIPURI, SIPCoreError
 
 from .jsonobjects import Validator, CompositeValidator
-from .jsonobjects import JSONObject, AbstractProperty, BooleanProperty, IntegerProperty, StringProperty, ArrayProperty, ObjectProperty
+from .jsonobjects import JSONObject, BooleanProperty, IntegerProperty, StringProperty, ArrayProperty, ObjectProperty, FixedValueProperty
 from .jsonobjects import JSONArray, StringArray
 
 
@@ -58,35 +58,6 @@ class LengthValidator(Validator):
             return value
         else:
             raise ValueError("the value's length must be between {0.minimum} and {0.maximum} inclusive".format(self))
-
-
-# Custom JSONObject properties
-
-class FixedValueProperty(AbstractProperty):
-    def __init__(self, value):
-        super(FixedValueProperty, self).__init__(optional=True, default=value)
-        self.value = value
-
-    def _parse(self, value):
-        if value != self.value:
-            raise ValueError('Invalid value for {property.name!r} property: {value!r} (should be {property.value!r})'.format(property=self, value=value))
-        return value
-
-
-class LimitedChoiceProperty(AbstractProperty):
-    def __init__(self, values, optional=False, default=None):
-        if not values:
-            raise ValueError('values needs to be an non-empty sequence of elements')
-        if optional and default is not None and default not in values:
-            raise ValueError('default value needs to be one of the allowed values or None')
-        super(LimitedChoiceProperty, self).__init__(optional=optional, default=default)
-        self.values = frozenset(values)
-        self.values_string = ' or '.join(', '.join(sorted(values)).rsplit(', ', 1))
-
-    def _parse(self, value):
-        if value not in self.values:
-            raise ValueError('Invalid value for {property.name!r} property: {value!r} (expected: {property.values_string})'.format(property=self, value=value))
-        return value
 
 
 # Base models (these are abstract and should not be used directly)
