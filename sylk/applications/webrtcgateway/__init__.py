@@ -2,7 +2,6 @@
 from sylk.applications import SylkApplication
 from sylk.applications.webrtcgateway.logger import log
 from sylk.applications.webrtcgateway.storage import TokenStorage
-from sylk.applications.webrtcgateway.util import IdentityFormatter
 from sylk.applications.webrtcgateway.web import WebHandler, AdminWebHandler
 
 
@@ -23,7 +22,7 @@ class WebRTCGatewayApplication(SylkApplication):
         self.admin_web_handler.stop()
 
     def incoming_session(self, session):
-        log.info(u'New incoming session %s from %s rejected' % (session.call_id, IdentityFormatter.format(session.remote_identity)))
+        log.info('New incoming session {session.call_id} from sip:{uri.user}@{uri.host} rejected'.format(session=session, uri=session.remote_identity.uri))
         session.reject(403)
 
     def incoming_subscription(self, request, data):
