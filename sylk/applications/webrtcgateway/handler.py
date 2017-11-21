@@ -39,7 +39,7 @@ class AccountInfo(object):
 
     @property
     def uri(self):
-        return 'sip:%s' % self.id
+        return 'sip:' + self.id
 
     @property
     def user_data(self):
