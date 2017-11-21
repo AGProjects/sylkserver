@@ -9,17 +9,32 @@ from .jsonobjects import JSONArray, StringArray
 
 # Validators
 
+class AORValidator(Validator):
+    def validate(self, value):
+        prefix, sep, suffix = value.partition(':')
+        if sep and prefix in ('sip', 'sips'):
+            aor = suffix
+        else:
+            aor = value
+        try:
+            SIPURI.parse('sip:' + aor)
+        except SIPCoreError:
+            raise ValueError('invalid SIP URI: {}'.format(value))
+        return aor
+
+
 class URIValidator(Validator):
     def validate(self, value):
-        if value.startswith(('sip:', 'sips:')):
-            uri = value
+        prefix, sep, suffix = value.partition(':')
+        if sep and prefix in ('sip', 'sips'):
+            uri = 'sip:' + suffix
         else:
             uri = 'sip:' + value
         try:
             SIPURI.parse(uri)
         except SIPCoreError:
             raise ValueError('invalid SIP URI: {}'.format(value))
-        return value
+        return uri
 
 
 class UniqueItemsValidator(Validator):
@@ -85,7 +100,7 @@ class SylkRTCResponseBase(JSONObject):
 
 
 class AccountRequestBase(SylkRTCRequestBase):
-    account = StringProperty(validator=URIValidator())
+    account = StringProperty(validator=AORValidator())
 
 
 class SessionRequestBase(SylkRTCRequestBase):
@@ -98,7 +113,7 @@ class VideoroomRequestBase(SylkRTCRequestBase):
 
 class AccountEventBase(JSONObject):
     sylkrtc = FixedValueProperty('account-event')
-    account = StringProperty(validator=URIValidator())
+    account = StringProperty(validator=AORValidator())
 
 
 class SessionEventBase(JSONObject):
@@ -126,7 +141,7 @@ class VideoroomSessionStateEvent(VideoroomEventBase):
 # Miscellaneous models
 
 class SIPIdentity(JSONObject):
-    uri = StringProperty(validator=URIValidator())
+    uri = StringProperty(validator=AORValidator())
     display_name = StringProperty(optional=True)
 
 
@@ -140,14 +155,14 @@ class ICECandidates(JSONArray):
     item_type = ICECandidate
 
 
-class URIList(StringArray):
+class AORList(StringArray):
     list_validator = UniqueItemsValidator()
-    item_validator = URIValidator()
+    item_validator = AORValidator()
 
 
 class VideoroomPublisher(JSONObject):
     id = StringProperty()
-    uri = StringProperty(validator=URIValidator())
+    uri = StringProperty(validator=AORValidator())
     display_name = StringProperty(optional=True)
 
 
@@ -198,7 +213,7 @@ class AccountMissedSessionEvent(AccountEventBase):
 
 class AccountConferenceInviteEvent(AccountEventBase):
     event = FixedValueProperty('conference-invite')
-    room = StringProperty(validator=URIValidator())
+    room = StringProperty(validator=AORValidator())
     originator = ObjectProperty(SIPIdentity)
 
 
@@ -318,8 +333,8 @@ class AccountDeviceTokenRequest(AccountRequestBase):
 
 class SessionCreateRequest(SessionRequestBase):
     sylkrtc = FixedValueProperty('session-create')
-    account = StringProperty(validator=URIValidator())
-    uri = StringProperty(validator=URIValidator())
+    account = StringProperty(validator=AORValidator())
+    uri = StringProperty(validator=AORValidator())
     sdp = StringProperty()
 
 
@@ -341,8 +356,8 @@ class SessionTerminateRequest(SessionRequestBase):
 
 class VideoroomJoinRequest(VideoroomRequestBase):
     sylkrtc = FixedValueProperty('videoroom-join')
-    account = StringProperty(validator=URIValidator())
-    uri = StringProperty(validator=URIValidator())
+    account = StringProperty(validator=AORValidator())
+    uri = StringProperty(validator=AORValidator())
     sdp = StringProperty()
 
 
@@ -374,7 +389,7 @@ class VideoroomFeedDetachRequest(VideoroomRequestBase):
 
 class VideoroomInviteRequest(VideoroomRequestBase):
     sylkrtc = FixedValueProperty('videoroom-invite')
-    participants = ArrayProperty(URIList)
+    participants = ArrayProperty(AORList)
 
 
 class VideoroomSessionTrickleRequest(VideoroomRequestBase):
