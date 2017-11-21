@@ -14,9 +14,9 @@ class WebRTCGatewayApplication(SylkApplication):
     def start(self):
         self.web_handler.start()
         self.admin_web_handler.start()
-        # Load tokens from storage
-        storage = TokenStorage()
-        storage.load()
+        # Load tokens from the storage
+        token_storage = TokenStorage()
+        token_storage.load()
 
     def stop(self):
         self.web_handler.stop()
@@ -34,4 +34,3 @@ class WebRTCGatewayApplication(SylkApplication):
 
     def incoming_message(self, request, data):
         request.reject(405)
-
