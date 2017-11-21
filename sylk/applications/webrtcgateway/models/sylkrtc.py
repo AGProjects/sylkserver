@@ -59,10 +59,12 @@ class FixedValueProperty(AbstractProperty):
 
 
 class LimitedChoiceProperty(AbstractProperty):
-    def __init__(self, *values):
-        if len(values) == 0:
-            raise ValueError('{.__class__.__name__} needs at least one argument'.format(self))
-        super(LimitedChoiceProperty, self).__init__()
+    def __init__(self, values, optional=False, default=None):
+        if not values:
+            raise ValueError('values needs to be an non-empty sequence of elements')
+        if optional and default is not None and default not in values:
+            raise ValueError('default value needs to be one of the allowed values or None')
+        super(LimitedChoiceProperty, self).__init__(optional=optional, default=default)
         self.values = frozenset(values)
         self.values_string = ' or '.join(', '.join(sorted(values)).rsplit(', ', 1))
 
