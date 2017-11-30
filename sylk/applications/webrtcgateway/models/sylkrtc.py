@@ -119,19 +119,19 @@ class ReadyEvent(JSONObject):
 class AccountIncomingSessionEvent(AccountEventBase):
     event = FixedValueProperty('incoming-session')
     session = StringProperty()
-    originator = ObjectProperty(SIPIdentity)
+    originator = ObjectProperty(SIPIdentity)  # type: SIPIdentity
     sdp = StringProperty()
 
 
 class AccountMissedSessionEvent(AccountEventBase):
     event = FixedValueProperty('missed-session')
-    originator = ObjectProperty(SIPIdentity)
+    originator = ObjectProperty(SIPIdentity)  # type: SIPIdentity
 
 
 class AccountConferenceInviteEvent(AccountEventBase):
     event = FixedValueProperty('conference-invite')
     room = StringProperty(validator=AORValidator())
-    originator = ObjectProperty(SIPIdentity)
+    originator = ObjectProperty(SIPIdentity)  # type: SIPIdentity
 
 
 class AccountRegisteringEvent(AccountRegistrationStateEvent):
@@ -172,7 +172,7 @@ class SessionTerminatedEvent(SessionStateEvent):
 class VideoroomConfigureEvent(VideoroomEventBase):
     event = FixedValueProperty('configure')
     originator = StringProperty()
-    active_participants = ArrayProperty(VideoroomActiveParticipants)
+    active_participants = ArrayProperty(VideoroomActiveParticipants)  # type: VideoroomActiveParticipants
 
 
 class VideoroomSessionProgressEvent(VideoroomSessionStateEvent):
@@ -206,17 +206,17 @@ class VideoroomFeedEstablishedEvent(VideoroomEventBase):
 
 class VideoroomInitialPublishersEvent(VideoroomEventBase):
     event = FixedValueProperty('initial-publishers')
-    publishers = ArrayProperty(VideoroomPublishers)
+    publishers = ArrayProperty(VideoroomPublishers)  # type: VideoroomPublishers
 
 
 class VideoroomPublishersJoinedEvent(VideoroomEventBase):
     event = FixedValueProperty('publishers-joined')
-    publishers = ArrayProperty(VideoroomPublishers)
+    publishers = ArrayProperty(VideoroomPublishers)  # type: VideoroomPublishers
 
 
 class VideoroomPublishersLeftEvent(VideoroomEventBase):
     event = FixedValueProperty('publishers-left')
-    publishers = ArrayProperty(StringArray)
+    publishers = ArrayProperty(StringArray)          # type: StringArray
 
 
 # Account request models
@@ -262,7 +262,7 @@ class SessionAnswerRequest(SessionRequestBase):
 
 class SessionTrickleRequest(SessionRequestBase):
     sylkrtc = FixedValueProperty('session-trickle')
-    candidates = ArrayProperty(ICECandidates)
+    candidates = ArrayProperty(ICECandidates)  # type: ICECandidates
 
 
 class SessionTerminateRequest(SessionRequestBase):
@@ -284,7 +284,7 @@ class VideoroomLeaveRequest(VideoroomRequestBase):
 
 class VideoroomConfigureRequest(VideoroomRequestBase):
     sylkrtc = FixedValueProperty('videoroom-configure')
-    active_participants = ArrayProperty(VideoroomActiveParticipants)
+    active_participants = ArrayProperty(VideoroomActiveParticipants)  # type: VideoroomActiveParticipants
 
 
 class VideoroomFeedAttachRequest(VideoroomRequestBase):
@@ -306,17 +306,17 @@ class VideoroomFeedDetachRequest(VideoroomRequestBase):
 
 class VideoroomInviteRequest(VideoroomRequestBase):
     sylkrtc = FixedValueProperty('videoroom-invite')
-    participants = ArrayProperty(AORList)
+    participants = ArrayProperty(AORList)              # type: AORList
 
 
 class VideoroomSessionTrickleRequest(VideoroomRequestBase):
     sylkrtc = FixedValueProperty('videoroom-session-trickle')
-    candidates = ArrayProperty(ICECandidates)
+    candidates = ArrayProperty(ICECandidates)          # type: ICECandidates
 
 
 class VideoroomSessionUpdateRequest(VideoroomRequestBase):
     sylkrtc = FixedValueProperty('videoroom-session-update')
-    options = ObjectProperty(VideoroomSessionOptions)
+    options = ObjectProperty(VideoroomSessionOptions)  # type: VideoroomSessionOptions
 
 
 # SylkRTC request to model mapping
