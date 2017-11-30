@@ -32,6 +32,15 @@ class URIValidator(Validator):
         return uri
 
 
+class DisplayNameValidator(Validator):
+    def validate(self, value):
+        # strip quotes if present
+        if value[0] == value[-1] == '"':
+            return value[1:-1]
+        else:
+            return value
+
+
 class UniqueItemsValidator(Validator):
     def validate(self, sequence):
         seen = set()

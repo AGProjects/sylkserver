@@ -3,7 +3,7 @@ from application.python import subclasses
 
 from .jsonobjects import BooleanProperty, IntegerProperty, StringProperty, ArrayProperty, ObjectProperty, FixedValueProperty
 from .jsonobjects import JSONObject, JSONArray, StringArray, CompositeValidator
-from .validators import AORValidator, LengthValidator, UniqueItemsValidator
+from .validators import AORValidator, DisplayNameValidator, LengthValidator, UniqueItemsValidator
 
 
 # Base models (these are abstract and should not be used directly)
@@ -59,7 +59,7 @@ class VideoroomSessionStateEvent(VideoroomEventBase):
 
 class SIPIdentity(JSONObject):
     uri = StringProperty(validator=AORValidator())
-    display_name = StringProperty(optional=True)
+    display_name = StringProperty(optional=True, validator=DisplayNameValidator())
 
 
 class ICECandidate(JSONObject):
