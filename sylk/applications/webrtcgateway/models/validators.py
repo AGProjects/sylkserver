@@ -34,11 +34,7 @@ class URIValidator(Validator):
 
 class DisplayNameValidator(Validator):
     def validate(self, value):
-        # strip quotes if present
-        if value[0] == value[-1] == '"':
-            return value[1:-1]
-        else:
-            return value
+        return value.strip('" ')  # strip quotes if present
 
 
 class UniqueItemsValidator(Validator):
