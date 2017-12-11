@@ -126,9 +126,18 @@ class RoomConfig(ConfigSection):
     video_codec = ConfigSetting(type=VideoCodec, value=JanusConfig.video_codec)
 
 
-class Configuration(object):
+class VideoroomConfiguration(object):
+    video_codec = 'vp9'
+    max_bitrate = 2016000
+    record = False
+    recording_dir = None
+
     def __init__(self, data):
         self.__dict__.update(data)
+
+    @property
+    def janus_data(self):
+        return dict(videocodec=self.video_codec, bitrate=self.max_bitrate, record=self.record, rec_dir=self.recording_dir)
 
 
 def get_room_config(room):
@@ -136,9 +145,9 @@ def get_room_config(room):
     section = config_file.get_section(room)
     if section is not None:
         RoomConfig.read(section=room)
-        config = Configuration(dict(RoomConfig))
+        config = VideoroomConfiguration(dict(RoomConfig))
         RoomConfig.reset()
     else:
-        config = Configuration(dict(RoomConfig))  # use room defaults
+        config = VideoroomConfiguration(dict(RoomConfig))  # use room defaults
     config.recording_dir = os.path.join(GeneralConfig.recording_dir, room)
     return config

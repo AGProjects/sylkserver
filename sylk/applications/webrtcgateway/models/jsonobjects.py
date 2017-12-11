@@ -523,3 +523,15 @@ NumberList = NumberArray
 StringList = StringArray
 
 ListOf = ArrayOf
+
+
+# Abstract container properties
+
+class AbstractObjectProperty(AbstractProperty):
+    data_type = JSONObject
+    container = True
+
+
+class AbstractArrayProperty(AbstractProperty):
+    data_type = JSONArray
+    container = True

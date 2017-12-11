@@ -2,7 +2,6 @@
 import hashlib
 import json
 import random
-import re
 import time
 import uuid
 
@@ -10,32 +9,30 @@ from application.python import limit
 from application.python.weakref import defaultweakobjectmap
 from application.system import makedirs
 from eventlib import coros, proc
-from eventlib.twistedutil import block_on
 from sipsimple.configuration.settings import SIPSimpleSettings
 from sipsimple.core import SIPURI
 from sipsimple.lookup import DNSLookup, DNSLookupError
 from sipsimple.threading.green import call_in_green_thread, run_in_green_thread
 from string import maketrans
 from twisted.internet import reactor
+from typing import Generic, Container, Iterable, Sized, TypeVar, Dict, Set, Optional, Union
 
 from sylk.applications.webrtcgateway.configuration import GeneralConfig, get_room_config
-from sylk.applications.webrtcgateway.janus import JanusBackend, JanusError
+from sylk.applications.webrtcgateway.janus import JanusBackend, JanusError, JanusSession, SIPPluginHandle, VideoroomPluginHandle
 from sylk.applications.webrtcgateway.logger import ConnectionLogger, VideoroomLogger
-from sylk.applications.webrtcgateway.models import sylkrtc
+from sylk.applications.webrtcgateway.models import sylkrtc, janus
 from sylk.applications.webrtcgateway.storage import TokenStorage
 
 
-SIP_PREFIX_RE = re.compile('^sips?:')
-
-
 class AccountInfo(object):
+    # noinspection PyShadowingBuiltins
     def __init__(self, id, password, display_name=None, user_agent=None):
         self.id = id
         self.password = password
         self.display_name = display_name
         self.user_agent = user_agent
         self.registration_state = None
-        self.janus_handle_id = None
+        self.janus_handle = None  # type: Optional[SIPPluginHandle]
 
     @property
     def uri(self):
@@ -47,13 +44,12 @@ class AccountInfo(object):
 
 
 class SessionPartyIdentity(object):
-    def __init__(self, uri, display_name=''):
+    def __init__(self, uri, display_name=None):
         self.uri = uri
         self.display_name = display_name
 
 
 # todo: might need to replace this auto-resetting descriptor with a timer in case we need to know when the slow link state expired
-#
 
 class SlowLinkState(object):
     def __init__(self):
@@ -89,14 +85,15 @@ class SIPSessionInfo(object):
     slow_download = SlowLinkDescriptor()
     slow_upload = SlowLinkDescriptor()
 
+    # noinspection PyShadowingBuiltins
     def __init__(self, id):
         self.id = id
         self.direction = None
         self.state = None
         self.account_id = None
-        self.local_identity = None     # instance of SessionPartyIdentity
-        self.remote_identity = None    # instance of SessionPartyIdentity
-        self.janus_handle_id = None
+        self.local_identity = None     # type: SessionPartyIdentity
+        self.remote_identity = None    # type: SessionPartyIdentity
+        self.janus_handle = None       # type: SIPPluginHandle
         self.slow_download = False
         self.slow_upload = False
 
@@ -115,6 +112,87 @@ class SIPSessionInfo(object):
         self.remote_identity = SessionPartyIdentity(originator, originator_display_name)
 
 
+class VideoroomSessionInfo(object):
+    slow_download = SlowLinkDescriptor()
+    slow_upload = SlowLinkDescriptor()
+
+    # noinspection PyShadowingBuiltins
+    def __init__(self, id, owner):
+        self.id = id
+        self.owner = owner
+        self.account_id = None
+        self.type = None          # publisher / subscriber
+        self.publisher_id = None  # janus publisher ID for publishers / publisher session ID for subscribers
+        self.janus_handle = None  # type: VideoroomPluginHandle
+        self.room = None
+        self.bitrate = None
+        self.parent_session = None
+        self.slow_download = False
+        self.slow_upload = False
+        self.feeds = PublisherFeedContainer()  # keeps references to all the other participant's publisher feeds that we subscribed to
+
+    # noinspection PyShadowingBuiltins
+    def initialize(self, account_id, type, room):
+        assert type in ('publisher', 'subscriber')
+        self.account_id = account_id
+        self.type = type
+        self.room = room
+        self.bitrate = room.config.max_bitrate
+
+    def __repr__(self):
+        return '<{0.__class__.__name__}: type={0.type!r} id={0.id!r} janus_handle={0.janus_handle!r}>'.format(self)
+
+
+class PublisherFeedContainer(object):
+    """A container for the other participant's publisher sessions that we have subscribed to"""
+
+    def __init__(self):
+        self._publishers = set()
+        self._id_map = {}  # map publisher.id -> publisher and publisher.publisher_id -> publisher
+
+    def add(self, session):
+        assert session not in self._publishers
+        assert session.id not in self._id_map and session.publisher_id not in self._id_map
+        self._publishers.add(session)
+        self._id_map[session.id] = self._id_map[session.publisher_id] = session
+
+    def discard(self, item):  # item can be any of session, session.id or session.publisher_id
+        session = self._id_map[item] if item in self._id_map else item if item in self._publishers else None
+        if session is not None:
+            self._publishers.discard(session)
+            self._id_map.pop(session.id, None)
+            self._id_map.pop(session.publisher_id, None)
+
+    def remove(self, item):  # item can be any of session, session.id or session.publisher_id
+        session = self._id_map[item] if item in self._id_map else item
+        self._publishers.remove(session)
+        self._id_map.pop(session.id)
+        self._id_map.pop(session.publisher_id)
+
+    def pop(self, item):  # item can be any of session, session.id or session.publisher_id
+        session = self._id_map[item] if item in self._id_map else item
+        self._publishers.remove(session)
+        self._id_map.pop(session.id)
+        self._id_map.pop(session.publisher_id)
+        return session
+
+    def clear(self):
+        self._publishers.clear()
+        self._id_map.clear()
+
+    def __len__(self):
+        return len(self._publishers)
+
+    def __iter__(self):
+        return iter(self._publishers)
+
+    def __getitem__(self, key):
+        return self._id_map[key]
+
+    def __contains__(self, item):
+        return item in self._id_map or item in self._publishers
+
+
 class Videoroom(object):
     def __init__(self, uri):
         self.id = random.getrandbits(32)    # janus needs numeric room names
@@ -122,8 +200,8 @@ class Videoroom(object):
         self.config = get_room_config(uri)
         self.log = VideoroomLogger(self)
         self._active_participants = []
-        self._sessions = set()
-        self._id_map = {}  # map session.id -> session and session.publisher_id -> session
+        self._sessions = set()  # type: Set[VideoroomSessionInfo]
+        self._id_map = {}       # type: Dict[Union[str, int], VideoroomSessionInfo]  # map session.id -> session and session.publisher_id -> session
         if self.config.record:
             makedirs(self.config.recording_dir, 0o755)
             self.log.info('created (recording on)')
@@ -208,16 +286,14 @@ class Videoroom(object):
                         bitrate = other_participant_bitrate
                     if session.bitrate != bitrate:
                         session.bitrate = bitrate
-                        data = dict(request='configure', room=self.id, bitrate=bitrate)
-                        session.owner.janus.message(session.owner.janus_session_id, session.janus_handle_id, data)
+                        session.janus_handle.message(janus.VideoroomUpdatePublisher(bitrate=bitrate), async=True)
             else:
                 bitrate = self.config.max_bitrate // limit(len(self._sessions) - 1, min=1)
                 self.log.info('participant bitrate is {}'.format(bitrate))
                 for session in self._sessions:
                     if session.bitrate != bitrate:
                         session.bitrate = bitrate
-                        data = dict(request='configure', room=self.id, bitrate=bitrate)
-                        session.owner.janus.message(session.owner.janus_session_id, session.janus_handle_id, data)
+                        session.janus_handle.message(janus.VideoroomUpdatePublisher(bitrate=bitrate), async=True)
 
     # todo: make Videoroom be a context manager that is retained/released on enter/exit and implement __nonzero__ to be different from __len__
     # todo: so that a videoroom is not accidentally released by the last participant leaving while a new participant waits to join
@@ -236,114 +312,38 @@ class Videoroom(object):
         return item in self._id_map or item in self._sessions
 
 
-class PublisherFeedContainer(object):
-    """A container for the other participant's publisher sessions that we have subscribed to"""
-
-    def __init__(self):
-        self._publishers = set()
-        self._id_map = {}  # map publisher.id -> publisher and publisher.publisher_id -> publisher
-
-    def add(self, session):
-        assert session not in self._publishers
-        assert session.id not in self._id_map and session.publisher_id not in self._id_map
-        self._publishers.add(session)
-        self._id_map[session.id] = self._id_map[session.publisher_id] = session
-
-    def discard(self, item):  # item can be any of session, session.id or session.publisher_id
-        session = self._id_map[item] if item in self._id_map else item if item in self._publishers else None
-        if session is not None:
-            self._publishers.discard(session)
-            self._id_map.pop(session.id, None)
-            self._id_map.pop(session.publisher_id, None)
-
-    def remove(self, item):  # item can be any of session, session.id or session.publisher_id
-        session = self._id_map[item] if item in self._id_map else item
-        self._publishers.remove(session)
-        self._id_map.pop(session.id)
-        self._id_map.pop(session.publisher_id)
-
-    def pop(self, item):  # item can be any of session, session.id or session.publisher_id
-        session = self._id_map[item] if item in self._id_map else item
-        self._publishers.remove(session)
-        self._id_map.pop(session.id)
-        self._id_map.pop(session.publisher_id)
-        return session
-
-    def clear(self):
-        self._publishers.clear()
-        self._id_map.clear()
-
-    def __len__(self):
-        return len(self._publishers)
-
-    def __iter__(self):
-        return iter(self._publishers)
-
-    def __getitem__(self, key):
-        return self._id_map[key]
-
-    def __contains__(self, item):
-        return item in self._id_map or item in self._publishers
+SessionT = TypeVar('SessionT', SIPSessionInfo, VideoroomSessionInfo)
 
 
-class VideoroomSessionInfo(object):
-    slow_download = SlowLinkDescriptor()
-    slow_upload = SlowLinkDescriptor()
-
-    def __init__(self, id, owner):
-        self.id = id
-        self.owner = owner
-        self.account_id = None
-        self.type = None          # publisher / subscriber
-        self.publisher_id = None  # janus publisher ID for publishers / publisher session ID for subscribers
-        self.janus_handle_id = None
-        self.room = None
-        self.bitrate = None
-        self.parent_session = None
-        self.slow_download = False
-        self.slow_upload = False
-        self.feeds = PublisherFeedContainer()  # keeps references to all the other participant's publisher feeds that we subscribed to
-
-    def initialize(self, account_id, type, room):
-        assert type in ('publisher', 'subscriber')
-        self.account_id = account_id
-        self.type = type
-        self.room = room
-        self.bitrate = room.config.max_bitrate
-
-    def __repr__(self):
-        return '<%s: id=%s janus_handle_id=%s type=%s>' % (self.__class__.__name__, self.id, self.janus_handle_id, self.type)
-
-
-class SessionContainer(object):
+class SessionContainer(Sized, Iterable[SessionT], Container[SessionT], Generic[SessionT]):
     def __init__(self):
         self._sessions = set()
-        self._id_map = {}  # map session.id -> session and session.janus_handle_id -> session
+        self._id_map = {}  # map session.id -> session and session.janus_handle.id -> session
 
     def add(self, session):
         assert session not in self._sessions
-        assert session.id not in self._id_map and session.janus_handle_id not in self._id_map
+        assert session.id not in self._id_map and session.janus_handle.id not in self._id_map
         self._sessions.add(session)
-        self._id_map[session.id] = self._id_map[session.janus_handle_id] = session
+        self._id_map[session.id] = self._id_map[session.janus_handle.id] = session
 
-    def discard(self, item):  # item can be any of session, session.id or session.janus_handle_id
+    def discard(self, item):  # item can be any of session, session.id or session.janus_handle.id
         session = self._id_map[item] if item in self._id_map else item if item in self._sessions else None
         if session is not None:
             self._sessions.discard(session)
             self._id_map.pop(session.id, None)
-            self._id_map.pop(session.janus_handle_id, None)
+            self._id_map.pop(session.janus_handle.id, None)
 
-    def remove(self, item):  # item can be any of session, session.id or session.janus_handle_id
+    def remove(self, item):  # item can be any of session, session.id or session.janus_handle.id
         session = self._id_map[item] if item in self._id_map else item
         self._sessions.remove(session)
         self._id_map.pop(session.id)
-        self._id_map.pop(session.janus_handle_id)
+        self._id_map.pop(session.janus_handle.id)
 
-    def pop(self, item):  # item can be any of session, session.id or session.janus_handle_id
+    def pop(self, item):  # item can be any of session, session.id or session.janus_handle.id
         session = self._id_map[item] if item in self._id_map else item
         self._sessions.remove(session)
         self._id_map.pop(session.id)
-        self._id_map.pop(session.janus_handle_id)
+        self._id_map.pop(session.janus_handle.id)
         return session
 
     def clear(self):
@@ -408,17 +408,18 @@ class GreenEvent(object):
         return self._event.wait()
 
 
+# noinspection PyPep8Naming
 class ConnectionHandler(object):
     janus = JanusBackend()
 
     def __init__(self, protocol):
         self.protocol = protocol
         self.device_id = hashlib.md5(protocol.peer).digest().encode('base64').rstrip('=\n')
-        self.janus_session_id = None
+        self.janus_session = None  # type: JanusSession
         self.accounts_map = {}  # account ID -> account
         self.account_handles_map = {}  # Janus handle ID -> account
-        self.sip_sessions = SessionContainer()  # keeps references to all the SIP sessions created or received by this device
-        self.videoroom_sessions = SessionContainer()  # keeps references to all the videoroom sessions created by this participant (as publisher and subscriber)
+        self.sip_sessions = SessionContainer()        # type: SessionContainer[SIPSessionInfo]        # incoming and outgoing SIP sessions
+        self.videoroom_sessions = SessionContainer()  # type: SessionContainer[VideoroomSessionInfo]  # publisher and subscriber sessions in video rooms
         self.ready_event = GreenEvent()
         self.resolver = DNSLookup()
         self.proc = proc.spawn(self._operations_handler)
@@ -431,7 +432,7 @@ class ConnectionHandler(object):
     def start(self):
         self.state = 'starting'
         try:
-            self.janus_session_id = block_on(self.janus.create_session())
+            self.janus_session = JanusSession()
         except Exception as e:
             self.state = 'failed'
             self.log.warning('could not create session, disconnecting: %s' % e)
@@ -462,24 +463,24 @@ class ConnectionHandler(object):
             # Because we do not want to wait for them, we will rely instead on the fact that janus automatically detaches the plugin handles
             # when it destroys a session, so we only remove our event handlers and issue a destroy request for the session.
             for account_info in self.accounts_map.values():
-                if account_info.janus_handle_id is not None:
-                    self.janus.set_event_handler(account_info.janus_handle_id, None)
+                if account_info.janus_handle is not None:
+                    self.janus.set_event_handler(account_info.janus_handle.id, None)
             for session in self.sip_sessions:
-                if session.janus_handle_id is not None:
-                    self.janus.set_event_handler(session.janus_handle_id, None)
+                if session.janus_handle is not None:
+                    self.janus.set_event_handler(session.janus_handle.id, None)
             for session in self.videoroom_sessions:
-                if session.janus_handle_id is not None:
-                    self.janus.set_event_handler(session.janus_handle_id, None)
+                if session.janus_handle is not None:
+                    self.janus.set_event_handler(session.janus_handle.id, None)
                 session.room.discard(session)
                 session.feeds.clear()
-            self.janus.destroy_session(self.janus_session_id)  # this automatically detaches all plugin handles associated with it, not need to manually do it
+            self.janus_session.destroy()  # this automatically detaches all plugin handles associated with it, no need to manually do it
         # cleanup
         self.ready_event.clear()
         self.accounts_map.clear()
         self.account_handles_map.clear()
         self.sip_sessions.clear()
         self.videoroom_sessions.clear()
-        self.janus_session_id = None
+        self.janus_session = None
         self.protocol = None
         self.state = 'stopped'
 
@@ -505,20 +506,19 @@ class ConnectionHandler(object):
     def _cleanup_session(self, session):
         # should only be called from a green thread.
 
-        if self.janus_session_id is None:  # The connection was closed, there is noting to do
+        if self.janus_session is None:  # The connection was closed, there is noting to do
             return
 
         if session in self.sip_sessions:
             self.sip_sessions.remove(session)
             if session.direction == 'outgoing':
                 # Destroy plugin handle for outgoing sessions. For incoming ones it's the same as the account handle, so don't
-                block_on(self.janus.detach(self.janus_session_id, session.janus_handle_id))
-                self.janus.set_event_handler(session.janus_handle_id, None)
+                session.janus_handle.detach()
 
     def _cleanup_videoroom_session(self, session):
         # should only be called from a green thread.
 
-        if self.janus_session_id is None:  # The connection was closed, there is noting to do
+        if self.janus_session is None:  # The connection was closed, there is noting to do
             return
 
         if session in self.videoroom_sessions:
@@ -526,33 +526,23 @@ class ConnectionHandler(object):
             if session.type == 'publisher':
                 session.room.discard(session)
                 session.feeds.clear()
-                block_on(self.janus.detach(self.janus_session_id, session.janus_handle_id))
-                self.janus.set_event_handler(session.janus_handle_id, None)
+                session.janus_handle.detach()
                 self._maybe_destroy_videoroom(session.room)
             else:
                 session.parent_session.feeds.discard(session.publisher_id)
-                block_on(self.janus.detach(self.janus_session_id, session.janus_handle_id))
-                self.janus.set_event_handler(session.janus_handle_id, None)
+                session.janus_handle.detach()
 
     def _maybe_destroy_videoroom(self, videoroom):
         # should only be called from a green thread.
 
-        if self.protocol is None or self.janus_session_id is None:  # The connection was closed, there is nothing to do
+        if self.protocol is None or self.janus_session is None:  # The connection was closed, there is nothing to do
             return
 
         if videoroom in self.protocol.factory.videorooms and not videoroom:
             self.protocol.factory.videorooms.remove(videoroom)
 
-            # create a handle to do the cleanup
-            handle_id = block_on(self.janus.attach(self.janus_session_id, 'janus.plugin.videoroom'))
-            self.janus.set_event_handler(handle_id, self._handle_janus_event_videoroom)
-            data = dict(request='destroy', room=videoroom.id)
-            try:
-                block_on(self.janus.message(self.janus_session_id, handle_id, data))
-            except JanusError:
-                pass
-            block_on(self.janus.detach(self.janus_session_id, handle_id))
-            self.janus.set_event_handler(handle_id, None)
+            with VideoroomPluginHandle(self.janus_session, event_handler=self._handle_janus_videoroom_event) as videoroom_handle:
+                videoroom_handle.destroy(room=videoroom.id)
 
             videoroom.log.info('destroyed')
 
@@ -582,16 +572,12 @@ class ConnectionHandler(object):
         # Build a proxy URI Sofia-SIP likes
         return 'sips:{route.address}:{route.port}'.format(route=route) if route.transport == 'tls' else str(route.uri)
 
-    def _handle_janus_event_sip(self, handle_id, event_type, event):
-        # TODO: use a model
-        self.log.debug('janus SIP event: type={event_type} handle_id={handle_id} event={event}'.format(event_type=event_type, handle_id=handle_id, event=event))
-        operation = Operation(type='event', name='janus-event-sip', data=dict(handle_id=handle_id, event_type=event_type, event=event))
+    def _handle_janus_sip_event(self, event):
+        operation = Operation(type='event', name='janus-sip', data=event)
         self.operations_queue.send(operation)
 
-    def _handle_janus_event_videoroom(self, handle_id, event_type, event):
-        # TODO: use a model
-        self.log.debug('janus video room event: type={event_type} handle_id={handle_id} event={event}'.format(event_type=event_type, handle_id=handle_id, event=event))
-        operation = Operation(type='event', name='janus-event-videoroom', data=dict(handle_id=handle_id, event_type=event_type, event=event))
+    def _handle_janus_videoroom_event(self, event):
+        operation = Operation(type='event', name='janus-videoroom', data=event)
         self.operations_queue.send(operation)
 
     def _operations_handler(self):
@@ -646,11 +632,9 @@ class ConnectionHandler(object):
             raise APIError('Unknown account specified: {request.account}'.format(request=request))
 
         # cleanup in case the client didn't unregister before removing the account
-        handle_id = account_info.janus_handle_id
-        if handle_id is not None:
-            block_on(self.janus.detach(self.janus_session_id, handle_id))
-            self.janus.set_event_handler(handle_id, None)
-            self.account_handles_map.pop(handle_id)
+        if account_info.janus_handle is not None:
+            account_info.janus_handle.detach()
+            self.account_handles_map.pop(account_info.janus_handle.id)
         self.log.info('removed account {request.account}'.format(request=request))
 
     def _RH_account_register(self, request):
@@ -661,22 +645,17 @@ class ConnectionHandler(object):
 
         proxy = self._lookup_sip_proxy(request.account)
 
-        handle_id = account_info.janus_handle_id
-        if handle_id is not None:
+        if account_info.janus_handle is not None:
             # Destroy the existing plugin handle
-            block_on(self.janus.detach(self.janus_session_id, handle_id))
-            self.janus.set_event_handler(handle_id, None)
-            self.account_handles_map.pop(handle_id)
-            account_info.janus_handle_id = None
+            account_info.janus_handle.detach()
+            self.account_handles_map.pop(account_info.janus_handle.id)
+            account_info.janus_handle = None
 
         # Create a plugin handle
-        handle_id = block_on(self.janus.attach(self.janus_session_id, 'janus.plugin.sip'))
-        self.janus.set_event_handler(handle_id, self._handle_janus_event_sip)
-        account_info.janus_handle_id = handle_id
-        self.account_handles_map[handle_id] = account_info
+        account_info.janus_handle = SIPPluginHandle(self.janus_session, event_handler=self._handle_janus_sip_event)
+        self.account_handles_map[account_info.janus_handle.id] = account_info
 
-        data = dict(request='register', proxy=proxy, **account_info.user_data)
-        block_on(self.janus.message(self.janus_session_id, handle_id, data))
+        account_info.janus_handle.register(account_info, proxy=proxy)
 
     def _RH_account_unregister(self, request):
         try:
@@ -684,12 +663,10 @@ class ConnectionHandler(object):
         except KeyError:
             raise APIError('Unknown account specified: {request.account}'.format(request=request))
 
-        handle_id = account_info.janus_handle_id
-        if handle_id is not None:
-            block_on(self.janus.detach(self.janus_session_id, handle_id))
-            self.janus.set_event_handler(handle_id, None)
-            account_info.janus_handle_id = None
-            self.account_handles_map.pop(handle_id)
+        if account_info.janus_handle is not None:
+            account_info.janus_handle.detach()
+            self.account_handles_map.pop(account_info.janus_handle.id)
+            account_info.janus_handle = None
         self.log.info('unregistered {request.account} from receiving incoming calls'.format(request=request))
 
     def _RH_account_devicetoken(self, request):
@@ -715,26 +692,16 @@ class ConnectionHandler(object):
         proxy = self._lookup_sip_proxy(request.uri)
 
         # Create a new plugin handle and 'register' it, without actually doing so
-        handle_id = block_on(self.janus.attach(self.janus_session_id, 'janus.plugin.sip'))
-        self.janus.set_event_handler(handle_id, self._handle_janus_event_sip)
+        janus_handle = SIPPluginHandle(self.janus_session, event_handler=self._handle_janus_sip_event)
 
         try:
-            data = dict(request='register', send_register=False, proxy=proxy, **account_info.user_data)
-            block_on(self.janus.message(self.janus_session_id, handle_id, data))
-
-            data = dict(request='call', uri='sip:%s' % SIP_PREFIX_RE.sub('', request.uri), srtp='sdes_optional')
-            jsep = dict(type='offer', sdp=request.sdp)
-            block_on(self.janus.message(self.janus_session_id, handle_id, data, jsep))
-        except:
-            try:
-                block_on(self.janus.detach(self.janus_session_id, handle_id))
-            except JanusError:
-                pass
-            self.janus.set_event_handler(handle_id, None)
+            janus_handle.call(account_info, uri=request.uri, sdp=request.sdp, proxy=proxy)
+        except Exception:
+            janus_handle.detach()
             raise
 
         session_info = SIPSessionInfo(request.session)
-        session_info.janus_handle_id = handle_id
+        session_info.janus_handle = janus_handle
         session_info.init_outgoing(request.account, request.uri)
         self.sip_sessions.add(session_info)
 
@@ -751,9 +718,7 @@ class ConnectionHandler(object):
         if session_info.state != 'connecting':
             raise APIError('Invalid state for answering session {session.id}: {session.state}'.format(session=session_info))
 
-        data = dict(request='accept')
-        jsep = dict(type='answer', sdp=request.sdp)
-        block_on(self.janus.message(self.janus_session_id, session_info.janus_handle_id, data, jsep))
+        session_info.janus_handle.accept(sdp=request.sdp)
         self.log.info('answered incoming session {session.id}'.format(session=session_info))
 
     def _RH_session_trickle(self, request):
@@ -765,11 +730,9 @@ class ConnectionHandler(object):
         if session_info.state == 'terminated':
             raise APIError('Session {request.session} is terminated'.format(request=request))
 
-        candidates = request.candidates.__data__
+        session_info.janus_handle.trickle(request.candidates)
 
-        block_on(self.janus.trickle(self.janus_session_id, session_info.janus_handle_id, candidates))
-
-        if not candidates:
+        if not request.candidates:
             self.log.debug('session {session.id} negotiated ICE'.format(session=session_info))
 
     def _RH_session_terminate(self, request):
@@ -782,10 +745,9 @@ class ConnectionHandler(object):
             raise APIError('Invalid state for terminating session {session.id}: {session.state}'.format(session=session_info))
 
         if session_info.direction == 'incoming' and session_info.state == 'connecting':
-            data = dict(request='decline', code=486)
+            session_info.janus_handle.decline()
         else:
-            data = dict(request='hangup')
-        block_on(self.janus.message(self.janus_session_id, session_info.janus_handle_id, data))
+            session_info.janus_handle.hangup()
         self.log.info('requested termination for session {session.id}'.format(session=session_info))
 
     def _RH_videoroom_join(self, request):
@@ -808,38 +770,24 @@ class ConnectionHandler(object):
             raise APIError('{request.account} is not allowed to join room {request.uri}'.format(request=request))
 
         try:
-            handle_id = block_on(self.janus.attach(self.janus_session_id, 'janus.plugin.videoroom'))
-            self.janus.set_event_handler(handle_id, self._handle_janus_event_videoroom)
+            videoroom_handle = VideoroomPluginHandle(self.janus_session, event_handler=self._handle_janus_videoroom_event)
 
             try:
-                # create the room if it doesn't exist
-                config = videoroom.config
-                data = dict(request='create', room=videoroom.id, publishers=10, bitrate=config.max_bitrate, videocodec=config.video_codec, record=config.record, rec_dir=config.recording_dir)
                 try:
-                    block_on(self.janus.message(self.janus_session_id, handle_id, data))
+                    videoroom_handle.create(room=videoroom.id, config=videoroom.config, publishers=10)
                 except JanusError as e:
                     if e.code != 427:  # 427 means room already exists
                         raise
-
-                # join the room
-                data = dict(request='joinandconfigure', room=videoroom.id, ptype='publisher', audio=True, video=True)
-                if account_info.display_name:
-                    data.update(display=account_info.display_name)
-                jsep = dict(type='offer', sdp=request.sdp)
-                block_on(self.janus.message(self.janus_session_id, handle_id, data, jsep))
-            except:
-                try:
-                    block_on(self.janus.detach(self.janus_session_id, handle_id))
-                except JanusError:
-                    pass
-                self.janus.set_event_handler(handle_id, None)
+                videoroom_handle.join(room=videoroom.id, sdp=request.sdp, display_name=account_info.display_name)
+            except Exception:
+                videoroom_handle.detach()
                 raise
-        except:
+        except Exception:
             self._maybe_destroy_videoroom(videoroom)
             raise
 
         videoroom_session = VideoroomSessionInfo(request.session, owner=self)
-        videoroom_session.janus_handle_id = handle_id
+        videoroom_session.janus_handle = videoroom_handle
         videoroom_session.initialize(request.account, 'publisher', videoroom)
         self.videoroom_sessions.add(videoroom_session)
 
@@ -853,8 +801,7 @@ class ConnectionHandler(object):
         except KeyError:
             raise APIError('Unknown video room session: {request.session}'.format(request=request))
 
-        data = dict(request='leave')
-        block_on(self.janus.message(self.janus_session_id, videoroom_session.janus_handle_id, data))
+        videoroom_session.janus_handle.leave()
 
         self.send(sylkrtc.VideoroomSessionTerminatedEvent(session=videoroom_session.id))
 
@@ -882,37 +829,28 @@ class ConnectionHandler(object):
         if request.feed in self.videoroom_sessions:
             raise APIError('Video room session ID {request.feed} already in use'.format(request=request))
 
-        # get the 'base' session, the one used to join and publish
         try:
-            base_session = self.videoroom_sessions[request.session]
+            base_session = self.videoroom_sessions[request.session]  # our 'base' session (the one used to join and publish)
         except KeyError:
             raise APIError('Unknown video room session: {request.session}'.format(request=request))
 
-        # get the publisher's session
         try:
-            publisher_session = base_session.room[request.publisher]
+            publisher_session = base_session.room[request.publisher]  # the publisher's session (the one we want to subscribe to)
         except KeyError:
             raise APIError('Unknown publisher video room session to attach to: {request.publisher}'.format(request=request))
         if publisher_session.publisher_id is None:
             raise APIError('Video room session {session.id} does not have a publisher ID'.format(session=publisher_session))
 
-        handle_id = block_on(self.janus.attach(self.janus_session_id, 'janus.plugin.videoroom'))
-        self.janus.set_event_handler(handle_id, self._handle_janus_event_videoroom)
+        videoroom_handle = VideoroomPluginHandle(self.janus_session, event_handler=self._handle_janus_videoroom_event)
 
-        # join the room as a listener
         try:
-            data = dict(request='join', room=base_session.room.id, ptype='listener', feed=publisher_session.publisher_id)
-            block_on(self.janus.message(self.janus_session_id, handle_id, data))
-        except:
-            try:
-                block_on(self.janus.detach(self.janus_session_id, handle_id))
-            except JanusError:
-                pass
-            self.janus.set_event_handler(handle_id, None)
+            videoroom_handle.feed_attach(room=base_session.room.id, feed=publisher_session.publisher_id)
+        except Exception:
+            videoroom_handle.detach()
             raise
 
         videoroom_session = VideoroomSessionInfo(request.feed, owner=self)
-        videoroom_session.janus_handle_id = handle_id
+        videoroom_session.janus_handle = videoroom_handle
         videoroom_session.parent_session = base_session
         videoroom_session.publisher_id = publisher_session.id
         videoroom_session.initialize(base_session.account_id, 'subscriber', base_session.room)
@@ -926,9 +864,7 @@ class ConnectionHandler(object):
             raise APIError('Unknown video room session: {request.feed}'.format(request=request))
         if videoroom_session.parent_session.id != request.session:
             raise APIError('{request.feed} is not an attached feed of {request.session}'.format(request=request))
-        data = dict(request='start', room=videoroom_session.room.id)
-        jsep = dict(type='answer', sdp=request.sdp)
-        block_on(self.janus.message(self.janus_session_id, videoroom_session.janus_handle_id, data, jsep))
+        videoroom_session.janus_handle.feed_start(sdp=request.sdp)
 
     def _RH_videoroom_feed_detach(self, request):
         try:
@@ -937,8 +873,7 @@ class ConnectionHandler(object):
             raise APIError('Unknown video room session to detach: {request.feed}'.format(request=request))
         if videoroom_session.parent_session.id != request.session:
             raise APIError('{request.feed} is not an attached feed of {request.session}'.format(request=request))
-        data = dict(request='leave')
-        block_on(self.janus.message(self.janus_session_id, videoroom_session.janus_handle_id, data))
+        videoroom_session.janus_handle.feed_detach()
         self._cleanup_videoroom_session(videoroom_session)
 
     def _RH_videoroom_invite(self, request):
@@ -964,9 +899,8 @@ class ConnectionHandler(object):
             videoroom_session = self.videoroom_sessions[request.session]
         except KeyError:
             raise APIError('Unknown video room session: {request.session}'.format(request=request))
-        candidates = request.candidates.__data__
-        block_on(self.janus.trickle(self.janus_session_id, videoroom_session.janus_handle_id, candidates))
-        if not candidates and videoroom_session.type == 'publisher':
+        videoroom_session.janus_handle.trickle(request.candidates)
+        if not request.candidates and videoroom_session.type == 'publisher':
             self.log.debug('video room session {session.id} negotiated ICE'.format(session=videoroom_session))
 
     def _RH_videoroom_session_update(self, request):
@@ -974,327 +908,359 @@ class ConnectionHandler(object):
             videoroom_session = self.videoroom_sessions[request.session]
         except KeyError:
             raise APIError('Unknown video room session: {request.session}'.format(request=request))
-        update_data = request.options.__data__
-        if update_data:
-            data = dict(request='configure', room=videoroom_session.room.id, **update_data)
-            block_on(self.janus.message(self.janus_session_id, videoroom_session.janus_handle_id, data))
-            modified = ', '.join('{}={}'.format(key, update_data[key]) for key in update_data)
+        options = request.options.__data__
+        if options:
+            videoroom_session.janus_handle.update_publisher(options)
+            modified = ', '.join('{}={}'.format(key, options[key]) for key in options)
             self.log.info('updated video room session {request.session} with {modified}'.format(request=request, modified=modified))
 
     # Event handlers
 
-    def _EH_janus_event_sip(self, data):
-        handle_id = data['handle_id']
-        event_type = data['event_type']
-        event = data['event']
-
-        if event_type == 'event':
-            self._janus_event_plugin_sip(data)
-        elif event_type == 'webrtcup':
+    def _EH_janus_sip(self, event):
+        if isinstance(event, janus.PluginEvent):
+            event_id = event.plugindata.data.__id__
             try:
-                session_info = self.sip_sessions[handle_id]
-            except KeyError:
-                self.log.warning('could not find session for handle ID %s' % handle_id)
-                return
-            session_info.state = 'established'
-            self.send(sylkrtc.SessionEstablishedEvent(session=session_info.id))
-            self.log.debug('{session.direction} session {session.id} state: {session.state}'.format(session=session_info))
-            self.log.info('established WEBRTC connection for session {session.id}'.format(session=session_info))
-        elif event_type == 'hangup':
-            try:
-                session_info = self.sip_sessions[handle_id]
-            except KeyError:
-                return
-            if session_info.state != 'terminated':
-                session_info.state = 'terminated'
-                reason = event.get('reason', 'reason unspecified')
-                self.send(sylkrtc.SessionTerminatedEvent(session=session_info.id, reason=reason))
-                self.log.info('{session.direction} session {session.id} terminated ({reason})'.format(session=session_info, reason=reason))
-                self._cleanup_session(session_info)
-        elif event_type in ('media', 'detached'):
-            # ignore
-            pass
-        elif event_type == 'slowlink':
-            try:
-                session_info = self.sip_sessions[handle_id]
-            except KeyError:
-                self.log.warning('could not find session for handle ID %s' % handle_id)
-                return
-            try:
-                uplink = data['event']['uplink']
-            except KeyError:
-                self.log.warning('could not find uplink in slowlink event data')
-                return
-            if uplink:  # uplink is from janus' point of view
-                if not session_info.slow_download:
-                    self.log.info('poor download connectivity for session {session.id}'.format(session=session_info))
-                session_info.slow_download = True
+                handler = getattr(self, '_EH_janus_' + '_'.join(event_id))
+            except AttributeError:
+                self.log.warning('unhandled Janus SIP event: {event_name}'.format(event_name=event_id[-1]))
             else:
-                if not session_info.slow_upload:
-                    self.log.info('poor upload connectivity for session {session.id}'.format(session=session_info))
-                session_info.slow_upload = True
-        else:
-            self.log.warning('received unexpected event type: %s' % event_type)
+                self.log.debug('janus SIP event: {event_name} (handle_id={event.sender})'.format(event=event, event_name=event_id[-1]))
+                handler(event)
+        else:  # janus.CoreEvent
+            try:
+                handler = getattr(self, '_EH_janus_sip_' + event.janus)
+            except AttributeError:
+                self.log.warning('unhandled Janus SIP event: {event.janus}'.format(event=event))
+            else:
+                self.log.debug('janus SIP event: {event.janus} (handle_id={event.sender})'.format(event=event))
+                handler(event)
 
-    def _janus_event_plugin_sip(self, data):
-        handle_id = data['handle_id']
-        event = data['event']
-        plugin_data = event['plugindata']
-        assert plugin_data['plugin'] == 'janus.plugin.sip'
-        event_data = plugin_data['data']
-        assert event_data.get('sip') == 'event'
+    def _EH_janus_sip_error(self, event):
+        # fixme: implement error handling
+        self.log.error('got SIP error event: {}'.format(event.__data__))
+        handle_id = event.sender
+        if handle_id in self.sip_sessions:
+            pass  # this is a session related event
+        elif handle_id in self.account_handles_map:
+            pass  # this is an account related event
 
-        if 'result' not in event_data:
-            self.log.warning('unexpected event: %s' % event)
+    def _EH_janus_sip_webrtcup(self, event):
+        try:
+            session_info = self.sip_sessions[event.sender]
+        except KeyError:
+            self.log.warning('could not find SIP session with handle ID {event.sender} for webrtcup event'.format(event=event))
             return
+        session_info.state = 'established'
+        self.send(sylkrtc.SessionEstablishedEvent(session=session_info.id))
+        self.log.debug('{session.direction} session {session.id} state: {session.state}'.format(session=session_info))
+        self.log.info('established WEBRTC connection for session {session.id}'.format(session=session_info))
 
-        event_data = event_data['result']
-        jsep = event.get('jsep', None)
-        event_type = event_data['event']
+    def _EH_janus_sip_hangup(self, event):
+        try:
+            session_info = self.sip_sessions[event.sender]
+        except KeyError:
+            return
+        if session_info.state != 'terminated':
+            session_info.state = 'terminated'
+            reason = event.reason or 'unspecified reason'
+            self.send(sylkrtc.SessionTerminatedEvent(session=session_info.id, reason=reason))
+            self.log.info('{session.direction} session {session.id} terminated ({reason})'.format(session=session_info, reason=reason))
+            self._cleanup_session(session_info)
 
-        # if event_type == 'registering':
-        #     account_info = self.account_handles_map.get(handle_id)
-        #     if account_info is None:
-        #         self.log.warning('could not find account for handle ID %s' % handle_id)
-        #     elif account_info.registration_state != event_type:
-        #         account_info.registration_state = event_type
-        #         self.send(sylkrtc.AccountRegisteringEvent(account=account_info.id))
-        if event_type == 'registering':
-            try:
-                account_info = self.account_handles_map[handle_id]
-            except KeyError:
-                self.log.warning('could not find account for handle ID %s' % handle_id)
-                return
-            if account_info.registration_state != event_type:
-                account_info.registration_state = event_type
-                self.send(sylkrtc.AccountRegisteringEvent(account=account_info.id))
-        elif event_type == 'registered':
-            if event_data['register_sent'] in (False, 'false'):  # skip 'registered' events from outgoing session handles
-                return
-            try:
-                account_info = self.account_handles_map[handle_id]
-            except KeyError:
-                self.log.warning('could not find account for handle ID %s' % handle_id)
-                return
-            if account_info.registration_state != event_type:
-                account_info.registration_state = event_type
-                self.send(sylkrtc.AccountRegisteredEvent(account=account_info.id))
-                self.log.info('registered {account.id} to receive incoming calls'.format(account=account_info))
-        elif event_type == 'registration_failed':
-            try:
-                account_info = self.account_handles_map[handle_id]
-            except KeyError:
-                self.log.warning('could not find account for handle ID %s' % handle_id)
-                return
-            if account_info.registration_state != 'failed':
-                account_info.registration_state = 'failed'
-                reason = '{0[code]} {0[reason]}'.format(event_data)
-                self.send(sylkrtc.AccountRegistrationFailedEvent(account=account_info.id, reason=reason))
-                self.log.info('registration for {account.id} failed: {reason}'.format(account=account_info, reason=reason))
-        elif event_type == 'incomingcall':
-            try:
-                account_info = self.account_handles_map[handle_id]
-            except KeyError:
-                self.log.warning('could not find account for handle ID %s' % handle_id)
-                return
-            jsep = event.get('jsep', None)
-            assert jsep is not None
-            originator = sylkrtc.SIPIdentity(uri=SIP_PREFIX_RE.sub('', event_data['username']), display_name=event_data.get('displayname', '').replace('"', ''))
-            session = SIPSessionInfo(uuid.uuid4().hex)
-            session.janus_handle_id = handle_id
-            session.init_incoming(account_info.id, originator.uri, originator.display_name)
-            self.sip_sessions.add(session)
-            self.send(sylkrtc.AccountIncomingSessionEvent(account=account_info.id, session=session.id, originator=originator, sdp=jsep['sdp']))
-            self.log.info('received incoming session {session.id} from {session.remote_identity.uri!s} to {session.local_identity.uri!s}'.format(session=session))
-        elif event_type == 'missed_call':
-            try:
-                account_info = self.account_handles_map[handle_id]
-            except KeyError:
-                self.log.warning('could not find account for handle ID %s' % handle_id)
-                return
-            originator = sylkrtc.SIPIdentity(uri=SIP_PREFIX_RE.sub('', event_data['caller']), display_name=event_data.get('displayname', '').replace('"', ''))
-            self.send(sylkrtc.AccountMissedSessionEvent(account=account_info.id, originator=originator))
-            self.log.info('missed incoming call from {originator.uri}'.format(originator=originator))
-        elif event_type == 'calling':
-            try:
-                session_info = self.sip_sessions[handle_id]
-            except KeyError:
-                self.log.warning('could not find session for handle ID %s' % handle_id)
-                return
-            session_info.state = 'progress'
-            self.send(sylkrtc.SessionProgressEvent(session=session_info.id))
-            self.log.debug('{session.direction} session {session.id} state: {session.state}'.format(session=session_info))
-        elif event_type == 'accepted':
-            try:
-                session_info = self.sip_sessions[handle_id]
-            except KeyError:
-                self.log.warning('could not find session for handle ID %s' % handle_id)
-                return
-            session_info.state = 'accepted'
-            event = sylkrtc.SessionAcceptedEvent(session=session_info.id)
-            if session_info.direction == 'outgoing':
-                assert jsep is not None
-                event.sdp = jsep['sdp']
-            self.send(event)
-            self.log.debug('{session.direction} session {session.id} state: {session.state}'.format(session=session_info))
-        elif event_type == 'hangup':
-            try:
-                session_info = self.sip_sessions[handle_id]
-            except KeyError:
-                return
-            if session_info.state != 'terminated':
-                session_info.state = 'terminated'
-                code = event_data.get('code', 0)
-                reason = '%d %s' % (code, event_data.get('reason', 'Unknown'))
-                self.send(sylkrtc.SessionTerminatedEvent(session=session_info.id, reason=reason))
-                if session_info.direction == 'incoming' and code == 487:  # incoming call was cancelled -> missed
-                    self.send(sylkrtc.AccountMissedSessionEvent(account=session_info.account_id, originator=session_info.remote_identity.__dict__))
-                if code >= 300:
-                    self.log.info('{session.direction} session {session.id} terminated ({reason})'.format(session=session_info, reason=reason))
-                else:
-                    self.log.info('{session.direction} session {session.id} terminated'.format(session=session_info))
-                self._cleanup_session(session_info)
-        elif event_type in ('ack', 'declining', 'hangingup', 'proceeding'):
-            pass  # ignore
+    def _EH_janus_sip_slowlink(self, event):
+        try:
+            session_info = self.sip_sessions[event.sender]
+        except KeyError:
+            self.log.warning('could not find SIP session with handle ID {event.sender} for slowlink event'.format(event=event))
+            return
+        if event.uplink:  # uplink is from janus' point of view
+            if not session_info.slow_download:
+                self.log.info('poor download connectivity for session {session.id}'.format(session=session_info))
+            session_info.slow_download = True
         else:
-            self.log.warning('unexpected SIP plugin event type: %s' % event_type)
+            if not session_info.slow_upload:
+                self.log.info('poor upload connectivity for session {session.id}'.format(session=session_info))
+            session_info.slow_upload = True
 
-    def _EH_janus_event_videoroom(self, data):
-        handle_id = data['handle_id']
-        event_type = data['event_type']
+    def _EH_janus_sip_media(self, event):
+        pass
 
-        if event_type == 'event':
-            self._janus_event_plugin_videoroom(data)
-        elif event_type == 'webrtcup':
-            try:
-                videoroom_session = self.videoroom_sessions[handle_id]
-            except KeyError:
-                self.log.warning('could not find video room session for handle ID %s during webrtcup event' % handle_id)
-                return
-            if videoroom_session.type == 'publisher':
-                self.log.info('established WEBRTC connection for session {session.id}'.format(session=videoroom_session))
-                self.send(sylkrtc.VideoroomSessionEstablishedEvent(session=videoroom_session.id))
-            else:
-                self.send(sylkrtc.VideoroomFeedEstablishedEvent(session=videoroom_session.parent_session.id, feed=videoroom_session.id))
-        elif event_type == 'hangup':
-            try:
-                videoroom_session = self.videoroom_sessions[handle_id]
-            except KeyError:
-                return
-            self._cleanup_videoroom_session(videoroom_session)
-        elif event_type in ('media', 'detached'):
-            pass
-        elif event_type == 'slowlink':
-            try:
-                videoroom_session = self.videoroom_sessions[handle_id]
-            except KeyError:
-                self.log.warning('could not find video room session for handle ID %s during slowlink event' % handle_id)
-                return
-            try:
-                uplink = data['event']['uplink']
-            except KeyError:
-                self.log.error('could not find uplink in slowlink event data')
-                return
-            if uplink:  # uplink is from janus' point of view
-                if not videoroom_session.slow_download:
-                    self.log.info('poor download connectivity to video room {session.room.uri} with session {session.id}'.format(session=videoroom_session))
-                videoroom_session.slow_download = True
-            else:
-                if not videoroom_session.slow_upload:
-                    self.log.info('poor upload connectivity to video room {session.room.uri} with session {session.id}'.format(session=videoroom_session))
-                videoroom_session.slow_upload = True
+    def _EH_janus_sip_detached(self, event):
+        pass
+
+    def _EH_janus_sip_event_registering(self, event):
+        try:
+            account_info = self.account_handles_map[event.sender]
+        except KeyError:
+            self.log.warning('could not find account with handle ID {event.sender} for registering event'.format(event=event))
+            return
+        if account_info.registration_state != 'registering':
+            account_info.registration_state = 'registering'
+            self.send(sylkrtc.AccountRegisteringEvent(account=account_info.id))
+
+    def _EH_janus_sip_event_registered(self, event):
+        if event.sender in self.sip_sessions:  # skip 'registered' events from outgoing session handles
+            return
+        try:
+            account_info = self.account_handles_map[event.sender]
+        except KeyError:
+            self.log.warning('could not find account with handle ID {event.sender} for registered event'.format(event=event))
+            return
+        if account_info.registration_state != 'registered':
+            account_info.registration_state = 'registered'
+            self.send(sylkrtc.AccountRegisteredEvent(account=account_info.id))
+            self.log.info('registered {account.id} to receive incoming calls'.format(account=account_info))
+
+    def _EH_janus_sip_event_registration_failed(self, event):
+        try:
+            account_info = self.account_handles_map[event.sender]
+        except KeyError:
+            self.log.warning('could not find account with handle ID {event.sender} for registration failed event'.format(event=event))
+            return
+        if account_info.registration_state != 'failed':
+            account_info.registration_state = 'failed'
+            reason = '{result.code} {result.reason}'.format(result=event.plugindata.data.result)
+            self.send(sylkrtc.AccountRegistrationFailedEvent(account=account_info.id, reason=reason))
+            self.log.info('registration for {account.id} failed: {reason}'.format(account=account_info, reason=reason))
+
+    def _EH_janus_sip_event_incomingcall(self, event):
+        try:
+            account_info = self.account_handles_map[event.sender]
+        except KeyError:
+            self.log.warning('could not find account with handle ID {event.sender} for incoming call event'.format(event=event))
+            return
+        assert event.jsep is not None
+        data = event.plugindata.data.result  # type: janus.SIPResultIncomingCall
+        originator = sylkrtc.SIPIdentity(uri=data.username, display_name=data.displayname)
+        session = SIPSessionInfo(uuid.uuid4().hex)
+        session.janus_handle = account_info.janus_handle
+        session.init_incoming(account_info.id, originator.uri, originator.display_name)
+        self.sip_sessions.add(session)
+        self.send(sylkrtc.AccountIncomingSessionEvent(account=account_info.id, session=session.id, originator=originator, sdp=event.jsep.sdp))
+        self.log.info('received incoming session {session.id} from {session.remote_identity.uri!s} to {session.local_identity.uri!s}'.format(session=session))
+
+    def _EH_janus_sip_event_missed_call(self, event):
+        try:
+            account_info = self.account_handles_map[event.sender]
+        except KeyError:
+            self.log.warning('could not find account with handle ID {event.sender} for missed call event'.format(event=event))
+            return
+        data = event.plugindata.data.result  # type: janus.SIPResultMissedCall
+        originator = sylkrtc.SIPIdentity(uri=data.caller, display_name=data.displayname)
+        self.send(sylkrtc.AccountMissedSessionEvent(account=account_info.id, originator=originator))
+        self.log.info('missed incoming call from {originator.uri}'.format(originator=originator))
+
+    def _EH_janus_sip_event_calling(self, event):
+        try:
+            session_info = self.sip_sessions[event.sender]
+        except KeyError:
+            self.log.warning('could not find SIP session with handle ID {event.sender} for calling event'.format(event=event))
+            return
+        session_info.state = 'progress'
+        self.send(sylkrtc.SessionProgressEvent(session=session_info.id))
+        self.log.debug('{session.direction} session {session.id} state: {session.state}'.format(session=session_info))
+
+    def _EH_janus_sip_event_accepted(self, event):
+        try:
+            session_info = self.sip_sessions[event.sender]
+        except KeyError:
+            self.log.warning('could not find SIP session with handle ID {event.sender} for accepted event'.format(event=event))
+            return
+        session_info.state = 'accepted'
+        if session_info.direction == 'outgoing':
+            assert event.jsep is not None
+            self.send(sylkrtc.SessionAcceptedEvent(session=session_info.id, sdp=event.jsep.sdp))
         else:
-            self.log.warning('received unexpected event type %s: data=%s' % (event_type, data))
+            self.send(sylkrtc.SessionAcceptedEvent(session=session_info.id))
+        self.log.debug('{session.direction} session {session.id} state: {session.state}'.format(session=session_info))
 
-    def _janus_event_plugin_videoroom(self, data):
-        handle_id = data['handle_id']
-        event = data['event']
-        plugin_data = event['plugindata']
-        assert(plugin_data['plugin'] == 'janus.plugin.videoroom')
-        event_data = event['plugindata']['data']
-        assert 'videoroom' in event_data
-
-        event_type = event_data['videoroom']
-        if event_type == 'joined':
-            # a join request succeeded, this is a publisher
-            try:
-                videoroom_session = self.videoroom_sessions[handle_id]
-            except KeyError:
-                self.log.warning('could not find video room session for handle ID %s during joined event' % handle_id)
-                return
-            self.log.info('joined video room {session.room.uri} with session {session.id}'.format(session=videoroom_session))
-            videoroom_session.publisher_id = event_data['id']
-            room = videoroom_session.room
-            jsep = event.get('jsep', None)
-            assert jsep is not None
-            self.send(sylkrtc.VideoroomSessionAcceptedEvent(session=videoroom_session.id, sdp=jsep['sdp']))
-            # send information about existing publishers
-            publishers = []
-            for publisher in event_data['publishers']:
-                publisher_id = publisher['id']
-                try:
-                    publisher_session = room[publisher_id]
-                except KeyError:
-                    self.log.warning('could not find matching session for publisher %s during joined event' % publisher_id)
-                else:
-                    publishers.append(dict(id=publisher_session.id, uri=publisher_session.account_id, display_name=publisher.get('display', '')))
-            self.send(sylkrtc.VideoroomInitialPublishersEvent(session=videoroom_session.id, publishers=publishers))
-            room.add(videoroom_session)  # adding the session to the room might also trigger sending an event with the active participants which must be sent last
-        elif event_type == 'event':
-            if 'publishers' in event_data:
-                try:
-                    videoroom_session = self.videoroom_sessions[handle_id]
-                except KeyError:
-                    self.log.warning('could not find video room session for handle ID %s during publishers event' % handle_id)
-                    return
-                room = videoroom_session.room
-                # send information about new publishers
-                publishers = []
-                for publisher in event_data['publishers']:
-                    publisher_id = publisher['id']
-                    try:
-                        publisher_session = room[publisher_id]
-                    except KeyError:
-                        self.log.warning('could not find matching session for publisher %s during publishers event' % publisher_id)
-                        continue
-                    publishers.append(dict(id=publisher_session.id, uri=publisher_session.account_id, display_name=publisher.get('display', '')))
-                self.send(sylkrtc.VideoroomPublishersJoinedEvent(session=videoroom_session.id, publishers=publishers))
-            elif 'leaving' in event_data:
-                janus_publisher_id = event_data['leaving']  # janus_publisher_id == 'ok' when the event is about ourselves leaving the room
-                try:
-                    base_session = self.videoroom_sessions[handle_id]
-                except KeyError:
-                    if janus_publisher_id != 'ok':
-                        self.log.warning('could not find video room session for handle ID %s during leaving event' % handle_id)
-                    return
-                if janus_publisher_id == 'ok':
-                    self.log.info('left video room {session.room.uri} with session {session.id}'.format(session=base_session))
-                    self._cleanup_videoroom_session(base_session)
-                    return
-                try:
-                    publisher_session = base_session.feeds.pop(janus_publisher_id)
-                except KeyError:
-                    return
-                self.send(sylkrtc.VideoroomPublishersLeftEvent(session=base_session.id, publishers=[publisher_session.id]))
-            elif {'started', 'unpublished', 'left', 'configured'}.intersection(event_data):
-                pass
+    def _EH_janus_sip_event_hangup(self, event):
+        try:
+            session_info = self.sip_sessions[event.sender]
+        except KeyError:
+            self.log.warning('could not find SIP session with handle ID {event.sender} for hangup event'.format(event=event))
+            return
+        if session_info.state != 'terminated':
+            session_info.state = 'terminated'
+            data = event.plugindata.data.result  # type: janus.SIPResultHangup
+            reason = '{0.code} {0.reason}'.format(data)
+            self.send(sylkrtc.SessionTerminatedEvent(session=session_info.id, reason=reason))
+            if session_info.direction == 'incoming' and data.code == 487:  # incoming call was cancelled -> missed
+                self.send(sylkrtc.AccountMissedSessionEvent(account=session_info.account_id, originator=session_info.remote_identity.__dict__))
+            if data.code >= 300:
+                self.log.info('{session.direction} session {session.id} terminated ({reason})'.format(session=session_info, reason=reason))
             else:
-                self.log.warning('received unexpected video room plugin event: type={} data={}'.format(event_type, event_data))
-        elif event_type == 'attached':
-            # sent when a feed is subscribed for a given publisher
+                self.log.info('{session.direction} session {session.id} terminated'.format(session=session_info))
+            self._cleanup_session(session_info)
+
+    def _EH_janus_sip_event_declining(self, event):
+        pass
+
+    def _EH_janus_sip_event_hangingup(self, event):
+        pass
+
+    def _EH_janus_sip_event_proceeding(self, event):
+        pass
+
+    def _EH_janus_videoroom(self, event):
+        if isinstance(event, janus.PluginEvent):
+            event_id = event.plugindata.data.__id__
             try:
-                videoroom_session = self.videoroom_sessions[handle_id]
-            except KeyError:
-                self.log.warning('could not find video room session for handle ID %s during attached event' % handle_id)
-                return
-            # get the session which originated the subscription
-            base_session = videoroom_session.parent_session
-            jsep = event.get('jsep', None)
-            assert base_session is not None
-            assert jsep is not None
-            assert jsep['type'] == 'offer'
-            self.send(sylkrtc.VideoroomFeedAttachedEvent(session=base_session.id, feed=videoroom_session.id, sdp=jsep['sdp']))
-        elif event_type == 'slow_link':
+                handler = getattr(self, '_EH_janus_' + '_'.join(event_id))
+            except AttributeError:
+                self.log.warning('unhandled Janus videoroom event: {event_name}'.format(event_name=event_id[-1]))
+            else:
+                self.log.debug('janus videoroom event: {event_name} (handle_id={event.sender})'.format(event=event, event_name=event_id[-1]))
+                handler(event)
+        else:  # janus.CoreEvent
+            try:
+                handler = getattr(self, '_EH_janus_videoroom_' + event.janus)
+            except AttributeError:
+                self.log.warning('unhandled Janus videoroom event: {event.janus}'.format(event=event))
+            else:
+                self.log.debug('janus videoroom event: {event.janus} (handle_id={event.sender})'.format(event=event))
+                handler(event)
+
+    def _EH_janus_videoroom_error(self, event):
+        # fixme: implement error handling
+        self.log.error('got videoroom error event: {}'.format(event.__data__))
+        try:
+            videoroom_session = self.videoroom_sessions[event.sender]
+        except KeyError:
+            self.log.warning('could not find video room session with handle ID {event.sender} for error event'.format(event=event))
+            return
+        if videoroom_session.type == 'publisher':
             pass
         else:
-            self.log.warning('received unexpected video room plugin event: type={} data={}'.format(event_type, event_data))
+            pass
+
+    def _EH_janus_videoroom_webrtcup(self, event):
+        try:
+            videoroom_session = self.videoroom_sessions[event.sender]
+        except KeyError:
+            self.log.warning('could not find video room session with handle ID {event.sender} for webrtcup event'.format(event=event))
+            return
+        if videoroom_session.type == 'publisher':
+            self.log.info('established WEBRTC connection for session {session.id}'.format(session=videoroom_session))
+            self.send(sylkrtc.VideoroomSessionEstablishedEvent(session=videoroom_session.id))
+        else:
+            self.send(sylkrtc.VideoroomFeedEstablishedEvent(session=videoroom_session.parent_session.id, feed=videoroom_session.id))
+
+    def _EH_janus_videoroom_hangup(self, event):
+        try:
+            videoroom_session = self.videoroom_sessions[event.sender]
+        except KeyError:
+            return
+        self._cleanup_videoroom_session(videoroom_session)
+
+    def _EH_janus_videoroom_slowlink(self, event):
+        try:
+            videoroom_session = self.videoroom_sessions[event.sender]
+        except KeyError:
+            self.log.warning('could not find video room session with handle ID {event.sender} for slowlink event'.format(event=event))
+            return
+        if event.uplink:  # uplink is from janus' point of view
+            if not videoroom_session.slow_download:
+                self.log.info('poor download connectivity to video room {session.room.uri} with session {session.id}'.format(session=videoroom_session))
+            videoroom_session.slow_download = True
+        else:
+            if not videoroom_session.slow_upload:
+                self.log.info('poor upload connectivity to video room {session.room.uri} with session {session.id}'.format(session=videoroom_session))
+            videoroom_session.slow_upload = True
+
+    def _EH_janus_videoroom_media(self, event):
+        pass
+
+    def _EH_janus_videoroom_detached(self, event):
+        pass
+
+    def _EH_janus_videoroom_joined(self, event):
+        # send when a publisher successfully joined a room
+        try:
+            videoroom_session = self.videoroom_sessions[event.sender]
+        except KeyError:
+            self.log.warning('could not find video room session with handle ID {event.sender} for joined event'.format(event=event))
+            return
+        self.log.info('joined video room {session.room.uri} with session {session.id}'.format(session=videoroom_session))
+        data = event.plugindata.data  # type: janus.VideoroomJoined
+        videoroom_session.publisher_id = data.id
+        room = videoroom_session.room
+        assert event.jsep is not None
+        self.send(sylkrtc.VideoroomSessionAcceptedEvent(session=videoroom_session.id, sdp=event.jsep.sdp))
+        # send information about existing publishers
+        publishers = []
+        for publisher in data.publishers:  # type: janus.VideoroomPublisher
+            try:
+                publisher_session = room[publisher.id]
+            except KeyError:
+                self.log.warning('could not find matching session for publisher {publisher.id} during joined event'.format(publisher=publisher))
+            else:
+                publishers.append(dict(id=publisher_session.id, uri=publisher_session.account_id, display_name=publisher.display or ''))
+        self.send(sylkrtc.VideoroomInitialPublishersEvent(session=videoroom_session.id, publishers=publishers))
+        room.add(videoroom_session)  # adding the session to the room might also trigger sending an event with the active participants which must be sent last
+
+    def _EH_janus_videoroom_attached(self, event):
+        # sent when a feed is subscribed for a given publisher
+        try:
+            videoroom_session = self.videoroom_sessions[event.sender]
+        except KeyError:
+            self.log.warning('could not find video room session with handle ID {event.sender} for attached event'.format(event=event))
+            return
+        # get the session which originated the subscription
+        base_session = videoroom_session.parent_session
+        assert base_session is not None
+        assert event.jsep is not None and event.jsep.type == 'offer'
+        self.send(sylkrtc.VideoroomFeedAttachedEvent(session=base_session.id, feed=videoroom_session.id, sdp=event.jsep.sdp))
+
+    def _EH_janus_videoroom_slow_link(self, event):
+        pass
+
+    def _EH_janus_videoroom_event_publishers(self, event):
+        try:
+            videoroom_session = self.videoroom_sessions[event.sender]
+        except KeyError:
+            self.log.warning('could not find video room session with handle ID {event.sender} for publishers event'.format(event=event))
+            return
+        room = videoroom_session.room
+        # send information about new publishers
+        publishers = []
+        for publisher in event.plugindata.data.publishers:  # type: janus.VideoroomPublisher
+            try:
+                publisher_session = room[publisher.id]
+            except KeyError:
+                self.log.warning('could not find matching session for publisher {publisher.id} during publishers event'.format(publisher=publisher))
+                continue
+            publishers.append(dict(id=publisher_session.id, uri=publisher_session.account_id, display_name=publisher.display or ''))
+        self.send(sylkrtc.VideoroomPublishersJoinedEvent(session=videoroom_session.id, publishers=publishers))
+
+    def _EH_janus_videoroom_event_leaving(self, event):
+        # this is a publisher
+        publisher_id = event.plugindata.data.leaving  # publisher_id == 'ok' when the event is about ourselves leaving the room, else the publisher's janus ID
+        try:
+            base_session = self.videoroom_sessions[event.sender]
+        except KeyError:
+            if publisher_id != 'ok':
+                self.log.warning('could not find video room session with handle ID {event.sender} for leaving event'.format(event=event))
+            return
+        if publisher_id == 'ok':
+            self.log.info('left video room {session.room.uri} with session {session.id}'.format(session=base_session))
+            self._cleanup_videoroom_session(base_session)
+            return
+        try:
+            publisher_session = base_session.feeds.pop(publisher_id)
+        except KeyError:
+            return
+        self.send(sylkrtc.VideoroomPublishersLeftEvent(session=base_session.id, publishers=[publisher_session.id]))
+
+    def _EH_janus_videoroom_event_left(self, event):
+        # this is a subscriber
+        pass
+
+    def _EH_janus_videoroom_event_configured(self, event):
+        pass
+
+    def _EH_janus_videoroom_event_started(self, event):
+        pass
+
+    def _EH_janus_videoroom_event_unpublished(self, event):
+        pass
