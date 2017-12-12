@@ -12,7 +12,7 @@ from .logger import log
 from .models import firebase
 
 
-__all__ = 'incoming_session', 'missed_session'
+__all__ = 'incoming_session', 'missed_session', 'conference_invite'
 
 
 agent = Agent(reactor)
@@ -48,6 +48,12 @@ def incoming_session(originator, destination, tokens):
 def missed_session(originator, destination, tokens):
     for token in tokens:
         request = firebase.FirebaseRequest(token, event=firebase.MissedCallEvent(originator=originator, destination=destination))
+        _send_push_notification(json.dumps(request.__data__))
+
+
+def conference_invite(originator, destination, room, tokens):
+    for token in tokens:
+        request = firebase.FirebaseRequest(token, event=firebase.ConferenceInviteEvent(originator=originator, destination=destination, room=room), time_to_live=3600)
         _send_push_notification(json.dumps(request.__data__))
 
 
