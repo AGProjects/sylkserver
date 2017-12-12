@@ -1,15 +1,15 @@
 
 import json
 
-from sipsimple.util import ISOTimestamp
 from twisted.internet import defer, reactor
 from twisted.web.client import Agent
 from twisted.web.iweb import IBodyProducer
 from twisted.web.http_headers import Headers
 from zope.interface import implementer
 
-from sylk.applications.webrtcgateway.configuration import GeneralConfig
-from sylk.applications.webrtcgateway.logger import log
+from .configuration import GeneralConfig
+from .logger import log
+from .models import firebase
 
 
 __all__ = 'incoming_session', 'missed_session'
@@ -41,30 +41,14 @@ class StringProducer(object):
 
 def incoming_session(originator, destination, tokens):
     for token in tokens:
-        data = dict(to=token, notification={}, data={'sylkrtc': {}}, content_available=True)
-        data['notification']['body'] = 'Incoming call from %s' % originator
-        data['notification']['sound'] = 'Blow'
-        data['priority'] = 'high'
-        data['time_to_live'] = 60    # don't deliver if phone is out for over a minute
-        data['data']['sylkrtc']['event'] = 'incoming_session'
-        data['data']['sylkrtc']['originator'] = originator
-        data['data']['sylkrtc']['destination'] = destination
-        data['data']['sylkrtc']['timestamp'] = str(ISOTimestamp.utcnow())
-        _send_push_notification(json.dumps(data))
+        request = firebase.FirebaseRequest(token, event=firebase.IncomingCallEvent(originator=originator, destination=destination), time_to_live=60)
+        _send_push_notification(json.dumps(request.__data__))
 
 
 def missed_session(originator, destination, tokens):
     for token in tokens:
-        data = dict(to=token, notification={}, data={'sylkrtc': {}}, content_available=True)
-        data['notification']['body'] = 'Missed call from %s' % originator
-        data['notification']['sound'] = 'Blow'
-        data['priority'] = 'high'
-        # No TTL, default is 4 weeks
-        data['data']['sylkrtc']['event'] = 'missed_session'
-        data['data']['sylkrtc']['originator'] = originator
-        data['data']['sylkrtc']['destination'] = destination
-        data['data']['sylkrtc']['timestamp'] = str(ISOTimestamp.utcnow())
-        _send_push_notification(json.dumps(data))
+        request = firebase.FirebaseRequest(token, event=firebase.MissedCallEvent(originator=originator, destination=destination))
+        _send_push_notification(json.dumps(request.__data__))
 
 
 @defer.inlineCallbacks
