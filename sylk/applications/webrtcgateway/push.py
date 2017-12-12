@@ -49,7 +49,7 @@ def incoming_session(originator, destination, tokens):
         data['data']['sylkrtc']['event'] = 'incoming_session'
         data['data']['sylkrtc']['originator'] = originator
         data['data']['sylkrtc']['destination'] = destination
-        data['data']['sylkrtc']['timestamp'] = str(ISOTimestamp.now())
+        data['data']['sylkrtc']['timestamp'] = str(ISOTimestamp.utcnow())
         _send_push_notification(json.dumps(data))
 
 
@@ -63,7 +63,7 @@ def missed_session(originator, destination, tokens):
         data['data']['sylkrtc']['event'] = 'missed_session'
         data['data']['sylkrtc']['originator'] = originator
         data['data']['sylkrtc']['destination'] = destination
-        data['data']['sylkrtc']['timestamp'] = str(ISOTimestamp.now())
+        data['data']['sylkrtc']['timestamp'] = str(ISOTimestamp.utcnow())
         _send_push_notification(json.dumps(data))
 
 
