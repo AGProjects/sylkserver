@@ -10,6 +10,7 @@ from zope.interface import implementer
 from .configuration import GeneralConfig
 from .logger import log
 from .models import firebase
+from .storage import TokenStorage
 
 
 __all__ = 'incoming_call', 'missed_call', 'conference_invite'
@@ -39,20 +40,23 @@ class StringProducer(object):
         pass
 
 
-def incoming_call(originator, destination, tokens):
-    for token in tokens:
+def incoming_call(originator, destination):
+    tokens = TokenStorage()
+    for token in tokens[destination]:
         request = firebase.FirebaseRequest(token, event=firebase.IncomingCallEvent(originator=originator, destination=destination), time_to_live=60)
         _send_push_notification(json.dumps(request.__data__))
 
 
-def missed_call(originator, destination, tokens):
-    for token in tokens:
+def missed_call(originator, destination):
+    tokens = TokenStorage()
+    for token in tokens[destination]:
         request = firebase.FirebaseRequest(token, event=firebase.MissedCallEvent(originator=originator, destination=destination))
         _send_push_notification(json.dumps(request.__data__))
 
 
-def conference_invite(originator, destination, room, tokens):
-    for token in tokens:
+def conference_invite(originator, destination, room):
+    tokens = TokenStorage()
+    for token in tokens[destination]:
         request = firebase.FirebaseRequest(token, event=firebase.ConferenceInviteEvent(originator=originator, destination=destination, room=room), time_to_live=3600)
         _send_push_notification(json.dumps(request.__data__))
 

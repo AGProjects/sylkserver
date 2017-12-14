@@ -134,9 +134,7 @@ class AdminWebHandler(object):
         except Exception as e:
             return json.dumps({'success': False, 'error': str(e)})
         else:
-            storage = TokenStorage()
-            tokens = storage[destination]
-            push.incoming_call(originator, destination, tokens)
+            push.incoming_call(originator, destination)
             return json.dumps({'success': True})
 
     @app.route('/missed_call', methods=['POST'])
@@ -150,9 +148,7 @@ class AdminWebHandler(object):
         except Exception as e:
             return json.dumps({'success': False, 'error': str(e)})
         else:
-            storage = TokenStorage()
-            tokens = storage[destination]
-            push.missed_call(originator, destination, tokens)
+            push.missed_call(originator, destination)
             return json.dumps({'success': True})
 
     @app.route('/tokens/<string:account>')
