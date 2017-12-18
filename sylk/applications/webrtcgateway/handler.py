@@ -874,7 +874,9 @@ class ConnectionHandler(object):
         if videoroom_session.parent_session.id != request.session:
             raise APIError('{request.feed} is not an attached feed of {request.session}'.format(request=request))
         videoroom_session.janus_handle.feed_detach()
-        self._cleanup_videoroom_session(videoroom_session)
+        # safety net in case we do not get any answer for the feed_detach request
+        # todo: to be adjusted later after pseudo-synchronous communication with janus is implemented
+        reactor.callLater(2, call_in_green_thread, self._cleanup_videoroom_session, videoroom_session)
 
     def _RH_videoroom_invite(self, request):
         try:
@@ -1254,7 +1256,12 @@ class ConnectionHandler(object):
 
     def _EH_janus_videoroom_event_left(self, event):
         # this is a subscriber
-        pass
+        try:
+            videoroom_session = self.videoroom_sessions[event.sender]
+        except KeyError:
+            pass
+        else:
+            self._cleanup_videoroom_session(videoroom_session)
 
     def _EH_janus_videoroom_event_configured(self, event):
         pass
