@@ -10,7 +10,7 @@ Package: sylkserver
 Architecture: all
 Depends: ${python:Depends}, ${misc:Depends},
          lsb-base,
-         python-application (>= 1.4.0),
+         python-application (>= 2.5.0),
          python-eventlib,
          python-klein,
          python-lxml,
