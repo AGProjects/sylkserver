@@ -20,15 +20,17 @@ Depends: ${python:Depends}, ${misc:Depends},
 Suggests: libavahi-compat-libdnssd1, python-wokkel, sylkserver-webrtc-gateway
 Recommends: sylkserver-sounds
 Description: Extensible real-time-communications application server
- SylkServer is an application server that can be programmed to perform SIP
- end-point applications and act as a gateway between SIP and XMPP domains.
+ SylkServer is a SIP applications server that provides applications like
+ echo, playback and conference, as well as act as a gateway between SIP
+ and IRC, XMPP and WEBRTC.
 
 Package: sylkserver-sounds
 Architecture: all
 Depends: ${misc:Depends}, sylkserver
 Description: Extensible real-time-communications application server sounds
- SylkServer is an application server that can be programmed to perform SIP
- end-point applications and act as a gateway between SIP and XMPP domains.
+ SylkServer is a SIP applications server that provides applications like
+ echo, playback and conference, as well as act as a gateway between SIP
+ and IRC, XMPP and WEBRTC.
  .
  This package contains sounds used by SylkServer.
 
@@ -36,8 +38,9 @@ Package: sylkserver-webrtc-gateway
 Architecture: all
 Depends: ${misc:Depends}, sylkserver, janus, python-autobahn (>= 0.10.3)
 Description: Extensible real-time-communications application server WebRTC gateway
- SylkServer is an application server that can be programmed to perform SIP
- end-point applications and act as a gateway between SIP and XMPP domains.
+ SylkServer is a SIP applications server that provides applications like
+ echo, playback and conference, as well as act as a gateway between SIP
+ and IRC, XMPP and WEBRTC.
  .
  This is a meta-package containing the dependencies required to run the
  WebRTC gateway application.
