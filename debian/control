@@ -17,7 +17,7 @@ Depends: ${python:Depends}, ${misc:Depends},
          python-sipsimple (>= 3.0.0),
          python-twisted,
          python-typing
-Suggests: libavahi-compat-libdnssd1, python-wokkel (>= 0.7.0), sylkserver-webrtc-gateway
+Suggests: libavahi-compat-libdnssd1, python-wokkel, sylkserver-webrtc-gateway
 Recommends: sylkserver-sounds
 Description: Extensible real-time-communications application server
  SylkServer is an application server that can be programmed to perform SIP
@@ -34,7 +34,7 @@ Description: Extensible real-time-communications application server sounds
 
 Package: sylkserver-webrtc-gateway
 Architecture: all
-Depends: ${misc:Depends}, sylkserver, janus (>= 0.1.1), python-autobahn (>= 0.10.3)
+Depends: ${misc:Depends}, sylkserver, janus, python-autobahn (>= 0.10.3)
 Description: Extensible real-time-communications application server WebRTC gateway
  SylkServer is an application server that can be programmed to perform SIP
  end-point applications and act as a gateway between SIP and XMPP domains.
