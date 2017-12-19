@@ -63,9 +63,13 @@ darcs pull -a
 Install the required dependencies:
 
  * python-sipsimple http://sipsimpleclient.org
- * python-sqlobject (>= 0.12.4)
+ * python-application (>= 2.5.0)
  * python-autobahn
+ * python-eventlib
+ * python-lxml
+ * python-klein
  * python-twisted
+ * python-typing
  * python-werkzeug
 
 Optionally, install the following packages for extra functionality:
