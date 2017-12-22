@@ -17,6 +17,7 @@ from string import maketrans
 from twisted.internet import reactor
 from typing import Generic, Container, Iterable, Sized, TypeVar, Dict, Set, Optional, Union
 
+from sylk.applications.webrtcgateway import push
 from sylk.applications.webrtcgateway.configuration import GeneralConfig, get_room_config
 from sylk.applications.webrtcgateway.janus import JanusBackend, JanusError, JanusSession, SIPPluginHandle, VideoroomPluginHandle
 from sylk.applications.webrtcgateway.logger import ConnectionLogger, VideoroomLogger
@@ -895,6 +896,8 @@ class ConnectionHandler(object):
                 connection_handler.send(event)
                 room.log.info('invitation from %s for %s', originator.uri, account)
                 connection_handler.log.info('received an invitation from %s for %s to join video room %s', originator.uri, account, room.uri)
+        for participant in participants:
+            push.conference_invite(originator=originator.uri, destination=participant, room=room.uri)
 
     def _RH_videoroom_session_trickle(self, request):
         try:
