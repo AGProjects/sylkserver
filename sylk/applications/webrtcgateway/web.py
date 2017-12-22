@@ -7,15 +7,16 @@ from twisted.internet import reactor
 from twisted.web.server import Site
 
 from sylk import __version__ as sylk_version
-from sylk.applications.webrtcgateway import push
-from sylk.applications.webrtcgateway.configuration import GeneralConfig, JanusConfig
-from sylk.applications.webrtcgateway.factory import SylkWebSocketServerFactory
-from sylk.applications.webrtcgateway.janus import JanusBackend
-from sylk.applications.webrtcgateway.logger import log
-from sylk.applications.webrtcgateway.protocol import SYLK_WS_PROTOCOL
-from sylk.applications.webrtcgateway.storage import TokenStorage
 from sylk.resources import Resources
 from sylk.web import Klein, StaticFileResource, server
+
+from . import push
+from .configuration import GeneralConfig, JanusConfig
+from .factory import SylkWebSocketServerFactory
+from .janus import JanusBackend
+from .logger import log
+from .protocol import SYLK_WS_PROTOCOL
+from .storage import TokenStorage
 
 
 __all__ = 'WebHandler', 'AdminWebHandler'

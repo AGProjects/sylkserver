@@ -10,9 +10,9 @@ except ImportError:
     # AutoBahn 0.12 changed this
     from autobahn.websocket import ConnectionDeny as HttpException
 
-from sylk.applications.webrtcgateway.handler import ConnectionHandler
-from sylk.applications.webrtcgateway.janus import JanusBackend
-from sylk.applications.webrtcgateway.logger import log
+from .handler import ConnectionHandler
+from .janus import JanusBackend
+from .logger import log
 
 
 SYLK_WS_PROTOCOL = 'sylkRTC-2'

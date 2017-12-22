@@ -4,8 +4,9 @@ import logging
 from application.log import ContextualLogger
 
 from sylk.applications import ApplicationLogger
-from sylk.applications.webrtcgateway.configuration import GeneralConfig, JanusConfig
 from sylk.log import TraceLogger
+
+from .configuration import GeneralConfig, JanusConfig
 
 
 __all__ = 'log', 'ConnectionLogger', 'VideoroomLogger'

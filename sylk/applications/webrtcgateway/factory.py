@@ -4,7 +4,7 @@ from application.python import Null
 from autobahn.twisted.websocket import WebSocketServerFactory
 from zope.interface import implements
 
-from sylk.applications.webrtcgateway.protocol import SylkWebSocketServerProtocol
+from .protocol import SylkWebSocketServerProtocol
 
 
 class VideoroomContainer(object):

@@ -17,12 +17,12 @@ from string import maketrans
 from twisted.internet import reactor
 from typing import Generic, Container, Iterable, Sized, TypeVar, Dict, Set, Optional, Union
 
-from sylk.applications.webrtcgateway import push
-from sylk.applications.webrtcgateway.configuration import GeneralConfig, get_room_config
-from sylk.applications.webrtcgateway.janus import JanusBackend, JanusError, JanusSession, SIPPluginHandle, VideoroomPluginHandle
-from sylk.applications.webrtcgateway.logger import ConnectionLogger, VideoroomLogger
-from sylk.applications.webrtcgateway.models import sylkrtc, janus
-from sylk.applications.webrtcgateway.storage import TokenStorage
+from . import push
+from .configuration import GeneralConfig, get_room_config
+from .janus import JanusBackend, JanusError, JanusSession, SIPPluginHandle, VideoroomPluginHandle
+from .logger import ConnectionLogger, VideoroomLogger
+from .models import sylkrtc, janus
+from .storage import TokenStorage
 
 
 class AccountInfo(object):
