@@ -56,6 +56,8 @@ class CallEventBase(SylkRTCEventBase):
     def notification_body(self):
         return '{0.event_description} from {0.originator}'.format(self)
 
+    notification_sound = 'default'
+
     @property
     def event_description(self):
         return self.event.replace('-', ' ').capitalize()
