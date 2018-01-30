@@ -24,7 +24,7 @@ screensharing_images_dir = /var/spool/sylkserver/conference/screensharing
 
 ; URL where the rooms can be joined using a WebRTC browser, the URL may contain
 ; the $room token which will be replaced by the room URI in user@domain form
-; webrtc_gateway_url = https://webrtc.sipthor.net/#!/call/$room
+; webrtc_gateway_url = https://webrtc.sipthor.net/call/$room
 
 ; Automatically verify ZRTP endpoints if the following conditions are met:
 ;  - The session also has a chat stream with no relay in between
