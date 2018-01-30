@@ -144,12 +144,12 @@ class URL(object):
         self.password = password
         self.host = host
         self.port = int(port) if port is not None else None
-        self.path = urllib.url2pathname(path)
+        self.path = path
         self.query_items = dict(urlparse.parse_qsl(query))
         self.fragment = fragment
 
     def __str__(self):
-        return urlparse.urlunsplit((self.scheme, self.netloc, urllib.pathname2url(self.path), self.query, self.fragment))
+        return urlparse.urlunsplit((self.scheme, self.netloc, self.path, self.query, self.fragment))
 
     def __repr__(self):
         return '%s(%r)' % (self.__class__.__name__, self.__str__())
