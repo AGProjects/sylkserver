@@ -930,7 +930,7 @@ class WelcomeHandler(object):
             txt += '    - Using a SIP client, initiate a session to %s (audio and chat)\n' % self.room.uri
             if self.room.config.webrtc_gateway_url:
                 webrtc_url = str(self.room.config.webrtc_gateway_url).replace('$room', self.room.uri)
-                txt += '    - Using a WebRTC enabled browser go to %s (audio only)\n' % webrtc_url
+                txt += '    - Using a WEB browser go to %s (audio only)\n' % webrtc_url
             if self.room.config.advertise_xmpp_support:
                 txt += '    - Using an XMPP Jingle capable client, add contact %s and call it (audio and chat)\n' % self.room.uri
             if self.room.config.pstn_access_numbers:
