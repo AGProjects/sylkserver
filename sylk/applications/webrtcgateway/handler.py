@@ -1107,6 +1107,9 @@ class ConnectionHandler(object):
     def _EH_janus_sip_event_proceeding(self, event):
         pass
 
+    def _EH_janus_sip_event_ringing(self, event):  # TODO: check if we want to use this -Dan
+        pass
+
     def _EH_janus_videoroom(self, event):
         if isinstance(event, janus.PluginEvent):
             event_id = event.plugindata.data.__id__
