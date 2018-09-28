@@ -55,6 +55,7 @@ class WebHandler(object):
         ws_url = 'ws' + server.url[4:] + '/webrtcgateway/ws'
         self.factory = SylkWebSocketServerFactory(ws_url, protocols=[SYLK_WS_PROTOCOL], server='SylkServer/%s' % sylk_version)
         self.factory.setProtocolOptions(allowedOrigins=GeneralConfig.web_origins,
+                                        allowNullOrigin=GeneralConfig.web_origins == ['*'],
                                         autoPingInterval=GeneralConfig.websocket_ping_interval,
                                         autoPingTimeout=GeneralConfig.websocket_ping_interval/2)
 
