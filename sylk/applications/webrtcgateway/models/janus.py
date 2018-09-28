@@ -204,6 +204,7 @@ class SIPCall(JSONObject):
     request = FixedValueProperty('call')
     uri = StringProperty(validator=URIValidator())  # this comes from the client request.uri which was validated as an AOR and we need a URI
     srtp = LimitedChoiceProperty(['sdes_optional', 'sdes_mandatory'], optional=True)
+    autoack = BooleanProperty(default=False)
 
 
 class SIPAccept(JSONObject):
