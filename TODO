@@ -1,10 +1,11 @@
 Roadmap
 -------
 
- - [webrtcgateway] Scalability using SIPThor
- - [webrtcgateway] Video bandwidth management
- - [webrtcgateway] SIP connect for multi-party video conference 
- - [webrtcgateway] Recording
+ - [webrtc-gateway] Replace Sofia stack with SIP SIMPLE client SDK
+ - [webrtc-confernce] Bridge SIP end-points to WebRTC conference (audio only)
+ - [webrtc-confernce] File transfers
+ - [webrtc-confernce] Screen sharing or second camera feed
+ - [webrtc-confernce] Text chat
 
 Improvements
 ------------
