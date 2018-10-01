@@ -155,7 +155,7 @@ XMPP protocols.  This can be used by a SIP service provider to bridge out to
 external XMPP domains or to receive incoming chat messages and Jingle audio
 sessions from remote XMPP domains to its local SIP users.  In a similar
 fashion, a XMPP service provider can use the gateway to bridge out to
-external SIP domains and handle incoming chat requestes from SIP domains to
+external SIP domains and handle incoming chat requests from SIP domains to
 the XMPP users it serves.
 
 A media session or a presence session initiated by an incoming connection on
@@ -170,15 +170,15 @@ Used to bridge audio and video calls between SIP clients and WebRTC
 applications.  A simple to use client API (sylkrtc.js) is provided for
 developing web pages that include such functionality.  This application
 supports transparently any audio/video codec negotiated by the end-points,
-however WebRTC has standardized particular codecs for the use on the web,
-therfore the SIP clients must support the same set of codecs.
+however WebRTC has standardised particular codecs for the use on the web,
+therefore the SIP clients must support the same set of codecs.
 
 See https://webrtc.sipthor.net for a working example.
 
 
 WebRTC video conference
 
-This application allows WebRTC enabled end-points to organize ad-hoc audio
+This application allows WebRTC enabled end-points to organise ad-hoc audio
 and video conferences.  SylkServer implements Selective Forwarding Unit
 (SFU) functionality by using Janus backend.  SFUs in general use little
 resources on the server side, allowing for handling much more load than
@@ -187,8 +187,8 @@ classic MCUs.
 Sylk WebRTC client is provided as a sample client and other clients can be
 developed using sylkrtc API.
 
-The bandwidth usage is optimized in such a way that independent of the
-number of participants present in the conference, the bandwith required by
+The bandwidth usage is optimised in such a way that independent of the
+number of participants present in the conference, the bandwidth required by
 each participant is not greater than for a direct video call between only
 two participants.
 
