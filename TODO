@@ -15,3 +15,9 @@ Improvements
  - debian package should rename config samples as .ini
  - for debian check if we can use the snakeoil cert from the ssl-cert package
 
+
+Fixes
+-----
+
+- Handle 183 progress event from janus which contains an SDP, while the
+  later accepted event won't.
