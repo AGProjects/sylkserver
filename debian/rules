@@ -8,6 +8,8 @@
 override_dh_install:
 	# Move samples to configuration files in the debian package
 	rename 's/\.sample$$//' debian/tmp/etc/sylkserver/*.sample
+	# Remove spaces in sound file names as they end up corrupted in the deb
+	rename 's/ //g' debian/tmp/usr/share/sylkserver/sounds/moh/*.wav
 	dh_install
 
 override_dh_clean:
