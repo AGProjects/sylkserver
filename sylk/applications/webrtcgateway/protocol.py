@@ -3,12 +3,7 @@ import json
 
 from application.notification import NotificationCenter, NotificationData
 from autobahn.twisted.websocket import WebSocketServerProtocol
-
-try:
-    from autobahn.websocket.http import HttpException
-except ImportError:
-    # AutoBahn 0.12 changed this
-    from autobahn.websocket import ConnectionDeny as HttpException
+from autobahn.websocket import ConnectionDeny
 
 from .handler import ConnectionHandler
 from .janus import JanusBackend
@@ -27,10 +22,10 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
     def onConnect(self, request):
         if SYLK_WS_PROTOCOL not in request.protocols:
             log.info('Rejecting connection from %s, remote does not support our sub-protocol' % self.peer)
-            raise HttpException(406, u'No compatible protocol specified')
+            raise ConnectionDeny(406, u'No compatible protocol specified')
         if not self.janus_backend.ready:
             log.info('Rejecting connection from %s, Janus backend is not connected' % self.peer)
-            raise HttpException(503, u'Backend is not connected')
+            raise ConnectionDeny(503, u'Backend is not connected')
         return SYLK_WS_PROTOCOL
 
     def onOpen(self):

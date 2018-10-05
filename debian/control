@@ -11,7 +11,7 @@ Architecture: all
 Depends: ${python:Depends}, ${misc:Depends},
          lsb-base,
          python-application (>= 2.5.0),
-         python-autobahn (>= 0.10.3),
+         python-autobahn,
          python-eventlib,
          python-klein,
          python-lxml,
