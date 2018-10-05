@@ -1107,6 +1107,9 @@ class ConnectionHandler(object):
     def _EH_janus_sip_event_proceeding(self, event):
         pass
 
+    def _EH_janus_sip_event_progress(self, event):  # TODO: implement this to handle 183 w/ SDP -Dan
+        pass
+
     def _EH_janus_sip_event_ringing(self, event):  # TODO: check if we want to use this -Dan
         pass
 
