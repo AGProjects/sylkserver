@@ -8,6 +8,7 @@ Environment=PYTHONUNBUFFERED=yes
 Type=simple
 ExecStart=/usr/bin/sylk-server --no-fork
 Restart=on-abnormal
+LimitCORE=infinity
 
 [Install]
 WantedBy=multi-user.target
