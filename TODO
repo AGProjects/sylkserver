@@ -21,3 +21,4 @@ Fixes
 
 - Handle 183 progress event from janus which contains an SDP, while the
   later accepted event won't.
+- Handle ringing/progress/proceeding/message events from the sip plugin
