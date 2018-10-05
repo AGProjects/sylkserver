@@ -11,6 +11,7 @@ Architecture: all
 Depends: ${python:Depends}, ${misc:Depends},
          lsb-base,
          python-application (>= 2.5.0),
+         python-autobahn (>= 0.10.3),
          python-eventlib,
          python-klein,
          python-lxml,
@@ -36,7 +37,7 @@ Description: Extensible real-time-communications application server sounds
 
 Package: sylkserver-webrtc-gateway
 Architecture: all
-Depends: ${misc:Depends}, sylkserver, janus, python-autobahn (>= 0.10.3)
+Depends: ${misc:Depends}, sylkserver, janus
 Description: Extensible real-time-communications application server WebRTC gateway
  SylkServer is a SIP applications server that provides applications like
  echo, playback and conference, as well as act as a gateway between SIP
