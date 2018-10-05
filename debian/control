@@ -3,7 +3,7 @@ Section: net
 Priority: optional
 Maintainer: Dan Pascu <dan@ag-projects.com>
 Uploaders: Adrian Georgescu <ag@ag-projects.com>
-Build-Depends: debhelper (>= 11), dh-python, python-all (>= 2.7)
+Build-Depends: debhelper (>= 11), dh-python, python-all (>= 2.7), rename
 Standards-Version: 3.9.8
 
 Package: sylkserver

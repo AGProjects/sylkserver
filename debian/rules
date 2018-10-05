@@ -5,6 +5,11 @@
 %:
 	dh $@ --with python2
 
+override_dh_install:
+	# Move samples to configuration files in the debian package
+	rename 's/\.sample$$//' debian/tmp/etc/sylkserver/*.sample
+	dh_install
+
 override_dh_clean:
 	dh_clean
 	rm -rf build dist MANIFEST
