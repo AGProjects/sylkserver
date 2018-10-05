@@ -1,3 +1,224 @@
+sylkserver (5.0.0) unstable; urgency=medium
+
+  * [webrtcgateway] Removed bogus attributes
+  * [webrtcgateway] Fixed exception handling for validating json model
+  * [webrtcgateway] Cleanup accounts when the client connection is lost
+  * Removed data duplication and inconsistent attributes
+  * Fixed argument types
+  * Moved DNS lookup log message to debug level
+  * Simplified building the result of the DNS lookup
+  * Simplified and fixed DNS lookup when no outbound proxy is involved
+  * Generalized sylkrtc json model mapping
+  * Removed unnecessary default value
+  * Avoid duplicate indexing when getting the data
+  * Use python3 compatible form for except statements
+  * Avoid unnecessary attach/detach in janus if DNS lookup fails
+  * Added debug_level setting to ServerConfig
+  * Added ability to toggle between configured log level and debug at runtime
+  * Removed unused import and order imports alphabetically
+  * Set videoroom bitrate to overwrite janus' low default of 256Kb/s
+  * Added API call to allow a client to update session parameters on the fly
+  * Register atexit handler to dump memory debug info
+  * Simplified and enhanced application loading/accessing code
+  * Fixed spurious SIPApplicationWillStart post and handling early stop
+  * The __init__ method should not return any value
+  * Made policy matching logic consistent and simplified code
+  * Refactored logging
+    - Updated code to use the new logging features from python-application.
+    - Rewrote system logging to be more readable and easier to interpret.
+    - Implemented trace loggers based on notifications to separate and
+      isolate them from the code that generates the trace log events.
+    - Added a trace logger for DNS lookups.
+  * Added bitrate and video_codec configuration options for video rooms
+  * Fully cleanup the connection handler resources when client disconnects
+  * Simplified getting the session with the handle_id
+  * Rewrote VideoRoomSessionContainer to not use weak references.
+    When sessions were removed from the container, there was no guarantee
+    that there was no other reference to them somewhere else in the code,
+    which would cause dangling id-to-session mappings to be kept around
+    in the container for undetermined periods of time.
+  * Renamed VideoRoomSessionContainer to SessionContainer
+  * Fixed order of operations during ConnectionHandler cleanup
+  * Added PublisherFeedContainer class for holding videoroom publisher feeds
+  * Use SessionContainer to hold SIP sessions instead of using 2 mappings
+  * Provide more context in log messages to identify where they're generated
+  * Changed default max_bitrate value from 4Mb/s to 2Mb/s
+  * Automatically adjust participant bitrate based on number of participants
+  * Do not warn about missing session (it might've been destroyed elsewhere)
+  * Do session cleanup after all processing
+  * Separated session hangup event handler
+  * Simplified handling hangup events as they do not have an associated code
+  * Eliminated delays when deleting sessions and video rooms
+  * Avoid an unnecessary base session lookup
+  * Verify that the detached feed belongs to the requester
+  * Use dict constructors instead of dict literals for readability
+  * Fixed race condition when deleting SIP session
+  * Fixed exception while deleting subscriber sessions during hangup events
+  * Use discard as session might not be yet added to the video room
+  * Handle JanusError exceptions and relay errors back to client
+  * Properly release resources when getting JanusError exceptions
+  * Do not treat DNS lookup errors as API errors
+  * Fixed invite to conference to not include oneself
+  * Simplified finding the invited accounts
+  * Made method for handling conference invites public
+  * Made VideoRoomContainer consistent by not relying on weak references
+  * Moved video room access validation from ConnectionHandler to VideoRoom
+  * Simplified building request data for SIP calls and registrations
+  * Removed unnecessary room attribute
+  * Simplified code and increased readability
+  * Unified handling of exceptions for the video room join operation
+  * Send back error responses for videoroom-ctl requests with missing fields
+  * Use modern syntax for catching exceptions
+  * Improved PEP-8 compliance
+  * Removed copyright notice from script
+  * Updated license
+  * Use the actual config type and file to find out which files are read
+  * Improved some log messages
+  * Do not log traceback twice
+  * Removed duplication of startup error handling
+  * Added run method on SylkServer
+  * Use SylkServer.run to decouple from SylkServer's internals
+  * Refactored startup script and configuration handling
+    - Removed command line option to specify the pid
+    - Removed command line option to specify the main configuration file
+    - Added a command line option to specify the configuration directory
+    - Added a command line option to specify the runtime directory
+    - The main configuration file name is now immutable (config.ini)
+    - The pid file name is immutable (sylk-server.pid)
+    - All configuration files are now treated consistently
+    - Properly read both local and system wide configurations
+    - Do not initialize the runtime directory when not forking
+  * Simplified the setup.py script and improved PEP-8 compliance
+  * Added requirement on the jsonmodels python package
+  * Do not split statements over multiple lines when not needed
+  * Improve validator efficiency by using objects with a validate method
+  * Do not use slow regular expression for validating SIP URIs
+  * Fixed finding resources when forking and started with a relative path
+  * Log the resources directory on startup
+  * Better names for some of the json model classes
+  * Added LimitedChoiceField for json models
+  * Replaced emdash HTML code with the actual character
+  * Use a local copy of bootstrap.min.css
+  * Updated authors and sponsors
+  * Split videoroom-ctl handler into subhandlers per option
+  * Simplified getting static web resources for webrtcgateway
+  * Make the web resource available as a property
+  * Fixed handling ack messages
+  * Simplified getting the result from janus messages
+  * Added support for setting the active participants in a room
+  * Log unhandled exception details
+  * Only update active participants if different
+  * Added UniqueStringListField JSON model field type
+  * Moved normalization of the active participant list to the JSON model
+  * Use the UniqueStringListField type for the invited participants
+  * Split operation handlers into request and event handlers
+  * Moved boilerplate code out of the request handlers
+  * Moved general exception handling into operation handlers
+  * Wait for the connection to be ready once before processing operations
+  * Added generic sylkrtc request to model mapper
+  * Simplified instantiating sylkrtc models from requests
+  * Removed code that was never reached
+  * Restructured code to avoid unnecessary extra return statements
+  * Removed unnecessary additional private method
+  * Fixed race condition when a connection handler is stopped while starting
+  * Fixed race condition when cleaning up a connection handler while stopping
+  * Removed unnecessary partial function
+  * Simplified keepalive callback
+  * Simplified webrtcgateway package structure
+  * Removed unnecessary references to the janus backend everywhere
+  * Renamed attribute to better reflect its function
+  * Renamed some arguments and variables for clarity
+  * Refactored sending keepalives to be internal to the protocol
+  * Simplified stopping the keepalive timer
+  * Grouped public/private API methods together
+  * Explicitly added protocol methods to JanusBackend
+  * Removed redundant namespace prefix
+  * Optimized code to only send keepalive messages when necessary
+  * Simplified code sending janus requests
+  * Do not allow request arguments to overwrite core attributes
+  * Do not attempt to send messages after the connection was closed
+  * Fixed return value from deferred callback
+  * Fixed error with cancelling already called timer
+  * Replaced dependency on python-jsonmodels with internal module
+    The jsonobjects module was written to replace the functionality
+    provided by jsonmodels while offering the following advantages:
+    - More than 10 times faster
+    - Much lower memory footprint
+    - No need for manual validation
+    - Objects are validated on creation and every time they are modified
+    - Guaranteed data consistency throughout the lifetime of the objects
+    - JSON arrays are first class objects allowing them to be used standalone
+    - JSON arrays can be embedded alowing for multi-dimensional arrays
+    - JSON arrays can define both item and array level validators
+    - Better semantics for optional properties and default values
+  * Added ConnectionHandler.send method to replace notify and _send_response
+  * Renamed VideoRoom to Videoroom in class names
+  * Refactored client API to simplify it and make it consistent
+  * Simplified AbstractProperty getter
+  * Improved data extraction speed by a factor of 2
+  * Have the 'in' operator to check if a property is defined in a JSONObject
+  * Fixed code formatting warnings
+  * Removed unnecessary class
+  * Removed unnecessary util.py module
+  * Optimized returned value
+  * Allow LimitedChoiceProperty to be optional and have a default value
+  * Keep all internal SIP URIs as AORs for consistency
+  * Moved FixedValueProperty and LimitedChoiceProperty to jsonobjects.py
+  * Moved validators to validators.py
+  * Added DisplayNameValidator that removes optional quotes
+  * Added type hinting for sylkrtc models
+  * Fixed DisplayNameValidator to work with empty names
+  * Use JSON models to encode/decode messages to/from Janus
+    - Encapsulated Janus session and plugin handle functionality to classes
+    - Simplified generating Janus requests and processing Janus replies
+    - Correctly handle Janus errors sent as error events in success replies
+    - Split Janus event handlers to improve readability and maintability
+    - Moved data validation to the JSON model validators
+  * Use UTC timestamps in push notifications.
+    The local timezone of sylkserver is both irrelevant for the client that
+    receives the push notification and it's also 20 times slower to generate
+    a server local timestamp than a UTC timestamp (115us vs 6us)
+  * Use JSON models for Firebase push notifications
+  * Added method to send conference invite push notifications
+  * Renamed push notification methods from xyz_session to xyz_call
+  * Simplified signature for the push notification functions
+  * Fixed race condition with cleaning subscriber sessions in conferences
+  * Split debian dependencies one per line
+  * Removed dependency on dummy package
+  * Removed unnecessary version dependencies
+  * Updated debian package description
+  * Improve performance for push notifications by reusing the request
+  * Log push notifications at DEBUG level
+  * Avoid composing log message unless needed
+  * Use log.warning instead of its alias log.warn
+  * Updated python-application version dependency
+  * Updated dependency list in the INSTALL file
+  * Use default sound for push notifications
+  * Send push notifications for conference invite events
+  * Use relative imports for webrtcgateway
+  * Adjusted the WebRTC gateway URL in the sample configuration
+  * Fixed URL class to not mangle template variable
+  * Adjusted conference welcome message
+  * Fixed sending ACK to the wrong address by SofiaSIP
+  * Ignore the Janus SIP plugin ringing event for now
+  * Ignore the Janus SIP plugin progress event for now
+  * Fixed matching empty file:// origins with the latest autobahn
+  * Moved debian dependency to the proper package
+  * Drop support for autobahn older than 0.12
+  * Removed deprecated pycompat/pyversions files
+  * Removed unnecessary .PHONY target
+  * Removed code that prevented sylkserver from restarting on upgrades
+  * Do not install janus configuration files with sylkserver-webrtc-gateway
+  * Removed defaults file
+  * Allow sylkserver to leave a core file when run by systemd
+  * Removed build dependency on obsolete package
+  * Increased debian compatibility to 11
+  * Synced MANIFEST.in file with latest file changes
+  * Rename .ini.sample files to .ini in the debian package
+  * Fixed corrupted sound file names in the deb if name contains spaces
+
+ -- Dan Pascu <dan@ag-projects.com>  Fri, 05 Oct 2018 21:50:21 +0300
+
 sylkserver (4.1.0) unstable; urgency=medium
 
   * Mention implemented standards for WebRTC video conferencing
