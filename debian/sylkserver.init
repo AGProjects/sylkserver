@@ -14,7 +14,6 @@ PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 
 INSTALL_DIR="/usr/bin"
 RUNTIME_DIR="/var/run/sylkserver"
-DEFAULTS="/etc/default/sylkserver"
 SERVER="$INSTALL_DIR/sylk-server"
 PID="$RUNTIME_DIR/sylk-server.pid"
 OPTIONS=""
@@ -26,19 +25,7 @@ test -f $SERVER || exit 0
 
 . /lib/lsb/init-functions
 
-# Load startup options if available
-if [ -f $DEFAULTS ]; then
-    . $DEFAULTS || true
-fi
-
-if [ "$RUN_SYLKSERVER" != "yes" ]; then
-    echo "SylkServer not yet configured. Edit /etc/default/sylkserver first."
-    exit 0
-fi
-
-if [ "$DUMP_CORE" = "yes" ]; then
-    ulimit -c unlimited
-fi
+ulimit -c unlimited
 
 start() {
     log_daemon_msg "Starting $DESC: $NAME "
