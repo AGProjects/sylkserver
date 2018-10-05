@@ -74,6 +74,56 @@ Janus.
 
 Note: libsrtp >= 1.5.0 is recommended.
 
+To configure janus the following settings are relevant for WebRTC gateway
+(read their description in the janus configuration files):
+
+1. janus.cfg
+
+[general]
+api_secret = some_secret_key_shared_with_sylkserver
+;debug_level = 5
+
+[nat]
+ice_lite = true
+ice_tcp = true
+;ice_enforce_list = ip_or_interface
+;ice_ignore_list = vmnet
+
+[media]
+force-bundle = true
+force-rtcp-mux = true
+
+[plugins]
+disable = libjanus_voicemail.so,libjanus_recordplay.so,libjanus_streaming.so,libjanus_echotest.so,libjanus_videocall.so,libjanus_textroom.so
+
+[transports]
+disable = libjanus_http.so,libjanus_rabbitmq.so,libjanus_pfunix.so
+
+2. janus.plugin.sip.cfg
+
+[general]
+;local_ip = ip_for_sip
+keepalive_interval = 0
+user_agent = SylkServer (WebRTC gateway)
+register_ttl = 600
+;rtp_port_range = 20000-40000
+
+3. janus.plugin.videoroom.cfg
+
+; comment out the rooms defined in this file to prevent janus from
+; creating some static rooms (having an empty file for it is fine)
+
+4. janus.transport.websockets.cfg
+
+[general]
+ws = yes
+ws_interface = lo
+ws_port = 8188
+wss = no
+
+[admin]
+admin_ws = no
+
 
 Running
 -------
