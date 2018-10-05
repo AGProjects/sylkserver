@@ -72,8 +72,6 @@ The only requirement is that Janus is compiled with WebSocket supports,
 since that's the transport SylkServer uses in order to communicate with
 Janus.
 
-Note: libsrtp >= 1.5.0 is recommended.
-
 To configure janus the following settings are relevant for WebRTC gateway
 (read their description in the janus configuration files):
 
