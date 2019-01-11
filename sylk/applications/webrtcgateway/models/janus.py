@@ -261,7 +261,7 @@ class VideoroomUpdatePublisher(JSONObject):
 
 class VideoroomFeedAttach(JSONObject):
     request = FixedValueProperty('join')
-    ptype = FixedValueProperty('listener')
+    ptype = FixedValueProperty('subscriber')
     room = IntegerProperty()
     feed = IntegerProperty()
 
