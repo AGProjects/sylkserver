@@ -1613,7 +1613,6 @@ class Session(object):
 
     def _fail_proposal(self, originator, error):
         notification_center = NotificationCenter()
-        has_streams = bool(self.proposed_streams)
         for stream in self.proposed_streams:
             try:
                 notification_center.remove_observer(self, sender=stream)
@@ -1626,7 +1625,7 @@ class Session(object):
                 stream.end()
         if originator == 'remote' and self._invitation.sub_state == 'received_proposal':
             try:
-                self._invitation.send_response(488 if has_streams else 500)
+                self._invitation.send_response(488 if self.proposed_streams else 500)
             except SIPCoreError:
                 pass
         notification_center.post_notification('SIPSessionHadProposalFailure', self, NotificationData(originator=originator, failure_reason=error, proposed_streams=self.proposed_streams[:]))
