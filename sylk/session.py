@@ -1008,7 +1008,7 @@ class Session(object):
             self.greenlet = None
             self.state = 'connected'
             self.streams = self.streams + streams
-            proposed_streams = self.proposed_streams[:]
+            proposed_streams = self.proposed_streams
             self.proposed_streams = None
             notification_center.post_notification('SIPSessionProposalAccepted', self, NotificationData(originator='remote', accepted_streams=streams, proposed_streams=proposed_streams))
             notification_center.post_notification('SIPSessionDidRenegotiateStreams', self, NotificationData(originator='remote', added_streams=streams, removed_streams=[]))
@@ -1036,7 +1036,7 @@ class Session(object):
         else:
             self.greenlet = None
             self.state = 'connected'
-            proposed_streams = self.proposed_streams[:]
+            proposed_streams = self.proposed_streams
             self.proposed_streams = None
             notification_center.post_notification('SIPSessionProposalRejected', self, NotificationData(originator='remote', code=code, reason=sip_status_messages[code], proposed_streams=proposed_streams))
             if self._hold_in_progress:
@@ -1121,7 +1121,7 @@ class Session(object):
                                         stream.end()
                                     self.greenlet = None
                                     self.state = 'connected'
-                                    proposed_streams = self.proposed_streams[:]
+                                    proposed_streams = self.proposed_streams
                                     self.proposed_streams = None
                                     notification_center.post_notification('SIPSessionProposalRejected', self, NotificationData(originator='local', code=notification.data.code, reason=notification.data.reason, proposed_streams=proposed_streams))
                                     return
@@ -1273,7 +1273,7 @@ class Session(object):
                 if notification.name == 'SIPInvitationChangedState':
                     if notification.data.state == 'connected' and notification.data.sub_state == 'normal':
                         if notification.data.code == 487:
-                            proposed_streams = (self.proposed_streams or [])[:]
+                            proposed_streams = self.proposed_streams or []
                             for stream in proposed_streams:
                                 stream.deactivate()
                                 stream.end()
@@ -1286,7 +1286,7 @@ class Session(object):
                         raise InvitationDisconnectedError(notification.sender, notification.data)
                     break
         except SIPCoreError as e:
-            proposed_streams = (self.proposed_streams or [])[:]
+            proposed_streams = self.proposed_streams or []
             for stream in proposed_streams:
                 stream.deactivate()
                 stream.end()
@@ -1843,7 +1843,7 @@ class Session(object):
                 elif notification.data.prev_state == notification.data.state == 'connected' and notification.data.prev_sub_state == 'received_proposal' and notification.data.sub_state == 'normal':
                     if notification.data.originator == 'local' and notification.data.code == 487:
                         self.state = 'connected'
-                        proposed_streams = self.proposed_streams[:]
+                        proposed_streams = self.proposed_streams
                         self.proposed_streams = None
                         notification.center.post_notification('SIPSessionProposalRejected', self, NotificationData(originator='remote', code=notification.data.code, reason=notification.data.reason, proposed_streams=proposed_streams))
                         if self._hold_in_progress:
