@@ -888,7 +888,6 @@ class Session(object):
             notification_center.remove_observer(self, sender=self._invitation)
             self.greenlet = None
             self.state = 'terminated'
-            self.proposed_streams = None
             notification_center.post_notification('SIPSessionDidFail', self, NotificationData(originator='remote', code=487, reason='Session Cancelled', failure_reason='user request', redirect_identities=None))
         except SIPCoreError as e:
             self._fail(originator='local', code=500, reason=sip_status_messages[500], error='SIP core error: %s' % str(e))
@@ -896,13 +895,11 @@ class Session(object):
             notification_center.remove_observer(self, sender=self._invitation)
             self.greenlet = None
             self.state = 'terminated'
-            self.proposed_streams = None
             notification_center.post_notification('SIPSessionDidFail', self, NotificationData(originator='local', code=code, reason=sip_status_messages[code], failure_reason='timeout', redirect_identities=None))
         else:
             notification_center.remove_observer(self, sender=self._invitation)
             self.greenlet = None
             self.state = 'terminated'
-            self.proposed_streams = None
             notification_center.post_notification('SIPSessionDidFail', self, NotificationData(originator='local', code=code, reason=sip_status_messages[code], failure_reason='user request', redirect_identities=None))
 
     @transition_state('received_proposal', 'accepting_proposal')
