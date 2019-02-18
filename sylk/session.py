@@ -868,6 +868,8 @@ class Session(object):
                 self.handle_notification(notification)
             if self._hold_in_progress:
                 self._send_hold()
+        finally:
+            self.greenlet = None
 
     @transition_state('incoming', 'terminating')
     @run_in_green_thread
@@ -901,6 +903,8 @@ class Session(object):
             self.greenlet = None
             self.state = 'terminated'
             notification_center.post_notification('SIPSessionDidFail', self, NotificationData(originator='local', code=code, reason=sip_status_messages[code], failure_reason='user request', redirect_identities=None))
+        finally:
+            self.greenlet = None
 
     @transition_state('received_proposal', 'accepting_proposal')
     @run_in_green_thread
@@ -1013,6 +1017,8 @@ class Session(object):
                 self.handle_notification(notification)
             if self._hold_in_progress:
                 self._send_hold()
+        finally:
+            self.greenlet = None
 
     @transition_state('received_proposal', 'rejecting_proposal')
     @run_in_green_thread
@@ -1038,6 +1044,8 @@ class Session(object):
             notification_center.post_notification('SIPSessionProposalRejected', self, NotificationData(originator='remote', code=code, reason=sip_status_messages[code], proposed_streams=proposed_streams))
             if self._hold_in_progress:
                 self._send_hold()
+        finally:
+            self.greenlet = None
 
     def add_stream(self, stream):
         self.add_streams([stream])
@@ -1178,6 +1186,8 @@ class Session(object):
                 self.handle_notification(notification)
             if self._hold_in_progress:
                 self._send_hold()
+        finally:
+            self.greenlet = None
 
     def remove_stream(self, stream):
         self.remove_streams([stream])
@@ -1252,6 +1262,8 @@ class Session(object):
                 self.handle_notification(notification)
             if self._hold_in_progress:
                 self._send_hold()
+        finally:
+            self.greenlet = None
 
     @transition_state('sending_proposal', 'cancelling_proposal')
     @run_in_green_thread
@@ -1302,6 +1314,7 @@ class Session(object):
             self.greenlet = None
             self.state = 'connected'
         finally:
+            self.greenlet = None
             if self._hold_in_progress:
                 self._send_hold()
 
