@@ -407,15 +407,17 @@ class AudioStream(object):
     def _try_next_rtp_transport(self, failure_reason=None):
         if self._stun_servers:
             stun_address, stun_port = self._stun_servers.pop()
-            rtp_transport = None
             try:
                 rtp_transport = RTPTransport(ice_stun_address=stun_address, ice_stun_port=stun_port, **self._rtp_args)
-                self.notification_center.add_observer(self, sender=rtp_transport)
-                rtp_transport.set_INIT()
             except SIPCoreError as e:
-                if rtp_transport is not None:
-                    self.notification_center.remove_observer(self, sender=rtp_transport)
                 self._try_next_rtp_transport(e.args[0])
+            else:
+                self.notification_center.add_observer(self, sender=rtp_transport)
+                try:
+                    rtp_transport.set_INIT()
+                except SIPCoreError as e:
+                    self.notification_center.remove_observer(self, sender=rtp_transport)
+                    self._try_next_rtp_transport(e.args[0])
         else:
             self.state = 'ENDED'
             self.notification_center.post_notification('MediaStreamDidNotInitialize', sender=self, data=NotificationData(reason=failure_reason))
