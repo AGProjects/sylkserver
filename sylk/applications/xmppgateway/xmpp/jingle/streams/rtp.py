@@ -343,7 +343,7 @@ class AudioStream(object):
             del self._rtp_args
             del self._stun_servers
             try:
-                if hasattr(self, '_incoming_remote_sdp'):
+                if hasattr(self, '_incoming_remote_sdp') and hasattr(self, '_incoming_stream_index'):
                     try:
                         audio_transport = AudioTransport(self.mixer, rtp_transport, self._incoming_remote_sdp, self._incoming_stream_index,
                                                          codecs=list(self.session.account.rtp.audio_codec_list or settings.rtp.audio_codec_list))
