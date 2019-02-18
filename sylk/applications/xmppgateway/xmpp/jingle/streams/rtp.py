@@ -87,6 +87,7 @@ class AudioStream(object):
 
     def _get_muted(self):
         return self.__dict__.get('muted', False)
+
     def _set_muted(self, value):
         if not isinstance(value, bool):
             raise ValueError('illegal value for muted property: %r' % (value,))
@@ -97,6 +98,7 @@ class AudioStream(object):
         notification_center = NotificationCenter()
         data = NotificationData(consumer_slot_changed=False, producer_slot_changed=True, old_producer_slot=old_producer_slot, new_producer_slot=self.producer_slot)
         notification_center.post_notification('AudioPortDidChangeSlots', sender=self, data=data)
+
     muted = property(_get_muted, _set_muted)
     del _get_muted, _set_muted
 
@@ -437,4 +439,3 @@ class AudioStream(object):
             self.notification_center.post_notification('RTPStreamDidChangeHoldState', sender=self, data=NotificationData(originator='remote', on_hold=True))
         if was_on_hold_by_remote and not self.on_hold_by_remote:
             self.notification_center.post_notification('RTPStreamDidChangeHoldState', sender=self, data=NotificationData(originator='remote', on_hold=False))
-
