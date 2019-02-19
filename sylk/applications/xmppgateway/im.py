@@ -52,23 +52,24 @@ class ChatSessionHandler(object):
         self._pending_msrp_chunks = {}
         self._pending_xmpp_stanzas = {}
 
-    def _get_started(self):
+    @property
+    def started(self):
         return self.__dict__['started']
 
-    def _set_started(self, value):
+    @started.setter
+    def started(self, value):
         old_value = self.__dict__.get('started', False)
         self.__dict__['started'] = value
         if not old_value and value:
             NotificationCenter().post_notification('ChatSessionDidStart', sender=self)
             self._send_queued_messages()
 
-    started = property(_get_started, _set_started)
-    del _get_started, _set_started
-
-    def _get_xmpp_session(self):
+    @property
+    def xmpp_session(self):
         return self.__dict__['xmpp_session']
 
-    def _set_xmpp_session(self, session):
+    @xmpp_session.setter
+    def xmpp_session(self, session):
         self.__dict__['xmpp_session'] = session
         if session is not None:
             # Reet SIP session timer in case it's active
@@ -79,9 +80,6 @@ class ChatSessionHandler(object):
             # Reet SIP session timer in case it's active
             if self._sip_session_timer is not None and self._sip_session_timer.active():
                 self._sip_session_timer.reset(SESSION_TIMEOUT)
-
-    xmpp_session = property(_get_xmpp_session, _set_xmpp_session)
-    del _get_xmpp_session, _set_xmpp_session
 
     @classmethod
     def new_from_sip_session(cls, sip_identity, session):

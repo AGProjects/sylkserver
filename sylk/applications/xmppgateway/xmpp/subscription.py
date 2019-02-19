@@ -25,15 +25,16 @@ class XMPPSubscription(object):
         from sylk.applications.xmppgateway.xmpp import XMPPManager
         self.xmpp_manager = XMPPManager()
 
-    def _set_state(self, new_state):
+    @property
+    def state(self):
+        return self.__dict__['state']
+
+    @state.setter
+    def state(self, new_state):
         prev_state = self.__dict__.get('state', None)
         self.__dict__['state'] = new_state
         if prev_state != new_state:
             NotificationCenter().post_notification('XMPPSubscriptionChangedState', sender=self, data=NotificationData(prev_state=prev_state, state=new_state))
-    def _get_state(self):
-        return self.__dict__['state']
-    state = property(_get_state, _set_state)
-    del _get_state, _set_state
 
     def start(self):
         NotificationCenter().post_notification('XMPPSubscriptionDidStart', sender=self)
@@ -100,15 +101,16 @@ class XMPPIncomingSubscription(object):
         from sylk.applications.xmppgateway.xmpp import XMPPManager
         self.xmpp_manager = XMPPManager()
 
-    def _set_state(self, new_state):
+    @property
+    def state(self):
+        return self.__dict__['state']
+
+    @state.setter
+    def state(self, new_state):
         prev_state = self.__dict__.get('state', None)
         self.__dict__['state'] = new_state
         if prev_state != new_state:
             NotificationCenter().post_notification('XMPPIncomingSubscriptionChangedState', sender=self, data=NotificationData(prev_state=prev_state, state=new_state))
-    def _get_state(self):
-        return self.__dict__['state']
-    state = property(_get_state, _set_state)
-    del _get_state, _set_state
 
     def start(self):
         NotificationCenter().post_notification('XMPPIncomingSubscriptionDidStart', sender=self)

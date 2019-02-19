@@ -107,15 +107,16 @@ class MediaSessionHandler(object):
     def xmpp_identity(self):
         return self._xmpp_identity
 
-    def _set_started(self, value):
+    @property
+    def started(self):
+        return self.__dict__['started']
+
+    @started.setter
+    def started(self, value):
         old_value = self.__dict__.get('started', False)
         self.__dict__['started'] = value
         if not old_value and value:
             NotificationCenter().post_notification('MediaSessionHandlerDidStart', sender=self)
-    def _get_started(self):
-        return self.__dict__['started']
-    started = property(_get_started, _set_started)
-    del _get_started, _set_started
 
     @run_in_green_thread
     def _start_outgoing_sip_session(self, streams):

@@ -73,10 +73,12 @@ class BonjourService(object):
     def update_registrations(self):
         self._command_channel.send(Command('update_registrations'))
 
-    def _get_presence_state(self):
+    @property
+    def presence_state(self):
         return self.__dict__['presence_state']
 
-    def _set_presence_state(self, state):
+    @presence_state.setter
+    def presence_state(self, state):
         if state is not None and not isinstance(state, BonjourPresenceState):
             raise ValueError("state must be a %s instance or None" % BonjourPresenceState.__name__)
         with self._lock:
@@ -84,9 +86,6 @@ class BonjourService(object):
             self.__dict__['presence_state'] = state
             if state != old_state:
                 call_in_twisted_thread(self.update_registrations)
-
-    presence_state = property(_get_presence_state, _set_presence_state)
-    del _get_presence_state, _set_presence_state
 
     def _register_cb(self, file, flags, error_code, name, regtype, domain):
         notification_center = NotificationCenter()

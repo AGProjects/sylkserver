@@ -200,16 +200,17 @@ class AvailabilityPresence(BasePresenceStanza):
         self.priority = priority
         self.statuses = statuses or {}
 
-    def _get_available(self):
+    @property
+    def available(self):
         return self.__dict__['available']
-    def _set_available(self, available):
+
+    @available.setter
+    def available(self, available):
         if available:
             self.type = None
         else:
             self.type = 'unavailable'
         self.__dict__['available'] = available
-    available = property(_get_available, _set_available)
-    del _get_available, _set_available
 
     @property
     def status(self):
