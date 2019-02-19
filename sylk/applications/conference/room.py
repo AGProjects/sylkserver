@@ -155,7 +155,7 @@ class Room(object):
 
     @property
     def active_media(self):
-        return set((stream.type for stream in chain(*(session.streams for session in self.sessions if session.streams))))
+        return set(stream.type for stream in chain(*(session.streams for session in self.sessions if session.streams)))
 
     @property
     def conference_info(self):

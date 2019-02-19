@@ -50,7 +50,7 @@ class XMPPGatewayApplication(SylkApplication):
         self.xmpp_manager.stop()
 
     def incoming_session(self, session):
-        stream_types = set([stream.type for stream in session.proposed_streams])
+        stream_types = set(stream.type for stream in session.proposed_streams)
         if 'chat' in stream_types:
             log.info('New chat session from %s to %s' % (session.remote_identity.uri, session.local_identity.uri))
             self.incoming_chat_session(session)

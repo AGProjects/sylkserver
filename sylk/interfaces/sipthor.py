@@ -89,7 +89,7 @@ class ConferenceNode(EventServiceClient):
                 from thor import network as thor_network
                 network = thor_network.new(ThorNodeConfig.multiply)
                 networks[role] = network
-            new_nodes = set([node.ip for node in role_map.get(role, [])])
+            new_nodes = set(node.ip for node in role_map.get(role, []))
             old_nodes = set(network.nodes)
             added_nodes = new_nodes - old_nodes
             removed_nodes = old_nodes - new_nodes

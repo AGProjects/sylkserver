@@ -30,7 +30,7 @@ class XMPPManager(object):
         self.stopped = False
 
         self.domains = set(config.domains)
-        self.muc_domains = set(['%s.%s' % (config.muc_prefix, domain) for domain in self.domains])
+        self.muc_domains = set('%s.%s' % (config.muc_prefix, domain) for domain in self.domains)
 
         router = SylkRouter()
         self._server_service = ServerService(router)

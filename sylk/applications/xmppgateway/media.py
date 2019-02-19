@@ -41,7 +41,7 @@ class MediaSessionHandler(object):
 
     @classmethod
     def new_from_sip_session(cls, session):
-        proposed_stream_types = set([stream.type for stream in session.proposed_streams])
+        proposed_stream_types = set(stream.type for stream in session.proposed_streams)
         streams = []
         for stream_type in proposed_stream_types:
             try:
@@ -79,7 +79,7 @@ class MediaSessionHandler(object):
 
     @classmethod
     def new_from_jingle_session(cls, session):
-        proposed_stream_types = set([stream.type for stream in session.proposed_streams])
+        proposed_stream_types = set(stream.type for stream in session.proposed_streams)
         streams = []
         for stream_type in proposed_stream_types:
             try:
