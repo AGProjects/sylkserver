@@ -1,3 +1,23 @@
+sylkserver (5.1.0) unstable; urgency=medium
+
+  * Replaced obsolete ptype value for subscribers
+  * Avoid unnecessary list copy
+  * Removed unnecessary boolean variable
+  * Do not reset the proposed_streams attribute when the session is rejected
+  * Reordered some operations for consistency
+  * Make sure the greenlet attribute is always removed when greenlet exits
+  * Removed code that duplicated cancel handling inside reject handler
+  * Fixed spacing to be PEP-8 compliant
+  * Check if attribute is present
+  * Removed unnecessary attribute from AudioStream
+  * Avoid using tracking variables in favor of a more pythonic code
+  * Fixed memory leak that did not release streams when canceling proposals
+  * Use setter syntax for defining properties
+  * Turned unnecessary list comprehensions into iterators
+  * Always clean up proposed streams when cancelling proposal
+
+ -- Dan Pascu <dan@ag-projects.com>  Mon, 25 Feb 2019 12:47:24 +0200
+
 sylkserver (5.0.0) unstable; urgency=medium
 
   * [webrtcgateway] Removed bogus attributes
