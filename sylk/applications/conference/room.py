@@ -842,7 +842,6 @@ class WelcomeHandler(object):
         self.streams = streams
         self.procs = proc.RunningProcSet()
 
-    @run_in_green_thread
     def run(self):
         notification_center = NotificationCenter()
         notification_center.add_observer(self, sender=self.session)
@@ -852,13 +851,19 @@ class WelcomeHandler(object):
                 self.procs.spawn(self.audio_welcome, stream)
             elif stream.type == 'chat':
                 self.procs.spawn(self.chat_welcome, stream)
-        self.procs.waitall()
 
-        notification_center.remove_observer(self, sender=self.session)
-        self.session = None
-        self.streams = None
-        self.room = None
-        self.procs = None
+        @run_in_green_thread
+        def finalize():
+            try:
+                self.procs.waitall()
+            finally:
+                notification_center.remove_observer(self, sender=self.session)
+                self.session = None
+                self.streams = None
+                self.room = None
+                self.procs = None
+
+        finalize()
 
     def play_file_in_player(self, player, file, delay):
         player.filename = file
