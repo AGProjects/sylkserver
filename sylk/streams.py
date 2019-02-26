@@ -63,10 +63,11 @@ def MSRPStreamBase_initialize(self, session, direction):
     except Exception as e:
         notification_center.post_notification('MediaStreamDidNotInitialize', self, NotificationData(reason=str(e)))
     else:
-        self._initialized = True
         notification_center.post_notification('MediaStreamDidInitialize', self)
     finally:
+        self._initialize_done = True
         self.greenlet = None
+
 
 # Monkey-patch the initialize method (needed because we want every MSRP based stream to behave this way, including file transfers)
 #
