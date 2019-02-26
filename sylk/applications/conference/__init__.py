@@ -97,16 +97,6 @@ class ConferenceApplication(SylkApplication):
 
     def incoming_session(self, session):
         log.info('New session from %s to %s' % (session.remote_identity.uri, session.local_identity.uri))
-        audio_streams = [stream for stream in session.proposed_streams if stream.type=='audio']
-        chat_streams = [stream for stream in session.proposed_streams if stream.type=='chat']
-        transfer_streams = [stream for stream in session.proposed_streams if stream.type=='file-transfer']
-        if not audio_streams and not chat_streams and not transfer_streams:
-            log.info(u'Session rejected: invalid media, only RTP audio and MSRP chat are supported')
-            session.reject(488)
-            return
-        audio_stream = audio_streams[0] if audio_streams else None
-        chat_stream = chat_streams[0] if chat_streams else None
-        transfer_stream = transfer_streams[0] if transfer_streams else None
 
         try:
             self.validate_acl(session.request_uri, session.remote_identity.uri)
@@ -114,6 +104,19 @@ class ConferenceApplication(SylkApplication):
             log.info(u'Session rejected: unauthorized by access list')
             session.reject(403)
             return
+
+        audio_streams = [stream for stream in session.proposed_streams if stream.type=='audio']
+        chat_streams = [stream for stream in session.proposed_streams if stream.type=='chat']
+        transfer_streams = [stream for stream in session.proposed_streams if stream.type=='file-transfer']
+
+        if not audio_streams and not chat_streams and not transfer_streams:
+            log.info(u'Session rejected: invalid media, only RTP audio and MSRP chat are supported')
+            session.reject(488)
+            return
+
+        audio_stream = audio_streams[0] if audio_streams else None
+        chat_stream = chat_streams[0] if chat_streams else None
+        transfer_stream = transfer_streams[0] if transfer_streams else None
 
         if transfer_stream is not None:
             try:
