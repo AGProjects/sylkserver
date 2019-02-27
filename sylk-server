@@ -28,6 +28,14 @@ def toggle_debugging(signum, frame):
         log.level.current = ServerConfig.log_level
 
 
+# noinspection PyUnusedLocal
+def dump_observers(signum, frame):
+    from application.notification import NotificationCenter
+    from pprint import pprint
+    notification_center = NotificationCenter()
+    pprint(notification_center.observers)
+
+
 if __name__ == '__main__':
     name = 'sylk-server'
     fullname = 'SylkServer'
@@ -84,6 +92,7 @@ if __name__ == '__main__':
     process.signals.add_handler(signal.SIGTERM, stop_server)
     process.signals.add_handler(signal.SIGINT, stop_server)
     process.signals.add_handler(signal.SIGUSR1, toggle_debugging)
+    process.signals.add_handler(signal.SIGUSR2, dump_observers)
 
     server = SylkServer()
     try:
