@@ -1,3 +1,9 @@
+sylkserver (5.2.0) unstable; urgency=medium
+
+  * Updated TLS certificates
+
+ -- Dan Pascu <dan@ag-projects.com>  Wed, 27 Feb 2019 13:57:07 +0200
+
 sylkserver (5.1.1) unstable; urgency=medium
 
   * Fixed attribute name to match latest sipsimple internals
