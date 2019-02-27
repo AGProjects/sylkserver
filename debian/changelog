@@ -1,3 +1,10 @@
+sylkserver (5.1.1) unstable; urgency=medium
+
+  * Fixed attribute name to match latest sipsimple internals
+  * Fixed a race condition that leaked audio resources
+
+ -- Dan Pascu <dan@ag-projects.com>  Wed, 27 Feb 2019 10:13:20 +0200
+
 sylkserver (5.1.0) unstable; urgency=medium
 
   * Replaced obsolete ptype value for subscribers
