@@ -76,9 +76,9 @@ if __name__ == '__main__':
 
     log.info('Starting {name} {sylk.__version__}, using SIP SIMPLE SDK {sipsimple.__version__}'.format(name=fullname, sylk=sylk, sipsimple=sipsimple))
 
-    config_file = ServerConfig.__cfgtype__(ServerConfig.__cfgfile__)
-    if config_file.files:
-        log.info('Reading configuration from {}'.format(', '.join(config_file.files)))
+    configuration = ServerConfig.__cfgtype__(ServerConfig.__cfgfile__)
+    if configuration.files:
+        log.info('Reading configuration from {}'.format(', '.join(configuration.files)))
     else:
         log.info('Not reading any configuration files (using internal defaults)')
 
