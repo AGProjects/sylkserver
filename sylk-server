@@ -45,6 +45,7 @@ if __name__ == '__main__':
 
     parser = ArgumentParser(usage='%(prog)s [options]')
     parser.add_argument('--version', action='version', version='%(prog)s {}'.format(sylk.__version__))
+    parser.add_argument('--systemd', action='store_true', help='run as a systemd simple service and log to journal')
     parser.add_argument('--no-fork', action='store_false', dest='fork', help='run in the foreground and log to terminal')
     parser.add_argument('--config-dir', dest='config_directory', default=None, help='the configuration directory', metavar='PATH')
     parser.add_argument('--runtime-dir', dest='runtime_directory', default=None, help='the runtime directory ({})'.format(process.runtime.directory), metavar='PATH')
@@ -58,7 +59,11 @@ if __name__ == '__main__':
     if options.runtime_directory is not None:
         process.runtime.directory = options.runtime_directory
 
-    if options.fork:
+    if options.systemd:
+        from systemd.journal import JournalHandler
+        log.set_handler(JournalHandler(SYSLOG_IDENTIFIER=name))
+        log.capture_output()
+    elif options.fork:
         sys.argv[0] = os.path.realpath(sys.argv[0])  # on fork the current directory changes to / resulting in the wrong resources directory if started with a relative path
         pid_file = '{}.pid'.format(name)
         try:
@@ -66,7 +71,7 @@ if __name__ == '__main__':
         except ProcessError as e:
             log.fatal('Failed to start {name}: {exception!s}'.format(name=fullname, exception=e))
             sys.exit(1)
-        log.start_syslog(name)
+        log.use_syslog(name)
 
     from sylk.resources import Resources
     from sylk.server import SylkServer, ServerConfig

@@ -16,6 +16,7 @@ Depends: ${python:Depends}, ${misc:Depends},
          python-klein,
          python-lxml,
          python-sipsimple (>= 3.0.0),
+         python-systemd,
          python-twisted,
          python-typing
 Suggests: libavahi-compat-libdnssd1, python-wokkel, sylkserver-webrtc-gateway
