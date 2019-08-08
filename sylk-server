@@ -6,7 +6,7 @@ import sys
 
 from application import log
 from application.process import process, ProcessError
-from optparse import OptionParser
+from argparse import ArgumentParser
 
 import sipsimple
 import sylk
@@ -43,19 +43,15 @@ if __name__ == '__main__':
     process.configuration.subdirectory = 'sylkserver'
     process.runtime.subdirectory = 'sylkserver'
 
-    parser = OptionParser(version='%%prog %s' % sylk.__version__)
-    parser.add_option('--no-fork', action='store_false', dest='fork', default=1,
-                      help='run the process in the foreground (for debugging)')
-    parser.add_option('--config-dir', dest='config_directory', default=None,
-                      help='the configuration directory', metavar='Path')
-    parser.add_option('--runtime-dir', dest='runtime_directory', default=None,
-                      help='the runtime directory ({})'.format(process.runtime.directory), metavar='Path')
-    parser.add_option('--enable-bonjour', action='store_true', dest='enable_bonjour', default=False,
-                      help='enable Bonjour services')
-    parser.add_option('--debug-memory', action='store_true', dest='debug_memory', default=False,
-                      help='enable memory debugging (only works with --no-fork)')
+    parser = ArgumentParser(usage='%(prog)s [options]')
+    parser.add_argument('--version', action='version', version='%(prog)s {}'.format(sylk.__version__))
+    parser.add_argument('--no-fork', action='store_false', dest='fork', help='run in the foreground and log to terminal')
+    parser.add_argument('--config-dir', dest='config_directory', default=None, help='the configuration directory', metavar='PATH')
+    parser.add_argument('--runtime-dir', dest='runtime_directory', default=None, help='the runtime directory ({})'.format(process.runtime.directory), metavar='PATH')
+    parser.add_argument('--enable-bonjour', action='store_true', help='enable Bonjour services')
+    parser.add_argument('--debug-memory', action='store_true', help='enable memory debugging')
 
-    options, args = parser.parse_args()
+    options = parser.parse_args()
 
     if options.config_directory is not None:
         process.configuration.local_directory = options.config_directory
