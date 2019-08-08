@@ -39,16 +39,17 @@ def dump_observers(signum, frame):
 if __name__ == '__main__':
     name = 'sylk-server'
     fullname = 'SylkServer'
-    system_config_directory = '/etc/sylkserver'
-    default_runtime_directory = '/var/run/sylkserver'
+
+    process.configuration.subdirectory = 'sylkserver'
+    process.runtime.subdirectory = 'sylkserver'
 
     parser = OptionParser(version='%%prog %s' % sylk.__version__)
     parser.add_option('--no-fork', action='store_false', dest='fork', default=1,
                       help='run the process in the foreground (for debugging)')
     parser.add_option('--config-dir', dest='config_directory', default=None,
                       help='the configuration directory', metavar='Path')
-    parser.add_option('--runtime-dir', dest='runtime_directory', default=default_runtime_directory,
-                      help='the runtime directory (%s)' % default_runtime_directory, metavar='Path')
+    parser.add_option('--runtime-dir', dest='runtime_directory', default=None,
+                      help='the runtime directory ({})'.format(process.runtime.directory), metavar='Path')
     parser.add_option('--enable-bonjour', action='store_true', dest='enable_bonjour', default=False,
                       help='enable Bonjour services')
     parser.add_option('--debug-memory', action='store_true', dest='debug_memory', default=False,
@@ -57,14 +58,14 @@ if __name__ == '__main__':
     options, args = parser.parse_args()
 
     if options.config_directory is not None:
-        process.local_config_directory = options.config_directory
-    process.system_config_directory = system_config_directory
+        process.configuration.local_directory = options.config_directory
+    if options.runtime_directory is not None:
+        process.runtime.directory = options.runtime_directory
 
     if options.fork:
         sys.argv[0] = os.path.realpath(sys.argv[0])  # on fork the current directory changes to / resulting in the wrong resources directory if started with a relative path
         pid_file = '{}.pid'.format(name)
         try:
-            process.runtime_directory = options.runtime_directory
             process.daemonize(pid_file)
         except ProcessError as e:
             log.fatal('Failed to start {name}: {exception!s}'.format(name=fullname, exception=e))
