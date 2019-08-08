@@ -7,14 +7,14 @@ from gnutls.crypto import X509Certificate, X509PrivateKey
 __all__ = 'Certificate', 'PrivateKey'
 
 
-def file_content(file):
-    path = process.configuration.file(file)
+def file_content(filename):
+    path = process.configuration.file(filename)
     if path is None:
-        raise Exception("File '%s' does not exist" % file)
+        raise Exception("File '%s' does not exist" % filename)
     try:
         f = open(path, 'rt')
     except Exception:
-        raise Exception("File '%s' could not be open" % file)
+        raise Exception("File '%s' could not be open" % filename)
     try:
         return f.read()
     finally:
