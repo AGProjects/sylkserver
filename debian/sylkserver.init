@@ -13,7 +13,7 @@
 PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 
 INSTALL_DIR="/usr/bin"
-RUNTIME_DIR="/var/run/sylkserver"
+RUNTIME_DIR="/run/sylkserver"
 SERVER="$INSTALL_DIR/sylk-server"
 PID="$RUNTIME_DIR/sylk-server.pid"
 OPTIONS=""
