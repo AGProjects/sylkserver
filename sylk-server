@@ -50,6 +50,7 @@ if __name__ == '__main__':
     parser.add_argument('--config-dir', dest='config_directory', default=None, help='the configuration directory', metavar='PATH')
     parser.add_argument('--runtime-dir', dest='runtime_directory', default=None, help='the runtime directory ({})'.format(process.runtime.directory), metavar='PATH')
     parser.add_argument('--enable-bonjour', action='store_true', help='enable Bonjour services')
+    parser.add_argument('--debug', action='store_true', help='enable verbose logging')
     parser.add_argument('--debug-memory', action='store_true', help='enable memory debugging')
 
     options = parser.parse_args()
@@ -86,6 +87,8 @@ if __name__ == '__main__':
 
     log.info('Using resources from {}'.format(Resources.directory))
 
+    if options.debug:
+        log.level.current = log.level.DEBUG
     if options.debug_memory:
         from application.debug.memory import memory_dump
 
