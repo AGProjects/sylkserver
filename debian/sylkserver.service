@@ -3,10 +3,9 @@ Description=SylkServer RTC application server
 After=network.target
 
 [Service]
-# Disable i/o buffering on Python
-Environment=PYTHONUNBUFFERED=yes
 Type=simple
-ExecStart=/usr/bin/sylk-server --no-fork
+Environment=PYTHONUNBUFFERED=yes
+ExecStart=/usr/bin/sylk-server --systemd
 Restart=on-abnormal
 LimitCORE=infinity
 
