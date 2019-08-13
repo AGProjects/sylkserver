@@ -66,9 +66,8 @@ if __name__ == '__main__':
         log.capture_output()
     elif options.fork:
         sys.argv[0] = os.path.realpath(sys.argv[0])  # on fork the current directory changes to / resulting in the wrong resources directory if started with a relative path
-        pid_file = '{}.pid'.format(name)
         try:
-            process.daemonize(pid_file)
+            process.daemonize(pidfile='{}.pid'.format(name))
         except ProcessError as e:
             log.fatal('Failed to start {name}: {exception!s}'.format(name=fullname, exception=e))
             sys.exit(1)
