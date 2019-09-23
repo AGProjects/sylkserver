@@ -91,25 +91,25 @@ class SIPSessionInfo(object):
         self.id = id
         self.direction = None
         self.state = None
-        self.account_id = None
+        self.account = None            # type: AccountInfo
         self.local_identity = None     # type: SessionPartyIdentity
         self.remote_identity = None    # type: SessionPartyIdentity
         self.janus_handle = None       # type: SIPPluginHandle
         self.slow_download = False
         self.slow_upload = False
 
-    def init_outgoing(self, account_id, destination):
-        self.account_id = account_id
+    def init_outgoing(self, account, destination):
+        self.account = account
         self.direction = 'outgoing'
         self.state = 'connecting'
-        self.local_identity = SessionPartyIdentity(account_id)
+        self.local_identity = SessionPartyIdentity(account.id)
         self.remote_identity = SessionPartyIdentity(destination)
 
-    def init_incoming(self, account_id, originator, originator_display_name=''):
-        self.account_id = account_id
+    def init_incoming(self, account, originator, originator_display_name=''):
+        self.account = account
         self.direction = 'incoming'
         self.state = 'connecting'
-        self.local_identity = SessionPartyIdentity(account_id)
+        self.local_identity = SessionPartyIdentity(account.id)
         self.remote_identity = SessionPartyIdentity(originator, originator_display_name)
 
 
@@ -121,7 +121,7 @@ class VideoroomSessionInfo(object):
     def __init__(self, id, owner):
         self.id = id
         self.owner = owner
-        self.account_id = None
+        self.account = None       # type: AccountInfo
         self.type = None          # publisher / subscriber
         self.publisher_id = None  # janus publisher ID for publishers / publisher session ID for subscribers
         self.janus_handle = None  # type: VideoroomPluginHandle
@@ -133,9 +133,9 @@ class VideoroomSessionInfo(object):
         self.feeds = PublisherFeedContainer()  # keeps references to all the other participant's publisher feeds that we subscribed to
 
     # noinspection PyShadowingBuiltins
-    def initialize(self, account_id, type, room):
+    def initialize(self, account, type, room):
         assert type in ('publisher', 'subscriber')
-        self.account_id = account_id
+        self.account = account
         self.type = type
         self.room = room
         self.bitrate = room.config.max_bitrate
@@ -229,7 +229,7 @@ class Videoroom(object):
         assert session.publisher_id not in self._id_map and session.id not in self._id_map
         self._sessions.add(session)
         self._id_map[session.id] = self._id_map[session.publisher_id] = session
-        self.log.info('{session.account_id} has joined the room'.format(session=session))
+        self.log.info('{session.account.id} has joined the room'.format(session=session))
         self._update_bitrate()
         if self._active_participants:
             session.owner.send(sylkrtc.VideoroomConfigureEvent(session=session.id, active_participants=self._active_participants, originator='videoroom'))
@@ -239,7 +239,7 @@ class Videoroom(object):
             self._sessions.discard(session)
             self._id_map.pop(session.id, None)
             self._id_map.pop(session.publisher_id, None)
-            self.log.info('{session.account_id} has left the room'.format(session=session))
+            self.log.info('{session.account.id} has left the room'.format(session=session))
             if session.id in self._active_participants:
                 self._active_participants.remove(session.id)
                 self.log.info('active participants: {}'.format(', '.join(self._active_participants) or None))
@@ -251,7 +251,7 @@ class Videoroom(object):
         self._sessions.remove(session)
         self._id_map.pop(session.id)
         self._id_map.pop(session.publisher_id)
-        self.log.info('{session.account_id} has left the room'.format(session=session))
+        self.log.info('{session.account.id} has left the room'.format(session=session))
         if session.id in self._active_participants:
             self._active_participants.remove(session.id)
             self.log.info('active participants: {}'.format(', '.join(self._active_participants) or None))
@@ -261,7 +261,7 @@ class Videoroom(object):
 
     def clear(self):
         for session in self._sessions:
-            self.log.info('{session.account_id} has left the room'.format(session=session))
+            self.log.info('{session.account.id} has left the room'.format(session=session))
         self._active_participants = []
         self._sessions.clear()
         self._id_map.clear()
@@ -703,7 +703,7 @@ class ConnectionHandler(object):
 
         session_info = SIPSessionInfo(request.session)
         session_info.janus_handle = janus_handle
-        session_info.init_outgoing(request.account, request.uri)
+        session_info.init_outgoing(account_info, request.uri)
         self.sip_sessions.add(session_info)
 
         self.log.info('created outgoing session {request.session} from {request.account} to {request.uri}'.format(request=request))
@@ -789,7 +789,7 @@ class ConnectionHandler(object):
 
         videoroom_session = VideoroomSessionInfo(request.session, owner=self)
         videoroom_session.janus_handle = videoroom_handle
-        videoroom_session.initialize(request.account, 'publisher', videoroom)
+        videoroom_session.initialize(account_info, 'publisher', videoroom)
         self.videoroom_sessions.add(videoroom_session)
 
         self.send(sylkrtc.VideoroomSessionProgressEvent(session=videoroom_session.id))
@@ -854,7 +854,7 @@ class ConnectionHandler(object):
         videoroom_session.janus_handle = videoroom_handle
         videoroom_session.parent_session = base_session
         videoroom_session.publisher_id = publisher_session.id
-        videoroom_session.initialize(base_session.account_id, 'subscriber', base_session.room)
+        videoroom_session.initialize(base_session.account, 'subscriber', base_session.room)
         self.videoroom_sessions.add(videoroom_session)
         base_session.feeds.add(publisher_session)
 
@@ -882,12 +882,11 @@ class ConnectionHandler(object):
     def _RH_videoroom_invite(self, request):
         try:
             base_session = self.videoroom_sessions[request.session]
-            account_info = self.accounts_map[base_session.account_id]
         except KeyError:
             raise APIError('Unknown video room session: {request.session}'.format(request=request))
         room = base_session.room
         participants = set(request.participants)
-        originator = sylkrtc.SIPIdentity(uri=account_info.id, display_name=account_info.display_name)
+        originator = sylkrtc.SIPIdentity(uri=base_session.account.id, display_name=base_session.account.display_name)
         event = sylkrtc.AccountConferenceInviteEvent(account='placeholder', room=room.uri, originator=originator)
         for protocol in self.protocol.factory.connections.difference([self.protocol]):
             connection_handler = protocol.connection_handler
@@ -1039,7 +1038,7 @@ class ConnectionHandler(object):
         originator = sylkrtc.SIPIdentity(uri=data.username, display_name=data.displayname)
         session = SIPSessionInfo(uuid.uuid4().hex)
         session.janus_handle = account_info.janus_handle
-        session.init_incoming(account_info.id, originator.uri, originator.display_name)
+        session.init_incoming(account_info, originator.uri, originator.display_name)
         self.sip_sessions.add(session)
         self.send(sylkrtc.AccountIncomingSessionEvent(account=account_info.id, session=session.id, originator=originator, sdp=event.jsep.sdp))
         self.log.info('received incoming session {session.id} from {session.remote_identity.uri!s} to {session.local_identity.uri!s}'.format(session=session))
@@ -1091,7 +1090,7 @@ class ConnectionHandler(object):
             reason = '{0.code} {0.reason}'.format(data)
             self.send(sylkrtc.SessionTerminatedEvent(session=session_info.id, reason=reason))
             if session_info.direction == 'incoming' and data.code == 487:  # incoming call was cancelled -> missed
-                self.send(sylkrtc.AccountMissedSessionEvent(account=session_info.account_id, originator=session_info.remote_identity.__dict__))
+                self.send(sylkrtc.AccountMissedSessionEvent(account=session_info.account.id, originator=session_info.remote_identity.__dict__))
             if data.code >= 300:
                 self.log.info('{session.direction} session {session.id} terminated ({reason})'.format(session=session_info, reason=reason))
             else:
@@ -1206,7 +1205,7 @@ class ConnectionHandler(object):
             except KeyError:
                 self.log.warning('could not find matching session for publisher {publisher.id} during joined event'.format(publisher=publisher))
             else:
-                publishers.append(dict(id=publisher_session.id, uri=publisher_session.account_id, display_name=publisher.display or ''))
+                publishers.append(dict(id=publisher_session.id, uri=publisher_session.account.id, display_name=publisher.display or ''))
         self.send(sylkrtc.VideoroomInitialPublishersEvent(session=videoroom_session.id, publishers=publishers))
         room.add(videoroom_session)  # adding the session to the room might also trigger sending an event with the active participants which must be sent last
 
@@ -1241,7 +1240,7 @@ class ConnectionHandler(object):
             except KeyError:
                 self.log.warning('could not find matching session for publisher {publisher.id} during publishers event'.format(publisher=publisher))
                 continue
-            publishers.append(dict(id=publisher_session.id, uri=publisher_session.account_id, display_name=publisher.display or ''))
+            publishers.append(dict(id=publisher_session.id, uri=publisher_session.account.id, display_name=publisher.display or ''))
         self.send(sylkrtc.VideoroomPublishersJoinedEvent(session=videoroom_session.id, publishers=publishers))
 
     def _EH_janus_videoroom_event_leaving(self, event):
