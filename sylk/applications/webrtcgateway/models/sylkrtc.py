@@ -97,6 +97,17 @@ class VideoroomSessionOptions(JSONObject):
     bitrate = IntegerProperty(optional=True)
 
 
+class SharedFile(JSONObject):
+    filename = StringProperty()
+    filesize = IntegerProperty()
+    uploader = ObjectProperty(SIPIdentity)  # type: SIPIdentity
+    session = StringProperty()
+
+
+class SharedFiles(JSONArray):
+    item_type = SharedFile
+
+
 # Response models
 
 class AckResponse(SylkRTCResponseBase):
@@ -217,6 +228,11 @@ class VideoroomPublishersJoinedEvent(VideoroomEventBase):
 class VideoroomPublishersLeftEvent(VideoroomEventBase):
     event = FixedValueProperty('publishers-left')
     publishers = ArrayProperty(StringArray)          # type: StringArray
+
+
+class VideoroomFileSharingEvent(VideoroomEventBase):
+    event = FixedValueProperty('file-sharing')
+    files = ArrayProperty(SharedFiles)
 
 
 # Account request models

@@ -2,20 +2,25 @@
 import hashlib
 import json
 import random
+import os
 import time
 import uuid
 
 from application.python import limit
 from application.python.weakref import defaultweakobjectmap
-from application.system import makedirs
+from application.system import makedirs, unlink
 from eventlib import coros, proc
+from itertools import count
 from sipsimple.configuration.settings import SIPSimpleSettings
 from sipsimple.core import SIPURI
 from sipsimple.lookup import DNSLookup, DNSLookupError
+from sipsimple.threading import run_in_thread, run_in_twisted_thread
 from sipsimple.threading.green import call_in_green_thread, run_in_green_thread
+from shutil import copyfileobj, rmtree
 from string import maketrans
 from twisted.internet import reactor
 from typing import Generic, Container, Iterable, Sized, TypeVar, Dict, Set, Optional, Union
+from werkzeug.exceptions import InternalServerError
 
 from . import push
 from .configuration import GeneralConfig, get_room_config
@@ -203,6 +208,7 @@ class Videoroom(object):
         self._active_participants = []
         self._sessions = set()  # type: Set[VideoroomSessionInfo]
         self._id_map = {}       # type: Dict[Union[str, int], VideoroomSessionInfo]  # map session.id -> session and session.publisher_id -> session
+        self._shared_files = []
         if self.config.record:
             makedirs(self.config.recording_dir, 0o755)
             self.log.info('created (recording on)')
@@ -233,6 +239,8 @@ class Videoroom(object):
         self._update_bitrate()
         if self._active_participants:
             session.owner.send(sylkrtc.VideoroomConfigureEvent(session=session.id, active_participants=self._active_participants, originator='videoroom'))
+        if self._shared_files:
+            session.owner.send(sylkrtc.VideoroomFileSharingEvent(session=session.id, files=self._shared_files))
 
     def discard(self, session):
         if session in self._sessions:
@@ -263,6 +271,7 @@ class Videoroom(object):
         for session in self._sessions:
             self.log.info('{session.account.id} has left the room'.format(session=session))
         self._active_participants = []
+        self._shared_files = []
         self._sessions.clear()
         self._id_map.clear()
 
@@ -272,6 +281,53 @@ class Videoroom(object):
             return config.allow.match(uri) and not config.deny.match(uri)
         else:
             return not config.deny.match(uri) or config.allow.match(uri)
+
+    def add_file(self, upload_request):
+        self._write_file(upload_request)
+
+    def get_file(self, filename):
+        path = os.path.join(self.config.filesharing_dir, filename)
+        if os.path.exists(path):
+            return path
+        else:
+            raise LookupError('file does not exist')
+
+    def _fix_path(self, path):
+        name, extension = os.path.splitext(path)
+        for x in count(0, step=-1):
+            path = '{}{}{}'.format(name, x or '', extension)
+            if not os.path.exists(path) and not os.path.islink(path):
+                return path
+
+    @run_in_thread('file-io')
+    def _write_file(self, upload_request):
+        makedirs(self.config.filesharing_dir)
+        path = self._fix_path(os.path.join(self.config.filesharing_dir, upload_request.shared_file.filename))
+        upload_request.shared_file.filename = os.path.basename(path)
+        try:
+            with open(path, 'wb') as output_file:
+                copyfileobj(upload_request.content, output_file)
+        except (OSError, IOError):
+            upload_request.had_error = True
+            unlink(path)
+        self._write_file_done(upload_request)
+
+    @run_in_twisted_thread
+    def _write_file_done(self, upload_request):
+        if upload_request.had_error:
+            upload_request.deferred.errback(InternalServerError('could not save file'))
+        else:
+            self._shared_files.append(upload_request.shared_file)
+            for session in self._sessions:
+                session.owner.send(sylkrtc.VideoroomFileSharingEvent(session=session.id, files=[upload_request.shared_file]))
+            upload_request.deferred.callback('OK')
+
+    def cleanup(self):
+        self._remove_files()
+
+    @run_in_thread('file-io')
+    def _remove_files(self):
+        rmtree(self.config.filesharing_dir, ignore_errors=True)
 
     def _update_bitrate(self):
         if self._sessions:
@@ -541,6 +597,7 @@ class ConnectionHandler(object):
 
         if videoroom in self.protocol.factory.videorooms and not videoroom:
             self.protocol.factory.videorooms.remove(videoroom)
+            videoroom.cleanup()
 
             with VideoroomPluginHandle(self.janus_session, event_handler=self._handle_janus_videoroom_event) as videoroom_handle:
                 videoroom_handle.destroy(room=videoroom.id)

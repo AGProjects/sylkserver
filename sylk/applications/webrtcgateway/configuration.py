@@ -99,6 +99,7 @@ class GeneralConfig(ConfigSection):
     trace_client = False
     websocket_ping_interval = 120
     recording_dir = ConfigSetting(type=Path, value=Path(os.path.join(ServerConfig.spool_dir.normalized, 'videoconference', 'recordings')))
+    filesharing_dir = ConfigSetting(type=Path, value=Path(os.path.join(ServerConfig.spool_dir.normalized, 'videoconference', 'files')))
     http_management_interface = ConfigSetting(type=ManagementInterfaceAddress, value=ManagementInterfaceAddress('127.0.0.1'))
     http_management_auth_secret = ConfigSetting(type=str, value=None)
     firebase_server_key = ConfigSetting(type=str, value=None)
@@ -131,6 +132,7 @@ class VideoroomConfiguration(object):
     max_bitrate = 2016000
     record = False
     recording_dir = None
+    filesharing_dir = None
 
     def __init__(self, data):
         self.__dict__.update(data)
@@ -150,4 +152,5 @@ def get_room_config(room):
     else:
         config = VideoroomConfiguration(dict(RoomConfig))  # use room defaults
     config.recording_dir = os.path.join(GeneralConfig.recording_dir, room)
+    config.filesharing_dir = os.path.join(GeneralConfig.filesharing_dir, room)
     return config
