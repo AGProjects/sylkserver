@@ -1,3 +1,20 @@
+sylkserver (5.3.0) unstable; urgency=medium
+
+  * Added file transfer support to video conferences in webrtc gateway
+  * Modified SIP and Videoroom sessions to have a reference to the account
+  * Removed unnecessary variable
+  * Fixed spelling
+  * Use the new standard runtime directory in the init file
+  * Updated systemd service file to use the new option to run as a service
+  * Added new command line option to enable verbose logging
+  * Refactored code that deals with memory debugging
+  * Added a new command line option to run as a systemd service
+  * Use the argparse module to parse command line arguments
+  * Adapted to API changes in python-application 2.8.0
+  * Renamed function argument
+
+ -- Dan Pascu <dan@ag-projects.com>  Fri, 11 Oct 2019 16:43:38 +0300
+
 sylkserver (5.2.0) unstable; urgency=medium
 
   * Updated TLS certificates
