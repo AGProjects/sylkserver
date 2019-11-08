@@ -232,7 +232,7 @@ class VideoroomPublishersLeftEvent(VideoroomEventBase):
 
 class VideoroomFileSharingEvent(VideoroomEventBase):
     event = FixedValueProperty('file-sharing')
-    files = ArrayProperty(SharedFiles)
+    files = ArrayProperty(SharedFiles)               # type: SharedFiles
 
 
 # Account request models
