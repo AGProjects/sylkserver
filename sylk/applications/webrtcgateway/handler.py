@@ -123,27 +123,34 @@ class VideoroomSessionInfo(object):
     slow_upload = SlowLinkDescriptor()
 
     # noinspection PyShadowingBuiltins
-    def __init__(self, id, owner):
+    def __init__(self, id, owner, janus_handle):
+        self.type = None                  # publisher / subscriber
         self.id = id
-        self.owner = owner
-        self.account = None       # type: AccountInfo
-        self.type = None          # publisher / subscriber
-        self.publisher_id = None  # janus publisher ID for publishers / publisher session ID for subscribers
-        self.janus_handle = None  # type: VideoroomPluginHandle
-        self.room = None
+        self.owner = owner                # type: ConnectionHandler
+        self.janus_handle = janus_handle  # type: VideoroomPluginHandle
+        self.account = None               # type: AccountInfo
+        self.room = None                  # type: Videoroom
         self.bitrate = None
-        self.parent_session = None
+        self.parent_session = None        # type: VideoroomSessionInfo  # for subscribers this is their main session (the one used to join), for publishers is None
+        self.publisher_id = None          # janus publisher ID for publishers / publisher session ID for subscribers
         self.slow_download = False
         self.slow_upload = False
         self.feeds = PublisherFeedContainer()  # keeps references to all the other participant's publisher feeds that we subscribed to
 
-    # noinspection PyShadowingBuiltins
-    def initialize(self, account, type, room):
-        assert type in ('publisher', 'subscriber')
+    def init_publisher(self, account, room):
+        self.type = 'publisher'
         self.account = account
-        self.type = type
         self.room = room
         self.bitrate = room.config.max_bitrate
+
+    def init_subscriber(self, publisher_session, parent_session):
+        assert publisher_session.type == parent_session.type == 'publisher'
+        self.type = 'subscriber'
+        self.publisher_id = publisher_session.id
+        self.parent_session = parent_session
+        self.account = parent_session.account
+        self.room = parent_session.room
+        self.bitrate = self.room.config.max_bitrate
 
     def __repr__(self):
         return '<{0.__class__.__name__}: type={0.type!r} id={0.id!r} janus_handle={0.janus_handle!r}>'.format(self)
@@ -844,9 +851,8 @@ class ConnectionHandler(object):
             self._maybe_destroy_videoroom(videoroom)
             raise
 
-        videoroom_session = VideoroomSessionInfo(request.session, owner=self)
-        videoroom_session.janus_handle = videoroom_handle
-        videoroom_session.initialize(account_info, 'publisher', videoroom)
+        videoroom_session = VideoroomSessionInfo(request.session, owner=self, janus_handle=videoroom_handle)
+        videoroom_session.init_publisher(account=account_info, room=videoroom)
         self.videoroom_sessions.add(videoroom_session)
 
         self.send(sylkrtc.VideoroomSessionProgressEvent(session=videoroom_session.id))
@@ -907,11 +913,8 @@ class ConnectionHandler(object):
             videoroom_handle.detach()
             raise
 
-        videoroom_session = VideoroomSessionInfo(request.feed, owner=self)
-        videoroom_session.janus_handle = videoroom_handle
-        videoroom_session.parent_session = base_session
-        videoroom_session.publisher_id = publisher_session.id
-        videoroom_session.initialize(base_session.account, 'subscriber', base_session.room)
+        videoroom_session = VideoroomSessionInfo(request.feed, owner=self, janus_handle=videoroom_handle)
+        videoroom_session.init_subscriber(publisher_session, parent_session=base_session)
         self.videoroom_sessions.add(videoroom_session)
         base_session.feeds.add(publisher_session)
 
