@@ -423,7 +423,7 @@ class Session(object):
 
     @transition_state(None, 'connecting')
     @run_in_green_thread
-    def connect(self, from_header, to_header, route, streams, is_focus=False, contact_header=None, extra_headers=None):
+    def connect(self, from_header, to_header, route, streams, is_focus=False, contact_header=None, credentials=None, extra_headers=None):
         self.greenlet = api.getcurrent()
         notification_center = NotificationCenter()
         settings = SIPSimpleSettings()
@@ -485,7 +485,7 @@ class Session(object):
             route_header = RouteHeader(self.route.uri)
             if is_focus:
                 contact_header.parameters['isfocus'] = None
-            self._invitation.send_invite(to_header.uri, from_header, to_header, route_header, contact_header, local_sdp, extra_headers=extra_headers)
+            self._invitation.send_invite(to_header.uri, from_header, to_header, route_header, contact_header, local_sdp, credentials, extra_headers)
             try:
                 with api.timeout(settings.sip.invite_timeout):
                     while True:
