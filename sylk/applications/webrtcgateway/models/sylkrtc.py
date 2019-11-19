@@ -1,7 +1,7 @@
 
 from application.python import subclasses
 
-from .jsonobjects import BooleanProperty, IntegerProperty, StringProperty, ArrayProperty, ObjectProperty, FixedValueProperty
+from .jsonobjects import BooleanProperty, IntegerProperty, StringProperty, ArrayProperty, ObjectProperty, FixedValueProperty, LimitedChoiceProperty
 from .jsonobjects import JSONObject, JSONArray, StringArray, CompositeValidator
 from .validators import AORValidator, DisplayNameValidator, LengthValidator, UniqueItemsValidator
 
@@ -235,6 +235,30 @@ class VideoroomFileSharingEvent(VideoroomEventBase):
     files = ArrayProperty(SharedFiles)               # type: SharedFiles
 
 
+class VideoroomMessageEvent(VideoroomEventBase):
+    event = FixedValueProperty('message')
+    content = StringProperty()
+    content_type = StringProperty()
+    sender = ObjectProperty(SIPIdentity)  # type: SIPIdentity
+    timestamp = StringProperty()
+
+
+class VideoroomComposingIndicationEvent(VideoroomEventBase):
+    event = FixedValueProperty('composing-indication')
+    state = StringProperty()
+    refresh = IntegerProperty()
+    content_type = StringProperty()
+    sender = ObjectProperty(SIPIdentity)  # type: SIPIdentity
+
+
+class VideoroomMessageDeliveryEvent(VideoroomEventBase):
+    event = FixedValueProperty('message-delivery')
+    message_id = StringProperty()
+    delivered = BooleanProperty()
+    code = IntegerProperty()
+    reason = StringProperty()
+
+
 # Account request models
 
 class AccountAddRequest(AccountRequestBase):
@@ -333,6 +357,19 @@ class VideoroomSessionTrickleRequest(VideoroomRequestBase):
 class VideoroomSessionUpdateRequest(VideoroomRequestBase):
     sylkrtc = FixedValueProperty('videoroom-session-update')
     options = ObjectProperty(VideoroomSessionOptions)  # type: VideoroomSessionOptions
+
+
+class VideoroomMessageRequest(VideoroomRequestBase):
+    sylkrtc = FixedValueProperty('videoroom-message')
+    message_id = StringProperty()
+    content = StringProperty()
+    content_type = StringProperty()
+
+
+class VideoroomComposingIndicationRequest(VideoroomRequestBase):
+    sylkrtc = FixedValueProperty('videoroom-composing-indication')
+    state = LimitedChoiceProperty(['active', 'idle'])
+    refresh = IntegerProperty(optional=True)
 
 
 # SylkRTC request to model mapping

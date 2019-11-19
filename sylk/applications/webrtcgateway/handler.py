@@ -6,14 +6,17 @@ import os
 import time
 import uuid
 
-from application.python import limit
+from application.notification import IObserver, NotificationCenter, NotificationData
+from application.python import Null, limit
 from application.python.weakref import defaultweakobjectmap
 from application.system import makedirs, unlink
+from collections import deque
 from eventlib import coros, proc
 from itertools import count
 from sipsimple.configuration.settings import SIPSimpleSettings
-from sipsimple.core import SIPURI
+from sipsimple.core import SIPURI, FromHeader, ToHeader
 from sipsimple.lookup import DNSLookup, DNSLookupError
+from sipsimple.streams import MediaStreamRegistry
 from sipsimple.threading import run_in_thread, run_in_twisted_thread
 from sipsimple.threading.green import call_in_green_thread, run_in_green_thread
 from shutil import copyfileobj, rmtree
@@ -21,7 +24,10 @@ from string import maketrans
 from twisted.internet import reactor
 from typing import Generic, Container, Iterable, Sized, TypeVar, Dict, Set, Optional, Union
 from werkzeug.exceptions import InternalServerError
+from zope.interface import implements
 
+from sylk.accounts import DefaultAccount
+from sylk.session import Session
 from . import push
 from .configuration import GeneralConfig, get_room_config
 from .janus import JanusBackend, JanusError, JanusSession, SIPPluginHandle, VideoroomPluginHandle
@@ -128,6 +134,7 @@ class VideoroomSessionInfo(object):
         self.id = id
         self.owner = owner                # type: ConnectionHandler
         self.janus_handle = janus_handle  # type: VideoroomPluginHandle
+        self.chat_handler = None          # type: VideoroomChatHandler
         self.account = None               # type: AccountInfo
         self.room = None                  # type: Videoroom
         self.bitrate = None
@@ -142,6 +149,7 @@ class VideoroomSessionInfo(object):
         self.account = account
         self.room = room
         self.bitrate = room.config.max_bitrate
+        self.chat_handler = VideoroomChatHandler(session=self)
 
     def init_subscriber(self, publisher_session, parent_session):
         assert publisher_session.type == parent_session.type == 'publisher'
@@ -474,6 +482,8 @@ class GreenEvent(object):
 
 # noinspection PyPep8Naming
 class ConnectionHandler(object):
+    implements(IObserver)
+
     janus = JanusBackend()
 
     def __init__(self, protocol):
@@ -535,6 +545,11 @@ class ConnectionHandler(object):
             for session in self.videoroom_sessions:
                 if session.janus_handle is not None:
                     self.janus.set_event_handler(session.janus_handle.id, None)
+                if session.chat_handler is not None:
+                    notification_center = NotificationCenter()
+                    notification_center.remove_observer(self, sender=session.chat_handler)
+                    session.chat_handler.end()
+                    session.chat_handler = None
                 session.room.discard(session)
                 session.feeds.clear()
             self.janus_session.destroy()  # this automatically detaches all plugin handles associated with it, no need to manually do it
@@ -547,6 +562,10 @@ class ConnectionHandler(object):
         self.janus_session = None
         self.protocol = None
         self.state = 'stopped'
+
+    def handle_notification(self, notification):
+        handler = getattr(self, '_NH_%s' % notification.name, Null)
+        handler(notification)
 
     def handle_message(self, message):
         try:
@@ -588,9 +607,12 @@ class ConnectionHandler(object):
         if session in self.videoroom_sessions:
             self.videoroom_sessions.remove(session)
             if session.type == 'publisher':
+                notification_center = NotificationCenter()
+                notification_center.remove_observer(self, sender=session.chat_handler)
                 session.room.discard(session)
                 session.feeds.clear()
                 session.janus_handle.detach()
+                session.chat_handler.end()
                 self._maybe_destroy_videoroom(session.room)
             else:
                 session.parent_session.feeds.discard(session.publisher_id)
@@ -855,6 +877,10 @@ class ConnectionHandler(object):
         videoroom_session.init_publisher(account=account_info, room=videoroom)
         self.videoroom_sessions.add(videoroom_session)
 
+        notification_center = NotificationCenter()
+        notification_center.add_observer(self, sender=videoroom_session.chat_handler)
+        videoroom_session.chat_handler.start()
+
         self.send(sylkrtc.VideoroomSessionProgressEvent(session=videoroom_session.id))
 
         self.log.info('created session {request.session} from account {request.account} to video room {request.uri}'.format(request=request))
@@ -977,6 +1003,20 @@ class ConnectionHandler(object):
             videoroom_session.janus_handle.update_publisher(options)
             modified = ', '.join('{}={}'.format(key, options[key]) for key in options)
             self.log.info('updated video room session {request.session} with {modified}'.format(request=request, modified=modified))
+
+    def _RH_videoroom_message(self, request):
+        try:
+            videoroom_session = self.videoroom_sessions[request.session]
+        except KeyError:
+            raise APIError('Unknown video room session: {request.session}'.format(request=request))
+        videoroom_session.chat_handler.send_message(request.message_id, request.content, request.content_type)
+
+    def _RH_videoroom_composing_indication(self, request):
+        try:
+            videoroom_session = self.videoroom_sessions[request.session]
+        except KeyError:
+            raise APIError('Unknown video room session: {request.session}'.format(request=request))
+        videoroom_session.chat_handler.send_composing_indication(request.state, request.refresh)
 
     # Event handlers
 
@@ -1339,3 +1379,174 @@ class ConnectionHandler(object):
 
     def _EH_janus_videoroom_event_unpublished(self, event):
         pass
+
+    # Notification handlers
+
+    def _NH_ChatSessionGotMessage(self, notification):
+        session = notification.sender.sylk_session  # type: VideoroomSessionInfo
+        message = notification.data.message
+        sender = sylkrtc.SIPIdentity(uri=str(message.sender.uri), display_name=message.sender.display_name)
+        self.send(sylkrtc.VideoroomMessageEvent(session=session.id, content=message.content, content_type=message.content_type, sender=sender, timestamp=str(message.timestamp)))
+
+    def _NH_ChatSessionGotComposingIndication(self, notification):
+        session = notification.sender.sylk_session  # type: VideoroomSessionInfo
+        composing = notification.data
+        sender = sylkrtc.SIPIdentity(uri=str(composing.sender.uri), display_name=composing.sender.display_name)
+        self.send(sylkrtc.VideoroomComposingIndicationEvent(session=session.id, state=composing.state, refresh=composing.refresh, content_type=composing.content_type, sender=sender))
+
+    def _NH_ChatSessionDidDeliverMessage(self, notification):
+        session = notification.sender.sylk_session  # type: VideoroomSessionInfo
+        data = notification.data
+        self.send(sylkrtc.VideoroomMessageDeliveryEvent(session=session.id, delivered=True, message_id=data.message_id, code=data.code, reason=data.reason))
+
+    def _NH_ChatSessionDidNotDeliverMessage(self, notification):
+        session = notification.sender.sylk_session  # type: VideoroomSessionInfo
+        data = notification.data
+        self.send(sylkrtc.VideoroomMessageDeliveryEvent(session=session.id, delivered=False, message_id=data.message_id, code=data.code, reason=data.reason))
+
+
+# noinspection PyPep8Naming
+class VideoroomChatHandler(object):
+    implements(IObserver)
+
+    def __init__(self, session):
+        self.sylk_session = session  # type: VideoroomSessionInfo
+        self.sip_session = None      # type: Session
+        self.chat_stream = None
+        self._started = False
+        self._ended = False
+        self._message_queue = deque()
+
+    @property
+    def account(self):
+        return self.sylk_session.account
+
+    @property
+    def room(self):
+        return self.sylk_session.room
+
+    @run_in_green_thread
+    def start(self):
+        if self._started:
+            return
+        self._started = True
+        notification_center = NotificationCenter()
+        from_uri = SIPURI.parse(self.account.uri)
+        from_uri.host = 'videoconference.' + from_uri.host
+        to_uri = SIPURI.parse('sip:{}'.format(self.room.uri))
+        to_uri.host = to_uri.host.replace('videoconference', 'conference', 1)  # TODO: find a way to define this
+        # credentials = Credentials(username=self.account.id.partition('@')[0].encode('utf-8'), password=self.account.password.encode('utf-8'))
+        sip_account = DefaultAccount()
+        sip_settings = SIPSimpleSettings()
+        if sip_account.sip.outbound_proxy is not None:
+            uri = SIPURI(host=sip_account.sip.outbound_proxy.host, port=sip_account.sip.outbound_proxy.port, parameters={'transport': sip_account.sip.outbound_proxy.transport})
+        else:
+            uri = to_uri
+        lookup = DNSLookup()
+        try:
+            route = lookup.lookup_sip_proxy(uri, sip_settings.sip.transport_list).wait()[0]
+        except (DNSLookupError, IndexError):
+            self.end()
+            self.room.log.error('DNS lookup for SIP proxy for {} failed'.format(uri))
+            self.room.log.error('chatroom session for {} failed'.format(self.account.id))
+            notification_center.post_notification('ChatSessionDidFail', sender=self, data=NotificationData(reason='DNS lookup error'))
+            return
+        if self._ended:  # end was called during DNS lookup
+            self.room.log.info('chatroom session for {} ended'.format(self.account.id))
+            notification_center.post_notification('ChatSessionDidEnd', sender=self)
+            return
+        self.sip_session = Session(sip_account)
+        self.chat_stream = MediaStreamRegistry.ChatStream()
+        notification_center.add_observer(self, sender=self.sip_session)
+        notification_center.add_observer(self, sender=self.chat_stream)
+        self.sip_session.connect(FromHeader(from_uri, self.account.display_name), ToHeader(to_uri), route=route, streams=[self.chat_stream])
+
+    @run_in_twisted_thread
+    def end(self):
+        if self._ended:
+            return
+        notification_center = NotificationCenter()
+        if self.sip_session is not None:
+            notification_center.remove_observer(self, sender=self.sip_session)
+            notification_center.remove_observer(self, sender=self.chat_stream)
+            self.sip_session.end()
+            self.sip_session = None
+            self.chat_stream = None
+            self.room.log.info('chatroom session for {} ended'.format(self.account.id))
+            notification_center.post_notification('ChatSessionDidEnd', sender=self)
+        while self._message_queue:
+            message_id, content, content_type = self._message_queue.popleft()
+            data = NotificationData(message_id=message_id, message=None, code=0, reason='Chat session ended')
+            notification_center.post_notification('ChatStreamDidNotDeliverMessage', sender=self, data=data)
+        self._ended = True
+
+    @run_in_twisted_thread
+    def send_message(self, message_id, content, content_type='text/plain'):
+        self._message_queue.append((message_id, content, content_type))
+        if self.chat_stream is not None:
+            self._send_queued_messages()
+        elif self._ended:
+            notification_center = NotificationCenter()
+            data = NotificationData(message_id=message_id, message=None, code=0, reason='Chat session ended')
+            notification_center.post_notification('ChatStreamDidNotDeliverMessage', sender=self, data=data)
+
+    @run_in_twisted_thread
+    def send_composing_indication(self, state, refresh=None):
+        if self.chat_stream is not None:
+            self.chat_stream.send_composing_indication(state, refresh=refresh)
+
+    def _send_queued_messages(self):
+        while self._message_queue:
+            message_id, content, content_type = self._message_queue.popleft()
+            self.chat_stream.send_message(content, content_type, message_id=message_id)
+
+    def handle_notification(self, notification):
+        handler = getattr(self, '_NH_%s' % notification.name, Null)
+        handler(notification)
+
+    def _NH_SIPSessionDidStart(self, notification):
+        self.room.log.info('chatroom session for {} started'.format(self.account.id))
+        notification.center.post_notification('ChatSessionDidStart', sender=self)
+        self._send_queued_messages()
+
+    def _NH_SIPSessionDidEnd(self, notification):
+        notification.center.remove_observer(self, sender=self.sip_session)
+        notification.center.remove_observer(self, sender=self.chat_stream)
+        self.sip_session = None
+        self.chat_stream = None
+        self.end()
+        self.room.log.info('chatroom session for {} ended'.format(self.account.id))
+        notification.center.post_notification('ChatSessionDidEnd', sender=self, data=notification.data)
+
+    def _NH_SIPSessionDidFail(self, notification):
+        notification.center.remove_observer(self, sender=self.sip_session)
+        notification.center.remove_observer(self, sender=self.chat_stream)
+        self.sip_session = None
+        self.chat_stream = None
+        self.end()
+        self.room.log.error('chatroom session for {} failed'.format(self.account.id))
+        notification.center.post_notification('ChatSessionDidFail', sender=self, data=notification.data)
+
+    def _NH_SIPSessionNewProposal(self, notification):
+        self.sip_session.reject_proposal()
+
+    def _NH_SIPSessionTransferNewIncoming(self, notification):
+        # sylkserver's SIP Session class doesn't implement the transfer API
+        # self.sip_session.reject_transfer(403)
+        pass
+
+    def _NH_ChatStreamGotMessage(self, notification):
+        self.chat_stream.msrp_session.send_report(notification.data.chunk, 200, 'OK')
+        notification.center.post_notification('ChatSessionGotMessage', sender=self, data=notification.data)
+
+    def _NH_ChatStreamGotComposingIndication(self, notification):
+        notification.center.post_notification('ChatSessionGotComposingIndication', sender=self, data=notification.data)
+
+    def _NH_ChatStreamDidSendMessage(self, notification):
+        notification.center.post_notification('ChatSessionDidSendMessage', sender=self, data=notification.data)
+
+    def _NH_ChatStreamDidDeliverMessage(self, notification):
+        notification.center.post_notification('ChatSessionDidDeliverMessage', sender=self, data=notification.data)
+
+    def _NH_ChatStreamDidNotDeliverMessage(self, notification):
+        notification.center.post_notification('ChatSessionDidNotDeliverMessage', sender=self, data=notification.data)
