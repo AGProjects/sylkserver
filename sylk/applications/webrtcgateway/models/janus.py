@@ -333,8 +333,9 @@ class MediaEvent(CoreEvent):
 
 class SlowlinkEvent(CoreEvent):
     janus = FixedValueProperty('slowlink')
+    media = LimitedChoiceProperty(['audio', 'video'])
     uplink = BooleanProperty()
-    nacks = IntegerProperty()
+    lost = IntegerProperty()
 
 
 class WebrtcUpEvent(CoreEvent):
