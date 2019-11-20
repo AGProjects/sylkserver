@@ -1009,7 +1009,7 @@ class ConnectionHandler(object):
             videoroom_session = self.videoroom_sessions[request.session]
         except KeyError:
             raise APIError('Unknown video room session: {request.session}'.format(request=request))
-        videoroom_session.chat_handler.send_message(request.message_id, request.content, request.content_type)
+        videoroom_session.chat_handler.send_message(request.message_id.encode('ascii'), request.content, request.content_type)
 
     def _RH_videoroom_composing_indication(self, request):
         try:
