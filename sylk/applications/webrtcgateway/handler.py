@@ -1448,8 +1448,8 @@ class VideoroomChatHandler(object):
         except (DNSLookupError, IndexError):
             self.end()
             self.room.log.error('DNS lookup for SIP proxy for {} failed'.format(uri))
-            self.room.log.error('chatroom session for {} failed'.format(self.account.id))
-            notification_center.post_notification('ChatSessionDidFail', sender=self, data=NotificationData(reason='DNS lookup error'))
+            self.room.log.error('chatroom session for {} failed: DNS lookup error'.format(self.account.id))
+            notification_center.post_notification('ChatSessionDidFail', sender=self, data=NotificationData(originator='local', code=0, reason=None, failure_reason='DNS lookup error'))
             return
         if self._ended:  # end was called during DNS lookup
             self.room.log.info('chatroom session for {} ended'.format(self.account.id))
@@ -1524,7 +1524,7 @@ class VideoroomChatHandler(object):
         self.sip_session = None
         self.chat_stream = None
         self.end()
-        self.room.log.error('chatroom session for {} failed'.format(self.account.id))
+        self.room.log.error('chatroom session for {} failed: {}'.format(self.account.id, notification.data.failure_reason))
         notification.center.post_notification('ChatSessionDidFail', sender=self, data=notification.data)
 
     def _NH_SIPSessionNewProposal(self, notification):
