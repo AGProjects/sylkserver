@@ -15,7 +15,7 @@ Depends: ${python:Depends}, ${misc:Depends},
          python-eventlib,
          python-klein,
          python-lxml,
-         python-sipsimple (>= 3.0.0),
+         python-sipsimple (>= 3.5.0),
          python-systemd,
          python-twisted,
          python-typing
