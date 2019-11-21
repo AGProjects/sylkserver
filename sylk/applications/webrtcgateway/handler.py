@@ -14,7 +14,7 @@ from collections import deque
 from eventlib import coros, proc
 from itertools import count
 from sipsimple.configuration.settings import SIPSimpleSettings
-from sipsimple.core import SIPURI, FromHeader, ToHeader
+from sipsimple.core import SIPURI, FromHeader, ToHeader, Credentials
 from sipsimple.lookup import DNSLookup, DNSLookupError
 from sipsimple.streams import MediaStreamRegistry
 from sipsimple.threading import run_in_thread, run_in_twisted_thread
@@ -1432,10 +1432,9 @@ class VideoroomChatHandler(object):
         self._started = True
         notification_center = NotificationCenter()
         from_uri = SIPURI.parse(self.account.uri)
-        from_uri.host = 'videoconference.' + from_uri.host
         to_uri = SIPURI.parse('sip:{}'.format(self.room.uri))
         to_uri.host = to_uri.host.replace('videoconference', 'conference', 1)  # TODO: find a way to define this
-        # credentials = Credentials(username=self.account.id.partition('@')[0].encode('utf-8'), password=self.account.password.encode('utf-8'))
+        credentials = Credentials(username=from_uri.user, password=self.account.password.encode('utf-8'), digest=True)
         sip_account = DefaultAccount()
         sip_settings = SIPSimpleSettings()
         if sip_account.sip.outbound_proxy is not None:
@@ -1459,7 +1458,7 @@ class VideoroomChatHandler(object):
         self.chat_stream = MediaStreamRegistry.ChatStream()
         notification_center.add_observer(self, sender=self.sip_session)
         notification_center.add_observer(self, sender=self.chat_stream)
-        self.sip_session.connect(FromHeader(from_uri, self.account.display_name), ToHeader(to_uri), route=route, streams=[self.chat_stream])
+        self.sip_session.connect(FromHeader(from_uri, self.account.display_name), ToHeader(to_uri), route=route, streams=[self.chat_stream], credentials=credentials)
 
     @run_in_twisted_thread
     def end(self):
