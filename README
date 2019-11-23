@@ -170,24 +170,30 @@ Used to bridge audio and video calls between SIP clients and WebRTC
 applications.  A simple to use client API (sylkrtc.js) is provided for
 developing web pages that include such functionality.  This application
 supports transparently any audio/video codec negotiated by the end-points,
-however WebRTC has standardised particular codecs for the use on the web,
-therefore the SIP clients must support the same set of codecs.
+however WebRTC has standardised particular codecs for the use on the web
+(like OPUS for audio), therefore the SIP clients must support the same set
+of codecs.
 
 See https://webrtc.sipthor.net for a working example.
 
 
-WebRTC video conference
+WebRTC multi-party conference
 
-This application allows WebRTC enabled end-points to organise ad-hoc audio
-and video conferences.  SylkServer implements Selective Forwarding Unit
-(SFU) functionality by using Janus backend.  SFUs in general use little
-resources on the server side, allowing for handling much more load than
-classic MCUs.
+This application allows WebRTC enabled end-points to organise ad-hoc
+multi-media conferences with audio/video, chat, file and screen sharing.
 
-Sylk WebRTC client is provided as a sample client and other clients can be
+For audio and video, SylkServer implements Selective Forwarding Unit (SFU)
+functionality by using Janus backend.  SFUs use little resources on the
+server side, allowing for handling much more load than classic MCUs.
+
+For text chat, the media is mixed inside the SIP conference application,
+which makes it interoperable with SIP MSRP chat and XMPP protocols and
+standards.
+
+Sylk WebRTC client is provided as a sample client and new web clients can be
 developed using sylkrtc API.
 
-The bandwidth usage is optimised in such a way that independent of the
+RTP video bandwidth usage is optimised in such a way that independent of the
 number of participants present in the conference, the bandwidth required by
 each participant is not greater than for a direct video call between only
 two participants.
@@ -201,7 +207,7 @@ Standards
 
 The server implements relevant features from the following standards:
 
- - SIP (RFC3261) and related RFCs for DNS, ICE and RTP
+ - SIP (RFC3261, RFC3263) and related RFCs for DNS, ICE and RTP
  - MSRP protocol RFC4975
  - MSRP relay extension RFC4976
  - MSRP File Transfer RFC5547
