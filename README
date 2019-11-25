@@ -193,7 +193,7 @@ standards.
 Sylk WebRTC client is provided as a sample client and new web clients can be
 developed using sylkrtc API.
 
-RTP video bandwidth usage is optimised in such a way that independent of the
+The bandwidth usage is optimised in such a way that independent of the
 number of participants present in the conference, the bandwidth required by
 each participant is not greater than for a direct video call between only
 two participants.
