@@ -1386,7 +1386,8 @@ class ConnectionHandler(object):
         session = notification.sender.sylk_session  # type: VideoroomSessionInfo
         message = notification.data.message
         sender = sylkrtc.SIPIdentity(uri=str(message.sender.uri), display_name=message.sender.display_name)
-        self.send(sylkrtc.VideoroomMessageEvent(session=session.id, content=message.content, content_type=message.content_type, sender=sender, timestamp=str(message.timestamp)))
+        content = message.content if isinstance(message.content, unicode) else message.content.decode('latin1')  # preserve binary data for transmitting over JSON
+        self.send(sylkrtc.VideoroomMessageEvent(session=session.id, content=content, content_type=message.content_type, sender=sender, timestamp=str(message.timestamp)))
 
     def _NH_ChatSessionGotComposingIndication(self, notification):
         session = notification.sender.sylk_session  # type: VideoroomSessionInfo
