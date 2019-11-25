@@ -21,10 +21,11 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
 
     def onConnect(self, request):
         if SYLK_WS_PROTOCOL not in request.protocols:
-            log.info('Rejecting connection from %s, remote does not support our sub-protocol' % self.peer)
+            log.debug('Connection from {} request: {}'.format(self.peer, request))
+            log.info('Rejecting connection from {}, client uses unsupported protocol: {}'.format(self.peer, ','.join(request.protocols)))
             raise ConnectionDeny(406, u'No compatible protocol specified')
         if not self.janus_backend.ready:
-            log.info('Rejecting connection from %s, Janus backend is not connected' % self.peer)
+            log.warning('Rejecting connection from {}, Janus backend is not connected'.format(self.peer))
             raise ConnectionDeny(503, u'Backend is not connected')
         return SYLK_WS_PROTOCOL
 
