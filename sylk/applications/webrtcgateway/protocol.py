@@ -61,4 +61,3 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
 
     def disconnect(self, code=1000, reason=u''):
         self.sendClose(code, reason)
-
