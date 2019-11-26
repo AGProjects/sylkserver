@@ -932,12 +932,12 @@ class WelcomeHandler(object):
         txt +=  ' in this conference room.'
         if self.room.config.advertise_xmpp_support or self.room.config.pstn_access_numbers or self.room.config.webrtc_gateway_url:
             txt += '\n\nOther participants can join at these addresses:\n\n'
-            txt += '    - Using a SIP client, initiate a session to %s (audio and chat)\n' % self.room.uri
+            txt += '    - Using a SIP client, initiate MSRP chat session to %s\n' % self.room.uri
             if self.room.config.webrtc_gateway_url:
                 webrtc_url = str(self.room.config.webrtc_gateway_url).replace('$room', self.room.uri)
                 txt += '    - Using a WEB browser go to %s (audio only)\n' % webrtc_url
             if self.room.config.advertise_xmpp_support:
-                txt += '    - Using an XMPP Jingle client, add contact %s and call it (audio and chat)\n' % self.room.uri
+                txt += '    - Using an XMPP client, add %s to the roster and start chat to it)\n' % self.room.uri
             if self.room.config.pstn_access_numbers:
                 if len(self.room.config.pstn_access_numbers) == 1:
                     nums = self.room.config.pstn_access_numbers[0]
