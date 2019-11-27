@@ -237,11 +237,11 @@ class VideoroomFileSharingEvent(VideoroomEventBase):
 
 class VideoroomMessageEvent(VideoroomEventBase):
     event = FixedValueProperty('message')
+    type = LimitedChoiceProperty(['normal', 'status'])
     content = StringProperty()
     content_type = StringProperty()
     sender = ObjectProperty(SIPIdentity)  # type: SIPIdentity
     timestamp = StringProperty()
-    type = LimitedChoiceProperty(['normal', 'status'])
 
 
 class VideoroomComposingIndicationEvent(VideoroomEventBase):
