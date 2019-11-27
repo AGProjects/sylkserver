@@ -931,19 +931,19 @@ class WelcomeHandler(object):
                 txt += ' There are %s more participants' % user_count
         txt +=  ' in this conference room.'
         if self.room.config.advertise_xmpp_support or self.room.config.pstn_access_numbers or self.room.config.webrtc_gateway_url:
-            txt += '\n\nOther participants can join at these addresses:\n\n'
-            txt += '    - Using a SIP client, initiate MSRP chat session to %s\n' % self.room.uri
+            txt += '\n\nOther participants can join with one of these methods:\n\n'
+            txt += '    - Using a SIP client connect to %s\n' % self.room.uri
             if self.room.config.webrtc_gateway_url:
                 webrtc_url = str(self.room.config.webrtc_gateway_url).replace('$room', self.room.uri)
-                txt += '    - Using a WEB browser go to %s (audio only)\n' % webrtc_url
+                txt += '    - Using a WEB browser go to %s\n' % webrtc_url
             if self.room.config.advertise_xmpp_support:
-                txt += '    - Using an XMPP client, add %s to the roster and start chat to it)\n' % self.room.uri
+                txt += '    - Using an XMPP client connect to %s\n' % self.room.uri
             if self.room.config.pstn_access_numbers:
                 if len(self.room.config.pstn_access_numbers) == 1:
                     nums = self.room.config.pstn_access_numbers[0]
                 else:
                     nums = ', '.join(self.room.config.pstn_access_numbers[:-1]) + ' or %s' % self.room.config.pstn_access_numbers[-1]
-                txt += '    - Using a landline or mobile phone, dial %s (audio only)\n' % nums
+                txt += '    - Using a landline or mobile phone call %s\n' % nums
         stream.send_message(txt, 'text/plain', sender=self.room.identity, recipients=[self.room.identity])
         for msg in self.room.history:
             stream.send_message(msg.content, msg.content_type, sender=msg.sender, recipients=[self.room.identity], timestamp=msg.timestamp)
