@@ -241,6 +241,7 @@ class VideoroomMessageEvent(VideoroomEventBase):
     content_type = StringProperty()
     sender = ObjectProperty(SIPIdentity)  # type: SIPIdentity
     timestamp = StringProperty()
+    type = LimitedChoiceProperty(['normal', 'status'])
 
 
 class VideoroomComposingIndicationEvent(VideoroomEventBase):
