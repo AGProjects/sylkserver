@@ -1484,7 +1484,7 @@ class VideoroomChatHandler(object):
         while self._message_queue:
             message_id, content, content_type = self._message_queue.popleft()
             data = NotificationData(message_id=message_id, message=None, code=0, reason='Chat session ended')
-            notification_center.post_notification('ChatStreamDidNotDeliverMessage', sender=self, data=data)
+            notification_center.post_notification('ChatSessionDidNotDeliverMessage', sender=self, data=data)
         self._ended = True
 
     @run_in_twisted_thread
@@ -1492,7 +1492,7 @@ class VideoroomChatHandler(object):
         if self._ended:
             notification_center = NotificationCenter()
             data = NotificationData(message_id=message_id, message=None, code=0, reason='Chat session ended')
-            notification_center.post_notification('ChatStreamDidNotDeliverMessage', sender=self, data=data)
+            notification_center.post_notification('ChatSessionDidNotDeliverMessage', sender=self, data=data)
         else:
             self._message_queue.append((message_id, content, content_type))
             if self.chat_stream is not None:
