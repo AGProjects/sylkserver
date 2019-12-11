@@ -917,30 +917,23 @@ class WelcomeHandler(object):
             player.stop()
 
     def chat_welcome(self, stream):
-        txt = ''
         user_count = len({str(s.remote_identity.uri) for s in self.room.sessions if s.remote_identity.uri != self.session.remote_identity.uri})
         if user_count == 0:
-            txt += 'You are the first participant. '
+            participant_message = 'You are the first participant'
+        elif user_count == 1:
+            participant_message = 'There is one more participant'
         else:
-            if user_count == 1:
-                txt += 'There is one more participant. '
-            else:
-                txt += 'There are %s more participants. ' % user_count
-        if self.room.config.advertise_xmpp_support or self.room.config.pstn_access_numbers or self.room.config.webrtc_gateway_url:
-            txt += 'Others can join using:\n\n'
-            txt += 'SIP clients to %s\n' % self.room.uri
-            if self.room.config.webrtc_gateway_url:
-                webrtc_url = str(self.room.config.webrtc_gateway_url).replace('$room', self.room.uri)
-                txt += 'WEB browsers to %s\n' % webrtc_url
-            if self.room.config.advertise_xmpp_support:
-                txt += 'XMPP clients to %s\n' % self.room.uri
-            if self.room.config.pstn_access_numbers:
-                if len(self.room.config.pstn_access_numbers) == 1:
-                    nums = self.room.config.pstn_access_numbers[0]
-                else:
-                    nums = ', '.join(self.room.config.pstn_access_numbers[:-1]) + ' or %s' % self.room.config.pstn_access_numbers[-1]
-                txt += 'Telephones calling to %s\n' % nums
-        stream.send_message(txt, 'text/plain', sender=self.room.identity, recipients=[self.room.identity])
+            participant_message = 'There are {} more participants'.format(user_count)
+        message = 'Welcome! {} in the conference. Others can join by using:\n\n'.format(participant_message)
+        if self.room.config.advertise_xmpp_support:
+            message += 'SIP/XMPP: {}\n'.format(self.room.uri)
+        else:
+            message += 'SIP: {}\n'.format(self.room.uri)
+        if self.room.config.pstn_access_numbers:
+            message += 'Phones: {}\n'.format(' or '.join(', '.join(sorted(self.room.config.pstn_access_numbers)).rsplit(', ', 1)))
+        if self.room.config.webrtc_gateway_url:
+            message += 'WEB: {}\n'.format(str(self.room.config.webrtc_gateway_url).replace('$room', self.room.uri))
+        stream.send_message(message.rstrip(), 'text/plain', sender=self.room.identity, recipients=[self.room.identity])
         for msg in self.room.history:
             stream.send_message(msg.content, msg.content_type, sender=msg.sender, recipients=[self.room.identity], timestamp=msg.timestamp)
 
@@ -957,11 +950,11 @@ class WelcomeHandler(object):
                     secure_chat = stream.transport == 'tls' and all(len(path)==1 for path in (stream.msrp.full_local_path, stream.msrp.full_remote_path))
                     sas = audio_stream.encryption.zrtp.sas
                     if sas is not None and secure_chat:
-                        txt = 'Received ZRTP Short Authentication String: %s' % sas
+                        message = 'Received ZRTP Short Authentication String: %s' % sas
                         # Don't set the remote identity, that way it will appear as a private message
                         ns = CPIMNamespace('urn:ag-projects:xml:ns:cpim', prefix='agp')
                         message_type = CPIMHeader('Message-Type', ns, 'status')
-                        stream.send_message(txt, 'text/plain', sender=self.room.identity, additional_headers=[message_type])
+                        stream.send_message(message, 'text/plain', sender=self.room.identity, additional_headers=[message_type])
 
     def handle_notification(self, notification):
         handler = getattr(self, '_NH_%s' % notification.name, Null)
