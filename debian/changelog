@@ -1,3 +1,19 @@
+sylkserver (5.4.0) unstable; urgency=medium
+
+  * Refactored VideoroomSessionInfo to simplify usage
+  * Fixed correctness and consistency issue with getting the display name
+  * Accept optional auth credentials argument in Session.connect
+  * Added chat room capabilities to the video conferences
+  * Fixed json model for the slowlink event from janus
+  * Updated python-sipsimple dependency
+  * Update README with WebRTC multi-party conference features
+  * Improved some log messages and updated their log level
+  * PEP-8 compliance change
+  * Refactored conference welcome message
+  * Fixed notification name
+
+ -- Dan Pascu <dan@ag-projects.com>  Wed, 11 Dec 2019 18:14:43 +0200
+
 sylkserver (5.3.0) unstable; urgency=medium
 
   * Added file transfer support to video conferences in webrtc gateway
