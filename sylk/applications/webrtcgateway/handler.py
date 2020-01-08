@@ -307,7 +307,8 @@ class Videoroom(object):
         else:
             raise LookupError('file does not exist')
 
-    def _fix_path(self, path):
+    @staticmethod
+    def _fix_path(path):
         name, extension = os.path.splitext(path)
         for x in count(0, step=-1):
             path = '{}{}{}'.format(name, x or '', extension)
