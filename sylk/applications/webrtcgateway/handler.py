@@ -102,10 +102,10 @@ class SIPSessionInfo(object):
         self.id = id
         self.direction = None
         self.state = None
-        self.account = None            # type: AccountInfo
-        self.local_identity = None     # type: SessionPartyIdentity
-        self.remote_identity = None    # type: SessionPartyIdentity
-        self.janus_handle = None       # type: SIPPluginHandle
+        self.account = None            # type: Optional[AccountInfo]
+        self.local_identity = None     # type: Optional[SessionPartyIdentity]
+        self.remote_identity = None    # type: Optional[SessionPartyIdentity]
+        self.janus_handle = None       # type: Optional[SIPPluginHandle]
         self.slow_download = False
         self.slow_upload = False
 
@@ -134,11 +134,11 @@ class VideoroomSessionInfo(object):
         self.id = id
         self.owner = owner                # type: ConnectionHandler
         self.janus_handle = janus_handle  # type: VideoroomPluginHandle
-        self.chat_handler = None          # type: VideoroomChatHandler
-        self.account = None               # type: AccountInfo
-        self.room = None                  # type: Videoroom
+        self.chat_handler = None          # type: Optional[VideoroomChatHandler]
+        self.account = None               # type: Optional[AccountInfo]
+        self.room = None                  # type: Optional[Videoroom]
         self.bitrate = None
-        self.parent_session = None        # type: VideoroomSessionInfo  # for subscribers this is their main session (the one used to join), for publishers is None
+        self.parent_session = None        # type: Optional[VideoroomSessionInfo]  # for subscribers this is their main session (the one used to join), for publishers is None
         self.publisher_id = None          # janus publisher ID for publishers / publisher session ID for subscribers
         self.slow_download = False
         self.slow_upload = False
@@ -489,8 +489,8 @@ class ConnectionHandler(object):
     def __init__(self, protocol):
         self.protocol = protocol
         self.device_id = hashlib.md5(protocol.peer).digest().encode('base64').rstrip('=\n')
-        self.janus_session = None  # type: JanusSession
-        self.accounts_map = {}  # account ID -> account
+        self.janus_session = None      # type: Optional[JanusSession]
+        self.accounts_map = {}         # account ID -> account
         self.account_handles_map = {}  # Janus handle ID -> account
         self.sip_sessions = SessionContainer()        # type: SessionContainer[SIPSessionInfo]        # incoming and outgoing SIP sessions
         self.videoroom_sessions = SessionContainer()  # type: SessionContainer[VideoroomSessionInfo]  # publisher and subscriber sessions in video rooms
@@ -1419,7 +1419,7 @@ class VideoroomChatHandler(object):
 
     def __init__(self, session):
         self.sylk_session = session  # type: VideoroomSessionInfo
-        self.sip_session = None      # type: Session
+        self.sip_session = None      # type: Optional[Session]
         self.chat_stream = None
         self._started = False
         self._ended = False
