@@ -257,6 +257,7 @@ class Videoroom(object):
         if self._shared_files:
             session.owner.send(sylkrtc.VideoroomFileSharingEvent(session=session.id, files=self._shared_files))
 
+    # noinspection DuplicatedCode
     def discard(self, session):
         if session in self._sessions:
             self._sessions.discard(session)
@@ -270,6 +271,7 @@ class Videoroom(object):
                     session.owner.send(sylkrtc.VideoroomConfigureEvent(session=session.id, active_participants=self._active_participants, originator='videoroom'))
             self._update_bitrate()
 
+    # noinspection DuplicatedCode
     def remove(self, session):
         self._sessions.remove(session)
         self._id_map.pop(session.id)
@@ -1536,6 +1538,7 @@ class VideoroomChatHandler(object):
         self.room.log.error('chatroom session for {} failed: {}'.format(self.account.id, notification.data.failure_reason))
         notification.center.post_notification('ChatSessionDidFail', sender=self, data=notification.data)
 
+    # noinspection PyUnusedLocal
     def _NH_SIPSessionNewProposal(self, notification):
         self.sip_session.reject_proposal()
 
