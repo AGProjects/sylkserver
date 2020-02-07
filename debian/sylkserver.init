@@ -1,5 +1,5 @@
 #!/bin/sh
-#
+
 ### BEGIN INIT INFO
 # Provides:          sylkserver
 # Required-Start:    $syslog $network $local_fs $remote_fs $time
