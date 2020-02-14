@@ -1,3 +1,18 @@
+sylkserver (5.5.0) unstable; urgency=medium
+
+  * Fixed typing information
+  * Converted method to static method
+  * Silenced some IDE weak warnings
+  * Removed commented out variable in debian rules
+  * Explicitly use python2 in shebang lines
+  * Do not ship a sysv init script anymore
+  * Simplified MANIFEST.in
+  * Increased debian standards version to 4.5.0
+  * Use pybuild as the debian build system
+  * Updated copyright years
+
+ -- Dan Pascu <dan@ag-projects.com>  Fri, 14 Feb 2020 14:38:18 +0200
+
 sylkserver (5.4.0) unstable; urgency=medium
 
   * Refactored VideoroomSessionInfo to simplify usage
