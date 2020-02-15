@@ -1,19 +1,21 @@
 Roadmap
 -------
 
-- [webrtcgateway] Replace Sofia stack with SIP SIMPLE client SDK
+- [webrtcgateway] One to One Text chat (see Janus backend support)
 - [webrtcgateway] Bridge SIP end-points to WebRTC conference (audio only)
-- [webrtcgateway] File transfers
-- [webrtcgateway] Screen sharing or second camera feed
-- [webrtcgateway] Text chat
+- [webrtcgateway] Replace Sofia stack with SIP SIMPLE client SDK
+
+Contact list application (XCAP to JS api).  This application must export a
+Javascript API that can be used by a WebRTC client to manage a contact list
+stored on an XCAP server.
 
 
 Improvements
 ------------
 
-- change disabled_applications to active_applications which accepts a list
+- Change disabled_applications to active_applications which accepts a list
   which can contain the keyword ALL and [+/-]app_name tokens
-- for debian check if we can use the snakeoil cert from the ssl-cert package
+- For debian check if we can use the snakeoil cert from the ssl-cert package
 
 
 Fixes
