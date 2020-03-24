@@ -1024,7 +1024,7 @@ class ConnectionHandler(object):
             raise APIError('Unknown video room session: {request.session}'.format(request=request))
         videoroom_session.chat_handler.send_composing_indication(request.state, request.refresh)
 
-    def _RH_videoroom_mute_participants(self, request):
+    def _RH_videoroom_mute_audio_participants(self, request):
         try:
             videoroom_session = self.videoroom_sessions[request.session]
         except KeyError:

@@ -378,8 +378,8 @@ class VideoroomComposingIndicationRequest(VideoroomRequestBase):
     refresh = IntegerProperty(optional=True)
 
 
-class VideoroomMuteParticipantsRequest(VideoroomRequestBase):
-    sylkrtc = FixedValueProperty('videoroom-mute-participants')
+class VideoroomMuteAudioParticipantsRequest(VideoroomRequestBase):
+    sylkrtc = FixedValueProperty('videoroom-mute-audio-participants')
 
 
 # SylkRTC request to model mapping
