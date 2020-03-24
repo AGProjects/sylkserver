@@ -260,6 +260,11 @@ class VideoroomMessageDeliveryEvent(VideoroomEventBase):
     reason = StringProperty()
 
 
+class VideoroomMuteAudioEvent(VideoroomEventBase):
+    event = FixedValueProperty('mute-audio')
+    originator = StringProperty()
+
+
 # Account request models
 
 class AccountAddRequest(AccountRequestBase):
@@ -371,6 +376,10 @@ class VideoroomComposingIndicationRequest(VideoroomRequestBase):
     sylkrtc = FixedValueProperty('videoroom-composing-indication')
     state = LimitedChoiceProperty(['active', 'idle'])
     refresh = IntegerProperty(optional=True)
+
+
+class VideoroomMuteParticipantsRequest(VideoroomRequestBase):
+    sylkrtc = FixedValueProperty('videoroom-mute-participants')
 
 
 # SylkRTC request to model mapping
