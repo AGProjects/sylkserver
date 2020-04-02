@@ -97,6 +97,10 @@ class VideoroomSessionOptions(JSONObject):
     bitrate = IntegerProperty(optional=True)
 
 
+class VideoroomRaisedHands(StringArray):
+    list_validator = UniqueItemsValidator()
+
+
 class SharedFile(JSONObject):
     filename = StringProperty()
     filesize = IntegerProperty()
@@ -265,6 +269,11 @@ class VideoroomMuteAudioEvent(VideoroomEventBase):
     originator = StringProperty()
 
 
+class VideoroomRaisedHandsEvent(VideoroomEventBase):
+    event = FixedValueProperty('raised-hands')
+    raised_hands = ArrayProperty(VideoroomRaisedHands)
+
+
 # Account request models
 
 class AccountAddRequest(AccountRequestBase):
@@ -380,6 +389,11 @@ class VideoroomComposingIndicationRequest(VideoroomRequestBase):
 
 class VideoroomMuteAudioParticipantsRequest(VideoroomRequestBase):
     sylkrtc = FixedValueProperty('videoroom-mute-audio-participants')
+
+
+class VideoroomToggleHandRequest(VideoroomRequestBase):
+    sylkrtc = FixedValueProperty('videoroom-toggle-hand')
+    session_id = StringProperty(optional=True)
 
 
 # SylkRTC request to model mapping

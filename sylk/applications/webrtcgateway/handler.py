@@ -224,6 +224,7 @@ class Videoroom(object):
         self._sessions = set()  # type: Set[VideoroomSessionInfo]
         self._id_map = {}       # type: Dict[Union[str, int], VideoroomSessionInfo]  # map session.id -> session and session.publisher_id -> session
         self._shared_files = []
+        self._raised_hands = []
         if self.config.record:
             makedirs(self.config.recording_dir, 0o755)
             self.log.info('created (recording on)')
@@ -244,6 +245,19 @@ class Videoroom(object):
             self.log.info('active participants: {}'.format(', '.join(self._active_participants) or None))
             self._update_bitrate()
 
+    @property
+    def raised_hands(self):
+        return self._raised_hands
+
+    @raised_hands.setter
+    def raised_hands(self, session_id):
+        if session_id in self._raised_hands:
+            self.log.info('{session} lowers hand '.format(session=session_id))
+            self._raised_hands.remove(session_id)
+        else:
+            self.log.info('{session} raises hand '.format(session=session_id))
+            self._raised_hands.append(session_id)
+
     def add(self, session):
         assert session not in self._sessions
         assert session.publisher_id is not None
@@ -256,6 +270,8 @@ class Videoroom(object):
             session.owner.send(sylkrtc.VideoroomConfigureEvent(session=session.id, active_participants=self._active_participants, originator='videoroom'))
         if self._shared_files:
             session.owner.send(sylkrtc.VideoroomFileSharingEvent(session=session.id, files=self._shared_files))
+        if self._raised_hands:
+            session.owner.send(sylkrtc.VideoroomRaisedHandsEvent(session=session.id, raised_hands=self._raised_hands))
 
     # noinspection DuplicatedCode
     def discard(self, session):
@@ -1032,6 +1048,20 @@ class ConnectionHandler(object):
         videoroom = videoroom_session.room
         for session in videoroom:
             session.owner.send(sylkrtc.VideoroomMuteAudioEvent(session=session.id, originator=request.session))
+
+    def _RH_videoroom_toggle_hand(self, request):
+        try:
+            videoroom_session = self.videoroom_sessions[request.session]
+        except KeyError:
+            raise APIError('Unknown video room session: {request.session}'.format(request=request))
+        videoroom = videoroom_session.room
+        if request.session_id:
+            request_session = request.session_id
+        else:
+            request_session = request.session
+        videoroom.raised_hands = request_session
+        for session in videoroom:
+            session.owner.send(sylkrtc.VideoroomRaisedHandsEvent(session=session.id, raised_hands=videoroom.raised_hands))
 
     # Event handlers
 
