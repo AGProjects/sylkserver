@@ -778,13 +778,8 @@ class ConnectionHandler(object):
     def _RH_account_devicetoken(self, request):
         if request.account not in self.accounts_map:
             raise APIError('Unknown account specified: {request.account}'.format(request=request))
-        storage = TokenStorage()
-        if request.old_token is not None:
-            storage.remove(request.account, request.old_token)
-            self.log.debug('removed token {request.old_token} for {request.account}'.format(request=request))
-        if request.new_token is not None:
-            storage.add(request.account, request.new_token)
-            self.log.debug('added token {request.new_token} for {request.account}'.format(request=request))
+        if request.token is not None:
+            self.log.debug('added token {request.token} for {request.account} with {request.device_id} on {request.plaform}'.format(request=request))
 
     def _RH_session_create(self, request):
         if request.session in self.sip_sessions:
