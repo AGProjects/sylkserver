@@ -297,9 +297,11 @@ class AccountUnregisterRequest(AccountRequestBase):
 
 class AccountDeviceTokenRequest(AccountRequestBase):
     sylkrtc = FixedValueProperty('account-devicetoken')
-    token = StringProperty(optional=True)
-    platform = StringProperty(optional=True)
-    device_id = StringProperty(optional=True)
+    token = StringProperty()
+    platform = StringProperty()
+    device = StringProperty()
+    silent = BooleanProperty()
+    app = StringProperty()
 
 
 # Session request models
