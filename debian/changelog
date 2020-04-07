@@ -1,3 +1,10 @@
+sylkserver (5.6.0) unstable; urgency=medium
+
+  * Added videoroom capability to raise/lower your hand
+  * Added videoroom capability to send mute command to all participants
+
+ -- Adrian Georgescu <ag@ag-projects.com>  Tue, 07 Apr 2020 14:40:43 +0200
+
 sylkserver (5.5.0) unstable; urgency=medium
 
   * Fixed typing information
