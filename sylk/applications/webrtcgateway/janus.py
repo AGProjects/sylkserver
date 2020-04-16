@@ -323,7 +323,7 @@ class VideoroomPluginHandle(JanusPluginHandle):
         try:
             self.message(janus.VideoroomDestroy(room=room))
         except JanusError as e:
-            log.warning('could not destroy video room %s: %s', room.id, e)
+            log.warning('could not destroy video room %s: %s', room, e)
 
     def join(self, room, sdp, display_name=None):
         if display_name:
