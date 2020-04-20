@@ -84,6 +84,8 @@ To run SylkServer in the foreground in bonjour mode:
 
 ./sylk-server --no-fork --use-bonjour
 
+To toggle debug mode send SIGUSR1 signal to the sylk-server process.
+
 To install SylkServer manually system wide:
 
 sudo python setup.py install
