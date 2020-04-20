@@ -1119,11 +1119,11 @@ class ConnectionHandler(object):
             return
         if event.uplink:  # uplink is from janus' point of view
             if not session_info.slow_download:
-                self.log.info('poor download connectivity for session {session.id}'.format(session=session_info))
+                self.log.debug('poor download connectivity for session {session.id}'.format(session=session_info))
             session_info.slow_download = True
         else:
             if not session_info.slow_upload:
-                self.log.info('poor upload connectivity for session {session.id}'.format(session=session_info))
+                self.log.debug('poor upload connectivity for session {session.id}'.format(session=session_info))
             session_info.slow_upload = True
 
     def _EH_janus_sip_media(self, event):
@@ -1311,11 +1311,11 @@ class ConnectionHandler(object):
             return
         if event.uplink:  # uplink is from janus' point of view
             if not videoroom_session.slow_download:
-                self.log.info('poor download connectivity to video room {session.room.uri} with session {session.id}'.format(session=videoroom_session))
+                self.log.debug('poor download connectivity to video room {session.room.uri} with session {session.id}'.format(session=videoroom_session))
             videoroom_session.slow_download = True
         else:
             if not videoroom_session.slow_upload:
-                self.log.info('poor upload connectivity to video room {session.room.uri} with session {session.id}'.format(session=videoroom_session))
+                self.log.debug('poor upload connectivity to video room {session.room.uri} with session {session.id}'.format(session=videoroom_session))
             videoroom_session.slow_upload = True
 
     def _EH_janus_videoroom_media(self, event):
