@@ -779,7 +779,7 @@ class ConnectionHandler(object):
         if request.account not in self.accounts_map:
             raise APIError('Unknown account specified: {request.account}'.format(request=request))
         if request.token is not None:
-            self.log.debug('added token {request.token} for {request.account} with {request.device} on {request.plaform}'.format(request=request))
+            self.log.info('added token {request.token} for {request.account} with {request.device} on {request.platform}'.format(request=request))
 
     def _RH_session_create(self, request):
         if request.session in self.sip_sessions:
