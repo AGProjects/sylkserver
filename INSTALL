@@ -63,7 +63,7 @@ darcs pull -a
 Install the required dependencies:
 
  * python-sipsimple http://sipsimpleclient.org
- * python-application (>= 2.5.0)
+ * python-application (>= 2.8.0)
  * python-autobahn
  * python-eventlib
  * python-lxml
