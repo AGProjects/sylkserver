@@ -128,7 +128,7 @@ class ContactParams(JSONObject):
     pn_app = StringProperty(optional=True)
     pn_tok = StringProperty(optional=True)
     pn_type = StringProperty(optional=True)
-    pn_silent = IntegerProperty(optional=True, default=0)
+    pn_silent = StringProperty(optional=True)
     pn_device = StringProperty(optional=True)
 
 # Janus requests

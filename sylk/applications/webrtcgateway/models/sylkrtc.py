@@ -300,7 +300,7 @@ class AccountDeviceTokenRequest(AccountRequestBase):
     token = StringProperty()
     platform = StringProperty()
     device = StringProperty()
-    silent = BooleanProperty()
+    silent = BooleanProperty(default=False)
     app = StringProperty()
 
 
