@@ -123,6 +123,13 @@ class VideoroomPublisher(JSONObject):
 class VideoroomPublishers(JSONArray):
     item_type = VideoroomPublisher
 
+# TODO Find a way to use '-' in names
+class ContactParams(JSONObject):
+    pn_app = StringProperty(optional=True)
+    pn_tok = StringProperty(optional=True)
+    pn_type = StringProperty(optional=True)
+    pn_silent = IntegerProperty(optional=True, default=0)
+    pn_device = StringProperty(optional=True)
 
 # Janus requests
 
@@ -194,7 +201,7 @@ class SIPRegister(JSONObject):
     user_agent = StringProperty(optional=True)
     proxy = StringProperty(optional=True)
     send_register = BooleanProperty(optional=True)
-
+    contact_params = ObjectProperty(ContactParams)
 
 class SIPUnregister(JSONObject):
     request = FixedValueProperty('unregister')

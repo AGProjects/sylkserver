@@ -45,6 +45,7 @@ class AccountInfo(object):
         self.user_agent = user_agent
         self.registration_state = None
         self.janus_handle = None  # type: Optional[SIPPluginHandle]
+        self.contact_params = {}
 
     @property
     def uri(self):
@@ -52,7 +53,7 @@ class AccountInfo(object):
 
     @property
     def user_data(self):
-        return dict(username=self.uri, display_name=self.display_name, user_agent=self.user_agent, ha1_secret=self.password)
+        return dict(username=self.uri, display_name=self.display_name, user_agent=self.user_agent, ha1_secret=self.password, contact_params=self.contact_params)
 
 
 class SessionPartyIdentity(object):
@@ -779,7 +780,28 @@ class ConnectionHandler(object):
         if request.account not in self.accounts_map:
             raise APIError('Unknown account specified: {request.account}'.format(request=request))
         if request.token is not None:
-            self.log.info('added token {request.token} for {request.account} with {request.device} on {request.platform}'.format(request=request))
+            # TODO Store token in storage so a conference invite can be done.
+            account_info = self.accounts_map[request.account]
+            account_info.contact_params = {
+                'pn_app': request.app,
+                'pn_tok': request.token,
+                'pn_type': request.platform,
+                'pn_device': request.device,
+                'pn_silent': request.silent
+            }
+            self.log.info('added token to {request.account} with device {request.device}({request.platform})'.format(request=request))
+
+            # We need to register again with the token, since it comes after the initial registration
+            if account_info.janus_handle is not None:
+                account_info.janus_handle.detach()
+                self.account_handles_map.pop(account_info.janus_handle.id)
+                account_info.janus_handle = None
+
+            proxy = self._lookup_sip_proxy(request.account)
+
+            account_info.janus_handle = SIPPluginHandle(self.janus_session, event_handler=self._handle_janus_sip_event)
+            self.account_handles_map[account_info.janus_handle.id] = account_info
+            account_info.janus_handle.register(account_info, proxy=proxy)
 
     def _RH_session_create(self, request):
         if request.session in self.sip_sessions:
