@@ -369,7 +369,7 @@ class Videoroom(object):
                 # todo: should we use max_bitrate / 2 or max_bitrate for each active participant if there are 2 active participants?
                 active_participant_bitrate = self.config.max_bitrate // len(self._active_participants)
                 other_participant_bitrate = 100000
-                self.log.info('participant bitrate is {} (active) / {} (others)'.format(active_participant_bitrate, other_participant_bitrate))
+                self.log.debug('participant bitrate is {} (active) / {} (others)'.format(active_participant_bitrate, other_participant_bitrate))
                 for session in self._sessions:
                     if session.id in self._active_participants:
                         bitrate = active_participant_bitrate
@@ -380,7 +380,7 @@ class Videoroom(object):
                         session.janus_handle.message(janus.VideoroomUpdatePublisher(bitrate=bitrate), async=True)
             else:
                 bitrate = self.config.max_bitrate // limit(len(self._sessions) - 1, min=1)
-                self.log.info('participant bitrate is {}'.format(bitrate))
+                self.log.debug('participant bitrate is {}'.format(bitrate))
                 for session in self._sessions:
                     if session.bitrate != bitrate:
                         session.bitrate = bitrate
