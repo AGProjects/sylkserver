@@ -570,6 +570,9 @@ class ConnectionHandler(object):
                     notification_center.remove_observer(self, sender=session.chat_handler)
                     session.chat_handler.end()
                     session.chat_handler = None
+                if session in session.room:
+                    # We need to check if the room can be destroyed, else this will never happen
+                    reactor.callLater(2, call_in_green_thread, self._maybe_destroy_videoroom_after_disconnect, session.room)
                 session.room.discard(session)
                 session.feeds.clear()
             self.janus_session.destroy()  # this automatically detaches all plugin handles associated with it, no need to manually do it
@@ -650,6 +653,14 @@ class ConnectionHandler(object):
 
             with VideoroomPluginHandle(self.janus_session, event_handler=self._handle_janus_videoroom_event) as videoroom_handle:
                 videoroom_handle.destroy(room=videoroom.id)
+
+            videoroom.log.info('destroyed')
+
+    def _maybe_destroy_videoroom_after_disconnect(self, videoroom):
+        # should only be called from a green thread.
+
+        if self.protocol is None and not videoroom:
+            videoroom.cleanup()
 
             videoroom.log.info('destroyed')
 
