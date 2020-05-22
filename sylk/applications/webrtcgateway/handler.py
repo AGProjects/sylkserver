@@ -798,7 +798,7 @@ class ConnectionHandler(object):
                 'pn_tok': request.token,
                 'pn_type': request.platform,
                 'pn_device': request.device,
-                'pn_silent': str(int(request.silent == True)) # janus expects a string
+                'pn_silent': str(int(request.silent is True)) # janus expects a string
             }
             self.log.info('added token to {request.account} with device {request.device}({request.platform})'.format(request=request))
 
