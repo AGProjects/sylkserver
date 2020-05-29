@@ -132,9 +132,9 @@ class ContactParams(JSONObject):
 
     @property
     def __data__(self):
-        data = super(ContactParams,self).__data__
+        data = super(ContactParams, self).__data__
         for key in data.keys():
-            data[key.replace('_','-')] = data.pop(key)
+            data[key.replace('_', '-')] = data.pop(key)
         return data
 
 # Janus requests
