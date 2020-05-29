@@ -123,13 +123,19 @@ class VideoroomPublisher(JSONObject):
 class VideoroomPublishers(JSONArray):
     item_type = VideoroomPublisher
 
-# TODO Find a way to use '-' in names
 class ContactParams(JSONObject):
     pn_app = StringProperty(optional=True)
     pn_tok = StringProperty(optional=True)
     pn_type = StringProperty(optional=True)
     pn_silent = StringProperty(optional=True)
     pn_device = StringProperty(optional=True)
+
+    @property
+    def __data__(self):
+        data = super(ContactParams,self).__data__
+        for key in data.keys():
+            data[key.replace('_','-')] = data.pop(key)
+        return data
 
 # Janus requests
 
