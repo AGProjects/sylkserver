@@ -802,18 +802,6 @@ class ConnectionHandler(object):
             }
             self.log.info('added token to {request.account} with device {request.device}({request.platform})'.format(request=request))
 
-            # We need to register again with the token, since it comes after the initial registration
-            if account_info.janus_handle is not None:
-                account_info.janus_handle.detach()
-                self.account_handles_map.pop(account_info.janus_handle.id)
-                account_info.janus_handle = None
-
-            proxy = self._lookup_sip_proxy(request.account)
-
-            account_info.janus_handle = SIPPluginHandle(self.janus_session, event_handler=self._handle_janus_sip_event)
-            self.account_handles_map[account_info.janus_handle.id] = account_info
-            account_info.janus_handle.register(account_info, proxy=proxy)
-
     def _RH_session_create(self, request):
         if request.session in self.sip_sessions:
             raise APIError('Session ID {request.session} already in use'.format(request=request))
