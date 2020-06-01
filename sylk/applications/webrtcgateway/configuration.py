@@ -6,7 +6,7 @@ from application.configuration import ConfigFile, ConfigSection, ConfigSetting
 from application.configuration.datatypes import NetworkAddress, StringList
 
 from sylk.configuration import ServerConfig
-from sylk.configuration.datatypes import Path, SIPProxyAddress, VideoBitrate, VideoCodec
+from sylk.configuration.datatypes import Path, SIPProxyAddress, VideoBitrate, VideoCodec, URL
 
 
 __all__ = 'GeneralConfig', 'JanusConfig', 'get_room_config'
@@ -102,7 +102,7 @@ class GeneralConfig(ConfigSection):
     filesharing_dir = ConfigSetting(type=Path, value=Path(os.path.join(ServerConfig.spool_dir.normalized, 'videoconference', 'files')))
     http_management_interface = ConfigSetting(type=ManagementInterfaceAddress, value=ManagementInterfaceAddress('127.0.0.1'))
     http_management_auth_secret = ConfigSetting(type=str, value=None)
-    firebase_server_key = ConfigSetting(type=str, value=None)
+    sylk_push_url = ConfigSetting(type=str, value=None)
 
 
 class JanusConfig(ConfigSection):

@@ -180,34 +180,6 @@ class AdminWebHandler(object):
         request.setResponseCode(403)
         return 'Authentication error'
 
-    @app.route('/incoming_call', methods=['POST'])
-    def incoming_session(self, request):
-        self._check_auth(request)
-        request.setHeader('Content-Type', 'application/json')
-        try:
-            data = json.load(request.content)
-            originator = data['originator']
-            destination = data['destination']
-        except Exception as e:
-            return json.dumps({'success': False, 'error': str(e)})
-        else:
-            push.incoming_call(originator, destination)
-            return json.dumps({'success': True})
-
-    @app.route('/missed_call', methods=['POST'])
-    def missed_session(self, request):
-        self._check_auth(request)
-        request.setHeader('Content-Type', 'application/json')
-        try:
-            data = json.load(request.content)
-            originator = data['originator']
-            destination = data['destination']
-        except Exception as e:
-            return json.dumps({'success': False, 'error': str(e)})
-        else:
-            push.missed_call(originator, destination)
-            return json.dumps({'success': True})
-
     @app.route('/tokens/<string:account>')
     def get_tokens(self, request, account):
         self._check_auth(request)

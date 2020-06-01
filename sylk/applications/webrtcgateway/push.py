@@ -9,18 +9,16 @@ from zope.interface import implementer
 
 from .configuration import GeneralConfig
 from .logger import log
-from .models import firebase
+from .models import sylkpush
 from .storage import TokenStorage
 
 
-__all__ = 'incoming_call', 'missed_call', 'conference_invite'
+__all__ = 'conference_invite'
 
 
 agent = Agent(reactor)
 headers = Headers({'User-Agent': ['SylkServer'],
-                   'Content-Type': ['application/json'],
-                   'Authorization': ['key=%s' % GeneralConfig.firebase_server_key]})
-FIREBASE_API_URL = 'https://fcm.googleapis.com/fcm/send'
+                   'Content-Type': ['application/json']})
 
 
 @implementer(IBodyProducer)
@@ -40,55 +38,31 @@ class StringProducer(object):
         pass
 
 
-def incoming_call(originator, destination):
+def conference_invite(originator, destination, room, call_id):
     tokens = TokenStorage()
-    request = firebase.FirebaseRequest(token='dummy', event=firebase.IncomingCallEvent(originator=originator, destination=destination), time_to_live=60)
+    request = sylkpush.ConferenceInviteEvent(token='dummy', app_id='dummy', platform='dummy', device_id='dummy',
+                                             originator=originator.uri, from_display_name=originator.display_name, to=room, call_id=str(call_id))
     if isinstance(tokens[destination], set):
-        for token in tokens[destination]:
-            request.to = token
-            _send_push_notification(json.dumps(request.__data__))
+        return
     else:
         for device_id, push_parameters in tokens[destination].iteritems():
-            request.to = push_parameters['token']
-            _send_push_notification(json.dumps(request.__data__))
-
-
-def missed_call(originator, destination):
-    tokens = TokenStorage()
-    request = firebase.FirebaseRequest(token='dummy', event=firebase.MissedCallEvent(originator=originator, destination=destination))
-    if isinstance(tokens[destination], set):
-        for token in tokens[destination]:
-            request.to = token
-            _send_push_notification(json.dumps(request.__data__))
-    else:
-        for device_id, push_parameters in tokens[destination].iteritems():
-            request.to = push_parameters['token']
-            _send_push_notification(json.dumps(request.__data__))
-
-
-def conference_invite(originator, destination, room):
-    tokens = TokenStorage()
-    request = firebase.FirebaseRequest(token='dummy', event=firebase.ConferenceInviteEvent(originator=originator, destination=destination, room=room), time_to_live=3600)
-    if isinstance(tokens[destination], set):
-        for token in tokens[destination]:
-            request.to = token
-            _send_push_notification(json.dumps(request.__data__))
-    else:
-        for device_id, push_parameters in tokens[destination].iteritems():
-            request.to = push_parameters['token']
+            request.token = push_parameters['token']
+            request.app_id = push_parameters['app']
+            request.platform = push_parameters['platform']
+            request.device_id = device_id
             _send_push_notification(json.dumps(request.__data__))
 
 
 @defer.inlineCallbacks
 def _send_push_notification(payload):
-    if GeneralConfig.firebase_server_key:
+    if GeneralConfig.sylk_push_url:
         try:
-            r = yield agent.request('POST', FIREBASE_API_URL, headers, StringProducer(payload))
+            r = yield agent.request('POST', GeneralConfig.sylk_push_url, headers, StringProducer(payload))
         except Exception as e:
-            log.info('Error sending Firebase message: %s', e)
+            log.info('Error sending push notification: %s', e)
         else:
             if r.code != 200:
-                log.warning('Error sending Firebase message: %s', r.phrase)
+                log.warning('Error sending push notification: %s', r.phrase)
             else:
                 log.debug('Sent push notification: %s', payload)
     else:

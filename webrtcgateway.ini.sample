@@ -30,8 +30,8 @@
 ; Shared secret for the HTTP management interface (Authorization: THE_KEY)
 ; http_management_auth_secret =
 
-; Server key for Firebase Cloud Messaging
-; firebase_server_key =
+; Sylk-push URL to send conference push notification
+; sylk_push_url =
 
 [Janus]
 ; URL pointing to the Janus API endpoint (only WebSocket is supported)

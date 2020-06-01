@@ -1020,7 +1020,7 @@ class ConnectionHandler(object):
                 room.log.info('invitation from %s for %s', originator.uri, account)
                 connection_handler.log.info('received an invitation from %s for %s to join video room %s', originator.uri, account, room.uri)
         for participant in participants:
-            push.conference_invite(originator=originator.uri, destination=participant, room=room.uri)
+            push.conference_invite(originator=originator, destination=participant, room=room.uri, call_id=room.id)
 
     def _RH_videoroom_session_trickle(self, request):
         try:
