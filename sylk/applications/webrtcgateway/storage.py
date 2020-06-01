@@ -55,3 +55,9 @@ class TokenStorage(object):
         else:
             self._tokens[account] = {contact_params['pn_device']: data}
         self._save()
+
+    def remove(self, account, device_id):
+        try:
+            del self._tokens[account][device_id]
+        except KeyError as e:
+            pass
