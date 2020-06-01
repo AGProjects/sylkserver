@@ -6,7 +6,7 @@ from application.configuration import ConfigFile, ConfigSection, ConfigSetting
 from application.configuration.datatypes import NetworkAddress, StringList
 
 from sylk.configuration import ServerConfig
-from sylk.configuration.datatypes import Path, SIPProxyAddress, VideoBitrate, VideoCodec, URL
+from sylk.configuration.datatypes import Path, SIPProxyAddress, VideoBitrate, VideoCodec
 
 
 __all__ = 'GeneralConfig', 'JanusConfig', 'get_room_config'
