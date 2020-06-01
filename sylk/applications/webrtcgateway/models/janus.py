@@ -133,7 +133,7 @@ class ContactParams(JSONObject):
     @property
     def __data__(self):
         data = super(ContactParams, self).__data__
-        for key in data.keys():
+        for key in data:
             data[key.replace('_', '-')] = data.pop(key)
         return data
 
