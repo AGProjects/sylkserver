@@ -61,3 +61,4 @@ class TokenStorage(object):
             del self._tokens[account][device_id]
         except KeyError as e:
             pass
+        self._save()
