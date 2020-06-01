@@ -22,7 +22,7 @@ class TokenStorage(object):
     __metaclass__ = Singleton
 
     def __init__(self):
-        self._tokens = defaultdict(set)
+        self._tokens = defaultdict()
 
     @run_in_thread('file-io')
     def _save(self):
@@ -41,10 +41,17 @@ class TokenStorage(object):
     def __getitem__(self, key):
         return self._tokens[key]
 
-    def add(self, account, token):
-        self._tokens[account].add(token)
-        self._save()
-
-    def remove(self, account, token):
-        self._tokens[account].discard(token)
+    def add(self, account, contact_params):
+        data = {
+            'token': contact_params['pn_tok'],
+            'platform': contact_params['pn_type'],
+            'silent': contact_params['pn_silent'],
+            'app': contact_params['pn_app']
+        }
+        if account in self._tokens:
+            if isinstance(self._tokens[account], set):
+                self._tokens[account] = {}
+            self._tokens[account][contact_params['pn_device']] = data
+        else:
+            self._tokens[account] = {contact_params['pn_device']: data}
         self._save()

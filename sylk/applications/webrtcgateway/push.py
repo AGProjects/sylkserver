@@ -43,25 +43,40 @@ class StringProducer(object):
 def incoming_call(originator, destination):
     tokens = TokenStorage()
     request = firebase.FirebaseRequest(token='dummy', event=firebase.IncomingCallEvent(originator=originator, destination=destination), time_to_live=60)
-    for token in tokens[destination]:
-        request.to = token
-        _send_push_notification(json.dumps(request.__data__))
+    if isinstance(tokens[destination], set):
+        for token in tokens[destination]:
+            request.to = token
+            _send_push_notification(json.dumps(request.__data__))
+    else:
+        for device_id, push_parameters in tokens[destination].iteritems():
+            request.to = push_parameters['token']
+            _send_push_notification(json.dumps(request.__data__))
 
 
 def missed_call(originator, destination):
     tokens = TokenStorage()
     request = firebase.FirebaseRequest(token='dummy', event=firebase.MissedCallEvent(originator=originator, destination=destination))
-    for token in tokens[destination]:
-        request.to = token
-        _send_push_notification(json.dumps(request.__data__))
+    if isinstance(tokens[destination], set):
+        for token in tokens[destination]:
+            request.to = token
+            _send_push_notification(json.dumps(request.__data__))
+    else:
+        for device_id, push_parameters in tokens[destination].iteritems():
+            request.to = push_parameters['token']
+            _send_push_notification(json.dumps(request.__data__))
 
 
 def conference_invite(originator, destination, room):
     tokens = TokenStorage()
     request = firebase.FirebaseRequest(token='dummy', event=firebase.ConferenceInviteEvent(originator=originator, destination=destination, room=room), time_to_live=3600)
-    for token in tokens[destination]:
-        request.to = token
-        _send_push_notification(json.dumps(request.__data__))
+    if isinstance(tokens[destination], set):
+        for token in tokens[destination]:
+            request.to = token
+            _send_push_notification(json.dumps(request.__data__))
+    else:
+        for device_id, push_parameters in tokens[destination].iteritems():
+            request.to = push_parameters['token']
+            _send_push_notification(json.dumps(request.__data__))
 
 
 @defer.inlineCallbacks

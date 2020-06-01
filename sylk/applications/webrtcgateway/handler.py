@@ -800,6 +800,9 @@ class ConnectionHandler(object):
                 'pn_device': request.device,
                 'pn_silent': str(int(request.silent is True)) # janus expects a string
             }
+            storage = TokenStorage()
+            storage.add(request.account, account_info.contact_params)
+
             self.log.info('added token to {request.account} with device {request.device}({request.platform})'.format(request=request))
 
     def _RH_session_create(self, request):
