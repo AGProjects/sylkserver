@@ -46,7 +46,10 @@ def conference_invite(originator, destination, room, call_id):
         return
     else:
         for device_id, push_parameters in tokens[destination].iteritems():
-            request.token = push_parameters['token']
+            try:
+                request.token = push_parameters['token'].split('#')[1]
+            except IndexError:
+                request.token = push_parameters['token']
             request.app_id = push_parameters['app']
             request.platform = push_parameters['platform']
             request.device_id = device_id
