@@ -39,7 +39,10 @@ class TokenStorage(object):
             self._tokens.update(tokens)
 
     def __getitem__(self, key):
-        return self._tokens[key]
+        try:
+            return self._tokens[key]
+        except KeyError:
+            return {}
 
     def add(self, account, contact_params):
         data = {
