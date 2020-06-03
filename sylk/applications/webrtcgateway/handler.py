@@ -1199,12 +1199,13 @@ class ConnectionHandler(object):
             return
         assert event.jsep is not None
         data = event.plugindata.data.result  # type: janus.SIPResultIncomingCall
+        call_id = event.plugindata.data.call_id
         originator = sylkrtc.SIPIdentity(uri=data.username, display_name=data.displayname)
         session = SIPSessionInfo(uuid.uuid4().hex)
         session.janus_handle = account_info.janus_handle
         session.init_incoming(account_info, originator.uri, originator.display_name)
         self.sip_sessions.add(session)
-        self.send(sylkrtc.AccountIncomingSessionEvent(account=account_info.id, session=session.id, originator=originator, sdp=event.jsep.sdp))
+        self.send(sylkrtc.AccountIncomingSessionEvent(account=account_info.id, session=session.id, originator=originator, sdp=event.jsep.sdp, call_id=call_id))
         self.log.info('received incoming session {session.id} from {session.remote_identity.uri!s} to {session.local_identity.uri!s}'.format(session=session))
 
     def _EH_janus_sip_event_missed_call(self, event):
@@ -1237,7 +1238,7 @@ class ConnectionHandler(object):
         session_info.state = 'accepted'
         if session_info.direction == 'outgoing':
             assert event.jsep is not None
-            self.send(sylkrtc.SessionAcceptedEvent(session=session_info.id, sdp=event.jsep.sdp))
+            self.send(sylkrtc.SessionAcceptedEvent(session=session_info.id, sdp=event.jsep.sdp, call_id=event.plugindata.data.call_id))
         else:
             self.send(sylkrtc.SessionAcceptedEvent(session=session_info.id))
         self.log.debug('{session.direction} session {session.id} state: {session.state}'.format(session=session_info))

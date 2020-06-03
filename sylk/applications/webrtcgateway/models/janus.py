@@ -559,6 +559,7 @@ class SIPAcceptingEvent(SIPPluginData):
 class SIPAcceptedEvent(SIPPluginData):
     sip = FixedValueProperty('event')
     result = ObjectProperty(SIPResultAccepted)            # type: SIPResultAccepted
+    call_id = StringProperty()
 
 
 class SIPHoldingEvent(SIPPluginData):
@@ -584,6 +585,7 @@ class SIPHangupEvent(SIPPluginData):
 class SIPIncomingCallEvent(SIPPluginData):
     sip = FixedValueProperty('event')
     result = ObjectProperty(SIPResultIncomingCall)        # type: SIPResultIncomingCall
+    call_id = StringProperty()
 
 
 class SIPMissedCallEvent(SIPPluginData):

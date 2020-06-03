@@ -136,6 +136,7 @@ class AccountIncomingSessionEvent(AccountEventBase):
     session = StringProperty()
     originator = ObjectProperty(SIPIdentity)  # type: SIPIdentity
     sdp = StringProperty()
+    call_id = StringProperty()
 
 
 class AccountMissedSessionEvent(AccountEventBase):
@@ -171,6 +172,7 @@ class SessionProgressEvent(SessionStateEvent):
 class SessionAcceptedEvent(SessionStateEvent):
     state = FixedValueProperty('accepted')
     sdp = StringProperty(optional=True)  # missing for incoming sessions
+    call_id = StringProperty(optional=True)
 
 
 class SessionEstablishedEvent(SessionStateEvent):
