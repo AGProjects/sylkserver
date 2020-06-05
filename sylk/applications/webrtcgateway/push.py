@@ -37,23 +37,29 @@ class StringProducer(object):
     def stopProducing(self):
         pass
 
+def _construct_and_send(result, request):
+    for device_id, push_parameters in result.iteritems():
+        try:
+            request.token = push_parameters['token'].split('#')[1]
+        except IndexError:
+            request.token = push_parameters['token']
+        request.app_id = push_parameters['app']
+        request.platform = push_parameters['platform']
+        request.device_id = device_id
+        _send_push_notification(json.dumps(request.__data__))
 
 def conference_invite(originator, destination, room, call_id):
     tokens = TokenStorage()
     request = sylkpush.ConferenceInviteEvent(token='dummy', app_id='dummy', platform='dummy', device_id='dummy',
                                              originator=originator.uri, from_display_name=originator.display_name, to=room, call_id=str(call_id))
-    if isinstance(tokens[destination], set):
+    user_tokens = tokens[destination]
+    if isinstance(user_tokens, set):
         return
     else:
-        for device_id, push_parameters in tokens[destination].iteritems():
-            try:
-                request.token = push_parameters['token'].split('#')[1]
-            except IndexError:
-                request.token = push_parameters['token']
-            request.app_id = push_parameters['app']
-            request.platform = push_parameters['platform']
-            request.device_id = device_id
-            _send_push_notification(json.dumps(request.__data__))
+        if isinstance(user_tokens, defer.Deferred):
+            user_tokens.addCallback(lambda result: _construct_and_send(result, request))
+        else:
+            _construct_and_send(user_tokens, request)
 
 
 @defer.inlineCallbacks

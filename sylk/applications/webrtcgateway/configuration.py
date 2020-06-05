@@ -3,7 +3,7 @@ import os
 import re
 
 from application.configuration import ConfigFile, ConfigSection, ConfigSetting
-from application.configuration.datatypes import NetworkAddress, StringList
+from application.configuration.datatypes import NetworkAddress, StringList, HostnameList
 
 from sylk.configuration import ServerConfig
 from sylk.configuration.datatypes import Path, SIPProxyAddress, VideoBitrate, VideoCodec
@@ -114,6 +114,14 @@ class JanusConfig(ConfigSection):
     trace_janus = False
     max_bitrate = ConfigSetting(type=VideoBitrate, value=VideoBitrate(2016000))  # ~2 MBits/s
     video_codec = ConfigSetting(type=VideoCodec, value=VideoCodec('vp9'))
+
+
+class CassandraConfig(ConfigSection):
+    __cfgfile__ = 'webrtcgateway.ini'
+    __section__ = 'Cassandra'
+
+    cluster_contact_points = ConfigSetting(type=HostnameList, value=None)
+    keyspace = ConfigSetting(type=str, value='')
 
 
 class RoomConfig(ConfigSection):

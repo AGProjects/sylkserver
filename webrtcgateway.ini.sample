@@ -57,6 +57,13 @@ api_secret = 0745f2f74f34451c89343afcdcae5809
 ; Possible values are: h264, vp8 and vp9. Default is vp9.
 ; video_codec = vp9
 
+[Cassandra]
+; Contact points to cassandra cluster
+; cluster_contact_points =
+
+; Keyspace to use to retrieve tokens
+; keyspace =
+
 ; Per room configuration options
 ; [room1@videoconference.example.com]
 ; record = True

@@ -186,7 +186,10 @@ class AdminWebHandler(object):
         request.setHeader('Content-Type', 'application/json')
         storage = TokenStorage()
         tokens = storage[account]
-        return json.dumps({'tokens': tokens})
+        if isinstance(tokens, defer.Deferred):
+            return tokens.addCallback(lambda result: json.dumps({'tokens': result}))
+        else:
+            return json.dumps({'tokens': tokens})
 
     @app.route('/tokens/<string:account>/<string:device_id>', methods=['DELETE'])
     def process_token(self, request, account, device_id):
