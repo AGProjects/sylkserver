@@ -75,4 +75,4 @@ def _send_push_notification(payload):
             else:
                 log.debug('Sent push notification: %s', payload)
     else:
-        log.warning('Cannot send push notification: no Firebase server key configured')
+        log.warning('Cannot send push notification: no Sylk push server configured')
