@@ -791,7 +791,6 @@ class ConnectionHandler(object):
         if request.account not in self.accounts_map:
             raise APIError('Unknown account specified: {request.account}'.format(request=request))
         if request.token is not None:
-            # TODO Store token in storage so a conference invite can be done.
             account_info = self.accounts_map[request.account]
             account_info.contact_params = {
                 'pn_app': request.app,

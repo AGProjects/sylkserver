@@ -29,12 +29,13 @@ else:
         pass
     else:
         CASSANDRA_MODULES_AVAILABLE = True
+        from cassandra.cqlengine.query import LWTException
         class PushTokens(Model):
             username        = columns.Text(partition_key=True)
             domain          = columns.Text(partition_key=True)
-            device_id       = columns.Text(primary_key=True)
+            device_id       = columns.Text()
             app             = columns.Text()
-            device_token    = columns.Text()
+            device_token    = columns.Text(primary_key=True)
             platform        = columns.Text()
             silent          = columns.Text()
             user_agent      = columns.Text(required=False)
@@ -66,7 +67,7 @@ class FileStorage(object):
 
     def add(self, account, contact_params):
         data = {
-            'token': contact_params['pn_tok'],
+            'device_id': contact_params['pn_device'],
             'platform': contact_params['pn_type'],
             'silent': contact_params['pn_silent'],
             'app': contact_params['pn_app']
@@ -74,14 +75,17 @@ class FileStorage(object):
         if account in self._tokens:
             if isinstance(self._tokens[account], set):
                 self._tokens[account] = {}
-            self._tokens[account][contact_params['pn_device']] = data
+            # Remove old storage layout based on device id
+            if contact_params['pn_device'] in self._tokens[account]:
+                del self._tokens[account][contact_params['pn_device']]
+            self._tokens[account][contact_params['pn_tok']] = data
         else:
-            self._tokens[account] = {contact_params['pn_device']: data}
+            self._tokens[account] = {contact_params['pn_tok']: data}
         self._save()
 
-    def remove(self, account, device_id):
+    def remove(self, account, device_token):
         try:
-            del self._tokens[account][device_id]
+            del self._tokens[account][device_token]
         except KeyError:
             pass
         self._save()
@@ -100,7 +104,7 @@ class CassandraStorage(object):
             username, domain = key.split('@', 1)
             tokens = {}
             for device in PushTokens.objects(PushTokens.username == username, PushTokens.domain == domain):
-                tokens[device.device_id] = {'token': device.device_token, 'platform': device.platform,
+                tokens[device.device_token] = {'device_id': device.device_id, 'platform': device.platform,
                                             'silent': device.silent, 'app': device.app}
             deferred.callback(tokens)
             return tokens
@@ -115,9 +119,12 @@ class CassandraStorage(object):
                           silent=contact_params['pn_silent'], app=contact_params['pn_app'])
 
     @run_in_thread('cassandra')
-    def remove(self, account, device_id):
+    def remove(self, account, device_token):
         username, domain = account.split('@', 1)
-        PushTokens.objects(PushTokens.username == username, PushTokens.domain == domain, PushTokens.device_id == device_id).if_exists().delete()
+        try:
+            PushTokens.objects(PushTokens.username == username, PushTokens.domain == domain, PushTokens.device_token == device_token).if_exists().delete()
+        except LWTException:
+            pass
 
 
 class TokenStorage(object):

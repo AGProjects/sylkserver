@@ -38,14 +38,14 @@ class StringProducer(object):
         pass
 
 def _construct_and_send(result, request):
-    for device_id, push_parameters in result.iteritems():
+    for device_token, push_parameters in result.iteritems():
         try:
-            request.token = push_parameters['token'].split('#')[1]
+            request.token = device_token.split('#')[1]
         except IndexError:
-            request.token = push_parameters['token']
+            request.token = device_token
         request.app_id = push_parameters['app']
         request.platform = push_parameters['platform']
-        request.device_id = device_id
+        request.device_id = push_parameters['device_id']
         _send_push_notification(json.dumps(request.__data__))
 
 def conference_invite(originator, destination, room, call_id):

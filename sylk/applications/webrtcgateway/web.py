@@ -191,11 +191,11 @@ class AdminWebHandler(object):
         else:
             return json.dumps({'tokens': tokens})
 
-    @app.route('/tokens/<string:account>/<string:device_id>', methods=['DELETE'])
-    def process_token(self, request, account, device_id):
+    @app.route('/tokens/<string:account>/<string:device_token>', methods=['DELETE'])
+    def process_token(self, request, account, device_token):
         self._check_auth(request)
         request.setHeader('Content-Type', 'application/json')
         storage = TokenStorage()
         if request.method == 'DELETE':
-            storage.remove(account, device_id)
+            storage.remove(account, device_token)
         return json.dumps({'success': True})
