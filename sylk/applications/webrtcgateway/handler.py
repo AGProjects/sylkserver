@@ -800,7 +800,7 @@ class ConnectionHandler(object):
                 'pn_silent': str(int(request.silent is True)) # janus expects a string
             }
             storage = TokenStorage()
-            storage.add(request.account, account_info.contact_params)
+            storage.add(request.account, account_info.contact_params, account_info.user_agent)
 
             self.log.info('added token to {request.account} with device {request.device}({request.platform})'.format(request=request))
 

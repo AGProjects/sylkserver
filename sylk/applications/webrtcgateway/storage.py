@@ -65,12 +65,13 @@ class FileStorage(object):
         except KeyError:
             return {}
 
-    def add(self, account, contact_params):
+    def add(self, account, contact_params, user_agent):
         data = {
             'device_id': contact_params['pn_device'],
             'platform': contact_params['pn_type'],
             'silent': contact_params['pn_silent'],
-            'app': contact_params['pn_app']
+            'app': contact_params['pn_app'],
+            'user_agent': user_agent
         }
         if account in self._tokens:
             if isinstance(self._tokens[account], set):
@@ -112,11 +113,11 @@ class CassandraStorage(object):
         return deferred
 
     @run_in_thread('cassandra')
-    def add(self, account, contact_params):
+    def add(self, account, contact_params, user_agent):
         username, domain = account.split('@', 1)
         PushTokens.create(username=username, domain=domain, device_id=contact_params['pn_device'],
                           device_token=contact_params['pn_tok'], platform=contact_params['pn_type'],
-                          silent=contact_params['pn_silent'], app=contact_params['pn_app'])
+                          silent=contact_params['pn_silent'], app=contact_params['pn_app'], user_agent=user_agent)
 
     @run_in_thread('cassandra')
     def remove(self, account, device_token):
