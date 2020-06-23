@@ -1,6 +1,24 @@
 
-from .jsonobjects import IntegerProperty, StringProperty, FixedValueProperty 
+from .jsonobjects import IntegerProperty, StringProperty, FixedValueProperty, ObjectProperty, AbstractObjectProperty
 from .jsonobjects import JSONObject
+
+
+class PushBody(JSONObject):
+    _content = AbstractObjectProperty(optional=True)
+
+
+class PushData(JSONObject):
+    body = ObjectProperty(PushBody)
+    call_id = StringProperty()
+    token = StringProperty()
+    reason = StringProperty()
+    url = StringProperty()
+
+
+class PushReply(JSONObject):
+    code = IntegerProperty()
+    description = StringProperty()
+    data = ObjectProperty(PushData)
 
 
 # Event base classes (abstract, should not be used directly)
