@@ -4,7 +4,6 @@ import json
 import random
 import os
 import time
-import uuid
 
 from application.notification import IObserver, NotificationCenter, NotificationData
 from application.python import Null, limit
@@ -690,6 +689,11 @@ class ConnectionHandler(object):
         # Build a proxy URI Sofia-SIP likes
         return 'sips:{route.address}:{route.port}'.format(route=route) if route.transport == 'tls' else str(route.uri)
 
+    def _callid_to_uuid(self, callid):
+        hexa = hashlib.md5(callid.encode()).hexdigest()
+        uuidv4 = '%s-%s-%s-%s-%s' % (hexa[:8], hexa[8:12], hexa[12:16], hexa[16:20], hexa[20:])
+        return uuidv4
+
     def _handle_janus_sip_event(self, event):
         operation = Operation(type='event', name='janus-sip', data=event)
         self.operations_queue.send(operation)
@@ -1200,7 +1204,7 @@ class ConnectionHandler(object):
         data = event.plugindata.data.result  # type: janus.SIPResultIncomingCall
         call_id = event.plugindata.data.call_id
         originator = sylkrtc.SIPIdentity(uri=data.username, display_name=data.displayname)
-        session = SIPSessionInfo(uuid.uuid4().hex)
+        session = SIPSessionInfo(self._callid_to_uuid(call_id))
         session.janus_handle = account_info.janus_handle
         session.init_incoming(account_info, originator.uri, originator.display_name)
         self.sip_sessions.add(session)
