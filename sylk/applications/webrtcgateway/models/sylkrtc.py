@@ -276,6 +276,12 @@ class VideoroomRaisedHandsEvent(VideoroomEventBase):
     raised_hands = ArrayProperty(VideoroomRaisedHands)
 
 
+# Ping request model, can be used to check connectivity from client
+
+class PingRequest(SylkRTCRequestBase):
+    sylkrtc = FixedValueProperty('ping')
+
+
 # Account request models
 
 class AccountAddRequest(AccountRequestBase):

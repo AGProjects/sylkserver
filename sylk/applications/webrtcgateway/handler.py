@@ -733,6 +733,9 @@ class ConnectionHandler(object):
 
     # Request handlers
 
+    def _RH_ping(self, request):
+        pass
+
     def _RH_account_add(self, request):
         if request.account in self.accounts_map:
             raise APIError('Account {request.account} already added'.format(request=request))
