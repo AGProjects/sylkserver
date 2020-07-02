@@ -40,7 +40,7 @@ class StringProducer(object):
 def _construct_and_send(result, request, destination):
     for device_token, push_parameters in result.iteritems():
         try:
-            request.token = device_token.split('#')[1]
+            request.token = device_token.split('#')[0]
         except IndexError:
             request.token = device_token
         request.app_id = push_parameters['app']
