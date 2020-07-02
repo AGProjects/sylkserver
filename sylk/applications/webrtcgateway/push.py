@@ -71,29 +71,13 @@ def _send_push_notification(payload, destination):
             log.info('Error sending push notification to %s: %s', GeneralConfig.sylk_push_url, e)
         else:
             if r.code != 200:
-                log.warning('Error sending push notification: %s', r.phrase)
-            else:
-                try:
-                    body = yield readBody(r)
-                except Exception as e:
-                      log.warning("Error reading body: %s", e)
+                if r.code == 410:
+                    log.info("Token expired, purging old token from storage")
+                    tokens = TokenStorage()
+                    tokens.remove(destination, body.data.token)
                 else:
-                    if "application/json" in r.headers.getRawHeaders('content-type'):
-                        _maybe_purge_token(body, destination)
+                    log.warning('Error sending push notification: %s', r.phrase)
+            else:
                 log.debug('Sent push notification: %s', payload)
     else:
         log.warning('Cannot send push notification: no Sylk push server configured')
-
-def _maybe_purge_token(body, destination):
-    body = sylkpush.PushReply(**json.loads(body))
-    reply_body = body.data.body
-    try:
-        failure = reply_body._content.failure
-        if failure == 1:
-            reason = reply_body._content.results[0]['error']
-            if reason == 'NotRegistered':
-                log.info("Token expired, purging old token from storage")
-                tokens = TokenStorage()
-                tokens.remove(destination, body.data.token)
-    except AttributeError, KeyError:
-        pass
