@@ -68,7 +68,7 @@ def _send_push_notification(payload, destination):
         try:
             r = yield agent.request('POST', GeneralConfig.sylk_push_url, headers, StringProducer(payload))
         except Exception as e:
-            log.info('Error sending push notification: %s', e)
+            log.info('Error sending push notification to %s: %s', GeneralConfig.sylk_push_url, e)
         else:
             if r.code != 200:
                 log.warning('Error sending push notification: %s', r.phrase)
