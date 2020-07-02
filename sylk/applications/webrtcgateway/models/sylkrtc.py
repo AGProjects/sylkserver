@@ -147,6 +147,7 @@ class AccountMissedSessionEvent(AccountEventBase):
 class AccountConferenceInviteEvent(AccountEventBase):
     event = FixedValueProperty('conference-invite')
     room = StringProperty(validator=AORValidator())
+    session_id = StringProperty()
     originator = ObjectProperty(SIPIdentity)  # type: SIPIdentity
 
 

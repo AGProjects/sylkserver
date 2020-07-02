@@ -1017,7 +1017,7 @@ class ConnectionHandler(object):
         room = base_session.room
         participants = set(request.participants)
         originator = sylkrtc.SIPIdentity(uri=base_session.account.id, display_name=base_session.account.display_name)
-        event = sylkrtc.AccountConferenceInviteEvent(account='placeholder', room=room.uri, originator=originator)
+        event = sylkrtc.AccountConferenceInviteEvent(account='placeholder', room=room.uri, originator=originator, session_id=self._callid_to_uuid(room.id))
         for protocol in self.protocol.factory.connections.difference([self.protocol]):
             connection_handler = protocol.connection_handler
             for account in participants.intersection(connection_handler.accounts_map):
