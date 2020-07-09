@@ -39,14 +39,11 @@ class StringProducer(object):
 
 def _construct_and_send(result, request, destination):
     for device_token, push_parameters in result.iteritems():
-        try:
-            request.token = device_token.split('#')[0]
-        except IndexError:
-            request.token = device_token
+        request.token = device_token
         request.app_id = push_parameters['app']
         request.platform = push_parameters['platform']
         request.device_id = push_parameters['device_id']
-        _send_push_notification(json.dumps(request.__data__), destination)
+        _send_push_notification(json.dumps(request), destination)
 
 def conference_invite(originator, destination, room, call_id):
     tokens = TokenStorage()
@@ -66,7 +63,11 @@ def conference_invite(originator, destination, room, call_id):
 def _send_push_notification(payload, destination):
     if GeneralConfig.sylk_push_url:
         try:
-            r = yield agent.request('POST', GeneralConfig.sylk_push_url, headers, StringProducer(payload))
+            payload.token = payload.token.split('#')[0]
+        except IndexError:
+            pass
+        try:
+            r = yield agent.request('POST', GeneralConfig.sylk_push_url, headers, StringProducer(payload.__data__)
         except Exception as e:
             log.info('Error sending push notification to %s: %s', GeneralConfig.sylk_push_url, e)
         else:
@@ -74,7 +75,7 @@ def _send_push_notification(payload, destination):
                 if r.code == 410:
                     log.info("Token expired, purging old token from storage")
                     tokens = TokenStorage()
-                    tokens.remove(destination, body.data.token)
+                    tokens.remove(destination, payload.token)
                 else:
                     log.warning('Error sending push notification: %s', r.phrase)
             else:
