@@ -63,10 +63,6 @@ def conference_invite(originator, destination, room, call_id):
 def _send_push_notification(payload, destination):
     if GeneralConfig.sylk_push_url:
         try:
-            payload.token = payload.token.split('#')[0]
-        except IndexError:
-            pass
-        try:
             r = yield agent.request('POST', GeneralConfig.sylk_push_url, headers, StringProducer(payload.__data__))
         except Exception as e:
             log.info('Error sending push notification to %s: %s', GeneralConfig.sylk_push_url, e)

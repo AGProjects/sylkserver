@@ -31,14 +31,15 @@ else:
         CASSANDRA_MODULES_AVAILABLE = True
         from cassandra.cqlengine.query import LWTException
         class PushTokens(Model):
-            username        = columns.Text(partition_key=True)
-            domain          = columns.Text(partition_key=True)
-            device_id       = columns.Text()
-            app             = columns.Text()
-            device_token    = columns.Text(primary_key=True)
-            platform        = columns.Text()
-            silent          = columns.Text()
-            user_agent      = columns.Text(required=False)
+            username         = columns.Text(partition_key=True)
+            domain           = columns.Text(partition_key=True)
+            device_id        = columns.Text()
+            app              = columns.Text()
+            background_token = columns.Text(required=False)
+            device_token     = columns.Text(primary_key=True)
+            platform         = columns.Text()
+            silent           = columns.Text()
+            user_agent       = columns.Text(required=False)
 
 
 class FileStorage(object):
@@ -66,12 +67,18 @@ class FileStorage(object):
             return {}
 
     def add(self, account, contact_params, user_agent):
+        try:
+            (token, background_token) = contact_params['pn_tok'].split('#')
+        except IndexError:
+            token = contact_params['pn_tok']
+            background_token = None
         data = {
             'device_id': contact_params['pn_device'],
             'platform': contact_params['pn_type'],
             'silent': contact_params['pn_silent'],
             'app': contact_params['pn_app'],
-            'user_agent': user_agent
+            'user_agent': user_agent,
+            'background_token': background_token
         }
         if account in self._tokens:
             if isinstance(self._tokens[account], set):
@@ -79,9 +86,16 @@ class FileStorage(object):
             # Remove old storage layout based on device id
             if contact_params['pn_device'] in self._tokens[account]:
                 del self._tokens[account][contact_params['pn_device']]
-            self._tokens[account][contact_params['pn_tok']] = data
+
+            # Remove old unsplit token if exists, can be removed if all tokens are stored split
+            if background_token is not None:
+                try:
+                    del self._tokens[account][contact_params['pn_tok']]
+                except IndexError:
+                    pass
+            self._tokens[account][token] = data
         else:
-            self._tokens[account] = {contact_params['pn_tok']: data}
+            self._tokens[account] = {token: data}
         self._save()
 
     def remove(self, account, device_token):
@@ -119,8 +133,20 @@ class CassandraStorage(object):
     @run_in_thread('cassandra')
     def add(self, account, contact_params, user_agent):
         username, domain = account.split('@', 1)
+        try:
+            (token, background_token) = contact_params['pn_tok'].split('#')
+        except IndexError:
+            token = contact_params['pn_tok']
+            background_token = None
+
+        # Remove old unsplit token if exists, can be removed if all tokens are stored split
+        if background_token is not None:
+            try:
+                PushTokens.objects(PushTokens.username == username, PushTokens.domain == domain, PushTokens.device_token == contact_params['pn_tok']).if_exists().delete()
+            except LWTException:
+                pass
         PushTokens.create(username=username, domain=domain, device_id=contact_params['pn_device'],
-                          device_token=contact_params['pn_tok'], platform=contact_params['pn_type'],
+                          device_token=token, background_token=background_token, platform=contact_params['pn_type'],
                           silent=contact_params['pn_silent'], app=contact_params['pn_app'], user_agent=user_agent)
 
     @run_in_thread('cassandra')
