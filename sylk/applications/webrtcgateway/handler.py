@@ -792,6 +792,10 @@ class ConnectionHandler(object):
             account_info.janus_handle.detach()
             self.account_handles_map.pop(account_info.janus_handle.id)
             account_info.janus_handle = None
+
+        storage = TokenStorage()
+        storage.remove(request.account, account_info.contact_params['pn_tok'])
+
         self.log.info('unregistered {request.account} from receiving incoming calls'.format(request=request))
 
     def _RH_account_devicetoken(self, request):

@@ -86,6 +86,10 @@ class FileStorage(object):
 
     def remove(self, account, device_token):
         try:
+            device_token = device_token.split('#')[0]
+        except IndexError:
+            pass
+        try:
             del self._tokens[account][device_token]
         except KeyError:
             pass
@@ -122,6 +126,10 @@ class CassandraStorage(object):
     @run_in_thread('cassandra')
     def remove(self, account, device_token):
         username, domain = account.split('@', 1)
+        try:
+            device_token = device_token.split('#')[0]
+        except IndexError:
+            pass
         try:
             PushTokens.objects(PushTokens.username == username, PushTokens.domain == domain, PushTokens.device_token == device_token).if_exists().delete()
         except LWTException:
