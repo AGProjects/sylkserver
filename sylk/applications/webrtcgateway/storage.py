@@ -69,7 +69,7 @@ class FileStorage(object):
     def add(self, account, contact_params, user_agent):
         try:
             (token, background_token) = contact_params['pn_tok'].split('#')
-        except IndexError:
+        except ValueError:
             token = contact_params['pn_tok']
             background_token = None
         data = {
@@ -135,7 +135,7 @@ class CassandraStorage(object):
         username, domain = account.split('@', 1)
         try:
             (token, background_token) = contact_params['pn_tok'].split('#')
-        except IndexError:
+        except ValueError:
             token = contact_params['pn_tok']
             background_token = None
 
