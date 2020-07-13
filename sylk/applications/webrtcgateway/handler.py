@@ -793,8 +793,9 @@ class ConnectionHandler(object):
             self.account_handles_map.pop(account_info.janus_handle.id)
             account_info.janus_handle = None
 
-        storage = TokenStorage()
-        storage.remove(request.account, account_info.contact_params['pn_tok'])
+        if 'pn_tok' in account_info.contact_params:
+            storage = TokenStorage()
+            storage.remove(request.account, account_info.contact_params['pn_tok'])
 
         self.log.info('unregistered {request.account} from receiving incoming calls'.format(request=request))
 
