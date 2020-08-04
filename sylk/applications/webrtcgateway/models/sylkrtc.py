@@ -170,6 +170,12 @@ class SessionProgressEvent(SessionStateEvent):
     state = FixedValueProperty('progress')
 
 
+class SessionEarlyMediaEvent(SessionStateEvent):
+    state = FixedValueProperty('early-media')
+    sdp = StringProperty(optional=True)
+    call_id = StringProperty(optional=True)
+
+
 class SessionAcceptedEvent(SessionStateEvent):
     state = FixedValueProperty('accepted')
     sdp = StringProperty(optional=True)  # missing for incoming sessions

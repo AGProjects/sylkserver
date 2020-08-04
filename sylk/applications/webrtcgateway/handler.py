@@ -877,7 +877,7 @@ class ConnectionHandler(object):
         except KeyError:
             raise APIError('Unknown session specified: {request.session}'.format(request=request))
 
-        if session_info.state not in ('connecting', 'progress', 'accepted', 'established'):
+        if session_info.state not in ('connecting', 'progress', 'early_media', 'accepted', 'established'):
             raise APIError('Invalid state for terminating session {session.id}: {session.state}'.format(session=session_info))
 
         if session_info.direction == 'incoming' and session_info.state == 'connecting':
@@ -1248,7 +1248,10 @@ class ConnectionHandler(object):
             self.log.warning('could not find SIP session with handle ID {event.sender} for accepted event'.format(event=event))
             return
 
-        if session_info.state == 'accepted':  # We can be already in this state if progress contained the SDP
+        if session_info.state == 'established':  # We had early media
+            session_info.state = 'accepted'
+            self.send(sylkrtc.SessionAcceptedEvent(session=session_info.id))
+            self.log.debug('{session.direction} session {session.id} state: {session.state}'.format(session=session_info))
             return
 
         session_info.state = 'accepted'
@@ -1287,16 +1290,16 @@ class ConnectionHandler(object):
     def _EH_janus_sip_event_proceeding(self, event):
         pass
 
-    def _EH_janus_sip_event_progress(self, event):  # Handle early media by sending accepted -Tijmen
+    def _EH_janus_sip_event_progress(self, event):
         if (event.jsep):
             try:
                 session_info = self.sip_sessions[event.sender]
             except KeyError:
-                self.log.warning('could not find SIP session with handle ID {event.sender} for accepted event'.format(event=event))
+                self.log.warning('could not find SIP session with handle ID {event.sender} for progress event'.format(event=event))
                 return
-            session_info.state = 'accepted'
-            self.log.info('{session.direction} session {session.id} got early media, faking accepted state'.format(session=session_info))
-            self.send(sylkrtc.SessionAcceptedEvent(session=session_info.id, sdp=event.jsep.sdp, call_id=event.plugindata.data.call_id))
+            session_info.state = 'early_media'
+            self.log.info('{session.direction} session {session.id} has early media'.format(session=session_info))
+            self.send(sylkrtc.SessionEarlyMediaEvent(session=session_info.id, sdp=event.jsep.sdp, call_id=event.plugindata.data.call_id))
             self.log.debug('{session.direction} session {session.id} state: {session.state}'.format(session=session_info))
 
     def _EH_janus_sip_event_ringing(self, event):  # TODO: check if we want to use this -Dan
