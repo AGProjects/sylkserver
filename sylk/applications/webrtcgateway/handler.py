@@ -1247,6 +1247,10 @@ class ConnectionHandler(object):
         except KeyError:
             self.log.warning('could not find SIP session with handle ID {event.sender} for accepted event'.format(event=event))
             return
+
+        if session_info.state == 'accepted':  # We can be already in this state if progress contained the SDP
+            return
+
         session_info.state = 'accepted'
         if session_info.direction == 'outgoing':
             assert event.jsep is not None
@@ -1283,8 +1287,17 @@ class ConnectionHandler(object):
     def _EH_janus_sip_event_proceeding(self, event):
         pass
 
-    def _EH_janus_sip_event_progress(self, event):  # TODO: implement this to handle 183 w/ SDP -Dan
-        pass
+    def _EH_janus_sip_event_progress(self, event):  # Handle early media by sending accepted -Tijmen
+        if (event.jsep):
+            try:
+                session_info = self.sip_sessions[event.sender]
+            except KeyError:
+                self.log.warning('could not find SIP session with handle ID {event.sender} for accepted event'.format(event=event))
+                return
+            session_info.state = 'accepted'
+            self.log.info('{session.direction} session {session.id} got early media, faking accepted state'.format(session=session_info))
+            self.send(sylkrtc.SessionAcceptedEvent(session=session_info.id, sdp=event.jsep.sdp, call_id=event.plugindata.data.call_id))
+            self.log.debug('{session.direction} session {session.id} state: {session.state}'.format(session=session_info))
 
     def _EH_janus_sip_event_ringing(self, event):  # TODO: check if we want to use this -Dan
         pass

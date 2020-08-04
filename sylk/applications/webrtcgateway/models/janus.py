@@ -544,6 +544,7 @@ class SIPProceedingEvent(SIPPluginData):
 class SIPProgressEvent(SIPPluginData):
     sip = FixedValueProperty('event')
     result = ObjectProperty(SIPResultProgress)            # type: SIPResultProgress
+    call_id = StringProperty(optional=True)
 
 
 class SIPDecliningEvent(SIPPluginData):
