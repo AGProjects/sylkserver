@@ -69,9 +69,16 @@ def _send_push_notification(payload, destination):
         else:
             if r.code != 200:
                 if r.code == 410:
-                    log.info("Token expired, purging old token from storage")
-                    tokens = TokenStorage()
-                    tokens.remove(destination, payload.token)
+                    try:
+                        body = yield readBody(r)
+                    except Exception as e:
+                        log.warning('Error reading response body: %s', e)
+                    else:
+                        if 'application/json' in r.headers.getRawHeaders('content-type'):
+                            token = json.loads(body)['data']['token']
+                            log.info('Token expired, purging old token from storage')
+                            tokens = TokenStorage()
+                            tokens.remove(destination, token)
                 else:
                     log.warning('Error sending push notification: %s', r.phrase)
             else:
