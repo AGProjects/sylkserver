@@ -28,11 +28,12 @@ from zope.interface import implements
 from sylk.accounts import DefaultAccount
 from sylk.session import Session
 from . import push
-from .configuration import GeneralConfig, get_room_config
+from .configuration import GeneralConfig, get_room_config, ExternalAuthConfig
 from .janus import JanusBackend, JanusError, JanusSession, SIPPluginHandle, VideoroomPluginHandle
 from .logger import ConnectionLogger, VideoroomLogger
 from .models import sylkrtc, janus
 from .storage import TokenStorage
+from .auth import AuthHandler
 
 
 class AccountInfo(object):
@@ -45,6 +46,8 @@ class AccountInfo(object):
         self.registration_state = None
         self.janus_handle = None  # type: Optional[SIPPluginHandle]
         self.contact_params = {}
+        self.auth_handle = None
+        self.auth_state = None
 
     @property
     def uri(self):
@@ -747,6 +750,8 @@ class ConnectionHandler(object):
 
         # Create and store our mapping
         account_info = AccountInfo(request.account, request.password, request.display_name, request.user_agent)
+        # get the auth config for domain
+        account_info.auth_handle = AuthHandler(account_info, self)
         self.accounts_map[account_info.id] = account_info
         self.log.info('added account {request.account} using {request.user_agent}'.format(request=request))
 
@@ -780,7 +785,10 @@ class ConnectionHandler(object):
         account_info.janus_handle = SIPPluginHandle(self.janus_session, event_handler=self._handle_janus_sip_event)
         self.account_handles_map[account_info.janus_handle.id] = account_info
 
-        account_info.janus_handle.register(account_info, proxy=proxy)
+        if ExternalAuthConfig.enable:
+            account_info.auth_handle.authenticate(proxy)
+        else:
+            account_info.janus_handle.register(account_info, proxy=proxy)
 
     def _RH_account_unregister(self, request):
         try:

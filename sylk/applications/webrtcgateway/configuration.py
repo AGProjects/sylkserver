@@ -9,7 +9,7 @@ from sylk.configuration import ServerConfig
 from sylk.configuration.datatypes import Path, SIPProxyAddress, VideoBitrate, VideoCodec
 
 
-__all__ = 'GeneralConfig', 'JanusConfig', 'get_room_config'
+__all__ = 'GeneralConfig', 'JanusConfig', 'get_room_config', 'ExternalAuthConfig', 'get_auth_config'
 
 
 # Datatypes
@@ -87,6 +87,16 @@ class ManagementInterfaceAddress(NetworkAddress):
     default_port = 20888
 
 
+class AuthType(str):
+    allowed_values = ('SIP', 'IMAP')
+
+    def __new__(cls, value):
+        value = re.sub('\s', '', value)
+        if value not in cls.allowed_values:
+            raise ValueError('invalid value, allowed values are: %s' % ' | '.join(cls.allowed_values))
+        return str.__new__(cls, value)
+
+
 # Configuration objects
 
 class GeneralConfig(ConfigSection):
@@ -161,4 +171,39 @@ def get_room_config(room):
         config = VideoroomConfiguration(dict(RoomConfig))  # use room defaults
     config.recording_dir = os.path.join(GeneralConfig.recording_dir, room)
     config.filesharing_dir = os.path.join(GeneralConfig.filesharing_dir, room)
+    return config
+
+
+class ExternalAuthConfig(ConfigSection):
+    __cfgfile__ = 'auth.ini'
+    __section__ = 'ExternalAuth'
+
+    enable = False
+    # this can't be per-server due to limitations in imaplib
+    imap_ca_cert_file = ConfigSetting(type=str, value='/etc/ssl/certs/ca-certificates.crt')
+
+
+class AuthConfig(ConfigSection):
+    __cfgfile__ = 'auth.ini'
+
+    auth_type = ConfigSetting(type=AuthType, value=AuthType('SIP'))
+    imap_server = ConfigSetting(type=str, value='')
+
+
+class AuthConfiguration(object):
+    auth_type = AuthType('SIP')
+
+    def __init__(self, data):
+        self.__dict__.update(data)
+
+
+def get_auth_config(domain):
+    config_file = ConfigFile(AuthConfig.__cfgfile__)
+    section = config_file.get_section(domain)
+    if section is not None:
+        AuthConfig.read(section=domain)
+        config = AuthConfiguration(dict(AuthConfig))
+        AuthConfig.reset()
+    else:
+        config = AuthConfiguration(dict(AuthConfig))  # use auth defaults
     return config

@@ -16,7 +16,6 @@ from .configuration import JanusConfig
 from .logger import log
 from .models import janus
 
-
 class JanusError(Exception):
     def __init__(self, code, reason):
         super(JanusError, self).__init__(reason)
@@ -293,7 +292,9 @@ class SIPPluginHandle(JanusPluginHandle):
     plugin = 'janus.plugin.sip'
 
     def register(self, account, proxy=None):
-        self.message(janus.SIPRegister(proxy=proxy, **account.user_data))
+        send_register = True if account.auth_handle.type == 'SIP' else False
+        self.message(janus.SIPRegister(proxy=proxy, send_register=send_register,
+                                       **account.user_data))
 
     def unregister(self):
         self.message(janus.SIPUnregister())

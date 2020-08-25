@@ -1,0 +1,12 @@
+; Globally enable external auth, currently only available in the webrtcgateway application
+; [ExternalAuth]
+; enable = True
+; CA Certs file for imap authentication
+; imap_ca_cert_file = /etc/ssl/certs/ca-certificates.crt
+
+; Configure different authentication domains here
+; with their types and type-specific config
+
+; [example.com]
+; auth_type = IMAP
+; imap_server = mail.example.com
