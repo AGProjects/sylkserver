@@ -82,6 +82,6 @@ def _send_push_notification(payload, destination):
                 else:
                     log.warning('Error sending push notification: %s', r.phrase)
             else:
-                log.debug('Sent push notification: %s', payload)
+                log.info('Sent push notification: %s', payload)
     else:
         log.warning('Cannot send push notification: no Sylk push server configured')

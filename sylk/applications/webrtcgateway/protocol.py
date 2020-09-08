@@ -33,7 +33,7 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
         self.factory.connections.add(self)
         self.connection_handler = ConnectionHandler(self)
         self.connection_handler.start()
-        self.connection_handler.log.info('connected from {address}'.format(address=self.peer))
+        self.connection_handler.log.info('{address} web socket connected'.format(address=self.peer))
 
     def onMessage(self, payload, is_binary):
         if is_binary:
@@ -50,13 +50,14 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
     def onClose(self, clean, code, reason):
         if self.connection_handler is None:  # Connection was closed very early before onOpen was even called
             return
-        self.connection_handler.log.info('disconnected')
+        self.connection_handler.log.info('{address} web socket disconnected'.format(address=self.peer))
         self.factory.connections.discard(self)
         self.connection_handler.stop()
         self.connection_handler = None
 
     def sendMessage(self, payload, *args, **kw):
         self.notification_center.post_notification('WebRTCClientTrace', sender=self, data=NotificationData(direction='OUTGOING', message=payload, peer=self.peer))
+        #log.info('Sending %s to web socket %s' % (payload, self.peer));
         super(SylkWebSocketServerProtocol, self).sendMessage(payload, *args, **kw)
 
     def disconnect(self, code=1000, reason=u''):
