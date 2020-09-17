@@ -218,9 +218,11 @@ class PublisherFeedContainer(object):
 
 
 class Videoroom(object):
-    def __init__(self, uri):
+    def __init__(self, uri, audio, video):
         self.id = random.getrandbits(32)    # janus needs numeric room names
         self.uri = uri
+        self.audio = audio
+        self.video = video
         self.config = get_room_config(uri)
         self.log = VideoroomLogger(self)
         self._active_participants = []
@@ -907,7 +909,7 @@ class ConnectionHandler(object):
         try:
             videoroom = self.protocol.factory.videorooms[request.uri]
         except KeyError:
-            videoroom = Videoroom(request.uri)
+            videoroom = Videoroom(request.uri, request.audio, request.video)
             self.protocol.factory.videorooms.add(videoroom)
 
         if not videoroom.allow_uri(request.account):
@@ -923,7 +925,7 @@ class ConnectionHandler(object):
                 except JanusError as e:
                     if e.code != 427:  # 427 means room already exists
                         raise
-                videoroom_handle.join(room=videoroom.id, sdp=request.sdp, display_name=account_info.display_name)
+                videoroom_handle.join(room=videoroom.id, sdp=request.sdp, display_name=account_info.display_name, audio=videoroom.audio, video=videoroom.video)
             except Exception:
                 videoroom_handle.detach()
                 raise
@@ -992,7 +994,7 @@ class ConnectionHandler(object):
         videoroom_handle = VideoroomPluginHandle(self.janus_session, event_handler=self._handle_janus_videoroom_event)
 
         try:
-            videoroom_handle.feed_attach(room=base_session.room.id, feed=publisher_session.publisher_id)
+            videoroom_handle.feed_attach(room=base_session.room.id, feed=publisher_session.publisher_id, offer_audio=base_session.room.audio, offer_video=base_session.room.video)
         except Exception:
             videoroom_handle.detach()
             raise
@@ -1041,7 +1043,7 @@ class ConnectionHandler(object):
                 room.log.info('invitation from %s for %s with session-id %s', originator.uri, account, session_id)
                 connection_handler.log.info('received an invitation from %s for %s to join video room %s', originator.uri, account, room.uri)
         for participant in participants:
-            push.conference_invite(originator=originator, destination=participant, room=room.uri, call_id=session_id)
+            push.conference_invite(originator=originator, destination=participant, room=room.uri, call_id=session_id, audio=room.audio, video=room.video)
 
     def _RH_videoroom_session_trickle(self, request):
         try:
@@ -1398,7 +1400,7 @@ class ConnectionHandler(object):
         videoroom_session.publisher_id = data.id
         room = videoroom_session.room
         assert event.jsep is not None
-        self.send(sylkrtc.VideoroomSessionAcceptedEvent(session=videoroom_session.id, sdp=event.jsep.sdp))
+        self.send(sylkrtc.VideoroomSessionAcceptedEvent(session=videoroom_session.id, sdp=event.jsep.sdp, audio=room.audio, video=room.video))
         # send information about existing publishers
         publishers = []
         for publisher in data.publishers:  # type: janus.VideoroomPublisher

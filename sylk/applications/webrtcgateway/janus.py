@@ -326,11 +326,11 @@ class VideoroomPluginHandle(JanusPluginHandle):
         except JanusError as e:
             log.warning('could not destroy video room %s: %s', room, e)
 
-    def join(self, room, sdp, display_name=None):
+    def join(self, room, sdp, audio, video, display_name=None):
         if display_name:
-            self.message(janus.VideoroomJoin(room=room, display=display_name), jsep=janus.SDPOffer(sdp=sdp))
+            self.message(janus.VideoroomJoin(room=room, audio=audio, video=video, display=display_name), jsep=janus.SDPOffer(sdp=sdp))
         else:
-            self.message(janus.VideoroomJoin(room=room), jsep=janus.SDPOffer(sdp=sdp))
+            self.message(janus.VideoroomJoin(room=room, audio=audio, video=video), jsep=janus.SDPOffer(sdp=sdp))
 
     def leave(self):
         self.message(janus.VideoroomLeave())
@@ -338,8 +338,8 @@ class VideoroomPluginHandle(JanusPluginHandle):
     def update_publisher(self, options):
         self.message(janus.VideoroomUpdatePublisher(**options))
 
-    def feed_attach(self, room, feed):
-        self.message(janus.VideoroomFeedAttach(room=room, feed=feed))
+    def feed_attach(self, room, feed, offer_audio, offer_video):
+        self.message(janus.VideoroomFeedAttach(room=room, feed=feed, offer_audio=offer_audio, offer_video=offer_video))
 
     def feed_detach(self):
         self.message(janus.VideoroomFeedDetach())

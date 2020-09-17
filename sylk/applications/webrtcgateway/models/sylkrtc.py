@@ -206,6 +206,8 @@ class VideoroomSessionProgressEvent(VideoroomSessionStateEvent):
 class VideoroomSessionAcceptedEvent(VideoroomSessionStateEvent):
     state = FixedValueProperty('accepted')
     sdp = StringProperty()
+    video = BooleanProperty(optional=True, default=True)
+    audio = BooleanProperty(optional=True, default=True)
 
 
 class VideoroomSessionEstablishedEvent(VideoroomSessionStateEvent):
@@ -349,6 +351,8 @@ class VideoroomJoinRequest(VideoroomRequestBase):
     account = StringProperty(validator=AORValidator())
     uri = StringProperty(validator=AORValidator())
     sdp = StringProperty()
+    audio = BooleanProperty(optional=True, default=True)
+    video = BooleanProperty(optional=True, default=True)
 
 
 class VideoroomLeaveRequest(VideoroomRequestBase):

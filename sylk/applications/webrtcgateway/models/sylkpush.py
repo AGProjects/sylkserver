@@ -1,5 +1,5 @@
 
-from .jsonobjects import IntegerProperty, StringProperty, FixedValueProperty
+from .jsonobjects import IntegerProperty, StringProperty, FixedValueProperty, LimitedChoiceProperty
 from .jsonobjects import JSONObject
 
 
@@ -10,7 +10,6 @@ class SylkRTCEventBase(JSONObject):
     app_id = StringProperty(optional=True)
     token = StringProperty()
     device_id = StringProperty(optional=True)
-    media_type = FixedValueProperty('video')
     silent = IntegerProperty(optional=True, default=0)
     call_id = StringProperty()
 
@@ -23,6 +22,7 @@ class CallEventBase(SylkRTCEventBase):
     event = None  # specified by subclass
     originator = StringProperty()
     from_display_name = StringProperty(optional=True, default=None)
+    media_type = LimitedChoiceProperty(['audio', 'video'])
 
 
 # Events to use used in a SylkPushRequest

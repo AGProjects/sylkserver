@@ -45,10 +45,16 @@ def _construct_and_send(result, request, destination):
         request.device_id = push_parameters['device_id']
         _send_push_notification(request, destination)
 
-def conference_invite(originator, destination, room, call_id):
+def conference_invite(originator, destination, room, call_id, audio, video):
     tokens = TokenStorage()
+    if video:
+        media_type = video
+    else:
+        media_type = audio
+
     request = sylkpush.ConferenceInviteEvent(token='dummy', app_id='dummy', platform='dummy', device_id='dummy',
-                                             originator=originator.uri, from_display_name=originator.display_name, to=room, call_id=str(call_id))
+                                             originator=originator.uri, from_display_name=originator.display_name, to=room, call_id=str(call_id),
+                                             media_type=media_type)
     user_tokens = tokens[destination]
     if isinstance(user_tokens, set):
         return

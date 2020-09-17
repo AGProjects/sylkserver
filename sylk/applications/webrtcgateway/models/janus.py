@@ -277,6 +277,8 @@ class VideoroomFeedAttach(JSONObject):
     ptype = FixedValueProperty('subscriber')
     room = IntegerProperty()
     feed = IntegerProperty()
+    offer_audio = BooleanProperty(optional=True, default=True)
+    offer_video = BooleanProperty(optional=True, default=True)
 
 
 class VideoroomFeedDetach(JSONObject):
