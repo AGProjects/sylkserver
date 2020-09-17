@@ -48,9 +48,9 @@ def _construct_and_send(result, request, destination):
 def conference_invite(originator, destination, room, call_id, audio, video):
     tokens = TokenStorage()
     if video:
-        media_type = video
+        media_type = 'video'
     else:
-        media_type = audio
+        media_type = 'audio'
 
     request = sylkpush.ConferenceInviteEvent(token='dummy', app_id='dummy', platform='dummy', device_id='dummy',
                                              originator=originator.uri, from_display_name=originator.display_name, to=room, call_id=str(call_id),
