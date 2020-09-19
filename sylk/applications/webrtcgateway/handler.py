@@ -1567,6 +1567,7 @@ class VideoroomChatHandler(object):
         self.chat_stream = MediaStreamRegistry.ChatStream()
         notification_center.add_observer(self, sender=self.sip_session)
         notification_center.add_observer(self, sender=self.chat_stream)
+        self.room.log.info('chatroom {} starting at {}'.format(to_uri, route))
         self.sip_session.connect(FromHeader(from_uri, self.account.display_name), ToHeader(to_uri), route=route, streams=[self.chat_stream], credentials=credentials)
 
     @run_in_twisted_thread
