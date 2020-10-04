@@ -27,10 +27,10 @@ class WebRTCGatewayApplication(SylkApplication):
         session.reject(403)
 
     def incoming_subscription(self, request, data):
-        request.reject(405)
+        request.answer(405)
 
     def incoming_referral(self, request, data):
-        request.reject(405)
+        request.answer(405)
 
     def incoming_message(self, request, data):
-        request.reject(405)
+        request.answer(405)
