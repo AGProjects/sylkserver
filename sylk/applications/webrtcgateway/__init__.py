@@ -23,7 +23,7 @@ class WebRTCGatewayApplication(SylkApplication):
         self.admin_web_handler.stop()
 
     def incoming_session(self, session):
-        log.info('New incoming session {session.call_id} from sip:{uri.user}@{uri.host} rejected'.format(session=session, uri=session.remote_identity.uri))
+        log.debug('New incoming session {session.call_id} from sip:{uri.user}@{uri.host} rejected'.format(session=session, uri=session.remote_identity.uri))
         session.reject(403)
 
     def incoming_subscription(self, request, data):
