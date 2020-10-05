@@ -1115,7 +1115,7 @@ class ConnectionHandler(object):
                 if not has_video:
                     media = 'audio only'
             
-            self.log.debug('switched to {media} media to room {session.room.uri}'.format(session=videoroom_session, media=media))
+            self.log.info('switched to {media} media to {account} in room {session.room.uri}'.format(account=videoroom_session.room[videoroom_session.publisher_id].account.id, session=videoroom_session, media=media))
 
     def _RH_videoroom_message(self, request):
         try:
