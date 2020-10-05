@@ -114,7 +114,7 @@ def _send_push_notification(payload, destination, token):
                             tokens = TokenStorage()
                             tokens.remove(destination, token)
                 else:
-                    log.warning('Error sending %s push notification for videoroom to %s/%s: %s (%s) %s' % (platform.title(), payload.to, destination, token[:15], r.phrase, r.code, error_description))
+                    log.warning('Error sending %s push notification for videoroom to %s/%s: %s (%s) %s %s' % (platform.title(), payload.to, destination, token[:15], r.phrase, r.code, error_description))
             else:
                 log.info('Sent %s push notify for videoroom %s to %s/%s' % (platform.title(), payload.to, destination, token[:15]))
                 
