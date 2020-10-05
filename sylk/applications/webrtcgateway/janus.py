@@ -16,6 +16,7 @@ from .configuration import JanusConfig
 from .logger import log
 from .models import janus
 
+
 class JanusError(Exception):
     def __init__(self, code, reason):
         super(JanusError, self).__init__(reason)
@@ -125,9 +126,11 @@ class JanusClientProtocol(WebSocketClientProtocol):
     def set_event_handler(self, handle_id, event_handler):
         if event_handler is None:
             self._event_handlers.pop(handle_id, None)
+            log.debug("Destroy Janus session, %d handlers in use" % len(self._event_handlers.keys()));
         else:
             assert callable(event_handler)
             self._event_handlers[handle_id] = event_handler
+            log.debug("Create Janus session, %d handlers in use" % len(self._event_handlers.keys()));
 
     def info(self):
         return self._send_request(janus.InfoRequest())

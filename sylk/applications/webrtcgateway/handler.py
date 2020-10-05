@@ -269,7 +269,7 @@ class Videoroom(object):
         assert session.publisher_id not in self._id_map and session.id not in self._id_map
         self._sessions.add(session)
         self._id_map[session.id] = self._id_map[session.publisher_id] = session
-        self.log.info('{session.account.id} has joined the room'.format(session=session))
+        self.log.info('{session.account.id} has joined'.format(session=session))
         self._update_bitrate()
         if self._active_participants:
             session.owner.send(sylkrtc.VideoroomConfigureEvent(session=session.id, active_participants=self._active_participants, originator='videoroom'))
@@ -284,7 +284,7 @@ class Videoroom(object):
             self._sessions.discard(session)
             self._id_map.pop(session.id, None)
             self._id_map.pop(session.publisher_id, None)
-            self.log.info('{session.account.id} has left the room'.format(session=session))
+            self.log.info('{session.account.id} has left'.format(session=session))
             if session.id in self._active_participants:
                 self._active_participants.remove(session.id)
                 self.log.info('active participants: {}'.format(', '.join(self._active_participants) or None))
@@ -297,7 +297,7 @@ class Videoroom(object):
         self._sessions.remove(session)
         self._id_map.pop(session.id)
         self._id_map.pop(session.publisher_id)
-        self.log.info('{session.account.id} has left the room'.format(session=session))
+        self.log.info('{session.account.id} has left'.format(session=session))
         if session.id in self._active_participants:
             self._active_participants.remove(session.id)
             self.log.info('active participants: {}'.format(', '.join(self._active_participants) or None))
@@ -307,7 +307,7 @@ class Videoroom(object):
 
     def clear(self):
         for session in self._sessions:
-            self.log.info('{session.account.id} has left the room'.format(session=session))
+            self.log.info('{session.account.id} has left'.format(session=session))
         self._active_participants = []
         self._shared_files = []
         self._sessions.clear()
@@ -515,6 +515,8 @@ class ConnectionHandler(object):
         self.device_id = hashlib.md5(protocol.peer).digest().encode('base64').rstrip('=\n')
         self.janus_session = None      # type: Optional[JanusSession]
         self.accounts_map = {}         # account ID -> account
+        self.devices_map = {}          # device ID -> account
+        self.connections_map = {}      # peer connection -> account
         self.account_handles_map = {}  # Janus handle ID -> account
         self.sip_sessions = SessionContainer()        # type: SessionContainer[SIPSessionInfo]        # incoming and outgoing SIP sessions
         self.videoroom_sessions = SessionContainer()  # type: SessionContainer[VideoroomSessionInfo]  # publisher and subscriber sessions in video rooms
@@ -583,6 +585,8 @@ class ConnectionHandler(object):
         # cleanup
         self.ready_event.clear()
         self.accounts_map.clear()
+        self.devices_map.clear()
+        self.connections_map.clear()
         self.account_handles_map.clear()
         self.sip_sessions.clear()
         self.videoroom_sessions.clear()
@@ -743,7 +747,7 @@ class ConnectionHandler(object):
 
     def _RH_account_add(self, request):
         if request.account in self.accounts_map:
-            raise APIError('Account {request.account} already added'.format(request=request, peer=self.protocol.peer))
+            raise APIError('Account {request.account} already added'.format(request=request))
 
         # check if domain is acceptable
         domain = request.account.partition('@')[2]
@@ -755,25 +759,37 @@ class ConnectionHandler(object):
         # get the auth config for domain
         account_info.auth_handle = AuthHandler(account_info, self)
         self.accounts_map[account_info.id] = account_info
-        self.log.info('{peer} added account {request.account} using {request.user_agent}'.format(request=request, peer=self.protocol.peer))
+        self.devices_map[self.device_id] = account_info.id
+        self.connections_map[self.protocol.peer] =  account_info.id
+        self.log.info('added using {request.user_agent}'.format(request=request))
 
     def _RH_account_remove(self, request):
         try:
             account_info = self.accounts_map.pop(request.account)
         except KeyError:
-            raise APIError('Unknown account specified for remove: {request.account}'.format(request=request, peer=self.protocol.peer))
+            raise APIError('Unknown account specified for remove: {request.account}'.format(request=request))
 
         # cleanup in case the client didn't unregister before removing the account
         if account_info.janus_handle is not None:
             account_info.janus_handle.detach()
             self.account_handles_map.pop(account_info.janus_handle.id)
-        self.log.info('{peer} removed account {request.account}'.format(request=request, peer=self.protocol.peer))
+        self.log.info('removed')
 
+        try:
+            del(self.devices_map[request.account])
+        except KeyError:
+            pass
+
+        try:
+            del(self.connections_map[request.account])
+        except KeyError:
+            pass
+            
     def _RH_account_register(self, request):
         try:
             account_info = self.accounts_map[request.account]
         except KeyError:
-            raise APIError('Unknown account specified for register: {request.account}'.format(request=request, peer=self.protocol.peer))
+            raise APIError('Unknown account specified for register: {request.account}'.format(request=request))
 
         proxy = self._lookup_sip_proxy(request.account)
 
@@ -791,13 +807,13 @@ class ConnectionHandler(object):
             account_info.auth_handle.authenticate(proxy)
         else:
             account_info.janus_handle.register(account_info, proxy=proxy)
-            self.log.info('{peer} registering account {request.account}...'.format(request=request, peer=self.protocol.peer))
+            self.log.info('registering to SIP Proxy {proxy}...'.format(proxy=proxy))
 
     def _RH_account_unregister(self, request):
         try:
             account_info = self.accounts_map[request.account]
         except KeyError:
-            raise APIError('Unknown account specified for unregister: {request.account}'.format(request=request, peer=self.protocol.peer))
+            raise APIError('Unknown account specified for unregister: {request.account}'.format(request=request))
 
         if account_info.janus_handle is not None:
             account_info.janus_handle.detach()
@@ -808,11 +824,11 @@ class ConnectionHandler(object):
             storage = TokenStorage()
             storage.remove(request.account, account_info.contact_params['pn_tok'])
 
-        self.log.info('{peer} unregistered account {request.account}'.format(request=request, peer=self.protocol.peer))
+        self.log.info('registered')
 
     def _RH_account_devicetoken(self, request):
         if request.account not in self.accounts_map:
-            raise APIError('Unknown account specified for token: {request.account}'.format(request=request, peer=self.protocol.peer))
+            raise APIError('Unknown account specified for token: {request.account}'.format(request=request))
         if request.token is not None:
             account_info = self.accounts_map[request.account]
             account_info.contact_params = {
@@ -825,16 +841,16 @@ class ConnectionHandler(object):
             storage = TokenStorage()
             storage.add(request.account, account_info.contact_params, account_info.user_agent)
 
-            self.log.info('{peer} added token for account {request.account} on {request.platform} device {request.device})'.format(request=request, peer=self.protocol.peer))
+            self.log.info('added token on {request.platform} device {request.device})'.format(request=request))
 
     def _RH_session_create(self, request):
         if request.session in self.sip_sessions:
-            raise APIError('Session ID {request.session} already in use'.format(request=request, peer=self.protocol.peer))
+            raise APIError('Session ID {request.session} already in use'.format(request=request))
 
         try:
             account_info = self.accounts_map[request.account]
         except KeyError:
-            raise APIError('Unknown account specified: {request.account}'.format(request=request, peer=self.protocol.peer))
+            raise APIError('Unknown account specified: {request.account}'.format(request=request))
 
         proxy = self._lookup_sip_proxy(request.uri)
 
@@ -852,59 +868,59 @@ class ConnectionHandler(object):
         session_info.init_outgoing(account_info, request.uri)
         self.sip_sessions.add(session_info)
 
-        self.log.info('{peer} outgoing session {request.session} from {request.account} to {request.uri}'.format(request=request, peer=self.protocol.peer))
+        self.log.info('outgoing session {request.session} to {request.uri}'.format(request=request))
 
     def _RH_session_answer(self, request):
         try:
             session_info = self.sip_sessions[request.session]
         except KeyError:
-            raise APIError('Unknown session {request.session}'.format(request=request, peer=self.protocol.peer))
+            raise APIError('Unknown session {request.session}'.format(request=request))
 
         if session_info.direction != 'incoming':
-            raise APIError('Cannot answer outgoing session {request.session}'.format(request=request, peer=self.protocol.peer))
+            raise APIError('Cannot answer outgoing session {request.session}'.format(request=request))
         if session_info.state != 'connecting':
-            raise APIError('Invalid state for answering session {session.id}: {session.state}'.format(session=session_info, peer=self.protocol.peer))
+            raise APIError('Invalid state for answering session {session.id}: {session.state}'.format(session=session_info))
 
         session_info.janus_handle.accept(sdp=request.sdp)
-        self.log.info('{peer} incoming session {session.id} answered'.format(session=session_info, peer=self.protocol.peer))
+        self.log.info('incoming session {session.id} answered'.format(session=session_info))
 
     def _RH_session_trickle(self, request):
         try:
             session_info = self.sip_sessions[request.session]
         except KeyError:
-            raise APIError('Unknown session {request.session}'.format(request=request, peer=self.protocol.peer))
+            raise APIError('Unknown session {request.session}'.format(request=request))
 
         if session_info.state == 'terminated':
-            raise APIError('Session {request.session} is terminated'.format(request=request, peer=self.protocol.peer))
+            raise APIError('Session {request.session} is terminated'.format(request=request))
 
         session_info.janus_handle.trickle(request.candidates)
 
         if not request.candidates:
-            self.log.debug('session {session.id} negotiated ICE'.format(session=session_info, peer=self.protocol.peer))
+            self.log.debug('session {session.id} negotiated ICE'.format(session=session_info))
 
     def _RH_session_terminate(self, request):
         try:
             session_info = self.sip_sessions[request.session]
         except KeyError:
-            raise APIError('Unknown session {request.session}'.format(request=request, peer=self.protocol.peer))
+            raise APIError('Unknown session {request.session}'.format(request=request))
 
         if session_info.state not in ('connecting', 'progress', 'early_media', 'accepted', 'established'):
-            raise APIError('Invalid state for terminating session {session.id}: {session.state}'.format(session=session_info, peer=self.protocol.peer))
+            raise APIError('Invalid state for terminating session {session.id}: {session.state}'.format(session=session_info))
 
         if session_info.direction == 'incoming' and session_info.state == 'connecting':
             session_info.janus_handle.decline()
         else:
             session_info.janus_handle.hangup()
-        self.log.info('{peer} {session.direction} session {session.id} will terminate'.format(session=session_info, peer=self.protocol.peer))
+        self.log.info('{session.direction} session {session.id} will terminate'.format(session=session_info))
 
     def _RH_videoroom_join(self, request):
         if request.session in self.videoroom_sessions:
-            raise APIError('Session ID {request.session} already in use'.format(request=request, peer=self.protocol.peer))
+            raise APIError('Session ID {request.session} already in use'.format(request=request))
 
         try:
             account_info = self.accounts_map[request.account]
         except KeyError:
-            raise APIError('Unknown account specified: {request.account}'.format(request=request, peer=self.protocol.peer))
+            raise APIError('Unknown account specified: {request.account}'.format(request=request))
 
         try:
             videoroom = self.protocol.factory.videorooms[request.uri]
@@ -914,7 +930,16 @@ class ConnectionHandler(object):
 
         if not videoroom.allow_uri(request.account):
             self._maybe_destroy_videoroom(videoroom)
-            raise APIError('{request.account} is not allowed to join room {request.uri}'.format(request=request, peer=self.protocol.peer))
+            raise APIError('is not allowed to join room {request.uri}'.format(request=request))
+
+        if ('m=video' in request.sdp and 'm=audio' in request.sdp):
+            media = 'audio/video'
+        elif ('m=video' in request.sdp):
+            media = 'video only'
+        elif ('m=audio' in request.sdp):
+            media = 'audio only'
+        else:
+            media = 'unknown'
 
         try:
             videoroom_handle = VideoroomPluginHandle(self.janus_session, event_handler=self._handle_janus_videoroom_event)
@@ -925,6 +950,8 @@ class ConnectionHandler(object):
                 except JanusError as e:
                     if e.code != 427:  # 427 means room already exists
                         raise
+                else:
+                    self.log.info('created room {room}'.format(room=request.uri))
                 videoroom_handle.join(room=videoroom.id, sdp=request.sdp, display_name=account_info.display_name, audio=videoroom.audio, video=videoroom.video)
             except Exception:
                 videoroom_handle.detach()
@@ -935,6 +962,7 @@ class ConnectionHandler(object):
 
         videoroom_session = VideoroomSessionInfo(request.session, owner=self, janus_handle=videoroom_handle)
         videoroom_session.init_publisher(account=account_info, room=videoroom)
+        self.log.info('publish {media} to room {room}'.format(room=request.uri, media=media))
         self.videoroom_sessions.add(videoroom_session)
 
         notification_center = NotificationCenter()
@@ -943,13 +971,11 @@ class ConnectionHandler(object):
 
         self.send(sylkrtc.VideoroomSessionProgressEvent(session=videoroom_session.id))
 
-        self.log.info('{peer} session {request.session} from account {request.account} to video room {request.uri} created'.format(request=request, peer=self.protocol.peer))
-
     def _RH_videoroom_leave(self, request):
         try:
             videoroom_session = self.videoroom_sessions[request.session]
         except KeyError:
-            raise APIError('Unknown video room session: {request.session}'.format(request=request, peer=self.protocol.peer))
+            raise APIError('Unknown room session: {request.session}'.format(request=request))
 
         videoroom_session.janus_handle.leave()
 
@@ -959,13 +985,13 @@ class ConnectionHandler(object):
         # todo: to be adjusted later after pseudo-synchronous communication with janus is implemented
         reactor.callLater(2, call_in_green_thread, self._cleanup_videoroom_session, videoroom_session)
 
-        self.log.info('{peer} leaving video room session {request.session}'.format(request=request, peer=self.protocol.peer))
+        self.log.debug('leaving room {session.room.uri}'.format(session=videoroom_session))
 
     def _RH_videoroom_configure(self, request):
         try:
             videoroom_session = self.videoroom_sessions[request.session]
         except KeyError:
-            raise APIError('Unknown video room session: {request.session}'.format(request=request, peer=self.protocol.peer))
+            raise APIError('Unknown room session: {request.session}'.format(request=request))
         videoroom = videoroom_session.room
         # todo: should we send out events if the active participant list did not change?
         try:
@@ -976,18 +1002,19 @@ class ConnectionHandler(object):
             session.owner.send(sylkrtc.VideoroomConfigureEvent(session=session.id, active_participants=videoroom.active_participants, originator=request.session))
 
     def _RH_videoroom_feed_attach(self, request):
+        # sent when a feed is subscribed for a given publisher
         if request.feed in self.videoroom_sessions:
-            raise APIError('Video room session ID {request.feed} already in use'.format(request=request, peer=self.protocol.peer))
+            raise APIError('Video room session ID {request.feed} already in use'.format(request=request))
 
         try:
             base_session = self.videoroom_sessions[request.session]  # our 'base' session (the one used to join and publish)
         except KeyError:
-            raise APIError('Unknown video room session: {request.session}'.format(request=request, peer=self.protocol.peer))
+            raise APIError('Unknown room session: {request.session}'.format(request=request))
 
         try:
             publisher_session = base_session.room[request.publisher]  # the publisher's session (the one we want to subscribe to)
         except KeyError:
-            raise APIError('Unknown publisher video room session to attach to: {request.publisher}'.format(request=request, peer=self.protocol.peer))
+            raise APIError('Unknown publisher room session to attach to: {request.publisher}'.format(request=request))
         if publisher_session.publisher_id is None:
             raise APIError('Video room session {session.id} does not have a publisher ID'.format(session=publisher_session))
 
@@ -1004,32 +1031,46 @@ class ConnectionHandler(object):
         self.videoroom_sessions.add(videoroom_session)
         base_session.feeds.add(publisher_session)
 
+        self.log.info('subscribe to {account} in room {session.room.uri}'.format(account=publisher_session.account.id, session=videoroom_session))
+
     def _RH_videoroom_feed_answer(self, request):
         try:
             videoroom_session = self.videoroom_sessions[request.feed]
         except KeyError:
-            raise APIError('Unknown video room session: {request.feed}'.format(request=request, peer=self.protocol.peer))
+            raise APIError('Unknown room session: {request.feed}'.format(request=request))
         if videoroom_session.parent_session.id != request.session:
-            raise APIError('{request.feed} is not an attached feed of {request.session}'.format(request=request, peer=self.protocol.peer))
+            raise APIError('{request.feed} is not an attached feed of {request.session}'.format(request=request))
+
+        if ('m=video' in request.sdp and 'm=audio' in request.sdp):
+            media = 'audio/video'
+        elif ('m=video' in request.sdp):
+            media = 'video only'
+        elif ('m=audio' in request.sdp):
+            media = 'audio only'
+        else:
+            media = 'unknown'
+
+        self.log.debug('{media} media accepted by room {session.room.uri}'.format(media=media, session=videoroom_session))    
         videoroom_session.janus_handle.feed_start(sdp=request.sdp)
 
     def _RH_videoroom_feed_detach(self, request):
         try:
             videoroom_session = self.videoroom_sessions[request.feed]
         except KeyError:
-            raise APIError('Unknown video room session to detach: {request.feed}'.format(request=request, peer=self.protocol.peer))
+            raise APIError('Unknown room session to detach: {request.feed}'.format(request=request))
         if videoroom_session.parent_session.id != request.session:
-            raise APIError('{request.feed} is not an attached feed of {request.session}'.format(request=request, peer=self.protocol.peer))
+            raise APIError('{request.feed} is not an attached feed of {request.session}'.format(request=request))
         videoroom_session.janus_handle.feed_detach()
         # safety net in case we do not get any answer for the feed_detach request
         # todo: to be adjusted later after pseudo-synchronous communication with janus is implemented
+        self.log.info('unsubscribe from {account} to in room {session.room.uri}'.format(account=videoroom_session.room[videoroom_session.publisher_id].account.id, session=videoroom_session))
         reactor.callLater(2, call_in_green_thread, self._cleanup_videoroom_session, videoroom_session)
 
     def _RH_videoroom_invite(self, request):
         try:
             base_session = self.videoroom_sessions[request.session]
         except KeyError:
-            raise APIError('Unknown video room session: {request.session}'.format(request=request, peer=self.protocol.peer))
+            raise APIError('Unknown room session: {request.session}'.format(request=request))
         room = base_session.room
         participants = set(request.participants)
         originator = sylkrtc.SIPIdentity(uri=base_session.account.id, display_name=base_session.account.display_name)
@@ -1040,8 +1081,9 @@ class ConnectionHandler(object):
             for account in participants.intersection(connection_handler.accounts_map):
                 event.account = account
                 connection_handler.send(event)
-                room.log.info('invitation from %s for %s with session-id %s', originator.uri, account, session_id)
-                connection_handler.log.info('received an invitation from %s for %s to join video room %s', originator.uri, account, room.uri)
+                room.log.info('invitation from %s for %s', originator.uri, account)
+                room.log.debug('invitation from %s for %s with session-id %s', originator.uri, account, session_id)
+                connection_handler.log.info('received an invitation from %s for %s to join room %s', originator.uri, account, room.uri)
         for participant in participants:
             push.conference_invite(originator=originator, destination=participant, room=room.uri, call_id=session_id, audio=room.audio, video=room.video)
 
@@ -1049,27 +1091,37 @@ class ConnectionHandler(object):
         try:
             videoroom_session = self.videoroom_sessions[request.session]
         except KeyError:
-            raise APIError('Unknown video room session: {request.session}'.format(request=request, peer=self.protocol.peer))
+            raise APIError('Unknown room session: {request.session}'.format(request=request))
         videoroom_session.janus_handle.trickle(request.candidates)
         if not request.candidates and videoroom_session.type == 'publisher':
-            self.log.debug('video room session {session.id} negotiated ICE'.format(session=videoroom_session))
+            self.log.debug('ICE negotiation to room {session.room.uri} completed'.format(session=videoroom_session))
 
     def _RH_videoroom_session_update(self, request):
         try:
             videoroom_session = self.videoroom_sessions[request.session]
         except KeyError:
-            raise APIError('Unknown video room session: {request.session}'.format(request=request, peer=self.protocol.peer))
+            raise APIError('Unknown room session: {request.session}'.format(request=request))
         options = request.options.__data__
         if options:
             videoroom_session.janus_handle.update_publisher(options)
             modified = ', '.join('{}={}'.format(key, options[key]) for key in options)
-            self.log.info('updated video room session {request.session} with {modified}'.format(request=request, modified=modified))
+            media = 'video'
+            
+            try:
+                has_video = options['video']
+            except KeyError:
+                pass
+            else:
+                if not has_video:
+                    media = 'audio only'
+            
+            self.log.debug('switched to {media} media to room {session.room.uri}'.format(session=videoroom_session, media=media))
 
     def _RH_videoroom_message(self, request):
         try:
             videoroom_session = self.videoroom_sessions[request.session]
         except KeyError:
-            raise APIError('Unknown video room session: {request.session}'.format(request=request, peer=self.protocol.peer))
+            raise APIError('Unknown room session: {request.session}'.format(request=request))
         content_type = request.content_type
         content = request.content if content_type.startswith('text') else request.content.encode('latin1')
         message_id = request.message_id.encode('ascii')
@@ -1079,14 +1131,14 @@ class ConnectionHandler(object):
         try:
             videoroom_session = self.videoroom_sessions[request.session]
         except KeyError:
-            raise APIError('Unknown video room session: {request.session}'.format(request=request, peer=self.protocol.peer))
+            raise APIError('Unknown room session: {request.session}'.format(request=request))
         videoroom_session.chat_handler.send_composing_indication(request.state, request.refresh)
 
     def _RH_videoroom_mute_audio_participants(self, request):
         try:
             videoroom_session = self.videoroom_sessions[request.session]
         except KeyError:
-            raise APIError('Unknown video room session: {request.session}'.format(request=request, peer=self.protocol.peer))
+            raise APIError('Unknown room session: {request.session}'.format(request=request))
         videoroom = videoroom_session.room
         for session in videoroom:
             session.owner.send(sylkrtc.VideoroomMuteAudioEvent(session=session.id, originator=request.session))
@@ -1095,7 +1147,7 @@ class ConnectionHandler(object):
         try:
             videoroom_session = self.videoroom_sessions[request.session]
         except KeyError:
-            raise APIError('Unknown video room session: {request.session}'.format(request=request, peer=self.protocol.peer))
+            raise APIError('Unknown room session: {request.session}'.format(request=request))
         videoroom = videoroom_session.room
         if request.session_id:
             request_session = request.session_id
@@ -1143,7 +1195,7 @@ class ConnectionHandler(object):
             return
         session_info.state = 'established'
         self.send(sylkrtc.SessionEstablishedEvent(session=session_info.id))
-        self.log.info('{peer} {session.direction} session {session.id} established'.format(session=session_info, peer=self.protocol.peer))
+        self.log.info('{session.direction} session {session.id} established'.format(session=session_info))
 
     def _EH_janus_sip_hangup(self, event):
         try:
@@ -1154,7 +1206,7 @@ class ConnectionHandler(object):
             session_info.state = 'terminated'
             reason = event.reason or 'unspecified reason'
             self.send(sylkrtc.SessionTerminatedEvent(session=session_info.id, reason=reason))
-            self.log.info('{peer} {session.direction} session {session.id} terminated ({reason})'.format(session=session_info, reason=reason, peer=self.protocol.peer))
+            self.log.info('{session.direction} session {session.id} terminated ({reason})'.format(session=session_info, reason=reason))
             self._cleanup_session(session_info)
 
     def _EH_janus_sip_slowlink(self, event):
@@ -1165,11 +1217,11 @@ class ConnectionHandler(object):
             return
         if event.uplink:  # uplink is from janus' point of view
             if not session_info.slow_download:
-                self.log.debug('poor download connectivity for session {session.id}'.format(session=session_info, peer=self.protocol.peer))
+                self.log.debug('poor download connectivity for session {session.id}'.format(session=session_info))
             session_info.slow_download = True
         else:
             if not session_info.slow_upload:
-                self.log.debug('poor upload connectivity for session {session.id}'.format(session=session_info, peer=self.protocol.peer))
+                self.log.debug('poor upload connectivity for session {session.id}'.format(session=session_info))
             session_info.slow_upload = True
 
     def _EH_janus_sip_media(self, event):
@@ -1199,7 +1251,7 @@ class ConnectionHandler(object):
         if account_info.registration_state != 'registered':
             account_info.registration_state = 'registered'
             self.send(sylkrtc.AccountRegisteredEvent(account=account_info.id))
-            self.log.info('{peer} registered account {account.id}'.format(account=account_info, peer=self.protocol.peer))
+            self.log.info('registered')
 
     def _EH_janus_sip_event_registration_failed(self, event):
         try:
@@ -1211,7 +1263,7 @@ class ConnectionHandler(object):
             account_info.registration_state = 'failed'
             reason = '{result.code} {result.reason}'.format(result=event.plugindata.data.result)
             self.send(sylkrtc.AccountRegistrationFailedEvent(account=account_info.id, reason=reason))
-            self.log.info('{peer} register for {account.id} failed: {reason}'.format(account=account_info, reason=reason, peer=self.protocol.peer))
+            self.log.info('registration failed: {reason}'.format(reason=reason))
 
     def _EH_janus_sip_event_incomingcall(self, event):
         try:
@@ -1228,7 +1280,7 @@ class ConnectionHandler(object):
         session.init_incoming(account_info, originator.uri, originator.display_name)
         self.sip_sessions.add(session)
         self.send(sylkrtc.AccountIncomingSessionEvent(account=account_info.id, session=session.id, originator=originator, sdp=event.jsep.sdp, call_id=call_id))
-        self.log.info('{peer} incoming session {session.id} from {session.remote_identity.uri!s} to {session.local_identity.uri!s}'.format(session=session, peer=self.protocol.peer))
+        self.log.info('incoming session {session.id} from {session.remote_identity.uri!s}'.format(session=session))
 
     def _EH_janus_sip_event_missed_call(self, event):
         try:
@@ -1249,7 +1301,7 @@ class ConnectionHandler(object):
             return
         session_info.state = 'progress'
         self.send(sylkrtc.SessionProgressEvent(session=session_info.id))
-        self.log.debug('{peer} {session.direction} session {session.id} state: {session.state}'.format(session=session_info, peer=self.protocol.peer))
+        self.log.debug('{session.direction} session {session.id} state: {session.state}'.format(session=session_info))
 
     def _EH_janus_sip_event_accepted(self, event):
         try:
@@ -1261,7 +1313,7 @@ class ConnectionHandler(object):
         if session_info.state == 'established':  # We had early media
             session_info.state = 'accepted'
             self.send(sylkrtc.SessionAcceptedEvent(session=session_info.id))
-            self.log.debug('{peer} {session.direction} session {session.id} state: {session.state}'.format(session=session_info, peer=self.protocol.peer))
+            self.log.debug('{session.direction} session {session.id} state: {session.state}'.format(session=session_info))
             return
 
         session_info.state = 'accepted'
@@ -1270,7 +1322,7 @@ class ConnectionHandler(object):
             self.send(sylkrtc.SessionAcceptedEvent(session=session_info.id, sdp=event.jsep.sdp, call_id=event.plugindata.data.call_id))
         else:
             self.send(sylkrtc.SessionAcceptedEvent(session=session_info.id))
-        self.log.debug('{peer} {session.direction} session {session.id} state: {session.state}'.format(session=session_info, peer=self.protocol.peer))
+        self.log.debug('{session.direction} session {session.id} state: {session.state}'.format(session=session_info))
 
     def _EH_janus_sip_event_hangup(self, event):
         try:
@@ -1286,9 +1338,9 @@ class ConnectionHandler(object):
             if session_info.direction == 'incoming' and data.code == 487:  # incoming call was cancelled -> missed
                 self.send(sylkrtc.AccountMissedSessionEvent(account=session_info.account.id, originator=session_info.remote_identity.__dict__))
             if data.code >= 300:
-                self.log.info('{peer} {session.direction} session {session.id} terminated ({reason})'.format(session=session_info, reason=reason, peer=self.protocol.peer))
+                self.log.info('{session.direction} session {session.id} terminated ({reason})'.format(session=session_info, reason=reason))
             else:
-                self.log.info('{peer} {session.direction} session {session.id} terminated'.format(session=session_info, peer=self.protocol.peer))
+                self.log.info('{session.direction} session {session.id} terminated'.format(session=session_info))
             self._cleanup_session(session_info)
 
     def _EH_janus_sip_event_declining(self, event):
@@ -1308,9 +1360,9 @@ class ConnectionHandler(object):
                 self.log.warning('could not find SIP session with handle ID {event.sender} for progress event'.format(event=event))
                 return
             session_info.state = 'early_media'
-            self.log.info('{peer} {session.direction} session {session.id} has early media'.format(session=session_info, peer=self.protocol.peer))
+            self.log.info('{session.direction} session {session.id} has early media'.format(session=session_info))
             self.send(sylkrtc.SessionEarlyMediaEvent(session=session_info.id, sdp=event.jsep.sdp, call_id=event.plugindata.data.call_id))
-            self.log.debug('{peer} {session.direction} session {session.id} state: {session.state}'.format(session=session_info, peer=self.protocol.peer))
+            self.log.debug('{session.direction} session {session.id} state: {session.state}'.format(session=session_info))
 
     def _EH_janus_sip_event_ringing(self, event):
         pass
@@ -1340,7 +1392,7 @@ class ConnectionHandler(object):
         try:
             videoroom_session = self.videoroom_sessions[event.sender]
         except KeyError:
-            self.log.warning('could not find video room session with handle ID {event.sender} for error event'.format(event=event))
+            self.log.warning('could not find room session with handle ID {event.sender} for error event'.format(event=event))
             return
         if videoroom_session.type == 'publisher':
             pass
@@ -1351,10 +1403,10 @@ class ConnectionHandler(object):
         try:
             videoroom_session = self.videoroom_sessions[event.sender]
         except KeyError:
-            self.log.warning('could not find video room session with handle ID {event.sender} for webrtcup event'.format(event=event))
+            self.log.warning('could not find room session with handle ID {event.sender} for webrtcup event'.format(event=event))
             return
         if videoroom_session.type == 'publisher':
-            self.log.info('{peer} video room session {session.id} created'.format(session=videoroom_session, peer=self.protocol.peer))
+            self.log.info('media published to room {session.room.uri}'.format(session=videoroom_session))
             self.send(sylkrtc.VideoroomSessionEstablishedEvent(session=videoroom_session.id))
         else:
             self.send(sylkrtc.VideoroomFeedEstablishedEvent(session=videoroom_session.parent_session.id, feed=videoroom_session.id))
@@ -1365,21 +1417,21 @@ class ConnectionHandler(object):
         except KeyError:
             return
         self._cleanup_videoroom_session(videoroom_session)
-        self.log.info('{peer} video room session {session.id} ended'.format(session=videoroom_session, peer=self.protocol.peer))
+        self.log.debug('session with room {session.room.uri} ended'.format(session=videoroom_session))
 
     def _EH_janus_videoroom_slowlink(self, event):
         try:
             videoroom_session = self.videoroom_sessions[event.sender]
         except KeyError:
-            self.log.warning('could not find video room session with handle ID {event.sender} for slowlink event'.format(event=event))
+            self.log.warning('could not find room session with handle ID {event.sender} for slowlink event'.format(event=event))
             return
         if event.uplink:  # uplink is from janus' point of view
             if not videoroom_session.slow_download:
-                self.log.debug('poor download connectivity to video room {session.room.uri} with session {session.id}'.format(session=videoroom_session))
+                self.log.debug('poor download connectivity to room {session.room.uri} with session {session.id}'.format(session=videoroom_session))
             videoroom_session.slow_download = True
         else:
             if not videoroom_session.slow_upload:
-                self.log.debug('poor upload connectivity to video room {session.room.uri} with session {session.id}'.format(session=videoroom_session))
+                self.log.debug('poor upload connectivity to room {session.room.uri} with session {session.id}'.format(session=videoroom_session))
             videoroom_session.slow_upload = True
 
     def _EH_janus_videoroom_media(self, event):
@@ -1393,9 +1445,20 @@ class ConnectionHandler(object):
         try:
             videoroom_session = self.videoroom_sessions[event.sender]
         except KeyError:
-            self.log.warning('could not find video room session with handle ID {event.sender} for joined event'.format(event=event))
+            self.log.warning('could not find room session with handle ID {event.sender} for joined event'.format(event=event))
             return
-        self.log.info('{peer} joined video room {session.room.uri} with session {session.id}'.format(session=videoroom_session, peer=self.protocol.peer))
+
+        if ('m=video' in event.jsep.sdp and 'm=audio' in event.jsep.sdp):
+            media = 'audio/video'
+        elif ('m=video' in event.jsep.sdp):
+            media = 'video only'
+        elif ('m=audio' in event.jsep.sdp):
+            media = 'audio only'
+        else:
+            media = 'unknown'
+
+        self.log.info('joined room {session.room.uri} with {media}'.format(session=videoroom_session, media=media))
+        self.log.debug('joined room {session.room.uri} with session {session.id}'.format(session=videoroom_session))
         data = event.plugindata.data  # type: janus.VideoroomJoined
         videoroom_session.publisher_id = data.id
         room = videoroom_session.room
@@ -1414,16 +1477,27 @@ class ConnectionHandler(object):
         room.add(videoroom_session)  # adding the session to the room might also trigger sending an event with the active participants which must be sent last
 
     def _EH_janus_videoroom_attached(self, event):
-        # sent when a feed is subscribed for a given publisher
         try:
             videoroom_session = self.videoroom_sessions[event.sender]
         except KeyError:
-            self.log.warning('could not find video room session with handle ID {event.sender} for attached event'.format(event=event))
+            self.log.warning('could not find room session with handle ID {event.sender} for attached event'.format(event=event))
             return
+            
         # get the session which originated the subscription
         base_session = videoroom_session.parent_session
         assert base_session is not None
         assert event.jsep is not None and event.jsep.type == 'offer'
+
+        if ('m=video' in event.jsep.sdp and 'm=audio' in event.jsep.sdp):
+            media = 'audio/video'
+        elif ('m=video' in event.jsep.sdp):
+            media = 'video only'
+        elif ('m=audio' in event.jsep.sdp):
+            media = 'audio only'
+        else:
+            media = 'unknown'
+            
+        self.log.debug('{media} media proposed to room {session.room.uri}'.format(session=videoroom_session, media=media))
         self.send(sylkrtc.VideoroomFeedAttachedEvent(session=base_session.id, feed=videoroom_session.id, sdp=event.jsep.sdp))
 
     def _EH_janus_videoroom_slow_link(self, event):
@@ -1433,7 +1507,7 @@ class ConnectionHandler(object):
         try:
             videoroom_session = self.videoroom_sessions[event.sender]
         except KeyError:
-            self.log.warning('could not find video room session with handle ID {event.sender} for publishers event'.format(event=event))
+            self.log.warning('could not find room session with handle ID {event.sender} for publishers event'.format(event=event))
             return
         room = videoroom_session.room
         # send information about new publishers
@@ -1454,10 +1528,11 @@ class ConnectionHandler(object):
             base_session = self.videoroom_sessions[event.sender]
         except KeyError:
             if publisher_id != 'ok':
-                self.log.warning('could not find video room session with handle ID {event.sender} for leaving event'.format(event=event))
+                self.log.warning('could not find room session with handle ID {event.sender} for leaving event'.format(event=event))
             return
         if publisher_id == 'ok':
-            self.log.info('{peer} left video room {session.room.uri} with session {session.id}'.format(session=base_session, peer=self.protocol.peer))
+            self.log.info('left room {session.room.uri}'.format(session=base_session))
+            self.log.debug('left room {session.room.uri} with session {session.id}'.format(session=base_session))
             self._cleanup_videoroom_session(base_session)
             return
         try:
@@ -1556,18 +1631,18 @@ class VideoroomChatHandler(object):
         except (DNSLookupError, IndexError):
             self.end()
             self.room.log.error('DNS lookup for SIP proxy for {} failed'.format(uri))
-            self.room.log.error('chatroom session for {} failed: DNS lookup error'.format(self.account.id))
+            self.room.log.error('chat session for {} failed: DNS lookup error'.format(self.account.id))
             notification_center.post_notification('ChatSessionDidFail', sender=self, data=NotificationData(originator='local', code=0, reason=None, failure_reason='DNS lookup error'))
             return
         if self._ended:  # end was called during DNS lookup
-            self.room.log.info('chatroom session for {} ended'.format(self.account.id))
+            self.room.log.debug('chat session for {} ended'.format(self.account.id))
             notification_center.post_notification('ChatSessionDidEnd', sender=self)
             return
         self.sip_session = Session(sip_account)
         self.chat_stream = MediaStreamRegistry.ChatStream()
         notification_center.add_observer(self, sender=self.sip_session)
         notification_center.add_observer(self, sender=self.chat_stream)
-        self.room.log.info('chatroom {} starting at {}'.format(to_uri, route))
+        self.room.log.debug('chat {} starting at {}'.format(to_uri, route))
         self.sip_session.connect(FromHeader(from_uri, self.account.display_name), ToHeader(to_uri), route=route, streams=[self.chat_stream], credentials=credentials)
 
     @run_in_twisted_thread
@@ -1581,7 +1656,7 @@ class VideoroomChatHandler(object):
             self.sip_session.end()
             self.sip_session = None
             self.chat_stream = None
-            self.room.log.info('chatroom session for {} ended'.format(self.account.id))
+            self.room.log.debug('chat session for {} ended'.format(self.account.id))
             notification_center.post_notification('ChatSessionDidEnd', sender=self)
         while self._message_queue:
             message_id, content, content_type = self._message_queue.popleft()
@@ -1615,7 +1690,7 @@ class VideoroomChatHandler(object):
         handler(notification)
 
     def _NH_SIPSessionDidStart(self, notification):
-        self.room.log.info('chatroom session for {} started'.format(self.account.id))
+        self.room.log.debug('chat session for {} started'.format(self.account.id))
         notification.center.post_notification('ChatSessionDidStart', sender=self)
         self._send_queued_messages()
 
@@ -1625,7 +1700,7 @@ class VideoroomChatHandler(object):
         self.sip_session = None
         self.chat_stream = None
         self.end()
-        self.room.log.info('chatroom session for {} ended'.format(self.account.id))
+        self.room.log.debug('chat session for {} ended'.format(self.account.id))
         notification.center.post_notification('ChatSessionDidEnd', sender=self, data=notification.data)
 
     def _NH_SIPSessionDidFail(self, notification):
@@ -1634,7 +1709,7 @@ class VideoroomChatHandler(object):
         self.sip_session = None
         self.chat_stream = None
         self.end()
-        self.room.log.error('chatroom session for {} failed: {}'.format(self.account.id, notification.data.failure_reason))
+        self.room.log.error('chat session for {} failed: {}'.format(self.account.id, notification.data.failure_reason))
         notification.center.post_notification('ChatSessionDidFail', sender=self, data=notification.data)
 
     # noinspection PyUnusedLocal

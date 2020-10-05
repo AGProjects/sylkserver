@@ -19,9 +19,16 @@ class ConnectionLogger(ContextualLogger):
     def __init__(self, connection):
         super(ConnectionLogger, self).__init__(logger=log)
         self.device_id = connection.device_id
+        self.peer=connection.protocol.peer
+        self.connection = connection
 
     def apply_context(self, message):
-        return '[device {0}] {1}'.format(self.device_id, message) if message != '' else ''
+        try:
+            account_id = self.connection.devices_map[self.device_id]
+        except KeyError:
+            return '[device {0}] {1}'.format(self.peer, message) if message != '' else ''
+        else:
+            return '[account {0}] {1}'.format(account_id, message) if message != '' else ''
 
 
 class VideoroomLogger(ContextualLogger):
