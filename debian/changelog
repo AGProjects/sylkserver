@@ -2,6 +2,27 @@ sylkserver (5.6.0) unstable; urgency=medium
 
   * Added videoroom capability to raise/lower your hand
   * Added videoroom capability to send mute command to all participants
+  * Added support for 'ping' in sylkrtc protocol
+  * Added support for early media
+  * Added apache-cassandra as storage backend
+  * Added session_id based on callid to conference invite 
+  * Improved webrtc video room logging
+  * Improved logging of push notifications
+  * Fixed rejecting SIP methods in webrtc app
+  * Fixed push media types
+  * Added supoort for audio only conferences
+  * Added (external) IMAP authentication for webrtcgateway
+    The authentication type can be configured per domain in auth.ini
+  * Read device token from push response on 410 code
+  * Replaced call-id by random uuid in push notification and conference invite
+  * Use push notification token for VoIP
+  * Replaced session id on incoming call to uuid from callid
+  * Added user agent to token storage
+  * Exposed call-id in API for SIP calls
+  * Changed Firebase push notifications to Sylk push server
+  * Store push tokens and parameters in pickle file
+  * Fixed destroying videoroom when client is disconnected
+  * Mention how to enable debug mode
 
  -- Adrian Georgescu <ag@ag-projects.com>  Tue, 07 Apr 2020 14:40:43 +0200
 
