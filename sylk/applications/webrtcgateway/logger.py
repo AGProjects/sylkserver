@@ -26,9 +26,9 @@ class ConnectionLogger(ContextualLogger):
         try:
             account_id = self.connection.devices_map[self.device_id]
         except KeyError:
-            return '[device {0}] {1}'.format(self.peer, message) if message != '' else ''
+            return '[device {0}/{2}] {1}'.format(self.peer, message, self.device_id) if message != '' else ''
         else:
-            return '[account {0}] {1}'.format(account_id, message) if message != '' else ''
+            return '[account {0}/{2}] {1}'.format(account_id, message, self.device_id) if message != '' else ''
 
 
 class VideoroomLogger(ContextualLogger):

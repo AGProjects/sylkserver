@@ -1030,8 +1030,7 @@ class ConnectionHandler(object):
         videoroom_session.init_subscriber(publisher_session, parent_session=base_session)
         self.videoroom_sessions.add(videoroom_session)
         base_session.feeds.add(publisher_session)
-
-        self.log.info('subscribe to {account} in room {session.room.uri}'.format(account=publisher_session.account.id, session=videoroom_session))
+        self.log.debug('subscribe to {account} in room {session.room.uri} {feeds}'.format(account=publisher_session.account.id, session=videoroom_session, feeds=len(base_session.feeds)))
 
     def _RH_videoroom_feed_answer(self, request):
         try:
@@ -1063,7 +1062,7 @@ class ConnectionHandler(object):
         videoroom_session.janus_handle.feed_detach()
         # safety net in case we do not get any answer for the feed_detach request
         # todo: to be adjusted later after pseudo-synchronous communication with janus is implemented
-        self.log.info('unsubscribe from {account} to in room {session.room.uri}'.format(account=videoroom_session.room[videoroom_session.publisher_id].account.id, session=videoroom_session))
+        self.log.debug('unsubscribe from {account} in room {session.room.uri}'.format(account=videoroom_session.room[videoroom_session.publisher_id].account.id, session=videoroom_session))
         reactor.callLater(2, call_in_green_thread, self._cleanup_videoroom_session, videoroom_session)
 
     def _RH_videoroom_invite(self, request):
@@ -1406,7 +1405,7 @@ class ConnectionHandler(object):
             self.log.warning('could not find room session with handle ID {event.sender} for webrtcup event'.format(event=event))
             return
         if videoroom_session.type == 'publisher':
-            self.log.info('media published to room {session.room.uri}'.format(session=videoroom_session))
+            self.log.debug('media published to room {session.room.uri}'.format(session=videoroom_session))
             self.send(sylkrtc.VideoroomSessionEstablishedEvent(session=videoroom_session.id))
         else:
             self.send(sylkrtc.VideoroomFeedEstablishedEvent(session=videoroom_session.parent_session.id, feed=videoroom_session.id))
