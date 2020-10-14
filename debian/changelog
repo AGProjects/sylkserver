@@ -1,4 +1,4 @@
-sylkserver (5.6.0) unstable; urgency=medium
+sylkserver (5.7.0) unstable; urgency=medium
 
   * Added (external) IMAP authentication for webrtcgateway
     The authentication type can be configured per domain in auth.ini
@@ -8,8 +8,6 @@ sylkserver (5.6.0) unstable; urgency=medium
   * Added support for 'ping' in sylkrtc protocol
   * Added support for early media
   * Added user agent to token storage
-  * Added videoroom capability to raise/lower your hand
-  * Added videoroom capability to send mute command to all participants
   * Changed Firebase push notifications to Sylk push server
   * Exposed call-id in API for SIP calls
   * Fixed destroying videoroom when client is disconnected
@@ -23,6 +21,14 @@ sylkserver (5.6.0) unstable; urgency=medium
   * Replaced session id on incoming call to uuid from callid
   * Store push tokens and parameters in pickle file
   * Use push notification token for VoIP
+
+ -- Adrian Georgescu <ag@ag-projects.com>  Wed, 14 Oct 2020 15:05:36 +0200
+
+sylkserver (5.6.0) unstable; urgency=medium
+
+  * Added videoroom capability to raise/lower your hand
+  * Added videoroom capability to send mute command to all participants
+
 
  -- Adrian Georgescu <ag@ag-projects.com>  Tue, 07 Apr 2020 14:40:43 +0200
 
