@@ -28,7 +28,7 @@ from zope.interface import implements
 from sylk.accounts import DefaultAccount
 from sylk.session import Session
 from . import push
-from .configuration import GeneralConfig, get_room_config, ExternalAuthConfig
+from .configuration import GeneralConfig, get_room_config, ExternalAuthConfig, JanusConfig
 from .janus import JanusBackend, JanusError, JanusSession, SIPPluginHandle, VideoroomPluginHandle
 from .logger import ConnectionLogger, VideoroomLogger
 from .models import sylkrtc, janus
@@ -527,6 +527,7 @@ class ConnectionHandler(object):
         self.log = ConnectionLogger(self)
         self.state = None
         self._stop_pending = False
+        self.decline_code = JanusConfig.decline_code or 486
 
     @run_in_green_thread
     def start(self):
@@ -908,7 +909,7 @@ class ConnectionHandler(object):
             raise APIError('Invalid state for terminating session {session.id}: {session.state}'.format(session=session_info))
 
         if session_info.direction == 'incoming' and session_info.state == 'connecting':
-            session_info.janus_handle.decline()
+            session_info.janus_handle.decline(self.decline_code)
         else:
             session_info.janus_handle.hangup()
         self.log.info('{session.direction} session {session.id} will terminate'.format(session=session_info))
