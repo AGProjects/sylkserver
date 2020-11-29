@@ -21,17 +21,17 @@ Architecture
 | WebRTC |  SylkRTC API  |             | |  Janus   +<--->+ audio/video |
 | client +<------------->+  SylkServer | |          |     |    calls    |
 |        |               |   WebRTC    | +----------+     +-------------+
-+--------+               |   gateway   | +----------+     +-------------+
-                         |             | | Presence |     |   SIMPLE    |
-                         |             | | and chat +<--->+     IM      |
-                         |             | | gateway  |     |   Presence  |
-                         +-------------+ +----------+     +-------------+
++--------+               |   gateway   | +----------+
+                         |             | | Chat and |
+                         |             | | file     |
+                         |             | | transfer |
+                         +-------------+ +----------+
 
 
 End-point requirements
 ----------------------
 
-The WebRTC gateway doesn't do media transcoding, so after taking care of the
+WebRTC gateway doesn't do media transcoding, so after taking care of the
 WebRTC-specific media features (ICE and DTLS mainly), endpoints will
 exchange plain RTP media between them, therefore SIP end-points must have a
 set of compatible audio (Opus) and video codecs (H.264 and VP8).
@@ -44,16 +44,35 @@ Features
 --------
 
  * SIP account registration
- * Audio / video calling
+ * One-to-One Audio / video calling between SIP and Web clients
+ * Multi-party conferencing (WebRTC end-points only)
  * Codec agnostic
 
 
 SylkRTC API
 -----------
 
+Desktop API
+
 A JavaScript library implementing SylkRTC API is available at:
 
 https://github.com/AGProjects/sylkrtc.js
+
+Mobile API
+
+A React native API is available at:
+
+https://github.com/AGProjects/react-native-sylkrtc.js
+
+
+SIP Proxy
+---------
+
+A SIP Proxy is required for one-to-one calls.
+
+A guide for setting up a SIP Proxy is available here:
+
+https://sylkserver.com/download/#sip-proxy-setup
 
 
 Janus
@@ -134,3 +153,9 @@ https://hostname:10888/webrtcgateway/
 It's recommended to change the API secret used between SylkServer and Janus,
 check the webrtcgateway.ini and janus.cfg configuration files.
 
+
+Configuration
+-------------
+
+See  webrtcgateway.ini.sample sample file for available options and their
+meaning.
