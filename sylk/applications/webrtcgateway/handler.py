@@ -1416,7 +1416,7 @@ class ConnectionHandler(object):
             videoroom_session = self.videoroom_sessions[event.sender]
         except KeyError:
             return
-        self._cleanup_videoroom_session(videoroom_session)
+        reactor.callLater(2, call_in_green_thread, self._cleanup_videoroom_session, videoroom_session)
         self.log.debug('session with room {session.room.uri} ended'.format(session=videoroom_session))
 
     def _EH_janus_videoroom_slowlink(self, event):
