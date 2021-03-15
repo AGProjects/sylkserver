@@ -785,7 +785,7 @@ class ConnectionHandler(object):
             del(self.connections_map[request.account])
         except KeyError:
             pass
-            
+
     def _RH_account_register(self, request):
         try:
             account_info = self.accounts_map[request.account]
@@ -1050,7 +1050,7 @@ class ConnectionHandler(object):
         else:
             media = 'unknown'
 
-        self.log.debug('{media} media accepted by room {session.room.uri}'.format(media=media, session=videoroom_session))    
+        self.log.debug('{media} media accepted by room {session.room.uri}'.format(media=media, session=videoroom_session))
         videoroom_session.janus_handle.feed_start(sdp=request.sdp)
 
     def _RH_videoroom_feed_detach(self, request):
@@ -1106,7 +1106,7 @@ class ConnectionHandler(object):
             videoroom_session.janus_handle.update_publisher(options)
             modified = ', '.join('{}={}'.format(key, options[key]) for key in options)
             media = 'video'
-            
+
             try:
                 has_video = options['video']
             except KeyError:
@@ -1114,7 +1114,7 @@ class ConnectionHandler(object):
             else:
                 if not has_video:
                     media = 'audio only'
-            
+
             self.log.info('switched to {media} media to {account} in room {session.room.uri}'.format(account=videoroom_session.room[videoroom_session.publisher_id].account.id, session=videoroom_session, media=media))
 
     def _RH_videoroom_message(self, request):
@@ -1482,7 +1482,7 @@ class ConnectionHandler(object):
         except KeyError:
             self.log.warning('could not find room session with handle ID {event.sender} for attached event'.format(event=event))
             return
-            
+
         # get the session which originated the subscription
         base_session = videoroom_session.parent_session
         assert base_session is not None
@@ -1496,7 +1496,7 @@ class ConnectionHandler(object):
             media = 'audio only'
         else:
             media = 'unknown'
-            
+
         self.log.debug('{media} media proposed to room {session.room.uri}'.format(session=videoroom_session, media=media))
         self.send(sylkrtc.VideoroomFeedAttachedEvent(session=base_session.id, feed=videoroom_session.id, sdp=event.jsep.sdp))
 
