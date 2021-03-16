@@ -4,6 +4,7 @@ import json
 import random
 import os
 import time
+import uuid
 
 from application.notification import IObserver, NotificationCenter, NotificationData
 from application.python import Null, limit
@@ -13,11 +14,14 @@ from collections import deque
 from eventlib import coros, proc
 from itertools import count
 from sipsimple.configuration.settings import SIPSimpleSettings
-from sipsimple.core import SIPURI, FromHeader, ToHeader, Credentials
+from sipsimple.core import SIPURI, FromHeader, ToHeader, Credentials, Message, RouteHeader
 from sipsimple.lookup import DNSLookup, DNSLookupError
+from sipsimple.payloads.imdn import IMDNDocument, DeliveryNotification, DisplayNotification
 from sipsimple.streams import MediaStreamRegistry
+from sipsimple.streams.msrp.chat import CPIMPayload, CPIMParserError, ChatIdentity, CPIMHeader, CPIMNamespace
 from sipsimple.threading import run_in_thread, run_in_twisted_thread
 from sipsimple.threading.green import call_in_green_thread, run_in_green_thread
+from sipsimple.util import ISOTimestamp
 from shutil import copyfileobj, rmtree
 from string import maketrans
 from twisted.internet import reactor
@@ -704,6 +708,51 @@ class ConnectionHandler(object):
         uuidv4 = '%s-%s-%s-%s-%s' % (hexa[:8], hexa[8:12], hexa[12:16], hexa[16:20], hexa[20:])
         return uuidv4
 
+    def _lookup_sip_target_route(self, uri):
+        sip_uri = SIPURI.parse('sip:%s' % uri)
+        settings = SIPSimpleSettings()
+        try:
+            routes = self.resolver.lookup_sip_proxy(sip_uri, settings.sip.transport_list).wait()
+        except DNSLookupError as e:
+            raise DNSLookupError('DNS lookup error: {exception!s}'.format(exception=e))
+        if not routes:
+            raise DNSLookupError('DNS lookup error: no results found')
+
+        route = random.choice([r for r in routes if r.transport == routes[0].transport])
+        self.log.debug('DNS lookup for SIP message proxy for {} yielded {}'.format(uri, route))
+        return route
+
+    def _send_sip_message(self, account, uri, message_id, content, content_type='text/plain', timestamp=None, add_disposition=True):
+        route = self._lookup_sip_target_route(uri)
+        sip_uri = SIPURI.parse('sip:%s' % uri)
+        if route:
+            identity = str(account.uri)
+            if account.display_name:
+                identity = '"%s" <%s>' % (account.display_name, identity)
+            self.log.debug("sending message from '%s' to '%s' using proxy %s" % (identity, uri, route))
+
+            from_uri = SIPURI.parse(account.uri)
+            content = content.encode('utf-8')
+            ns = CPIMNamespace('urn:ietf:params:imdn', 'imdn')
+            additional_headers = [CPIMHeader('Message-ID', ns, message_id)]
+            if add_disposition:
+                additional_headers.append(CPIMHeader('Disposition-Notification', ns, 'positive-delivery, display'))
+            payload = CPIMPayload(content,
+                                  content_type,
+                                  charset='utf-8',
+                                  sender=ChatIdentity(from_uri, account.display_name),
+                                  recipients=[ChatIdentity(sip_uri, None)],
+                                  timestamp=timestamp if timestamp is not None else str(ISOTimestamp.now()),
+                                  additional_headers=additional_headers)
+            payload, content_type = payload.encode()
+
+            credentials = Credentials(username=from_uri.user, password=account.password.encode('utf-8'), digest=True)
+            message_request = Message(FromHeader(from_uri, account.display_name), ToHeader(sip_uri), RouteHeader(route.uri), content_type, payload, credentials=credentials)
+            notification_center = NotificationCenter()
+            notification_center.add_observer(self, sender=message_request)
+            #self._message_queue.append((message_id, content, content_type))
+            message_request.send()
+
     def _handle_janus_sip_event(self, event):
         operation = Operation(type='event', name='janus-sip', data=event)
         self.operations_queue.send(operation)
@@ -843,6 +892,38 @@ class ConnectionHandler(object):
             storage.add(request.account, account_info.contact_params, account_info.user_agent)
 
             self.log.info('added token on {request.platform} device {request.device})'.format(request=request))
+
+    def _RH_account_message(self, request):
+        try:
+            account_info = self.accounts_map[request.account]
+        except KeyError:
+            raise APIError('Unknown account specified: {request.account}'.format(request=request))
+
+        uri = request.uri
+        content_type = request.content_type
+        content = request.content if content_type.startswith('text') else request.content.encode('latin1')
+        message_id = request.message_id.encode('ascii')
+        timestamp = request.timestamp
+        self.log.info('sending message to: {uri}'.format(uri=uri))
+        self._send_sip_message(account_info, uri, message_id, content, content_type, timestamp=timestamp)
+
+    def _RH_account_disposition_notification(self, request):
+        try:
+            account_info = self.accounts_map[request.account]
+        except KeyError:
+            raise APIError('Unknown account specified: {request.account}'.format(request=request))
+
+        uri = request.uri
+        message_id = request.message_id.encode('ascii')
+        state = request.state
+        if state == 'delivered':
+            notification = DeliveryNotification(state)
+        elif state == 'displayed':
+            notification = DisplayNotification(state)
+
+        content = IMDNDocument.create(message_id=message_id, datetime=request.timestamp, recipient_uri=uri, notification=notification)
+        self.log.info('sending IMDN message to: {uri}'.format(uri=uri))
+        self._send_sip_message(account_info, uri, str(uuid.uuid4()), content, IMDNDocument.content_type, add_disposition=False)
 
     def _RH_session_create(self, request):
         if request.session in self.sip_sessions:
@@ -1367,6 +1448,58 @@ class ConnectionHandler(object):
     def _EH_janus_sip_event_ringing(self, event):
         pass
 
+    def _EH_janus_sip_event_message(self, event):
+        try:
+            account_info = self.account_handles_map[event.sender]
+        except KeyError:
+            self.log.warning('could not find account with handle ID {event.sender} for message event'.format(event=event))
+            return
+
+        data = event.plugindata.data.result  # type: janus.SIPResultMessage
+        if data.content_type == "application/im-iscomposing+xml":
+            return
+        elif data.content_type == "message/cpim":
+            try:
+                content = data.content if isinstance(data.content, unicode) else data.content.decode('latin1')  # preserve >
+                cpim_message = CPIMPayload.decode(content.encode())
+            except CPIMParserError:
+                self.log.info('message rejected: CPIM parse error')
+                return
+            else:
+                body = cpim_message.content
+                content_type = cpim_message.content_type
+                sender = cpim_message.sender or FromHeader(data.sender, data.display_name)
+                disposition = next(([item.strip() for item in header.value.split(',')] for header in cpim_message.additional_headers if header.name == 'Disposition-Notification'), None)
+                message_id = next((header.value for header in cpim_message.additional_headers if header.name == 'Message-ID'), None)
+        else:
+            body = data.content
+            content_type = data.content_type
+            sender = FromHeader(data.sender, data.display_name)
+
+        sender = sylkrtc.SIPIdentity(uri=str(sender.uri), display_name=sender.display_name)
+        timestamp = str(cpim_message.timestamp) if cpim_message and cpim_message.timestamp is not None else str(ISOTimestamp.now())
+
+        if content_type == IMDNDocument.content_type:
+            self.log.info('received IMDN message from: {originator.uri}'.format(originator=sender))
+            document = IMDNDocument.parse(body)
+            imdn_message_id = document.message_id.value
+            imdn_status = document.notification.status.__str__()
+            self.send(sylkrtc.AccountDispositionNotificationEvent(account=account_info.id,
+                                                                  state=imdn_status,
+                                                                  message_id=imdn_message_id,
+                                                                  timestamp=timestamp,
+                                                                  code=200,
+                                                                  reason=''))
+        else:
+            self.log.info('received message from: {originator.uri}'.format(originator=sender))
+            self.send(sylkrtc.AccountMessageEvent(account=account_info.id,
+                                                  sender=sender,
+                                                  content=body,
+                                                  content_type=content_type,
+                                                  timestamp=timestamp,
+                                                  disposition_notification=disposition,
+                                                  message_id=message_id))
+
     def _EH_janus_videoroom(self, event):
         if isinstance(event, janus.PluginEvent):
             event_id = event.plugindata.data.__id__
@@ -1588,6 +1721,37 @@ class ConnectionHandler(object):
         data = notification.data
         self.send(sylkrtc.VideoroomMessageDeliveryEvent(session=session.id, delivered=False, message_id=data.message_id, code=data.code, reason=data.reason))
 
+    def _NH_SIPMessageDidSucceed(self, notification):
+        self.log.info('message was accepted by remote party')
+        data = notification.data
+
+        body = CPIMPayload.decode(notification.sender.body)
+        message_id = next((header.value for header in body.additional_headers if header.name == 'Message-ID'), None)
+        account_info = self.accounts_map['%s@%s' % (body.sender.uri.user, body.sender.uri.host)]
+        timestamp = body.timestamp
+
+        self.send(sylkrtc.AccountDispositionNotificationEvent(account=account_info.id,
+                                                              state='accepted',
+                                                              message_id=message_id,
+                                                              code=data.code,
+                                                              reason=data.reason,
+                                                              timestamp=timestamp))
+
+    def _NH_SIPMessageDidFail(self, notification):
+        notification_center = NotificationCenter()
+        notification_center.remove_observer(self, sender=notification.sender)
+        data = notification.data
+        body = CPIMPayload.decode(notification.sender.body)
+        self.log.warning('could not deliver message to %s: %d %s\n' % (body.sender.uri, notification.data.code, notification.data.reason))
+        message_id = next((header.value for header in body.additional_headers if header.name == 'Message-ID'), None)
+        account_info = self.accounts_map['%s@%s' % (body.sender.uri.user, body.sender.uri.host)]
+        timestamp = body.timestamp
+        self.send(sylkrtc.AccountDispositionNotificationEvent(account=account_info.id,
+                                                              state='failed',
+                                                              message_id=message_id,
+                                                              code=data.code,
+                                                              reason=data.reason,
+                                                              timestamp=timestamp))
 
 # noinspection PyPep8Naming
 class VideoroomChatHandler(object):

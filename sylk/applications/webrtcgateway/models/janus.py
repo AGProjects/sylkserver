@@ -485,6 +485,7 @@ class SIPResultMessage(JSONObject):
     sender = StringProperty()
     displayname = StringProperty(optional=True)
     content = StringProperty()
+    content_type = StringProperty(optional=True, default='text/plain')
 
 
 class SIPResultMessageSent(JSONObject):

@@ -112,6 +112,10 @@ class SharedFiles(JSONArray):
     item_type = SharedFile
 
 
+class DispositionNotifications(StringArray):
+    list_validator = UniqueItemsValidator()
+
+
 # Response models
 
 class AckResponse(SylkRTCResponseBase):
@@ -149,6 +153,24 @@ class AccountConferenceInviteEvent(AccountEventBase):
     room = StringProperty(validator=AORValidator())
     session_id = StringProperty()
     originator = ObjectProperty(SIPIdentity)  # type: SIPIdentity
+
+
+class AccountMessageEvent(AccountEventBase):
+    event = FixedValueProperty('message')
+    sender = ObjectProperty(SIPIdentity)  # type: SIPIdentity
+    timestamp = StringProperty()
+    disposition_notification = ArrayProperty(DispositionNotifications, optional=True)
+    message_id = StringProperty()
+    content_type = StringProperty()
+    content = StringProperty()
+
+
+class AccountDispositionNotificationEvent(AccountEventBase):
+    event = FixedValueProperty('disposition-notification')
+    message_id = StringProperty()
+    state = LimitedChoiceProperty(['accepted', 'delivered', 'displayed','failed', 'processed', 'stored', 'forbidden', 'error'])
+    code = IntegerProperty()
+    reason = StringProperty()
 
 
 class AccountRegisteringEvent(AccountRegistrationStateEvent):
@@ -319,6 +341,23 @@ class AccountDeviceTokenRequest(AccountRequestBase):
     device = StringProperty()
     silent = BooleanProperty(default=False)
     app = StringProperty()
+
+
+class AccountMessageRequest(AccountRequestBase):
+    sylkrtc = FixedValueProperty('account-message')
+    uri = StringProperty(validator=AORValidator())
+    message_id = StringProperty()
+    content = StringProperty()
+    content_type = StringProperty()
+    timestamp = StringProperty()
+
+
+class AccountDispositionNotificationRequest(AccountRequestBase):
+    sylkrtc = FixedValueProperty('account-disposition-notification')
+    uri = StringProperty(validator=AORValidator())
+    message_id = StringProperty()
+    state = LimitedChoiceProperty(['delivered', 'failed', 'displayed', 'forbidden', 'error'])
+    timestamp = StringProperty()
 
 
 # Session request models
