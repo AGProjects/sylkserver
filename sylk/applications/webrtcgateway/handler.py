@@ -1456,6 +1456,7 @@ class ConnectionHandler(object):
             return
 
         data = event.plugindata.data.result  # type: janus.SIPResultMessage
+        cpim_message = None
         if data.content_type == "application/im-iscomposing+xml":
             return
         elif data.content_type == "message/cpim":
@@ -1468,16 +1469,18 @@ class ConnectionHandler(object):
             else:
                 body = cpim_message.content
                 content_type = cpim_message.content_type
-                sender = cpim_message.sender or FromHeader(data.sender, data.display_name)
+                sender = cpim_message.sender or FromHeader(SIPURI.parse('{}'.format(data.sender)), data.display_name)
                 disposition = next(([item.strip() for item in header.value.split(',')] for header in cpim_message.additional_headers if header.name == 'Disposition-Notification'), None)
                 message_id = next((header.value for header in cpim_message.additional_headers if header.name == 'Message-ID'), None)
         else:
             body = data.content
             content_type = data.content_type
-            sender = FromHeader(data.sender, data.display_name)
+            sender = FromHeader(SIPURI.parse('{}'.format(data.sender)), data.display_name)
+            disposition = None
+            message_id = str(uuid.uuid4())
 
         sender = sylkrtc.SIPIdentity(uri=str(sender.uri), display_name=sender.display_name)
-        timestamp = str(cpim_message.timestamp) if cpim_message and cpim_message.timestamp is not None else str(ISOTimestamp.now())
+        timestamp = str(cpim_message.timestamp) if cpim_message is not None and cpim_message.timestamp is not None else str(ISOTimestamp.now())
 
         if content_type == IMDNDocument.content_type:
             self.log.info('received IMDN message from: {originator.uri}'.format(originator=sender))
