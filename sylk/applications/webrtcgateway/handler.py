@@ -1469,13 +1469,13 @@ class ConnectionHandler(object):
             else:
                 body = cpim_message.content
                 content_type = cpim_message.content_type
-                sender = cpim_message.sender or FromHeader(SIPURI.parse('{}'.format(data.sender)), data.display_name)
+                sender = cpim_message.sender or FromHeader(SIPURI.parse('{}'.format(data.sender)), data.displayname)
                 disposition = next(([item.strip() for item in header.value.split(',')] for header in cpim_message.additional_headers if header.name == 'Disposition-Notification'), None)
                 message_id = next((header.value for header in cpim_message.additional_headers if header.name == 'Message-ID'), None)
         else:
             body = data.content
             content_type = data.content_type
-            sender = FromHeader(SIPURI.parse('{}'.format(data.sender)), data.display_name)
+            sender = FromHeader(SIPURI.parse('{}'.format(data.sender)), data.displayname)
             disposition = None
             message_id = str(uuid.uuid4())
 
