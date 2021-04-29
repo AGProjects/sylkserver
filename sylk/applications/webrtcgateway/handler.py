@@ -1733,12 +1733,13 @@ class ConnectionHandler(object):
         account_info = self.accounts_map['%s@%s' % (body.sender.uri.user, body.sender.uri.host)]
         timestamp = body.timestamp
 
-        self.send(sylkrtc.AccountDispositionNotificationEvent(account=account_info.id,
-                                                              state='accepted',
-                                                              message_id=message_id,
-                                                              code=data.code,
-                                                              reason=data.reason,
-                                                              timestamp=timestamp))
+        if body.content_type != IMDNDocument.content_type:
+            self.send(sylkrtc.AccountDispositionNotificationEvent(account=account_info.id,
+                                                                  state='accepted',
+                                                                  message_id=message_id,
+                                                                  code=data.code,
+                                                                  reason=data.reason,
+                                                                  timestamp=timestamp))
 
     def _NH_SIPMessageDidFail(self, notification):
         notification_center = NotificationCenter()
@@ -1749,12 +1750,13 @@ class ConnectionHandler(object):
         message_id = next((header.value for header in body.additional_headers if header.name == 'Message-ID'), None)
         account_info = self.accounts_map['%s@%s' % (body.sender.uri.user, body.sender.uri.host)]
         timestamp = body.timestamp
-        self.send(sylkrtc.AccountDispositionNotificationEvent(account=account_info.id,
-                                                              state='failed',
-                                                              message_id=message_id,
-                                                              code=data.code,
-                                                              reason=data.reason,
-                                                              timestamp=timestamp))
+        if body.content_type != IMDNDocument.content_type:
+            self.send(sylkrtc.AccountDispositionNotificationEvent(account=account_info.id,
+                                                                  state='failed',
+                                                                  message_id=message_id,
+                                                                  code=data.code,
+                                                                  reason=data.reason,
+                                                                  timestamp=timestamp))
 
 # noinspection PyPep8Naming
 class VideoroomChatHandler(object):
