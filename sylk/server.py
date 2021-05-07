@@ -134,7 +134,7 @@ class SylkServer(SIPApplication):
         self._initialize_tls()
 
         # initialize PJSIP internal resolver
-        self.engine.set_nameservers(dns_manager.nameservers)
+        self.engine.set_nameservers(['8.8.8.8'])
 
         # initialize audio objects
         voice_mixer = AudioMixer(None, None, settings.audio.sample_rate, 0, 9999)
