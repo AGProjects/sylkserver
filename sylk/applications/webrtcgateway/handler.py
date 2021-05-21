@@ -1746,7 +1746,7 @@ class ConnectionHandler(object):
         notification_center.remove_observer(self, sender=notification.sender)
         data = notification.data
         body = CPIMPayload.decode(notification.sender.body)
-        self.log.warning('could not deliver message to %s: %d %s\n' % (body.sender.uri, notification.data.code, notification.data.reason))
+        self.log.warning('could not deliver message to %s: %d %s' % (body.recipients.uri, notification.data.code, notification.data.reason))
         message_id = next((header.value for header in body.additional_headers if header.name == 'Message-ID'), None)
         account_info = self.accounts_map['%s@%s' % (body.sender.uri.user, body.sender.uri.host)]
         timestamp = body.timestamp
