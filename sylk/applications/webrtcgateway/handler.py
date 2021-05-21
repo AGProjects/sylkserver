@@ -904,7 +904,7 @@ class ConnectionHandler(object):
         content = request.content if content_type.startswith('text') else request.content.encode('latin1')
         message_id = request.message_id.encode('ascii')
         timestamp = request.timestamp
-        self.log.info('sending message to: {uri}'.format(uri=uri))
+        self.log.info('sending message ({content_type}) to: {uri}'.format(content_type=content_type, uri=uri))
         self._send_sip_message(account_info, uri, message_id, content, content_type, timestamp=timestamp)
 
     def _RH_account_disposition_notification(self, request):
@@ -922,7 +922,7 @@ class ConnectionHandler(object):
             notification = DisplayNotification(state)
 
         content = IMDNDocument.create(message_id=message_id, datetime=request.timestamp, recipient_uri=uri, notification=notification)
-        self.log.info('sending IMDN message to: {uri}'.format(uri=uri))
+        self.log.info('sending IMDN message ({status}) to: {uri}'.format(status=state, uri=uri))
         self._send_sip_message(account_info, uri, str(uuid.uuid4()), content, IMDNDocument.content_type, add_disposition=False)
 
     def _RH_session_create(self, request):
@@ -1483,10 +1483,10 @@ class ConnectionHandler(object):
         timestamp = str(cpim_message.timestamp) if cpim_message is not None and cpim_message.timestamp is not None else str(ISOTimestamp.now())
 
         if content_type == IMDNDocument.content_type:
-            self.log.info('received IMDN message from: {originator.uri}'.format(originator=sender))
             document = IMDNDocument.parse(body)
             imdn_message_id = document.message_id.value
             imdn_status = document.notification.status.__str__()
+            self.log.info('received IMDN message ({status}) from: {originator.uri}'.format(status=imdn_status, originator=sender))
             self.send(sylkrtc.AccountDispositionNotificationEvent(account=account_info.id,
                                                                   state=imdn_status,
                                                                   message_id=imdn_message_id,
@@ -1494,7 +1494,7 @@ class ConnectionHandler(object):
                                                                   code=200,
                                                                   reason=''))
         else:
-            self.log.info('received message from: {originator.uri}'.format(originator=sender))
+            self.log.info('received message ({content_type}) from: {originator.uri}'.format(content_type=content_type, originator=sender))
             self.send(sylkrtc.AccountMessageEvent(account=account_info.id,
                                                   sender=sender,
                                                   content=body,
