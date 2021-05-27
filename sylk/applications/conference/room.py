@@ -126,6 +126,7 @@ class Room(object):
         self.identity = ChatIdentity(SIPURI.parse('sip:%s' % self.uri), display_name='Conference Room')
         self.files = []
         self.screen_images = {}
+        self.subject = ''
         self.sessions = []
         self.subscriptions = []
         self.state = 'stopped'
@@ -161,7 +162,7 @@ class Room(object):
     def conference_info(self):
         if self.conference_info_payload is None:
             settings = SIPSimpleSettings()
-            conference_description = conference.ConferenceDescription(display_text='Ad-hoc conference', free_text='Hosted by %s' % settings.user_agent)
+            conference_description = conference.ConferenceDescription(display_text='Ad-hoc conference', free_text='Hosted by %s' % settings.user_agent, subject=self.subject)
             conference_description.conf_uris = conference.ConfUris()
             conference_description.conf_uris.add(conference.ConfUrisEntry('sip:%s' % self.uri, purpose='participation'))
             if self.config.advertise_xmpp_support:
