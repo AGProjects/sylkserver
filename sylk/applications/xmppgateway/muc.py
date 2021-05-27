@@ -464,3 +464,12 @@ class X2SMucHandler(object):
             return
         self._pending_nicknames_map[message_id] = (nickname, notification.data.stanza)
 
+    def _NH_XMPPIncomingMucSessionSubject(self, notification):
+        if not self._sip_session:
+            return
+        message = notification.data.message
+        sender_uri = message.sender.uri.as_sip_uri()
+        del sender_uri.parameters['gr']    # no GRUU in CPIM From header
+        sender = ChatIdentity(sender_uri, display_name=self.nickname)
+        message_id = self._msrp_stream.send_message('Conference title set to: %s' % message.body, 'text/plain', sender=sender)
+        self._pending_messages_map[message_id] = message

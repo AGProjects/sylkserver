@@ -246,6 +246,17 @@ class XMPPManager(object):
         else:
             session.channel.send(message)
 
+    def _NH_XMPPMucGotSubject(self, notification):
+        message = notification.data.message
+        muc_uri = FrozenURI(message.recipient.uri.user, message.recipient.uri.host)
+        try:
+            session = self.muc_session_manager.incoming[(muc_uri, message.sender.uri)]
+        except KeyError:
+            # Ignore groupchat messages if there was no session created
+            pass
+        else:
+            session.channel.send(message)
+
     def _NH_XMPPMucGotPresenceAvailability(self, notification):
         stanza = notification.data.presence_stanza
         if not stanza.sender.uri.resource:

@@ -143,6 +143,17 @@ class GroupChatMessage(BaseMessageStanza):
         super(GroupChatMessage, self).__init__(sender, recipient, body, html_body, id, False)
 
 
+class GroupChatSubject(BaseMessageStanza):
+    type = 'groupchat'
+    # TODO: add delay
+
+    def __init__(self, sender, recipient, subject, id=None):
+        # TODO: add timestamp
+        if subject is None:
+            raise ValueError('subject need to be set')
+        super(GroupChatSubject, self).__init__(sender, recipient, subject, None, id, False)
+
+
 class MessageReceipt(BaseMessageStanza):
     def __init__(self, sender, recipient, receipt_id, id=None):
         super(MessageReceipt, self).__init__(sender, recipient, id=id, use_receipt=False)

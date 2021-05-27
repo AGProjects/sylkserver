@@ -7,7 +7,7 @@ from eventlib import coros, proc
 from twisted.internet import reactor
 from zope.interface import implements
 
-from sylk.applications.xmppgateway.xmpp.stanzas import ChatMessage, ChatComposingIndication, MessageReceipt, ErrorStanza, GroupChatMessage, MUCAvailabilityPresence
+from sylk.applications.xmppgateway.xmpp.stanzas import ChatMessage, ChatComposingIndication, MessageReceipt, ErrorStanza, GroupChatMessage, GroupChatSubject, MUCAvailabilityPresence
 
 
 __all__ = 'XMPPChatSession', 'XMPPChatSessionManager', 'XMPPIncomingMucSession', 'XMPPMucSessionManager'
@@ -172,6 +172,8 @@ class XMPPIncomingMucSession(object):
             item = self.channel.wait()
             if isinstance(item, GroupChatMessage):
                 notification_center.post_notification('XMPPIncomingMucSessionGotMessage', sender=self, data=NotificationData(message=item))
+            elif isinstance(item, GroupChatSubject):
+                notification_center.post_notification('XMPPIncomingMucSessionSubject', sender=self, data=NotificationData(message=item))
             elif isinstance(item, MUCAvailabilityPresence):
                 if item.available:
                     nickname = item.recipient.uri.resource

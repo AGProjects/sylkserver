@@ -8,7 +8,7 @@ from wokkel import disco, muc, ping, xmppim
 from sylk.applications.xmppgateway.configuration import XMPPGatewayConfig
 from sylk.applications.xmppgateway.datatypes import Identity, FrozenURI
 from sylk.applications.xmppgateway.xmpp.stanzas import RECEIPTS_NS, CHATSTATES_NS, MUC_USER_NS, ErrorStanza, ChatComposingIndication
-from sylk.applications.xmppgateway.xmpp.stanzas import ChatMessage, GroupChatMessage, IncomingInvitationMessage, NormalMessage, MessageReceipt
+from sylk.applications.xmppgateway.xmpp.stanzas import ChatMessage, GroupChatMessage, GroupChatSubject, IncomingInvitationMessage, NormalMessage, MessageReceipt
 from sylk.applications.xmppgateway.xmpp.stanzas import AvailabilityPresence, SubscriptionPresence, ProbePresence, MUCAvailabilityPresence
 from sylk.applications.xmppgateway.xmpp.stanzas import jingle
 
@@ -181,12 +181,19 @@ class MUCServerProtocol(xmppim.BasePresenceProtocol):
         recipient = Identity(recipient_uri)
         body = None
         html_body = None
+        subject = msg.subject
+
         if msg.html is not None:
             html_body = msg.html.toXml()
         if msg.body is not None:
             body = unicode(msg.body)
-        message = GroupChatMessage(sender, recipient, body, html_body, id=msg.getAttribute('id', None))
-        NotificationCenter().post_notification('XMPPMucGotGroupChat', sender=self.parent, data=NotificationData(message=message))
+
+        if body or html_body:
+            message = GroupChatMessage(sender, recipient, body, html_body, id=msg.getAttribute('id', None))
+            NotificationCenter().post_notification('XMPPMucGotGroupChat', sender=self.parent, data=NotificationData(message=message))
+        elif subject:
+            message = GroupChatSubject(sender, recipient, subject, id=msg.getAttribute('id', None))
+            NotificationCenter().post_notification('XMPPMucGotSubject', sender=self.parent, data=NotificationData(message=message))
 
     def onInvitation(self, msg):
         sender_uri = FrozenURI.parse('xmpp:'+msg['from'])
