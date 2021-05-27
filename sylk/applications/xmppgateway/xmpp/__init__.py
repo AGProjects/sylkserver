@@ -1,13 +1,16 @@
 
+import os
+
 from application.notification import IObserver, NotificationCenter, NotificationData
 from application.python import Null
 from application.python.types import Singleton
-from twisted.internet import reactor
+from twisted.internet import reactor, ssl
 from wokkel.disco import DiscoClientProtocol
 from wokkel.generic import FallbackHandler, VersionHandler
 from wokkel.ping import PingHandler
 from wokkel.server import ServerService, XMPPS2SServerFactory
 from zope.interface import implements
+from sylk.configuration.datatypes import Path
 
 from sylk import __version__ as SYLK_VERSION
 from sylk.applications.xmppgateway.configuration import XMPPGatewayConfig
@@ -18,7 +21,6 @@ from sylk.applications.xmppgateway.xmpp.protocols import DiscoProtocol, JinglePr
 from sylk.applications.xmppgateway.xmpp.server import SylkInternalComponent, SylkRouter
 from sylk.applications.xmppgateway.xmpp.session import XMPPChatSessionManager, XMPPMucSessionManager
 from sylk.applications.xmppgateway.xmpp.subscription import XMPPSubscriptionManager
-
 
 class XMPPManager(object):
     __metaclass__ = Singleton
@@ -100,9 +102,38 @@ class XMPPManager(object):
     def start(self):
         self.stopped = False
         # noinspection PyUnresolvedReferences
-        self._s2s_listener = reactor.listenTCP(XMPPGatewayConfig.local_port, self._s2s_factory, interface=XMPPGatewayConfig.local_ip)
+        interface = XMPPGatewayConfig.local_ip
+        port = XMPPGatewayConfig.local_port
+        cert_path = Path(XMPPGatewayConfig.certificate).normalized if XMPPGatewayConfig.certificate else None
+        cert_chain_path = Path(XMPPGatewayConfig.ca_file).normalized if XMPPGatewayConfig.ca_file else None
+
+        if XMPPGatewayConfig.transport == 'tls':
+            if cert_path is not None:
+                if not os.path.isfile(cert_path):
+                    log.error('Certificate file %s could not be found' % cert_path)
+                    return
+                try:
+                    ssl_ctx_factory = ssl.DefaultOpenSSLContextFactory(cert_path, cert_path)
+                except Exception:
+                    log.exception('Creating TLS context')
+                    return
+                if cert_chain_path is not None:
+                    if not os.path.isfile(cert_chain_path):
+                        log.error('Certificate chain file %s could not be found' % cert_chain_path)
+                        return
+                    ssl_ctx = ssl_ctx_factory.getContext()
+                    try:
+                        ssl_ctx.use_certificate_chain_file(cert_chain_path)
+                    except Exception:
+                        log.exception('Setting TLS certificate chain file')
+                        return
+                self._s2s_listener = reactor.listenSSL(port, self._s2s_factory, ssl_ctx_factory, interface=interface)
+        else:
+            self._s2s_listener = reactor.listenTCP(port, self._s2s_factory, interface=interface)
+
+        port = self._s2s_listener.getHost().port
         listen_address = self._s2s_listener.getHost()
-        log.info("XMPP listener started on %s:%d" % (listen_address.host, listen_address.port))
+        log.info("XMPP S2S component listening on %s:%d (%s)" % (listen_address.host, listen_address.port, XMPPGatewayConfig.transport.upper()))
         self.chat_session_manager.start()
         self.muc_session_manager.start()
         self.subscription_manager.start()

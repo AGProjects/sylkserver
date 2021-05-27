@@ -24,6 +24,11 @@ domains = example.com
 ; local_ip =
 
 ; local_port = 5269
+; transport can be tcp or tls
+
+; transport = tls
+; ca_file = /etc/sylkserver/tls/ca.crt
+; certificate = /etc/sylkserver/tls/default.crt
 
 ; If set to True (default) MSRP will be used to translate XMPP Instant Messaging, else SIP MESSAGE will be used
 ; Note: XMPP 'normal' messages (not chat messages) are always translated to SIP MESSAGE requests
@@ -37,3 +42,4 @@ domains = example.com
 
 ; Log presence activity (can get very verbose)
 ; log_presence = False
+
