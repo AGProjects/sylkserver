@@ -10,7 +10,6 @@ from wokkel.generic import FallbackHandler, VersionHandler
 from wokkel.ping import PingHandler
 from wokkel.server import ServerService, XMPPS2SServerFactory
 from zope.interface import implements
-from sylk.configuration.datatypes import Path
 
 from sylk import __version__ as SYLK_VERSION
 from sylk.applications.xmppgateway.configuration import XMPPGatewayConfig
@@ -104,8 +103,8 @@ class XMPPManager(object):
         # noinspection PyUnresolvedReferences
         interface = XMPPGatewayConfig.local_ip
         port = XMPPGatewayConfig.local_port
-        cert_path = Path(XMPPGatewayConfig.certificate).normalized if XMPPGatewayConfig.certificate else None
-        cert_chain_path = Path(XMPPGatewayConfig.ca_file).normalized if XMPPGatewayConfig.ca_file else None
+        cert_path = XMPPGatewayConfig.certificate.normalized if XMPPGatewayConfig.certificate else None
+        cert_chain_path = XMPPGatewayConfig.ca_file.normalized if XMPPGatewayConfig.ca_file else None
 
         if XMPPGatewayConfig.transport == 'tls':
             if cert_path is not None:

@@ -5,6 +5,7 @@ from application.configuration.datatypes import StringList
 from sipsimple.configuration.datatypes import NonNegativeInteger
 
 from sylk.configuration.datatypes import IPAddress, Port
+from sylk.configuration.datatypes import Path
 
 
 class XMPPGatewayConfig(ConfigSection):
@@ -16,8 +17,8 @@ class XMPPGatewayConfig(ConfigSection):
     trace_xmpp = False
     log_presence = False
     transport = ConfigSetting(type=str, value='tls')
-    ca_file = ConfigSetting(type=str, value='/etc/sylkserver/tls/ca.crt')
-    certificate = ConfigSetting(type=str, value='/etc/sylkserver/tls/default.crt')
+    ca_file = ConfigSetting(type=Path, value=Path('/etc/sylkserver/tls/ca.crt'))
+    certificate = ConfigSetting(type=Path, value=Path('/etc/sylkserver/tls/default.crt'))
     domains = ConfigSetting(type=StringList, value=[])
     muc_prefix = 'conference'
     sip_session_timeout = ConfigSetting(type=NonNegativeInteger, value=86400)
