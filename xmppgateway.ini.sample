@@ -34,6 +34,9 @@ domains = example.com
 ; Note: XMPP 'normal' messages (not chat messages) are always translated to SIP MESSAGE requests
 ; use_msrp_for_chat = True
 
+; Is SIP MESSAGE is used, the message body may have a CPIM envelope
+; use_cpim = True
+
 ; Timeout to terminate a SIP session if no chat traffic was received
 ; sip_session_timeout = 600
 

@@ -10,7 +10,8 @@ from sipsimple.core import ContactHeader, FromHeader, RouteHeader, ToHeader
 from sipsimple.core import Message as SIPMessageRequest
 from sipsimple.lookup import DNSLookup, DNSLookupError
 from sipsimple.streams import MediaStreamRegistry
-from sipsimple.streams.msrp.chat import ChatIdentity
+from sipsimple.streams.msrp.chat import CPIMPayload, ChatIdentity, CPIMHeader
+
 from sipsimple.threading import run_in_twisted_thread
 from sipsimple.threading.green import run_in_green_thread, run_in_waitable_green_thread
 from twisted.internet import reactor
@@ -61,6 +62,7 @@ class ChatSessionHandler(object):
         old_value = self.__dict__.get('started', False)
         self.__dict__['started'] = value
         if not old_value and value:
+        
             NotificationCenter().post_notification('ChatSessionDidStart', sender=self)
             self._send_queued_messages()
 
@@ -378,7 +380,7 @@ class SIPMessageError(Exception):
 class SIPMessageSender(object):
     implements(IObserver)
 
-    def __init__(self, message):
+    def __init__(self, message, use_cpim=False):
         # TODO: sometimes we may want to send it to the GRUU, for example when a XMPP client
         # replies to one of our messages. MESSAGE requests don't need a Contact header, though
         # so how should we communicate our GRUU to the recipient?
@@ -386,10 +388,11 @@ class SIPMessageSender(object):
         self.from_uri.parameters.pop('gr', None)    # No GRUU in From header
         self.to_uri = message.recipient.uri.as_sip_uri()
         self.to_uri.parameters.pop('gr', None)      # Don't send it to the GRUU
-        self.body = message.body
-        self.content_type = 'text/plain'
+        self.body = message.html_body or message.body
+        self.content_type = 'text/html' if message.html_body else 'text/plain'
         self._requests = set()
         self._channel = coros.queue()
+        self.use_cpim = use_cpim
 
     @run_in_waitable_green_thread
     def send(self):
@@ -415,7 +418,21 @@ class SIPMessageSender(object):
             route_header = RouteHeader(route.uri)
             notification_center = NotificationCenter()
             for chunk in chunks(self.body, 1000):
-                request = SIPMessageRequest(from_header, to_header, route_header, self.content_type, self.body)
+                if self.use_cpim:
+                    additional_headers = []
+                    payload = CPIMPayload(self.body.encode(),
+                                  self.content_type,
+                                  charset='utf-8',
+                                  sender=ChatIdentity(self.from_uri, None),
+                                  recipients=[ChatIdentity(self.to_uri, None)],
+                                  additional_headers=additional_headers)
+
+                    payload, content_type = payload.encode()
+                else:
+                      content_type = self.content_type
+                      payload = self.body
+            
+                request = SIPMessageRequest(from_header, to_header, route_header, content_type, payload)
                 notification_center.add_observer(self, sender=request)
                 self._requests.add(request)
                 request.send()

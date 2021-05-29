@@ -199,7 +199,7 @@ class XMPPGatewayApplication(SylkApplication):
         if Null in (content_type, from_header, to_header):
             message_request.answer(400)
             return
-        log.info('New SIP Message from %s to %s' % (from_header.uri, to_header.uri))
+            
 
         # Check domain
         if from_header.uri.host not in XMPPGatewayConfig.domains:
@@ -222,6 +222,9 @@ class XMPPGatewayApplication(SylkApplication):
         else:
             body = data.body
             from_uri = from_header.uri
+
+        log.info('SIP %s message from %s to %s' % (content_type, from_header.uri, 'xmpp:%s@%s' % (to_header.uri.user, to_header.uri.host)))
+
         to_uri = str(to_header.uri)
         message_request.answer(200)
         if from_uri.parameters.get('gr', None) is None:
@@ -263,14 +266,16 @@ class XMPPGatewayApplication(SylkApplication):
         # This notification is only processed here untill the ChatSessionHandler
         # has both (SIP and XMPP) sessions established
         message = notification.data.message
+        content_type = 'text/html' if message.html_body else 'text/plain'
         sender = message.sender
         recipient = message.recipient
+        sip_leg_uri = FrozenURI.new(recipient.uri)
+        xmpp_leg_uri = FrozenURI.new(sender.uri)
+        log.info('XMPP %s message from xmpp:%s to sip:%s' % (content_type, xmpp_leg_uri.user, sip_leg_uri))
         if XMPPGatewayConfig.use_msrp_for_chat:
             if recipient.uri.resource is None:
                 # If recipient resource is not set the session is started from
                 # the XMPP side
-                sip_leg_uri = FrozenURI.new(recipient.uri)
-                xmpp_leg_uri = FrozenURI.new(sender.uri)
                 try:
                     handler = self.pending_sessions[(sip_leg_uri, xmpp_leg_uri)]
                     handler.enqueue_xmpp_message(message)
@@ -317,12 +322,12 @@ class XMPPGatewayApplication(SylkApplication):
                     handler.xmpp_identity = session.remote_identity
                     handler.xmpp_session = session
         else:
-            sip_message_sender = SIPMessageSender(message)
+            sip_message_sender = SIPMessageSender(message, XMPPGatewayConfig.use_cpim)
             try:
                 sip_message_sender.send().wait()
             except SIPMessageError as e:
                 # TODO report back an error stanza
-                log.error('Error sending SIP Message: %s' % e)
+                log.error('Error sending SIP Message: %s (%s)' % (e.reason, e.code))
 
     @run_in_green_thread
     def _NH_XMPPGotNormalMessage(self, notification):

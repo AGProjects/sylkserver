@@ -23,4 +23,5 @@ class XMPPGatewayConfig(ConfigSection):
     muc_prefix = 'conference'
     sip_session_timeout = ConfigSetting(type=NonNegativeInteger, value=86400)
     use_msrp_for_chat = True
+    use_cpim = True
 
