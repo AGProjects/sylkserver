@@ -16,6 +16,8 @@ class XMPPGatewayConfig(ConfigSection):
     local_port = ConfigSetting(type=Port, value=5269)
     trace_xmpp = False
     log_presence = False
+    log_messages = False
+    log_iscomposing = False
     transport = ConfigSetting(type=str, value='tls')
     ca_file = ConfigSetting(type=Path, value=Path('/etc/sylkserver/tls/ca.crt'))
     certificate = ConfigSetting(type=Path, value=Path('/etc/sylkserver/tls/default.crt'))
@@ -24,4 +26,3 @@ class XMPPGatewayConfig(ConfigSection):
     sip_session_timeout = ConfigSetting(type=NonNegativeInteger, value=86400)
     use_msrp_for_chat = True
     use_cpim = True
-

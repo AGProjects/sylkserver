@@ -52,13 +52,13 @@ class XMPPGatewayApplication(SylkApplication):
     def incoming_session(self, session):
         stream_types = set(stream.type for stream in session.proposed_streams)
         if 'chat' in stream_types:
-            log.info('New chat session from %s to %s' % (session.remote_identity.uri, session.local_identity.uri))
+            log.info('SIP/MSRP chat session from %s to %s' % (session.remote_identity.uri, session.local_identity.uri))
             self.incoming_chat_session(session)
         elif 'audio' in stream_types:
-            log.info('New audio session from %s to %s' % (session.remote_identity.uri, session.local_identity.uri))
+            log.info('SIP audio session from %s to %s' % (session.remote_identity.uri, session.local_identity.uri))
             self.incoming_media_session(session)
         else:
-            log.info('New session from %s to %s rejected. Unsupported media: %s ' % (session.remote_identity.uri, session.local_identity.uri, stream_types))
+            log.info('SIP %s session from %s to %s rejected: unsupported media ' % (stream_types, session.remote_identity.uri, session.local_identity.uri))
             session.reject(488)
 
     def incoming_chat_session(self, session):
@@ -271,7 +271,7 @@ class XMPPGatewayApplication(SylkApplication):
         recipient = message.recipient
         sip_leg_uri = FrozenURI.new(recipient.uri)
         xmpp_leg_uri = FrozenURI.new(sender.uri)
-        log.info('XMPP %s message from xmpp:%s to sip:%s' % (content_type, xmpp_leg_uri.user, sip_leg_uri))
+        log.info('XMPP %s message %s from xmpp:%s to sip:%s, use_receipt=%s' % (content_type, message.id, xmpp_leg_uri, sip_leg_uri, message.use_receipt))
         if XMPPGatewayConfig.use_msrp_for_chat:
             if recipient.uri.resource is None:
                 # If recipient resource is not set the session is started from
@@ -327,7 +327,8 @@ class XMPPGatewayApplication(SylkApplication):
                 sip_message_sender.send().wait()
             except SIPMessageError as e:
                 # TODO report back an error stanza
-                log.error('Error sending SIP Message: %s (%s)' % (e.reason, e.code))
+                if XMPPGatewayConfig.log_messages:
+                    log.error('SIP message from %s to %s failed: %s (%s)' % (xmpp_leg_uri, sip_leg_uri, e.reason, e.code))
 
     @run_in_green_thread
     def _NH_XMPPGotNormalMessage(self, notification):
@@ -337,7 +338,8 @@ class XMPPGatewayApplication(SylkApplication):
             sip_message_sender.send().wait()
         except SIPMessageError as e:
             # TODO report back an error stanza
-            log.error('Error sending SIP Message: %s' % e)
+            if XMPPGatewayConfig.log_messages:
+                log.error('SIP message from %s to %s failed: %s (%s)' % (xmpp_leg_uri, sip_leg_uri, e.reason, e.code))
 
     @run_in_green_thread
     def _NH_XMPPGotComposingIndication(self, notification):
