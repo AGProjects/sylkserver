@@ -15,8 +15,10 @@ ipv4_re = re.compile("^\d{1,3}.\d{1,3}.\d{1,3}.\d{1,3}$")
 
 
 def content_to_sdpstream(content):
-    if content.description is None or content.transport is None:
-        raise ValueError
+    if content.description is None:
+        raise ValueError('Missing media description')
+    if content.transport is None:
+        raise ValueError('Missing media transport')
     media_stream = SDPMediaStream(str(content.description.media), 0, 'RTP/AVP')
     formats = []
     attributes = []
@@ -74,13 +76,16 @@ def content_to_sdpstream(content):
 
 def jingle_to_sdp(payload):
     sdp = SDPSession('127.0.0.1')
+    stream_count = 0
     for c in payload.content:
         try:
             media_stream = content_to_sdpstream(c)
-        except ValueError:
+        except ValueError as e:
+            print('Error adding to SDP %s' % str(e))
             continue
+        stream_count += 1
         sdp.media.append(media_stream)
-    return sdp
+    return sdp if stream_count > 0 else None
 
 
 ice_candidate_re = re.compile(r"""^(?P<foundation>[a-zA-Z0-9+/]+) (?P<component>\d+) (?P<protocol>[a-zA-Z]+) (?P<priority>\d+) (?P<ip>[0-9a-fA-F.:]+) (?P<port>\d+) typ (?P<type>[a-zA-Z]+)(?: raddr (?P<raddr>[0-9a-fA-F.:]+) rport (?P<rport>\d+))?$""", re.MULTILINE)
