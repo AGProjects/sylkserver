@@ -46,3 +46,7 @@ domains = example.com
 ; Log presence activity (can get very verbose)
 ; log_presence = False
 
+; Log individual SIP messages
+; log_messages = False
+; log_iscomposing = False
+

@@ -241,7 +241,7 @@ class AvailabilityPresence(BasePresenceStanza):
             if self.priority != 0:
                 xml_element.addElement('priority', content=unicode(self.priority))
             caps = xml_element.addElement('c', defaultUri=CAPS_NS)
-            caps['node'] = 'http://sylkserver.com'
+            caps['node'] = 'https://sylkserver.com'
             caps['hash'] = 'sha-1'
             caps['ver'] = SYLK_HASH
             if SYLK_CAPS:

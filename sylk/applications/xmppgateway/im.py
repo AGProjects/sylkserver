@@ -380,7 +380,7 @@ class SIPMessageError(Exception):
 class SIPMessageSender(object):
     implements(IObserver)
 
-    def __init__(self, message, use_cpim=False):
+    def __init__(self, message, content_type=None, use_cpim=False):
         # TODO: sometimes we may want to send it to the GRUU, for example when a XMPP client
         # replies to one of our messages. MESSAGE requests don't need a Contact header, though
         # so how should we communicate our GRUU to the recipient?
@@ -389,7 +389,7 @@ class SIPMessageSender(object):
         self.to_uri = message.recipient.uri.as_sip_uri()
         self.to_uri.parameters.pop('gr', None)      # Don't send it to the GRUU
         self.body = message.html_body or message.body
-        self.content_type = 'text/html' if message.html_body else 'text/plain'
+        self.content_type = content_type if content_type else ('text/html' if message.html_body else 'text/plain')
         self._requests = set()
         self._channel = coros.queue()
         self.use_cpim = use_cpim

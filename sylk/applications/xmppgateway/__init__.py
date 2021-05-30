@@ -3,9 +3,11 @@ from application.notification import IObserver, NotificationCenter
 from application.python import Null
 from sipsimple.core import SIPURI, SIPCoreError
 from sipsimple.payloads import ParserError
-from sipsimple.payloads.iscomposing import IsComposingDocument, IsComposingMessage
+from sipsimple.payloads.iscomposing import IsComposingDocument, IsComposingMessage, State, LastActive, Refresh, ContentType
 from sipsimple.streams.msrp.chat import CPIMPayload, CPIMParserError
 from sipsimple.threading.green import run_in_green_thread
+from sipsimple.util import ISOTimestamp
+
 from zope.interface import implements
 
 from sylk.applications import SylkApplication
@@ -322,7 +324,7 @@ class XMPPGatewayApplication(SylkApplication):
                     handler.xmpp_identity = session.remote_identity
                     handler.xmpp_session = session
         else:
-            sip_message_sender = SIPMessageSender(message, XMPPGatewayConfig.use_cpim)
+            sip_message_sender = SIPMessageSender(message, use_cpim=XMPPGatewayConfig.use_cpim)
             try:
                 sip_message_sender.send().wait()
             except SIPMessageError as e:
@@ -333,7 +335,7 @@ class XMPPGatewayApplication(SylkApplication):
     @run_in_green_thread
     def _NH_XMPPGotNormalMessage(self, notification):
         message = notification.data.message
-        sip_message_sender = SIPMessageSender(message)
+        sip_message_sender = SIPMessageSender(message, use_cpim=XMPPGatewayConfig.use_cpim)
         try:
             sip_message_sender.send().wait()
         except SIPMessageError as e:
@@ -348,14 +350,22 @@ class XMPPGatewayApplication(SylkApplication):
         recipient = composing_indication.recipient
         if not XMPPGatewayConfig.use_msrp_for_chat:
             state = 'active' if composing_indication.state == 'composing' else 'idle'
-            body = IsComposingMessage(state=state, refresh=composing_indication.interval or 30).toxml()
-            message = NormalMessage(sender, recipient, body, IsComposingDocument.content_type)
-            sip_message_sender = SIPMessageSender(message)
+            try:
+                interval = composing_indication.interval
+            except AttributeError:
+                interval = 60
+
+            body = IsComposingMessage(state=State(state), refresh=Refresh(interval), last_active=LastActive(ISOTimestamp.now()), content_type=ContentType('text')).toxml()
+            message = NormalMessage(sender, recipient, body)
+            sip_message_sender = SIPMessageSender(message, content_type=IsComposingDocument.content_type, use_cpim=XMPPGatewayConfig.use_cpim)
+            if XMPPGatewayConfig.log_iscomposing:
+                log.info('xmpp:%s to sip:%s chat is %s' % (sender, recipient, composing_indication.state))
+
             try:
                 sip_message_sender.send().wait()
             except SIPMessageError as e:
-                # TODO report back an error stanza
-                log.error('Error sending SIP Message: %s' % e)
+                if XMPPGatewayConfig.log_iscomposing:
+                    log.error('SIP Message from %s to %s failed: %s (%s)' % (sender, recipient, e.reason, e.code))
 
     def _NH_XMPPGotPresenceSubscriptionRequest(self, notification):
         stanza = notification.data.stanza
