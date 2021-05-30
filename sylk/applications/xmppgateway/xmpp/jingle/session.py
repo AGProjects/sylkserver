@@ -122,6 +122,7 @@ class JingleSession(object):
         self.end_time = None
         self.on_hold = False
         self.local_focus = False
+        self.candidates = set()
 
     def init_incoming(self, stanza):
         self._id = stanza.jingle.sid
@@ -772,7 +773,21 @@ class JingleSession(object):
             if self.state != 'connecting':
                 # ICE trickling not supported yet, so only accept candidates before accept
                 return
-            self._pending_transport_info_stanzas.append(stanza)
+
+            for c in stanza.jingle.content:
+                content = next(content for content in stanza.jingle.content if content.name == c.name)
+                content.transport.candidates.extend(c.transport.candidates)
+                if isinstance(content.transport, jingle.IceUdpTransport) or isinstance(content.transport, jingle.RawUdpTransport):
+                    for cand in content.transport.candidates:
+                        if cand.port == 0:
+                            continue
+                            
+                        idx = "%s:%s:%s" % (cand.protocol, cand.ip, cand.port)
+                        if idx in self.candidates:
+                            continue
+                        
+                        self.candidates.add(idx)
+                        self._pending_transport_info_stanzas.append(stanza)
 
 
 class JingleSessionManager(object):
