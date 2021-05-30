@@ -101,7 +101,7 @@ class ConferenceApplication(SylkApplication):
         chat_streams = [stream for stream in session.proposed_streams if stream.type=='chat']
         transfer_streams = [stream for stream in session.proposed_streams if stream.type=='file-transfer']
         if not audio_streams and not chat_streams and not transfer_streams:
-            log.info(u'Session rejected: invalid media, only RTP audio and MSRP chat are supported')
+            log.info(u'Session rejected: invalid media')
             session.reject(488)
             return
         audio_stream = audio_streams[0] if audio_streams else None

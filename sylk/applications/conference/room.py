@@ -466,7 +466,7 @@ class Room(object):
     def handle_incoming_subscription(self, subscribe_request, data):
         log.info('Room %s - subscription from %s' % (self.uri, data.headers['From'].uri))
         if subscribe_request.event != 'conference':
-            log.info('Room %s - Subscription for event %s rejected: only conference event is supported' % (self.uri, subscribe_request.event))
+            #log.info('Room %s - Subscription for event %s rejected: only conference event is supported' % (self.uri, subscribe_request.event))
             subscribe_request.reject(489)
             return
         NotificationCenter().add_observer(self, sender=subscribe_request)

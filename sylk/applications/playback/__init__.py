@@ -41,7 +41,7 @@ class PlaybackApplication(SylkApplication):
         del self.bonjour_services[:]
 
     def incoming_session(self, session):
-        log.info('Incoming session %s from %s to %s' % (session.call_id, session.remote_identity.uri, session.local_identity.uri))
+        log.info('Session %s from %s to %s' % (session.call_id, session.remote_identity.uri, session.local_identity.uri))
         config = get_config('%s@%s' % (session.request_uri.user, session.request_uri.host))
         if config is None:
             config = get_config('%s' % session.request_uri.user)
@@ -54,7 +54,7 @@ class PlaybackApplication(SylkApplication):
             stream_types.add('video')
         streams = [stream for stream in session.proposed_streams if stream.type in stream_types]
         if not streams:
-            log.info(u'Session %s rejected: invalid media, only RTP audio and video is supported' % session.call_id)
+            log.info(u'Session %s rejected: invalid media' % session.call_id)
             session.reject(488)
             return
         handler = PlaybackHandler(config, session)
