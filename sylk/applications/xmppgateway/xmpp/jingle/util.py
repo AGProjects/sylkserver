@@ -138,7 +138,12 @@ def sdpstream_to_content(sdp, index):
         if not connection:
             raise ValueError
         content.transport.candidates.append(jingle.UDPCandidate(1, 0, 100, connection.address, media_stream.port, 'UDP'))
-        # TODO: component for RTCP
+
+        for attr in media_stream.attributes:
+            if attr.name == 'rtcp':
+                content.transport.candidates.append(jingle.UDPCandidate(2, 0, 101, connection.address, attr.value, 'UDP'))
+                break
+
     return content
 
 
