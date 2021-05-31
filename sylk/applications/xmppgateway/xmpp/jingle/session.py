@@ -327,7 +327,7 @@ class JingleSession(object):
 
             remote_sdp = self._sdp_negotiator.current_remote
             local_ip = SIPConfig.local_ip.normalized
-            local_sdp = SDPSession(local_ip, connection=SDPConnection(local_ip), name=settings.user_agent)
+            local_sdp = SDPSession(local_ip.encode(), connection=SDPConnection(local_ip.encode()), name=settings.user_agent.encode())
             stream_map = dict((stream.index, stream) for stream in self.proposed_streams)
             for index, media in enumerate(remote_sdp.media):
                 stream = stream_map.get(index, None)
@@ -441,7 +441,7 @@ class JingleSession(object):
                     wait_count -= 1
             # Build local SDP and negotiator
             local_ip = SIPConfig.local_ip.normalized
-            local_sdp = SDPSession(local_ip, connection=SDPConnection(local_ip), name=settings.user_agent)
+            local_sdp = SDPSession(local_ip.encode(), connection=SDPConnection(local_ip.encode()), name=settings.user_agent.encode())
             for index, stream in enumerate(self.proposed_streams):
                 stream.index = index
                 media = stream.get_local_media(remote_sdp=None, index=index)

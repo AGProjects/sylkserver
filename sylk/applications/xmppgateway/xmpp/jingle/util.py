@@ -19,45 +19,47 @@ def content_to_sdpstream(content):
         raise ValueError('Missing media description')
     if content.transport is None:
         raise ValueError('Missing media transport')
-    media_stream = SDPMediaStream(str(content.description.media), 0, 'RTP/AVP')
+    media_stream = SDPMediaStream(content.description.media, 0, b'RTP/AVP')
     formats = []
     attributes = []
     for item in content.description.payloads:
         formats.append(item.id)
-        attributes.append(SDPAttribute('rtpmap', '%d %s/%d' % (item.id, str(item.name), item.clockrate)))
+        f = '%d %s/%d' % (item.id, str(item.name), item.clockrate)
+        attributes.append(SDPAttribute(b'rtpmap', f.encode()))
         if item.maxptime:
-            attributes.append(SDPAttribute('maxptime', str(item.maxptime)))
+            attributes.append(SDPAttribute(b'maxptime', item.maxptime.encode()))
         if item.ptime:
-            attributes.append(SDPAttribute('ptime', str(item.ptime)))
+            attributes.append(SDPAttribute(b'ptime', item.ptime.encode()))
         if item.parameters:
             parameters_str = ';'.join(('%s=%s' % (p.name, p.value) for p in item.parameters))
-            attributes.append(SDPAttribute('fmtp', '%d %s' % (item.id, str(parameters_str))))
+            fmtp = '%d %s' % (item.id, str(parameters_str)) 
+            attributes.append(SDPAttribute(b'fmtp', fmtp.encode()))
     media_stream.formats = map(str, formats)
     media_stream.attributes = attributes  # set attributes so that _codec_list is generated
     if content.description.encryption:
         if content.description.encryption.required:
-            media_stream.transport = 'RTP/SAVP'
+            media_stream.transport = b'RTP/SAVP'
         for crypto in content.description.encryption.cryptos:
             crypto_str = '%s %s %s' % (crypto.tag, crypto.crypto_suite, crypto.key_params)
             if crypto.session_params:
                 crypto_str += ' %s' % crypto.session_params
-            media_stream.attributes.append(SDPAttribute('crypto', str(crypto_str)))
+            media_stream.attributes.append(SDPAttribute(b'crypto', crypto_str.encode()))
     if isinstance(content.transport, jingle.IceUdpTransport):
         if content.transport.ufrag:
-            media_stream.attributes.append(SDPAttribute('ice-ufrag', str(content.transport.ufrag)))
+            media_stream.attributes.append(SDPAttribute(b'ice-ufrag', content.transport.ufrag.encode()))
         if content.transport.password:
-            media_stream.attributes.append(SDPAttribute('ice-pwd', str(content.transport.password)))
+            media_stream.attributes.append(SDPAttribute(b'ice-pwd', content.transport.password.encode()))
         for candidate in content.transport.candidates:
             if not ipv4_re.match(candidate.ip):
                 continue
             candidate_str = '%s %d %s %d %s %d typ %s' % (candidate.foundation, candidate.component, candidate.protocol.upper(), candidate.priority, candidate.ip, candidate.port, candidate.typ)
             if candidate.related_addr and candidate.related_port:
                 candidate_str += ' raddr %s rport %d' % (candidate.related_addr, candidate.related_port)
-            media_stream.attributes.append(SDPAttribute('candidate', str(candidate_str)))
+            media_stream.attributes.append(SDPAttribute(b'candidate', candidate_str.encode()))
         if content.transport.remote_candidate:
             remote_candidate = content.transport.remote_candidate
             remote_candidates_str = '%d %s %d' % (remote_candidate.component, remote_candidate.ip, remote_candidate.port)
-            media_stream.attributes.append(SDPAttribute('remote-candidates', str(remote_candidates_str)))
+            media_stream.attributes.append(SDPAttribute(b'remote-candidates', remote_candidates_str.encode()))
     elif isinstance(content.transport, jingle.RawUdpTransport):
         # Nothing to do here
         pass
@@ -68,14 +70,14 @@ def content_to_sdpstream(content):
         candidate = next(c for c in content.transport.candidates if c.component == 1 and ipv4_re.match(c.ip))
     except StopIteration:
         raise ValueError
-    media_stream.connection = SDPConnection(str(candidate.ip))
+    media_stream.connection = SDPConnection(candidate.ip.encode())
     media_stream.port = candidate.port
 
     return media_stream
 
 
 def jingle_to_sdp(payload):
-    sdp = SDPSession('127.0.0.1')
+    sdp = SDPSession(b'127.0.0.1')
     stream_count = 0
     for c in payload.content:
         try:
