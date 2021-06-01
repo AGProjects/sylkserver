@@ -420,7 +420,7 @@ class SIPMessageSender(object):
             for chunk in chunks(self.body, 1000):
                 if self.use_cpim:
                     additional_headers = []
-                    payload = CPIMPayload(self.body.encode(),
+                    payload = CPIMPayload(self.body.encode('utf-8'),
                                   self.content_type,
                                   charset='utf-8',
                                   sender=ChatIdentity(self.from_uri, None),
@@ -429,8 +429,8 @@ class SIPMessageSender(object):
 
                     payload, content_type = payload.encode()
                 else:
-                      content_type = self.content_type
-                      payload = self.body
+                    content_type = self.content_type
+                    payload = self.body.encode('utf-8')
             
                 request = SIPMessageRequest(from_header, to_header, route_header, content_type, payload)
                 notification_center.add_observer(self, sender=request)

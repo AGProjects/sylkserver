@@ -222,7 +222,7 @@ class XMPPGatewayApplication(SylkApplication):
                 sender = cpim_message.sender or from_header
                 from_uri = sender.uri
         else:
-            body = data.body
+            body = data.body.decode('utf-8')
             from_uri = from_header.uri
 
         log.info('SIP %s message from %s to %s' % (content_type, from_header.uri, 'xmpp:%s@%s' % (to_header.uri.user, to_header.uri.host)))
