@@ -1,3 +1,24 @@
+sylkserver (5.8.0) unstable; urgency=medium
+
+  * [xmpp-gateway] Added TLS server support
+  * [xmpp-gateway] Added XMPP Muc Subject stanza
+  * [xmpp-gateway] Improve XMPP/SIP Message interoperability
+  * [xmpp-gateway] Fixed encoding/decoding XMPP/SIP gateway messaging
+  * [xmpp-gateway] Improve logging
+  * [xmpp-gateway] Handle RTCP in Jingle media SDP
+  * [xmpp-gateway] Fixed accumulating duplicate Jingle candidates
+  * [xmpp-gateway] Fixed handling is_composing events
+  * [xmpp-gateway] Added description to exception raised by broken Jingle payload
+  * [webrctgatway] Added content type and IMDN status to logs
+  * [webrctgatway] Added support for sending and receiving SIP Messages and IMDN
+  * [webrctgatway] Delay cleanup in videoroom hangup event to prevent colliding with 'leaving'
+  * [webrctgatway] Allow janus decline code to be defined in configuration
+  * Added subject to conference info description
+  * Initialize PJSIP engine with a fixed name server
+  * Update WebRTC readme
+
+ -- Adrian Georgescu <ag@ag-projects.com>  Tue, 01 Jun 2021 19:21:45 +0200
+
 sylkserver (5.7.0) unstable; urgency=medium
 
   * Added (external) IMAP authentication for webrtcgateway
