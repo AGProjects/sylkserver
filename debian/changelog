@@ -25,7 +25,7 @@ sylkserver (5.7.0) unstable; urgency=medium
     The authentication type can be configured per domain in auth.ini
   * Added apache-cassandra as storage backend
   * Added session_id based on callid to conference invite 
-  * Added supoort for audio only conferences
+  * Added support for audio only conferences
   * Added support for 'ping' in sylkrtc protocol
   * Added support for early media
   * Added user agent to token storage
