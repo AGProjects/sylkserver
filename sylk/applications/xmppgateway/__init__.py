@@ -217,7 +217,7 @@ class XMPPGatewayApplication(SylkApplication):
                 message_request.answer(400)
                 return
             else:
-                body = cpim_message.content
+                body = cpim_message.content.decode('utf-8')
                 content_type = cpim_message.content_type
                 sender = cpim_message.sender or from_header
                 from_uri = sender.uri
