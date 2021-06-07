@@ -233,6 +233,14 @@ class SylkServer(SIPApplication):
             except TypeError:
                 pass
 
+        available_audio_codecs_print = list(codec.decode() for codec in self.engine._ua.available_codecs)
+        available_video_codecs_print = list(codec.decode() for codec in self.engine._ua.available_video_codecs)
+        log.info("Available audio codecs: %s" % ", ".join(available_audio_codecs_print))
+        log.info("Enabled audio codecs: %s" % ", ".join(settings.rtp.audio_codec_list))
+        log.info("Available video codecs: %s" % ", ".join(available_video_codecs_print))
+        log.info("Enabled video codecs: %s" % ", ".join(settings.rtp.video_codec_list))
+
+
     def _NH_SIPApplicationWillEnd(self, notification):
         log.info('Stopping SylkServer...')
         self.stopping_event.set()
