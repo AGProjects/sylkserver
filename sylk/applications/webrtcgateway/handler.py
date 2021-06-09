@@ -1462,7 +1462,7 @@ class ConnectionHandler(object):
         elif data.content_type == "message/cpim":
             try:
                 content = data.content if isinstance(data.content, unicode) else data.content.decode('latin1')  # preserve >
-                cpim_message = CPIMPayload.decode(content.encode())
+                cpim_message = CPIMPayload.decode(content.encode('utf-8'))
             except CPIMParserError:
                 self.log.info('message rejected: CPIM parse error')
                 return
