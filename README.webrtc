@@ -16,16 +16,22 @@ information.
 Architecture
 ------------
 
-+--------+               +-------------+ +----------+     +-------------+
-|        |               |             | |          |     |     SIP     |
-| WebRTC |  SylkRTC API  |             | |  Janus   +<--->+ audio/video |
-| client +<------------->+  SylkServer | |          |     |    calls    |
-|        |               |   WebRTC    | +----------+     +-------------+
-+--------+               |   gateway   | +----------+
-                         |             | | Chat and |
-                         |             | | file     |
-                         |             | | transfer |
-                         +-------------+ +----------+
+ +--------+         +---------+ +-------------+     +-------------+
+ |        |         |         | |             |     |     SIP     |
+ | WebRTC | SylkRTC |         | |   Janus     +<--->+ audio/video |
+ | client +<------->+  Sylk   | |   SFU       |     |   client    |
+ |        |   API   | Server  | |   Server    |     +-------------+
+ +--------+         | webrtc  | +-------------+     +-------------+
+                    | gateway | <------------------>|             |
+                    |  app    | <----------+        |    SIP      |
+                    |         | <---+      |        |   Message   |
+ +--------+         +---------+     |      |        |   client    |
+ |        |         +---------------^---+  |        +-------------+
+ | XMPP   |<------->| Sylk XMPP gateway |  |        +-------------+
+ | chat   |         +-------------------+  |        |    SIP      |
+ | client |  MUC    +----------------------+--+     |  MSRP chat  |
+ |        |<------->| Sylk Conference app     |<--->|   client    |
+ +--------+         +-------------------------+     +-------------+
 
 
 End-point requirements
@@ -46,6 +52,7 @@ Features
  * SIP account registration
  * One-to-One Audio / video calling between SIP and Web clients
  * Multi-party conferencing (WebRTC end-points only)
+ * One-to-one messaging between end-points
  * Codec agnostic
 
 
