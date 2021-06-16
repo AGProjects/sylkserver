@@ -85,6 +85,8 @@ if __name__ == '__main__':
         log.info('Not reading any configuration files (using internal defaults)')
 
     log.info('Using resources from {}'.format(Resources.directory))
+    log.info('Using spool directory %s' % ServerConfig.spool_dir.normalized)
+    
 
     if options.debug:
         log.level.current = log.level.DEBUG
