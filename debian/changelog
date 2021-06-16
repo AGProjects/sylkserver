@@ -1,6 +1,12 @@
 sylkserver (5.8.0) unstable; urgency=medium
 
-  * [xmpp-gateway] Added TLS server support
+  * [webrtcgateway] Added support for SIP Messages (RFC 3428)
+  * [webrtcgateway] Added support for CPIM payloads (RFC 5438)
+  * [webrtcgateway] Added support for IMDN notifications (RFC 5438)
+  * [webrtcgateway] Delay cleanup in videoroom hangup event to prevent colliding with 'leaving'
+  * [webrtcgateway] Allow janus decline code to be defined in configuration
+  * [webrtcgateway] Update WebRTC readme
+  * [xmpp-gateway] Added TLS server support https://xmpp.org/extensions/attic/xep-0368-0.1.html
   * [xmpp-gateway] Added XMPP Muc Subject stanza
   * [xmpp-gateway] Improve XMPP/SIP Message interoperability
   * [xmpp-gateway] Fixed encoding/decoding XMPP/SIP gateway messaging
@@ -13,11 +19,10 @@ sylkserver (5.8.0) unstable; urgency=medium
   * [webrctgatway] Added support for sending and receiving SIP Messages and IMDN
   * [webrctgatway] Delay cleanup in videoroom hangup event to prevent colliding with 'leaving'
   * [webrctgatway] Allow janus decline code to be defined in configuration
-  * Added subject to conference info description
-  * Initialize PJSIP engine with a fixed name server
-  * Update WebRTC readme
+  * [conference] Added subject to conference info description
+  * [core] Initialize PJSIP engine with a fixed name server
 
- -- Adrian Georgescu <ag@ag-projects.com>  Tue, 01 Jun 2021 19:21:45 +0200
+ -- Adrian Georgescu <ag@ag-projects.com>  Wed, 16 Jun 2021 09:21:45 +0200
 
 sylkserver (5.7.0) unstable; urgency=medium
 
