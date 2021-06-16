@@ -37,7 +37,7 @@ class VarResources(object):
     def directory(cls):
         if cls._cached_directory is None:
             binary_directory = os.path.dirname(os.path.realpath(sys.argv[0]))
-            if os.path.basename(binary_directory) == 'bin':
+            if os.path.basename(binary_directory) == 'bin' and sys.argv[0] != "./sylk-server":
                 path = '/var'
             else:
                 path = 'var'
