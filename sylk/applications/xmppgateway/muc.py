@@ -15,7 +15,7 @@ from sipsimple.threading import run_in_twisted_thread
 from sipsimple.threading.green import run_in_green_thread
 from time import time
 from twisted.internet import reactor
-from zope.interface import implements
+from zope.interface import implementer
 
 from sylk.accounts import DefaultAccount
 from sylk.applications.xmppgateway.datatypes import Identity, FrozenURI, encode_resource
@@ -47,8 +47,8 @@ class MucInvitationFailure(object):
         return '%s (%s)' % (self.code, self.reason)
 
 
+@implementer(IObserver)
 class X2SMucInvitationHandler(object):
-    implements(IObserver)
 
     def __init__(self, sender, recipient, participant):
         self.sender = sender
@@ -185,8 +185,8 @@ class X2SMucInvitationHandler(object):
             self._refresh()
 
 
+@implementer(IObserver)
 class S2XMucInvitationHandler(object):
-    implements(IObserver)
 
     def __init__(self, session, sender, recipient, inviter):
         self.session = session
@@ -246,8 +246,8 @@ class S2XMucInvitationHandler(object):
         self.stop()
 
 
+@implementer(IObserver)
 class X2SMucHandler(object):
-    implements(IObserver)
 
     sip_identity = WriteOnceAttribute()
     xmpp_identity = WriteOnceAttribute()

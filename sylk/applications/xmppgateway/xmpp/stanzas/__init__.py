@@ -16,7 +16,7 @@ MUC_USER_NS   = MUC_NS + '#user'
 CAPS_NS       = 'http://jabber.org/protocol/caps'
 
 
-SYLK_HASH = hashlib.sha1('SylkServer-%s' % SYLK_VERSION).hexdigest()
+SYLK_HASH = hashlib.sha1(('SylkServer-%s' % SYLK_VERSION).encode()).hexdigest()
 SYLK_CAPS = []
 
 
@@ -31,8 +31,8 @@ class BaseStanza(object):
 
     def to_xml_element(self):
         xml_element = domish.Element((None, self.stanza_type))
-        xml_element['from'] = unicode(self.sender.uri.as_xmpp_jid())
-        xml_element['to'] = unicode(self.recipient.uri.as_xmpp_jid())
+        xml_element['from'] = str(self.sender.uri.as_xmpp_jid())
+        xml_element['to'] = str(self.recipient.uri.as_xmpp_jid())
         if self.type:
             xml_element['type'] = self.type
         if self.id is not None:
@@ -60,8 +60,8 @@ class ErrorStanza(object):
 
     def to_xml_element(self):
         xml_element = domish.Element((None, self.stanza_type))
-        xml_element['from'] = unicode(self.sender.uri.as_xmpp_jid())
-        xml_element['to'] = unicode(self.recipient.uri.as_xmpp_jid())
+        xml_element['from'] = str(self.sender.uri.as_xmpp_jid())
+        xml_element['to'] = str(self.recipient.uri.as_xmpp_jid())
         xml_element['type'] = 'error'
         if self.id is not None:
             xml_element['id'] = self.id
@@ -181,7 +181,7 @@ class IncomingInvitationMessage(BaseMessageStanza):
         xml_element = super(IncomingInvitationMessage, self).to_xml_element()
         child = xml_element.addElement((MUC_USER_NS, 'x'))
         child.addElement('invite')
-        child.invite['to'] = unicode(self.invited_user.uri.as_xmpp_jid())
+        child.invite['to'] = str(self.invited_user.uri.as_xmpp_jid())
         if self.reason:
             child.invite.addElement('reason', content=self.reason)
         return xml_element
@@ -197,7 +197,7 @@ class OutgoingInvitationMessage(BaseMessageStanza):
         xml_element = super(OutgoingInvitationMessage, self).to_xml_element()
         child = xml_element.addElement((MUC_USER_NS, 'x'))
         child.addElement('invite')
-        child.invite['from'] = unicode(self.originator.uri.as_xmpp_jid())
+        child.invite['from'] = str(self.originator.uri.as_xmpp_jid())
         if self.reason:
             child.invite.addElement('reason', content=self.reason)
         return xml_element
@@ -228,7 +228,7 @@ class AvailabilityPresence(BasePresenceStanza):
         status = self.statuses.get(None)
         if status is None:
             try:
-                status = next(self.statuses.itervalues())
+                status = next(iter(self.statuses.values()))
             except StopIteration:
                 pass
         return status
@@ -239,14 +239,14 @@ class AvailabilityPresence(BasePresenceStanza):
             if self.show is not None:
                 xml_element.addElement('show', content=self.show)
             if self.priority != 0:
-                xml_element.addElement('priority', content=unicode(self.priority))
+                xml_element.addElement('priority', content=str(self.priority))
             caps = xml_element.addElement('c', defaultUri=CAPS_NS)
             caps['node'] = 'https://sylkserver.com'
             caps['hash'] = 'sha-1'
             caps['ver'] = SYLK_HASH
             if SYLK_CAPS:
                 caps['ext'] = ' '.join(SYLK_CAPS)
-        for lang, text in self.statuses.iteritems():
+        for lang, text in self.statuses.items():
             status = xml_element.addElement('status', content=text)
             if lang:
                 status[(XML_NS, 'lang')] = lang
@@ -280,7 +280,7 @@ class MUCAvailabilityPresence(AvailabilityPresence):
         if self.role:
             item['role'] = self.role
         if self.jid:
-            item['jid'] = unicode(self.jid.uri.as_xmpp_jid())
+            item['jid'] = str(self.jid.uri.as_xmpp_jid())
         for code in self.muc_statuses:
             status = muc.addElement('status')
             status['code'] = code

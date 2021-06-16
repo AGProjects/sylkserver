@@ -2,8 +2,8 @@
 import os
 import re
 import socket
-import urllib
-import urlparse
+import urllib.request, urllib.parse, urllib.error
+import urllib.parse
 
 from application import log
 from application.system import host
@@ -14,7 +14,7 @@ class AudioCodecs(list):
     def __new__(cls, value):
         if isinstance(value, (tuple, list)):
             return [str(x) for x in value if x in AudioCodecList.available_values] or None
-        elif isinstance(value, basestring):
+        elif isinstance(value, str):
             if value.lower() in ('none', ''):
                 return None
             return [x for x in re.split(r'\s*,\s*', value) if x in AudioCodecList.available_values] or None
@@ -55,7 +55,7 @@ class PortRange(object):
     """A port range in the form start:end with start and end being even numbers in the [1024, 65536] range"""
     def __init__(self, value):
         self.start, self.end = [int(p) for p in value.split(':', 1)]
-        allowed = xrange(1024, 65537, 2)
+        allowed = range(1024, 65537, 2)
         if not (self.start in allowed and self.end in allowed and self.start < self.end):
             raise ValueError("bad range: %r: ports must be even numbers in the range [1024, 65536] with start < end" % value)
 
@@ -83,7 +83,7 @@ class SIPProxyAddress(object):
         self.transport = SIPTransport(transport)
 
     def __getstate__(self):
-        return unicode(self)
+        return str(self)
 
     def __setstate__(self, state):
         if not self.__class__._description_re.match(state):
@@ -103,14 +103,14 @@ class SIPProxyAddress(object):
         return hash((self.host, self.port, self.transport))
 
     def __unicode__(self):
-        return u'%s:%d;transport=%s' % (self.host, self.port, self.transport)
+        return '%s:%d;transport=%s' % (self.host, self.port, self.transport)
 
 
-class Path(unicode):
+class Path(str):
     def __new__(cls, path):
         if path:
             path = os.path.normpath(path)
-        return unicode.__new__(cls, path)
+        return str.__new__(cls, path)
 
     @property
     def normalized(self):
@@ -121,7 +121,7 @@ class URL(object):
     """A class describing an URL and providing access to its elements"""
 
     def __init__(self, url):
-        scheme, netloc, path, query, fragment = urlparse.urlsplit(url)
+        scheme, netloc, path, query, fragment = urllib.parse.urlsplit(url)
         if netloc:
             if "@" in netloc:
                 userinfo, hostport = netloc.split("@", 1)
@@ -145,11 +145,11 @@ class URL(object):
         self.host = host
         self.port = int(port) if port is not None else None
         self.path = path
-        self.query_items = dict(urlparse.parse_qsl(query))
+        self.query_items = dict(urllib.parse.parse_qsl(query))
         self.fragment = fragment
 
     def __str__(self):
-        return urlparse.urlunsplit((self.scheme, self.netloc, self.path, self.query, self.fragment))
+        return urllib.parse.urlunsplit((self.scheme, self.netloc, self.path, self.query, self.fragment))
 
     def __repr__(self):
         return '%s(%r)' % (self.__class__.__name__, self.__str__())
@@ -158,7 +158,7 @@ class URL(object):
 
     @property
     def query(self):
-        return urllib.urlencode(self.query_items)
+        return urllib.parse.urlencode(self.query_items)
 
     @property
     def netloc(self):

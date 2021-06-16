@@ -4,7 +4,7 @@ from application.python import Null
 from application.python.descriptor import WriteOnceAttribute
 from application.python.types import Singleton
 from eventlib import coros, proc
-from zope.interface import implements
+from zope.interface import implementer
 
 from sylk.applications.xmppgateway.xmpp.stanzas import SubscriptionPresence, ProbePresence, AvailabilityPresence
 
@@ -157,9 +157,8 @@ class XMPPIncomingSubscription(object):
         self._proc = None
 
 
-class XMPPSubscriptionManager(object):
-    __metaclass__ = Singleton
-    implements(IObserver)
+@implementer(IObserver)
+class XMPPSubscriptionManager(object, metaclass=Singleton):
 
     def __init__(self):
         self.incoming_subscriptions = {}

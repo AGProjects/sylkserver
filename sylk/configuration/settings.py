@@ -5,7 +5,7 @@ import os
 
 from application import log
 from sipsimple.account import MSRPSettings as AccountMSRPSettings, NATTraversalSettings as AccountNATTraversalSettings
-from sipsimple.account import RTPSettings as AccountRTPSettings, SIPSettings as AccountSIPSettings, TLSSettings as AccountTLSSettings, SRTPEncryptionSettings as AccountSRTPEncryptionSettings
+from sipsimple.account import RTPSettings as AccountRTPSettings, SIPSettings as AccountSIPSettings, SRTPEncryptionSettings as AccountSRTPEncryptionSettings
 from sipsimple.account import MessageSummarySettings as AccountMessageSummarySettings, PresenceSettings as AccountPresenceSettingss, XCAPSettings as AccountXCAPSettings
 from sipsimple.configuration import CorrelatedSetting, Setting, SettingsObjectExtension
 from sipsimple.configuration.datatypes import MSRPConnectionModel, MSRPTransport, NonNegativeInteger, PortRange, SampleRate, SIPTransportList, SRTPKeyNegotiation
@@ -63,15 +63,6 @@ class AccountSIPSettingsExtension(AccountSIPSettings):
     outbound_proxy = Setting(type=SIPProxyAddress, default=SIPConfig.outbound_proxy, nillable=True)
 
 
-account_cert = ServerConfig.certificate
-if account_cert is not None and not os.path.isfile(account_cert):
-    account_cert = None
-
-
-class AccountTLSSettingsExtension(AccountTLSSettings):
-    certificate = Setting(type=Path, default=account_cert, nillable=True)
-    verify_server = Setting(type=bool, default=ServerConfig.verify_server)
-
 
 class AccountXCAPSettingsExtension(AccountXCAPSettings):
     enabled = Setting(type=bool, default=False)
@@ -86,7 +77,6 @@ class AccountExtension(SettingsObjectExtension):
     presence = AccountPresenceSettingssExtension
     rtp = AccountRTPSettingsExtension
     sip = AccountSIPSettingsExtension
-    tls = AccountTLSSettingsExtension
     xcap = AccountXCAPSettingsExtension
 
 
@@ -129,9 +119,15 @@ ca_file = ServerConfig.ca_file
 if ca_file is not None and not os.path.isfile(ca_file):
     ca_file = None
 
+certificate = ServerConfig.certificate
+if certificate is not None and not os.path.isfile(certificate):
+    certificate = None
+
 
 class TLSSettingsExtension(TLSSettings):
     ca_list = Setting(type=Path, default=ca_file, nillable=True)
+    certificate = Setting(type=Path, default=certificate, nillable=True)
+    verify_server = Setting(type=bool, default=ServerConfig.verify_server)
 
 
 def sip_port_validator(port, sibling_port):
@@ -144,7 +140,7 @@ if SIPConfig.local_udp_port is not None:
 if SIPConfig.local_tcp_port is not None:
     transport_list.append('tcp')
 tls_port = SIPConfig.local_tls_port
-if tls_port is not None and None in (ca_file, account_cert):
+if tls_port is not None and None in (ca_file, certificate):
     log.warning('Cannot enable TLS because the CA or the certificate are not specified')
     tls_port = None
 if tls_port is not None:

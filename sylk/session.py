@@ -23,7 +23,7 @@ from sipsimple.util import ISOTimestamp
 from threading import RLock
 from time import time
 from twisted.internet import reactor
-from zope.interface import implements
+from zope.interface import implementer
 
 from sylk.accounts import DefaultAccount
 from sylk.configuration import SIPConfig
@@ -97,8 +97,8 @@ def check_state(required_states):
     return state_checker
 
 
+@implementer(IObserver)
 class ConferenceHandler(object):
-    implements(IObserver)
 
     def __init__(self, session):
         self.session = session
@@ -353,8 +353,8 @@ class ConferenceHandler(object):
             self._resubscribe()
 
 
+@implementer(IObserver)
 class Session(object):
-    implements(IObserver)
 
     media_stream_timeout = 15
     short_reinvite_timeout = 5
@@ -474,8 +474,8 @@ class Session(object):
                 local_ip = SIPConfig.local_ip.normalized
             else:
                 local_ip = contact_header.uri.host
-            connection = SDPConnection(local_ip)
-            local_sdp = SDPSession(local_ip, name=settings.user_agent)
+            connection = SDPConnection(local_ip.encode())
+            local_sdp = SDPSession(local_ip.encode(), name=settings.user_agent.encode())
             for index, stream in enumerate(self.proposed_streams):
                 stream.index = index
                 media = stream.get_local_media(remote_sdp=None, index=index)
@@ -484,7 +484,7 @@ class Session(object):
                 local_sdp.media.append(media)
             route_header = RouteHeader(self.route.uri)
             if is_focus:
-                contact_header.parameters['isfocus'] = None
+                contact_header.parameters[b'isfocus'] = None
             self._invitation.send_invite(to_header.uri, from_header, to_header, route_header, contact_header, local_sdp, credentials, extra_headers)
             try:
                 with api.timeout(settings.sip.invite_timeout):
@@ -702,7 +702,9 @@ class Session(object):
                 local_ip = SIPConfig.local_ip.normalized
             else:
                 sdp_connection = remote_sdp.connection or next(media.connection for media in remote_sdp.media if media.connection is not None)
-                local_ip = host.outgoing_ip_for(sdp_connection.address) if sdp_connection.address != '0.0.0.0' else sdp_connection.address
+                sdp_ip = sdp_connection.address.decode() if isinstance(sdp_connection.address, bytes) else sdp_connection.address
+                local_ip = host.outgoing_ip_for(sdp_ip) if sdp_ip != '0.0.0.0' else sdp_ip
+
             if local_ip is None:
                 for stream in self.proposed_streams:
                     notification_center.remove_observer(self, sender=stream)
@@ -710,8 +712,9 @@ class Session(object):
                     stream.end()
                 self._fail(originator='local', code=500, reason=sip_status_messages[500], error='could not get local IP address')
                 return
-            connection = SDPConnection(local_ip)
-            local_sdp = SDPSession(local_ip, name=settings.user_agent)
+
+            connection = SDPConnection(local_ip.encode())
+            local_sdp = SDPSession(local_ip.encode(), name=settings.user_agent.encode())
             stream_map = dict((stream.index, stream) for stream in self.proposed_streams)
             for index, media in enumerate(remote_sdp.media):
                 stream = stream_map.get(index, None)
@@ -727,13 +730,16 @@ class Session(object):
                     media.bandwidth_info = []
                 local_sdp.media.append(media)
             contact_header = ContactHeader.new(self._invitation.local_contact_header)
+
             try:
                 local_contact_uri = self.account.contact[self._invitation.transport]
                 contact_header.uri = local_contact_uri
             except KeyError:
                 pass
+
             if is_focus:
-                contact_header.parameters['isfocus'] = None
+                contact_header.parameters[b'isfocus'] = None
+
             self._invitation.send_response(200, contact_header=contact_header, sdp=local_sdp, extra_headers=extra_headers)
             notification_center.post_notification('SIPSessionWillStart', sender=self)
             # Local and remote SDPs will be set after the 200 OK is sent
@@ -1946,9 +1952,8 @@ class Session(object):
                     self.end()
 
 
-class SessionManager(object):
-    __metaclass__ = Singleton
-    implements(IObserver)
+@implementer(IObserver)
+class SessionManager(object, metaclass=Singleton):
 
     def __init__(self):
         self.sessions = []

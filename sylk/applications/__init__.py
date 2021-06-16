@@ -16,7 +16,7 @@ from application.python.types import Singleton
 from collections import defaultdict
 from itertools import chain
 from sipsimple.threading import run_in_twisted_thread
-from zope.interface import implements
+from zope.interface import implementer
 
 from sylk.configuration import ServerConfig, SIPConfig, ThorNodeConfig
 
@@ -52,9 +52,7 @@ def find_applications():
     return chain(find_builtin_applications(), find_extra_applications())
 
 
-class ApplicationRegistry(object):
-    __metaclass__ = Singleton
-
+class ApplicationRegistry(object, metaclass=Singleton):
     def __init__(self):
         self.application_map = {}
 
@@ -65,12 +63,12 @@ class ApplicationRegistry(object):
         return name in self.application_map
 
     def __iter__(self):
-        return iter(self.application_map.values())
+        return iter(list(self.application_map.values()))
 
     def __len__(self):
         return len(self.application_map)
 
-    @execute_once
+    #@execute_once
     def load_applications(self):
         for name in find_builtin_applications():
             try:
@@ -114,10 +112,8 @@ class SylkApplicationMeta(abc.ABCMeta, Singleton):
             ApplicationRegistry().add(cls)
 
 
-class SylkApplication(object):
+class SylkApplication(object, metaclass=SylkApplicationMeta):
     """Base class for all SylkServer applications"""
-
-    __metaclass__ = SylkApplicationMeta
     __appname__ = ApplicationName()
 
     @abc.abstractmethod
@@ -149,11 +145,9 @@ class ApplicationNotLoadedError(Exception):
     pass
 
 
-class IncomingRequestHandler(object):
+@implementer(IObserver)
+class IncomingRequestHandler(object, metaclass=Singleton):
     """Handle incoming requests and match them to applications"""
-
-    __metaclass__ = Singleton
-    implements(IObserver)
 
     def __init__(self):
         self.application_registry = ApplicationRegistry()
@@ -168,9 +162,9 @@ class IncomingRequestHandler(object):
         if self.application_map:
             txt = 'Application map:\n'
             inverted_app_map = defaultdict(list)
-            for url, app in self.application_map.iteritems():
+            for url, app in self.application_map.items():
                 inverted_app_map[app].append(url)
-            for app, urls in inverted_app_map.iteritems():
+            for app, urls in inverted_app_map.items():
                 txt += '  {}: {}\n'.format(app, ', '.join(urls))
             log.info(txt[:-1])
         self.authorization_handler = AuthorizationHandler()
@@ -287,8 +281,8 @@ class UnauthorizedRequest(Exception):
     pass
 
 
+@implementer(IObserver)
 class AuthorizationHandler(object):
-    implements(IObserver)
 
     def __init__(self):
         self.state = None
@@ -313,7 +307,7 @@ class AuthorizationHandler(object):
         if self.state != 'started':
             raise UnauthorizedRequest
         for range in self.trusted_parties:
-            if struct.unpack('!L', socket.inet_aton(ip_address))[0] & range[1] == range[0]:
+            if struct.unpack('!L', socket.inet_aton(ip_address.decode()))[0] & range[1] == range[0]:
                 return True
         raise UnauthorizedRequest
 
@@ -323,7 +317,7 @@ class AuthorizationHandler(object):
         handler(notification)
 
     def _NH_ThorNetworkGotUpdate(self, notification):
-        self.thor_nodes = [NetworkRange(node) for node in chain.from_iterable(n.nodes for n in notification.data.networks.values())]
+        self.thor_nodes = [NetworkRange(node.decode()) for node in chain.from_iterable(n.nodes for n in list(notification.data.networks.values()))]
 
 
 class ApplicationLogger(object):

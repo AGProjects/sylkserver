@@ -34,9 +34,7 @@ class FileUploadRequest(object):
         self.had_error = False
 
 
-class WebRTCGatewayWeb(object):
-    __metaclass__ = Singleton
-
+class WebRTCGatewayWeb(object, metaclass=Singleton):
     app = Klein()
 
     def __init__(self, ws_factory):
@@ -147,9 +145,7 @@ class WebHandler(object):
 class AuthError(Exception): pass
 
 
-class AdminWebHandler(object):
-    __metaclass__ = Singleton
-
+class AdminWebHandler(object, metaclass=Singleton):
     app = Klein()
 
     def __init__(self):

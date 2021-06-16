@@ -8,7 +8,7 @@ from threading import RLock
 
 from application.notification import IObserver, NotificationCenter, NotificationData
 from application.python import Null
-from zope.interface import implements
+from zope.interface import implementer
 
 from sipsimple.audio import AudioBridge, AudioDevice, IAudioPort
 from sipsimple.configuration.settings import SIPSimpleSettings
@@ -21,10 +21,8 @@ from sylk.applications.xmppgateway.xmpp.jingle.streams import IMediaStream, Inva
 __all__ = 'AudioStream',
 
 
-class AudioStream(object):
-    __metaclass__ = MediaStreamRegistrar
-
-    implements(IMediaStream, IAudioPort, IObserver)
+@implementer(IMediaStream, IAudioPort, IObserver)
+class AudioStream(object, metaclass=MediaStreamRegistrar):
 
     type = 'audio'
     priority = 1

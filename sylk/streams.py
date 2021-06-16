@@ -93,21 +93,21 @@ class ChatStream(_MSRPStreamBase):
     @classmethod
     def new_from_sdp(cls, session, remote_sdp, stream_index):
         remote_stream = remote_sdp.media[stream_index]
-        if remote_stream.media != 'message':
+        if remote_stream.media != b'message':
             raise UnknownStreamError
         expected_transport = 'TCP/TLS/MSRP' if session.account.msrp.transport=='tls' else 'TCP/MSRP'
-        if remote_stream.transport != expected_transport:
-            raise InvalidStreamError("expected %s transport in chat stream, got %s" % (expected_transport, remote_stream.transport))
-        if remote_stream.formats != ['*']:
+        if remote_stream.transport != expected_transport.encode():
+            raise InvalidStreamError("expected %s transport in chat stream, got %s" % (expected_transport, remote_stream.transport.decode()))
+        if remote_stream.formats != [b'*']:
             raise InvalidStreamError("wrong format list specified")
         stream = cls()
         stream.remote_role = remote_stream.attributes.getfirst('setup', 'active')
-        if remote_stream.direction != 'sendrecv':
+        if remote_stream.direction != b'sendrecv':
             raise InvalidStreamError("Unsupported direction for chat stream: %s" % remote_stream.direction)
-        remote_accept_types = remote_stream.attributes.getfirst('accept-types')
+        remote_accept_types = remote_stream.attributes.getfirst(b'accept-types')
         if remote_accept_types is None:
             raise InvalidStreamError("remote SDP media does not have 'accept-types' attribute")
-        if not any(contains_mime_type(cls.accept_types, mime_type) for mime_type in remote_accept_types.split()):
+        if not any(contains_mime_type(cls.accept_types, mime_type) for mime_type in remote_accept_types.decode().split()):
             raise InvalidStreamError("no compatible media types found")
         return stream
 
@@ -169,7 +169,8 @@ class ChatStream(_MSRPStreamBase):
     def _create_local_media(self, uri_path):
         local_media = super(ChatStream, self)._create_local_media(uri_path)
         if self.session.local_focus and self.supported_chatroom_capabilities:
-            local_media.attributes.append(SDPAttribute('chatroom', ' '.join(self.supported_chatroom_capabilities)))
+            caps = ' '.join(self.supported_chatroom_capabilities)
+            local_media.attributes.append(SDPAttribute(b'chatroom', caps.encode()))
         return local_media
 
     def _handle_REPORT(self, chunk):
@@ -205,13 +206,16 @@ class ChatStream(_MSRPStreamBase):
             self.msrp_session.send_report(chunk, 200, 'OK')
             return
         else:
-            data = ''.join(self.incoming_queue.pop(chunk.message_id, [])) + chunk.data
+            data = ''.join(self.incoming_queue.pop(chunk.message_id, [])) + chunk.data.decode()
+
         try:
             payload = CPIMPayload.decode(data)
         except CPIMParserError:
             self.msrp_session.send_report(chunk, 400, 'CPIM Parser Error')
             return
+
         message = Message(**{name: getattr(payload, name) for name in Message.__slots__})
+
         if not contains_mime_type(self.accept_wrapped_types, message.content_type):
             self.msrp_session.send_report(chunk, 415, 'Invalid Content-Type')
             return
@@ -272,7 +276,7 @@ class ChatStream(_MSRPStreamBase):
                         notification_center.post_notification('ChatStreamDidNotDeliverMessage', sender=self, data=data)
                     break
                 try:
-                    if isinstance(message.content, unicode):
+                    if isinstance(message.content, str):
                         message.content = message.content.encode('utf8')
                         charset = 'utf8'
                     else:
@@ -369,7 +373,7 @@ class ChatStream(_MSRPStreamBase):
             # should we generate ChatStreamDidNotSetNickname here?
             return
         chunk = self.msrp.make_request('NICKNAME')
-        chunk.add_header(UseNicknameHeader(nickname or u''))
+        chunk.add_header(UseNicknameHeader(nickname or ''))
         try:
             self.msrp_session.send_chunk(chunk, response_cb=partial(self._on_nickname_transaction_response, message_id))
         except Exception as e:

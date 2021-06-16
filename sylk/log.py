@@ -12,7 +12,7 @@ from application.system import makedirs
 from collections import defaultdict
 from itertools import chain
 from sipsimple.threading import run_in_thread
-from zope.interface import implements
+from zope.interface import implementer
 
 from sylk.applications import find_applications
 from sylk.configuration import ServerConfig
@@ -20,11 +20,24 @@ from sylk.configuration import ServerConfig
 
 __all__ = 'TraceLogManager', 'TraceLogger'
 
+# Override emit() from logging.StreamHandler
+def shemit(self, record):
+    try:
+        msg = self.format(record)
+        stream = self.stream
+        if type(msg) == bytes:
+            msg = msg.decode()
+        stream.write(msg + self.terminator)
+        self.flush()
+    except RecursionError:
+        raise
+    except Exception:
+        self.handleError(record)
+setattr(logging.StreamHandler, 'emit', shemit)
 
-class TraceLogManager(object):
-    __metaclass__ = Singleton
 
-    implements(IObserver)
+@implementer(IObserver)
+class TraceLogManager(object, metaclass=Singleton):
 
     def __init__(self):
         self.loggers = set()  # todo: make it a list to preserve their order?
@@ -101,7 +114,7 @@ class TraceLoggerType(ABCMeta, Singleton):
             TraceLogManager.register_logger(cls)
 
 
-class TraceLogger(object):
+class TraceLogger(object, metaclass=TraceLoggerType):
     """
     Abstract class that defines the interface for TraceLogger objects.
 
@@ -121,8 +134,6 @@ class TraceLogger(object):
     Any non-abstract TraceLogger is automatically registered with the
     TraceLogManager and becomes operational if enabled.
     """
-
-    __metaclass__ = TraceLoggerType
 
     name = abstractproperty()       # The name of this trace logger (should be the log filename without the .log extension)
     owner = abstractproperty()      # The name of the application that owns this trace logger
@@ -148,8 +159,8 @@ class TraceLogger(object):
         self.logger.log_notification(notification)
 
 
-class AllNotifications:
-    __metaclass__ = MarkerType
+class AllNotifications(metaclass=MarkerType):
+    pass
 
 
 class NotificationLogger(object):
@@ -202,14 +213,14 @@ class DNSTraceFormatter(logging.Formatter):
 
 
 class SIPTraceFormatter(logging.Formatter):
-    _format = '{time} Packet {packet} {direction} {data.transport} {data.source_ip}:{data.source_port} -> {data.destination_ip}:{data.destination_port}\n{data.data}\n'
+    _format = '{time} Packet {packet} {direction} {data.transport} {data.source_ip}:{data.source_port} -> {data.destination_ip}:{data.destination_port}\n{sip_packet}\n'
     _packet = 0
 
     def format(self, record):
         self._packet += 1
         notification = record.notification
         direction = 'INCOMING' if notification.data.received else 'OUTGOING'
-        return self._format.format(time=notification.datetime, packet=self._packet, direction=direction, data=notification.data)
+        return self._format.format(time=notification.datetime, packet=self._packet, direction=direction, data=notification.data, sip_packet=notification.data.data.decode())
 
 
 # noinspection PyPep8Naming,PyMethodMayBeStatic

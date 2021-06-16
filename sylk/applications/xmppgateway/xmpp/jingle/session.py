@@ -5,7 +5,7 @@ import string
 from application.notification import IObserver, NotificationCenter, NotificationData
 from application.python import Null
 from application.python.types import Singleton
-from cStringIO import StringIO
+from io import StringIO
 from datetime import datetime
 from eventlib import api, coros, proc
 from eventlib.twistedutil import block_on
@@ -17,7 +17,7 @@ from sipsimple.threading import run_in_twisted_thread
 from twisted.internet import reactor
 from twisted.words.protocols.jabber.error import StanzaError
 from twisted.words.protocols.jabber.xmlstream import TimeoutError as IqTimeoutError
-from zope.interface import implements
+from zope.interface import implementer
 
 from sylk.accounts import DefaultAccount
 from sylk.applications.xmppgateway.datatypes import Identity, FrozenURI
@@ -28,7 +28,7 @@ from sylk.configuration import SIPConfig
 
 
 def random_id():
-    return ''.join(random.choice(string.ascii_letters+string.digits) for x in xrange(32))
+    return ''.join(random.choice(string.ascii_letters+string.digits) for x in range(32))
 
 
 class MediaStreamDidFailError(Exception):
@@ -47,7 +47,7 @@ class Operation(object):
     __params__ = ()
 
     def __init__(self, **params):
-        for name, value in params.iteritems():
+        for name, value in params.items():
             setattr(self, name, value)
         for param in set(self.__params__).difference(params):
             raise ValueError("missing operation parameter: '%s'" % param)
@@ -90,8 +90,8 @@ class SendConferenceInfoOperation(Operation):
     __params__ = ('xml',)
 
 
+@implementer(IObserver)
 class JingleSession(object):
-    implements(IObserver)
 
     jingle_stanza_timeout = 3
     media_stream_timeout = 15
@@ -207,11 +207,11 @@ class JingleSession(object):
 
     def _send_stanza(self, stanza):
         if self.direction == 'incoming':
-            stanza.jingle.initiator = unicode(self._remote_jid)
-            stanza.jingle.responder = unicode(self._local_jid)
+            stanza.jingle.initiator = str(self._remote_jid)
+            stanza.jingle.responder = str(self._local_jid)
         else:
-            stanza.jingle.initiator = unicode(self._local_jid)
-            stanza.jingle.responder = unicode(self._remote_jid)
+            stanza.jingle.initiator = str(self._local_jid)
+            stanza.jingle.responder = str(self._remote_jid)
         stanza.timeout = self.jingle_stanza_timeout
         return self._protocol.request(stanza)
 
@@ -790,9 +790,8 @@ class JingleSession(object):
                         self._pending_transport_info_stanzas.append(stanza)
 
 
-class JingleSessionManager(object):
-    __metaclass__ = Singleton
-    implements(IObserver)
+@implementer(IObserver)
+class JingleSessionManager(object, metaclass=Singleton):
 
     def __init__(self):
         self.sessions = {}

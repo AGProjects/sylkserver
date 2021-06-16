@@ -8,7 +8,7 @@ from sipsimple.core import BaseSIPURI, SIPURI, SIPCoreError
 from twisted.words.protocols.jabber.jid import JID
 
 
-sylkserver_prefix = hashlib.md5('sylkserver').hexdigest()
+sylkserver_prefix = hashlib.md5(b'sylkserver').hexdigest()
 
 
 def generate_sylk_resource():
@@ -44,16 +44,16 @@ class BaseURI(object):
     @classmethod
     def parse(cls, value):
         if isinstance(value, BaseSIPURI):
-            user = unicode(value.user)
-            host = unicode(value.host)
-            resource = unicode(value.parameters.get('gr', '')) or None
+            user = str(value.user)
+            host = str(value.host)
+            resource = str(value.parameters.get('gr', '')) or None
             return cls(user, host, resource)
         elif isinstance(value, JID):
             user = value.user
             host = value.host
             resource = value.resource
             return cls(user, host, resource)
-        elif not isinstance(value, basestring):
+        elif not isinstance(value, str):
             raise TypeError('uri needs to be a string')
         if not value.startswith(('sip:', 'sips:', 'xmpp:')):
             raise ValueError('invalid uri scheme for %s' % value)
@@ -62,9 +62,9 @@ class BaseURI(object):
                 uri = SIPURI.parse(value)
             except SIPCoreError:
                 raise ValueError('invalid SIP uri: %s' % value)
-            user = unicode(uri.user)
-            host = unicode(uri.host)
-            resource = unicode(uri.parameters.get('gr', '')) or None
+            user = str(uri.user)
+            host = str(uri.host)
+            resource = str(uri.parameters.get('gr', '')) or None
         else:
             try:
                 jid = JID(value[5:])
@@ -93,7 +93,7 @@ class BaseURI(object):
     def __eq__(self, other):
         if isinstance(other, BaseURI):
             return self.user == other.user and self.host == other.host and self.resource == other.resource
-        elif isinstance(other, basestring):
+        elif isinstance(other, str):
             try:
                 other = BaseURI.parse(other)
             except ValueError:
@@ -111,10 +111,10 @@ class BaseURI(object):
         return '%s(user=%r, host=%r, resource=%r)' % (self.__class__.__name__, self.user, self.host, self.resource)
 
     def __unicode__(self):
-        return u'%s@%s' % (self.user, self.host)
+        return '%s@%s' % (self.user, self.host)
 
     def __str__(self):
-        return unicode(self).encode('utf-8')
+        return str(self).encode('utf-8')
 
 
 class URI(BaseURI):
@@ -147,10 +147,10 @@ class Identity(object):
 
     def __unicode__(self):
         if self.display_name is not None:
-            return u'%s <%s>' % (self.display_name, self.uri)
+            return '%s <%s>' % (self.display_name, self.uri)
         else:
-            return u'%s' % self.uri
+            return '%s' % self.uri
 
     def __str__(self):
-        return unicode(self).encode('utf-8')
+        return str(self).encode('utf-8')
 

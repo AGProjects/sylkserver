@@ -18,7 +18,7 @@ from sipsimple.threading.green import Command, run_in_green_thread
 from sipsimple.util import ISOTimestamp
 from time import time
 from twisted.internet import reactor
-from zope.interface import implements
+from zope.interface import implementer
 
 from sylk.accounts import DefaultAccount
 from sylk.applications.xmppgateway.configuration import XMPPGatewayConfig
@@ -33,8 +33,8 @@ from sylk.configuration import SIPConfig
 __all__ = 'S2XPresenceHandler', 'X2SPresenceHandler'
 
 
+@implementer(IObserver)
 class S2XPresenceHandler(object):
-    implements(IObserver)
 
     sip_identity = WriteOnceAttribute()
     xmpp_identity = WriteOnceAttribute()
@@ -103,11 +103,11 @@ class S2XPresenceHandler(object):
             self._pidf = None
             return None
         pidf_doc = pidf.PIDF(str(self.xmpp_identity))
-        uri = next(self._stanza_cache.iterkeys())
+        uri = next(iter(self._stanza_cache.keys()))
         person = pidf.Person("PID-%s" % hashlib.md5("%s@%s" % (uri.user, uri.host)).hexdigest())
         person.activities = rpid.Activities()
         pidf_doc.add(person)
-        for stanza in self._stanza_cache.itervalues():
+        for stanza in self._stanza_cache.values():
             if not stanza.available:
                 status = pidf.Status('closed')
                 status.extended = 'offline'
@@ -142,7 +142,7 @@ class S2XPresenceHandler(object):
             service.device_info = pidf.DeviceInfo(resource, description=stanza.sender.uri.resource)
             service.timestamp = pidf.ServiceTimestamp(stanza.timestamp)
             service.capabilities = caps.ServiceCapabilities(text=True, message=True)
-            for lang, note in stanza.statuses.iteritems():
+            for lang, note in stanza.statuses.items():
                 service.notes.add(pidf.PIDFNote(note, lang=lang))
             pidf_doc.add(service)
         if not person.activities:
@@ -229,8 +229,8 @@ class SIPSubscriptionDidFail(Exception):
         self.data = data
 
 
+@implementer(IObserver)
 class X2SPresenceHandler(object):
-    implements(IObserver)
 
     sip_identity = WriteOnceAttribute()
     xmpp_identity = WriteOnceAttribute()

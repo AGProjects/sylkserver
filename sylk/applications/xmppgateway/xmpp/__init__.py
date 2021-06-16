@@ -1,15 +1,13 @@
 
-import os
-
 from application.notification import IObserver, NotificationCenter, NotificationData
 from application.python import Null
 from application.python.types import Singleton
-from twisted.internet import reactor, ssl
+from twisted.internet import reactor
 from wokkel.disco import DiscoClientProtocol
 from wokkel.generic import FallbackHandler, VersionHandler
 from wokkel.ping import PingHandler
 from wokkel.server import ServerService, XMPPS2SServerFactory
-from zope.interface import implements
+from zope.interface import implementer
 
 from sylk import __version__ as SYLK_VERSION
 from sylk.applications.xmppgateway.configuration import XMPPGatewayConfig
@@ -21,9 +19,12 @@ from sylk.applications.xmppgateway.xmpp.server import SylkInternalComponent, Syl
 from sylk.applications.xmppgateway.xmpp.session import XMPPChatSessionManager, XMPPMucSessionManager
 from sylk.applications.xmppgateway.xmpp.subscription import XMPPSubscriptionManager
 
-class XMPPManager(object):
-    __metaclass__ = Singleton
-    implements(IObserver)
+import os
+from twisted.internet.ssl import DefaultOpenSSLContextFactory
+
+
+@implementer(IObserver)
+class XMPPManager(object, metaclass=Singleton):
 
     def __init__(self):
         config = XMPPGatewayConfig
@@ -105,14 +106,13 @@ class XMPPManager(object):
         port = XMPPGatewayConfig.local_port
         cert_path = XMPPGatewayConfig.certificate.normalized if XMPPGatewayConfig.certificate else None
         cert_chain_path = XMPPGatewayConfig.ca_file.normalized if XMPPGatewayConfig.ca_file else None
-
         if XMPPGatewayConfig.transport == 'tls':
             if cert_path is not None:
                 if not os.path.isfile(cert_path):
                     log.error('Certificate file %s could not be found' % cert_path)
                     return
                 try:
-                    ssl_ctx_factory = ssl.DefaultOpenSSLContextFactory(cert_path, cert_path)
+                    ssl_ctx_factory = DefaultOpenSSLContextFactory(cert_path, cert_path)
                 except Exception:
                     log.exception('Creating TLS context')
                     return
@@ -126,13 +126,15 @@ class XMPPManager(object):
                     except Exception:
                         log.exception('Setting TLS certificate chain file')
                         return
-                self._s2s_listener = reactor.listenSSL(port, self._s2s_factory, ssl_ctx_factory, interface=interface)
+                self._s2s_listener = reactor.listenTLS(port, self._s2s_factory, ssl_ctx_factory, interface=interface)
         else:
             self._s2s_listener = reactor.listenTCP(port, self._s2s_factory, interface=interface)
+
 
         port = self._s2s_listener.getHost().port
         listen_address = self._s2s_listener.getHost()
         log.info("XMPP S2S component listening on %s:%d (%s)" % (listen_address.host, listen_address.port, XMPPGatewayConfig.transport.upper()))
+
         self.chat_session_manager.start()
         self.muc_session_manager.start()
         self.subscription_manager.start()
@@ -282,7 +284,6 @@ class XMPPManager(object):
         try:
             session = self.muc_session_manager.incoming[(muc_uri, message.sender.uri)]
         except KeyError:
-            # Ignore groupchat messages if there was no session created
             pass
         else:
             session.channel.send(message)

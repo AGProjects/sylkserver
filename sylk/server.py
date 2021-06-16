@@ -21,6 +21,8 @@ from sipsimple.threading import ThreadManager
 from sipsimple.threading.green import run_in_green_thread
 from sipsimple.video import VideoDevice
 from twisted.internet import reactor
+from gnutls.crypto import X509Certificate, X509PrivateKey
+from gnutls.errors import GNUTLSError
 
 # Load stream extensions needed for integration with SIP SIMPLE SDK
 import sylk.streams; del sylk.streams
@@ -74,6 +76,23 @@ class SylkServer(SIPApplication):
 
         notification_center = NotificationCenter()
         settings = SIPSimpleSettings()
+        log.info('TLS CA list: %s' % settings.tls.ca_list)
+        log.info('TLS Certificate: %s' % settings.tls.certificate)
+        log.info('TLS verify server: %s' % settings.tls.verify_server)
+        contents = open(settings.tls.certificate, 'rb').read()
+        if (contents):
+            try:
+                certificate = X509Certificate(contents) # validate the certificate
+            except GNUTLSError as e:
+                log.error("Invalid TLS certificate %s: %s" % (settings.tls.certificate, str(e)))
+            else:
+                try:
+                    X509PrivateKey(contents)  # validate the private key
+                except GNUTLSError as e:
+                    log.error("Invalid TLS private key %s: %s" % (settings.tls.certificate, str(e)))
+                else:
+                    log.info("TLS identity: %s" % certificate.subject)
+                        
 
         # initialize core
         options = dict(# general
@@ -83,12 +102,12 @@ class SylkServer(SIPApplication):
                        detect_sip_loops=False,
                        udp_port=settings.sip.udp_port if 'udp' in settings.sip.transport_list else None,
                        tcp_port=settings.sip.tcp_port if 'tcp' in settings.sip.transport_list else None,
-                       tls_port=None,
+                       tls_port=settings.sip.tls_port if 'tls' in settings.sip.transport_list else None,
                        # TLS
-                       tls_verify_server=False,
-                       tls_ca_file=None,
-                       tls_cert_file=None,
-                       tls_privkey_file=None,
+                       tls_verify_server=settings.tls.verify_server,
+                       tls_ca_file=os.path.expanduser(settings.tls.ca_list) if settings.tls.ca_list else None,
+                       tls_cert_file=os.path.expanduser(settings.tls.certificate) if settings.tls.certificate else None,
+                       tls_privkey_file=os.path.expanduser(settings.tls.certificate) if settings.tls.certificate else None,
                        # rtp
                        rtp_port_range=(settings.rtp.port_range.start, settings.rtp.port_range.end),
                        # audio
@@ -103,7 +122,7 @@ class SylkServer(SIPApplication):
                        events={'conference': ['application/conference-info+xml'],
                                'presence': ['application/pidf+xml'],
                                'refer': ['message/sipfrag;version=2.0']},
-                       incoming_events={'conference', 'presence'},
+                       incoming_events={b'conference', b'presence'},
                        incoming_requests={'MESSAGE'})
         notification_center.add_observer(self, sender=self.engine)
         self.engine.start(**options)
@@ -143,7 +162,7 @@ class SylkServer(SIPApplication):
         self.voice_audio_bridge.add(self.voice_audio_device)
 
         # initialize video objects
-        self.video_device = VideoDevice(u'Colorbar generator', settings.video.resolution, settings.video.framerate)
+        self.video_device = VideoDevice('Colorbar generator', settings.video.resolution, settings.video.framerate)
 
         # initialize instance id
         settings.instance_id = uuid4().urn

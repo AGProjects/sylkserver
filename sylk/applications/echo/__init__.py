@@ -3,7 +3,7 @@ from application.notification import IObserver, NotificationCenter
 from application.python import Null
 from sipsimple.account.bonjour import BonjourPresenceState
 from twisted.internet import reactor
-from zope.interface import implements
+from zope.interface import implementer
 
 from sylk.applications import SylkApplication, ApplicationLogger
 from sylk.bonjour import BonjourService
@@ -15,9 +15,9 @@ log = ApplicationLogger(__package__)
 
 def format_identity(identity):
     if identity.display_name:
-        return u'%s <sip:%s@%s>' % (identity.display_name, identity.uri.user, identity.uri.host)
+        return '%s <sip:%s@%s>' % (identity.display_name, identity.uri.user, identity.uri.host)
     else:
-        return u'sip:%s@%s' % (identity.uri.user, identity.uri.host)
+        return 'sip:%s@%s' % (identity.uri.user, identity.uri.host)
 
 
 class EchoApplication(SylkApplication):
@@ -27,11 +27,11 @@ class EchoApplication(SylkApplication):
     def start(self):
         if ServerConfig.enable_bonjour:
             application_map = dict((item.split(':')) for item in ServerConfig.application_map)
-            for uri, app in application_map.iteritems():
+            for uri, app in application_map.items():
                 if app == 'echo':
                     service = BonjourService(service='sipuri', name='Echo Test', uri_user=uri, is_focus=False)
                     service.start()
-                    service.presence_state = BonjourPresenceState('available', u'Call me to test your client')
+                    service.presence_state = BonjourPresenceState('available', 'Call me to test your client')
                     self.bonjour_services.add(service)
 
     def stop(self):
@@ -40,11 +40,12 @@ class EchoApplication(SylkApplication):
         self.bonjour_services.clear()
 
     def incoming_session(self, session):
-        log.info(u'New incoming session %s from %s' % (session.call_id, format_identity(session.remote_identity)))
+        peer = '%s:%s' % (session.transport, session.peer_address)
+        log.info('Session %s from %s to %s' % (session.call_id, peer, format_identity(session.remote_identity)))
         audio_streams = [stream for stream in session.proposed_streams if stream.type=='audio']
         chat_streams = [stream for stream in session.proposed_streams if stream.type=='chat']
         if not audio_streams and not chat_streams:
-            log.info(u'Session %s rejected: invalid media, only RTP audio and MSRP chat are supported' % session.call_id)
+            log.info('Session %s rejected: invalid media, only RTP audio and MSRP chat are supported' % session.call_id)
             session.reject(488)
             return
         if audio_streams:
@@ -63,8 +64,8 @@ class EchoApplication(SylkApplication):
         request.reject(405)
 
 
+@implementer(IObserver)
 class EchoHandler(object):
-    implements(IObserver)
 
     def __init__(self, session, audio_stream, chat_stream):
         self.session = session
@@ -143,7 +144,7 @@ class EchoHandler(object):
 
     def _NH_SIPSessionDidFail(self, notification):
         session = notification.sender
-        log.info(u'Session %s failed from %s' % (session.call_id, format_identity(session.remote_identity)))
+        log.info('Session %s failed from %s' % (session.call_id, format_identity(session.remote_identity)))
         self._cleanup()
 
     def _NH_SIPSessionNewProposal(self, notification):
@@ -161,7 +162,7 @@ class EchoHandler(object):
         session = notification.sender
         for stream in notification.data.added_streams:
             notification.center.add_observer(self, sender=stream)
-            log.info(u'Session %s has added %s' % (session.call_id, stream.type))
+            log.info('Session %s has added %s' % (session.call_id, stream.type))
             if stream.type == 'audio':
                 self._make_audio_stream_echo(stream)
                 self.audio_stream = stream
@@ -170,21 +171,21 @@ class EchoHandler(object):
 
         for stream in notification.data.removed_streams:
             notification.center.remove_observer(self, sender=stream)
-            log.info(u'Session %s has removed %s' % (session.call_id, stream.type))
+            log.info('Session %s has removed %s' % (session.call_id, stream.type))
             if stream.type == 'audio':
                 self.audio_stream = None
             elif stream.type == 'chat':
                 self.chat_stream = None
 
         if not session.streams:
-            log.info(u'Session %s has removed all streams, session will be terminated' % session.call_id)
+            log.info('Session %s has removed all streams, session will be terminated' % session.call_id)
             session.end()
 
     def _NH_SIPSessionTransferNewIncoming(self, notification):
         notification.sender.reject_transfer(403)
 
     def _NH_AudioStreamGotDTMF(self, notification):
-        log.info(u'Session %s received DTMF: %s' % (self.session.call_id, notification.data.digit))
+        log.info('Session %s received DTMF: %s' % (self.session.call_id, notification.data.digit))
 
     def _NH_ChatStreamGotMessage(self, notification):
         stream = notification.sender

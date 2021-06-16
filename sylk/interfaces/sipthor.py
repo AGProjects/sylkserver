@@ -17,9 +17,7 @@ from sylk.configuration import SIPConfig, ThorNodeConfig
 __all__ = 'ConferenceNode',
 
 
-class ConferenceNode(EventServiceClient):
-    __metaclass__ = Singleton
-
+class ConferenceNode(EventServiceClient, metaclass=Singleton):
     topics = ["Thor.Members"]
 
     def __init__(self):
@@ -38,7 +36,7 @@ class ConferenceNode(EventServiceClient):
 
     def start(self, roles):
         # Needs to be called from a green thread
-        log.info('Publishing %s roles to SIPThor' % roles)
+        log.info('Publishing SIPThor roles: %s' % ", ".join(roles))
         self.node = ThorEntity(SIPConfig.local_ip.normalized, roles, version=sylk.__version__)
         self.networks = {}
         self.presence_message = ThorEvent('Thor.Presence', self.node.id)
@@ -90,18 +88,18 @@ class ConferenceNode(EventServiceClient):
                 network = thor_network.new(ThorNodeConfig.multiply)
                 networks[role] = network
             new_nodes = set(node.ip for node in role_map.get(role, []))
-            old_nodes = set(network.nodes)
+            old_nodes = set(node.decode() for node in network.nodes)
             added_nodes = new_nodes - old_nodes
             removed_nodes = old_nodes - new_nodes
             if removed_nodes:
                 for node in removed_nodes:
-                    network.remove_node(node)
+                    network.remove_node(node.encode())
                 plural = len(removed_nodes) != 1 and 's' or ''
                 log.info("removed %s node%s: %s" % (role, plural, ', '.join(removed_nodes)))
                 updated = True
             if added_nodes:
                 for node in added_nodes:
-                    network.add_node(node)
+                    network.add_node(node.encode())
                 plural = len(added_nodes) != 1 and 's' or ''
                 log.info("added %s node%s: %s" % (role, plural, ', '.join(added_nodes)))
                 updated = True

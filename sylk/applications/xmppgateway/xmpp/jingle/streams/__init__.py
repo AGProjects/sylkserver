@@ -83,9 +83,7 @@ class StreamDescriptor(object):
         raise AttributeError('cannot delete attribute')
 
 
-class MediaStreamRegistry(object):
-    __metaclass__ = Singleton
-
+class MediaStreamRegistry(object, metaclass=Singleton):
     def __init__(self):
         self.__types__ = []
 
@@ -96,7 +94,7 @@ class MediaStreamRegistry(object):
         if cls.priority is not None and cls not in self.__types__:
             self.__types__.append(cls)
             self.__types__.sort(key=attrgetter('priority'), reverse=True)
-            setattr(self.__class__, cls.type.title().translate(None, ' -_') + 'Stream', StreamDescriptor(cls.type))
+            setattr(self.__class__, cls.type.title().translate(str.maketrans(' ', ' ', ' -_')) + 'Stream', StreamDescriptor(cls.type))
 
     def get(self, type):
         try:

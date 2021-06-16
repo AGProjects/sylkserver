@@ -10,7 +10,7 @@ from sipsimple.lookup import DNSLookup, DNSLookupError
 from sipsimple.streams import MediaStreamRegistry as SIPMediaStreamRegistry
 from sipsimple.threading import run_in_twisted_thread
 from sipsimple.threading.green import run_in_green_thread
-from zope.interface import implements
+from zope.interface import implementer
 
 from sylk.accounts import DefaultAccount
 from sylk.applications.xmppgateway.datatypes import Identity, FrozenURI, generate_sylk_resource, decode_resource
@@ -25,8 +25,8 @@ from sylk.session import Session
 __all__ = 'MediaSessionHandler',
 
 
+@implementer(IObserver)
 class MediaSessionHandler(object):
-    implements(IObserver)
 
     def __init__(self):
         self.started = False

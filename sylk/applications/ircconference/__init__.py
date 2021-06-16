@@ -2,15 +2,15 @@
 from application.notification import IObserver, NotificationCenter
 from application.python import Null
 from twisted.internet import reactor
-from zope.interface import implements
+from zope.interface import implementer
 
 from sylk.applications import SylkApplication
 from sylk.applications.ircconference.logger import log
 from sylk.applications.ircconference.room import IRCRoom
 
 
+@implementer(IObserver)
 class IRCConferenceApplication(SylkApplication):
-    implements(IObserver)
 
     def __init__(self):
         self.rooms = set()

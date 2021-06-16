@@ -2,7 +2,7 @@
 from application.notification import IObserver, NotificationCenter
 from application.python import Null
 from autobahn.twisted.websocket import WebSocketServerFactory
-from zope.interface import implements
+from zope.interface import implementer
 
 from .protocol import SylkWebSocketServerProtocol
 
@@ -53,8 +53,8 @@ class VideoroomContainer(object):
         return item in self._id_map or item in self._rooms
 
 
+@implementer(IObserver)
 class SylkWebSocketServerFactory(WebSocketServerFactory):
-    implements(IObserver)
 
     protocol = SylkWebSocketServerProtocol
     connections = set()

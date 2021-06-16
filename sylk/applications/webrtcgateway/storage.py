@@ -1,5 +1,5 @@
 
-import cPickle as pickle
+import pickle as pickle
 import os
 
 from application.python.types import Singleton
@@ -162,9 +162,7 @@ class CassandraStorage(object):
             pass
 
 
-class TokenStorage(object):
-    __metaclass__ = Singleton
-
+class TokenStorage(object, metaclass=Singleton):
     def __new__(self):
         if CASSANDRA_MODULES_AVAILABLE and CassandraConfig.cluster_contact_points:
             return CassandraStorage()

@@ -1,6 +1,6 @@
 
 import os
-import urllib
+import urllib.request, urllib.parse, urllib.error
 
 from application.python.types import Singleton
 from twisted.web.resource import ErrorPage, NoResource
@@ -10,9 +10,7 @@ from sylk.applications.conference.configuration import ConferenceConfig
 from sylk.web import Klein
 
 
-class ConferenceWeb(object):
-    __metaclass__ = Singleton
-
+class ConferenceWeb(object, metaclass=Singleton):
     app = Klein()
 
     screensharing_template = """
@@ -67,7 +65,7 @@ class ConferenceWeb(object):
         if 'image' not in request.args or not request.args.get('image', [''])[0].endswith('jpg'):
             return ErrorPage(400, 'Bad Request', '\"image\" not provided')
         images_path = os.path.join(ConferenceConfig.screensharing_images_dir, room.uri)
-        image_path = os.path.basename(urllib.unquote(request.args['image'][0]))
+        image_path = os.path.basename(urllib.parse.unquote(request.args['image'][0]))
         if not os.path.isfile(os.path.join(images_path, image_path)):
             return NoResource('Image not found')
         image = os.path.join('screensharing_img', image_path)

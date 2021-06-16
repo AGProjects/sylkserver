@@ -13,7 +13,7 @@ from sipsimple.lookup import DNSLookup
 from sipsimple.streams import MediaStreamRegistry
 from sipsimple.threading.green import run_in_green_thread
 from twisted.internet import reactor
-from zope.interface import implements
+from zope.interface import implementer
 
 from sylk.accounts import DefaultAccount
 from sylk.applications import SylkApplication
@@ -32,8 +32,8 @@ class ACLValidationError(Exception): pass
 class RoomNotFoundError(Exception): pass
 
 
+@implementer(IObserver)
 class ConferenceApplication(SylkApplication):
-    implements(IObserver)
 
     def __init__(self):
         self._rooms = {}
@@ -59,7 +59,7 @@ class ConferenceApplication(SylkApplication):
             log.info("Bonjour publication started for service 'sipfocus'")
             self.bonjour_room_service = BonjourService(service='sipuri', name='Conference Room', uri_user='conference')
             self.bonjour_room_service.start()
-            self.bonjour_room_service.presence_state = BonjourPresenceState('available', u'No participants')
+            self.bonjour_room_service.presence_state = BonjourPresenceState('available', 'No participants')
             log.info("Bonjour publication started for service 'sipuri'")
 
     def stop(self):
@@ -96,7 +96,8 @@ class ConferenceApplication(SylkApplication):
                 raise ACLValidationError
 
     def incoming_session(self, session):
-        log.info('New session from %s to %s' % (session.remote_identity.uri, session.local_identity.uri))
+        peer = '%s:%s' % (session.transport, session.peer_address)
+        log.info('Session %s from %s: %s -> %s' % (session.call_id, peer, session.remote_identity.uri, session.local_identity.uri))
         audio_streams = [stream for stream in session.proposed_streams if stream.type=='audio']
         chat_streams = [stream for stream in session.proposed_streams if stream.type=='chat']
         transfer_streams = [stream for stream in session.proposed_streams if stream.type=='file-transfer']
@@ -111,7 +112,7 @@ class ConferenceApplication(SylkApplication):
         try:
             self.validate_acl(session.request_uri, session.remote_identity.uri)
         except ACLValidationError:
-            log.info(u'Session rejected: unauthorized by access list')
+            log.info('Session rejected: unauthorized by access list')
             session.reject(403)
             return
 
@@ -119,7 +120,7 @@ class ConferenceApplication(SylkApplication):
             try:
                 room = self.get_room(session.request_uri)
             except RoomNotFoundError:
-                log.info(u'Session rejected: room not found')
+                log.info('Session rejected: room not found')
                 session.reject(404)
                 return
             if transfer_stream.direction == 'sendonly':
@@ -127,13 +128,13 @@ class ConferenceApplication(SylkApplication):
                 try:
                     file = next(file for file in room.files if file.hash == transfer_stream.file_selector.hash)
                 except StopIteration:
-                    log.info(u'Session rejected: requested file not found')
+                    log.info('Session rejected: requested file not found')
                     session.reject(404)
                     return
                 try:
                     transfer_stream.file_selector = file.file_selector
                 except EnvironmentError as e:
-                    log.info(u'Session rejected: error opening requested file: %s' % e)
+                    log.info('Session rejected: error opening requested file: %s' % e)
                     session.reject(404)
                     return
             else:
@@ -152,8 +153,8 @@ class ConferenceApplication(SylkApplication):
             subscribe_request.reject(400)
             return
 
-        if subscribe_request.event != 'conference':
-            log.info(u'Subscription for event %s rejected: only conference event is supported' % subscribe_request.event)
+        if subscribe_request.event != b'conference':
+            log.info('Subscription for event %s rejected: only conference event is supported' % subscribe_request.event)
             subscribe_request.reject(489)
             return
 
@@ -166,7 +167,7 @@ class ConferenceApplication(SylkApplication):
                 # Check if we need to skip the ACL because this was an invited participant
                 if not (str(from_header.uri) in self.invited_participants_map.get('%s@%s' % (data.request_uri.user, data.request_uri.host), {}) or
                         str(from_header.uri) in self.invited_participants_map.get('%s@%s' % (to_header.uri.user, to_header.uri.host), {})):
-                    log.info(u'Subscription rejected: unauthorized by access list')
+                    log.info('Subscription rejected: unauthorized by access list')
                     subscribe_request.reject(403)
                     return
         try:
@@ -175,11 +176,11 @@ class ConferenceApplication(SylkApplication):
             try:
                 room = self.get_room(to_header.uri)
             except RoomNotFoundError:
-                log.info(u'Subscription rejected: room not yet created')
+                log.info('Subscription rejected: room not yet created')
                 subscribe_request.reject(480)
                 return
         if not room.started:
-            log.info(u'Subscription rejected: room not started yet')
+            log.info('Subscription rejected: room not started yet')
             subscribe_request.reject(480)
         else:
             room.handle_incoming_subscription(subscribe_request, data)
@@ -192,19 +193,19 @@ class ConferenceApplication(SylkApplication):
             refer_request.reject(400)
             return
 
-        log.info(u'Room %s - join request from %s to %s' % ('%s@%s' % (to_header.uri.user, to_header.uri.host), from_header.uri, refer_to_header.uri))
+        log.info('Room %s - join request from %s to %s' % ('%s@%s' % (to_header.uri.user, to_header.uri.host), from_header.uri, refer_to_header.uri))
 
         try:
             self.validate_acl(data.request_uri, from_header.uri)
         except ACLValidationError:
-            log.info(u'Room %s - invite participant request rejected: unauthorized by access list' % data.request_uri)
+            log.info('Room %s - invite participant request rejected: unauthorized by access list' % data.request_uri)
             refer_request.reject(403)
             return
         referral_handler = IncomingReferralHandler(refer_request, data)
         referral_handler.start()
 
     def incoming_message(self, message_request, data):
-        log.info(u'SIP MESSAGE is not supported, use MSRP media instead')
+        log.info('SIP MESSAGE is not supported, use MSRP media instead')
         message_request.answer(405)
 
     def accept_session(self, session, streams):
@@ -218,7 +219,7 @@ class ConferenceApplication(SylkApplication):
         # Keep track of the invited participants, we must skip ACL policy
         # for SUBSCRIBE requests
         room_uri_str = '%s@%s' % (room_uri.user, room_uri.host)
-        log.info(u'Room %s - outgoing session to %s started' % (room_uri_str, session.remote_identity.uri))
+        log.info('Room %s - outgoing session to %s started' % (room_uri_str, session.remote_identity.uri))
         d = self.invited_participants_map.setdefault(room_uri_str, {})
         d.setdefault(str(session.remote_identity.uri), 0)
         d[str(session.remote_identity.uri)] += 1
@@ -274,11 +275,11 @@ class ConferenceApplication(SylkApplication):
     def _NH_SIPSessionDidFail(self, notification):
         session = notification.sender
         notification.center.remove_observer(self, sender=session)
-        log.info(u'Session from %s failed: %s' % (session.remote_identity.uri, notification.data.reason))
+        log.info('Session from %s failed: %s' % (session.remote_identity.uri, notification.data.reason))
 
 
+@implementer(IObserver)
 class IncomingReferralHandler(object):
-    implements(IObserver)
 
     def __init__(self, refer_request, data):
         self._refer_request = refer_request
@@ -352,17 +353,18 @@ class IncomingReferralHandler(object):
             original_identity = "%s <%s@%s>" % (original_from_header.display_name, original_from_header.uri.user, original_from_header.uri.host)
         else:
             original_identity = "%s@%s" % (original_from_header.uri.user, original_from_header.uri.host)
-        from_header = FromHeader(SIPURI.new(self.room_uri), u'Conference Call')
+        from_header = FromHeader(SIPURI.new(self.room_uri), 'Conference Call')
         to_header = ToHeader(self.refer_to_uri)
         extra_headers = []
+        if ThorNodeConfig.enabled:
+            extra_headers.append(Header('Thor-Scope', 'conference-invitation'))
+        # TODO: if this header is longer than 15 characters somehow the SIP packet gets corrupted -adi
+        extra_headers.append(Header('X-Orig-From', str(original_from_header.uri)))
+        extra_headers.append(SubjectHeader('Join conference request from %s' % original_identity))
         if self._refer_headers.get('Referred-By', None) is not None:
             extra_headers.append(Header.new(self._refer_headers.get('Referred-By')))
         else:
             extra_headers.append(Header('Referred-By', str(original_from_header.uri)))
-        if ThorNodeConfig.enabled:
-            extra_headers.append(Header('Thor-Scope', 'conference-invitation'))
-        extra_headers.append(Header('X-Originator-From', str(original_from_header.uri)))
-        extra_headers.append(SubjectHeader(u'Join conference request from %s' % original_identity))
         route = notification.data.result[0]
         self.session.connect(from_header, to_header, route=route, streams=self.streams, is_focus=True, extra_headers=extra_headers)
 

@@ -28,7 +28,7 @@ from sipsimple.threading import run_in_thread, run_in_twisted_thread
 from sipsimple.threading.green import run_in_green_thread
 from sipsimple.util import ISOTimestamp
 from twisted.internet import reactor
-from zope.interface import implements
+from zope.interface import implementer
 
 from sylk.accounts import DefaultAccount
 from sylk.applications.conference.configuration import get_room_config, ConferenceConfig
@@ -44,9 +44,9 @@ from sylk.web import server as web_server
 def format_identity(identity):
     uri = identity.uri
     if identity.display_name:
-        return u'%s <%s@%s>' % (identity.display_name, uri.user, uri.host)
+        return '%s <%s@%s>' % (identity.display_name, uri.user, uri.host)
     else:
-        return u'%s@%s' % (uri.user, uri.host)
+        return '%s@%s' % (uri.user, uri.host)
 
 
 class ScreenImage(object):
@@ -113,12 +113,12 @@ class ScreenImage(object):
             log.info(txt)
 
 
+@implementer(IObserver)
 class Room(object):
     """
     Object representing a conference room, it will handle the message dispatching
     among all the participants.
     """
-    implements(IObserver)
 
     def __init__(self, uri):
         self.config = get_room_config(uri)
@@ -208,7 +208,7 @@ class Room(object):
         if self.started:
             return
         if ServerConfig.enable_bonjour and self.identity.uri.user != 'conference':
-            room_user = self.identity.uri.user
+            room_user = self.identity.uri.user.decode()
             self.bonjour_services = BonjourService(service='sipuri', name='Conference Room %s' % room_user, uri_user=room_user)
             self.bonjour_services.start()
         self.message_dispatcher = proc.spawn(self._message_dispatcher)
@@ -363,17 +363,17 @@ class Room(object):
             pass
         else:
             notification_center.add_observer(self, sender=audio_stream)
-            log.info(u'Room %s - audio stream %s/%sHz, end-points: %s:%d <-> %s:%d' % (self.uri, audio_stream.codec, audio_stream.sample_rate,
+            log.info('Room %s - audio stream %s/%sHz, end-points: %s:%d <-> %s:%d' % (self.uri, audio_stream.codec, audio_stream.sample_rate,
                                                                                       audio_stream.local_rtp_address, audio_stream.local_rtp_port,
                                                                                       audio_stream.remote_rtp_address, audio_stream.remote_rtp_port))
             if audio_stream.encryption.type != 'ZRTP':
                 # We don't listen for stream notifications early enough
                 if audio_stream.encryption.active:
-                    log.info(u'Room %s - %s audio stream enabled %s encryption' % (self.uri,
+                    log.info('Room %s - %s audio stream enabled %s encryption' % (self.uri,
                                                                                   format_identity(session.remote_identity),
                                                                                   audio_stream.encryption.type))
                 else:
-                    log.info(u'Room %s - %s audio stream did not enable encryption' % (self.uri,
+                    log.info('Room %s - %s audio stream did not enable encryption' % (self.uri,
                                                                                       format_identity(session.remote_identity)))
         try:
             transfer_stream = next(stream for stream in session.streams if stream.type == 'file-transfer')
@@ -384,10 +384,10 @@ class Room(object):
             transfer_handler.init_incoming(transfer_stream)
             if transfer_stream.direction == 'recvonly':
                 filename = os.path.basename(os.path.splitext(transfer_stream.file_selector.name)[0])
-                txt = u'Room %s - %s is uploading file %s (%s)' % (self.uri, format_identity(session.remote_identity), filename,self.format_file_size(transfer_stream.file_selector.size))
+                txt = 'Room %s - %s is uploading file %s (%s)' % (self.uri, format_identity(session.remote_identity), filename,self.format_file_size(transfer_stream.file_selector.size))
             else:
                 filename = os.path.basename(transfer_stream.file_selector.name)
-                txt = u'Room %s - %s requested file %s' % (self.uri, format_identity(session.remote_identity), filename)
+                txt = 'Room %s - %s requested file %s' % (self.uri, format_identity(session.remote_identity), filename)
             log.info(txt)
             self.dispatch_server_message(txt)
             if len(session.streams) == 1:
@@ -398,9 +398,9 @@ class Room(object):
         self.dispatch_conference_info()
 
         if len(self.sessions) == 1:
-            log.info(u'Room %s - started by %s with %s' % (self.uri, format_identity(session.remote_identity), self.format_stream_types(session.streams)))
+            log.info('Room %s - started by %s with %s' % (self.uri, format_identity(session.remote_identity), self.format_stream_types(session.streams)))
         else:
-            log.info(u'Room %s - %s joined with %s' % (self.uri, format_identity(session.remote_identity), self.format_stream_types(session.streams)))
+            log.info('Room %s - %s joined with %s' % (self.uri, format_identity(session.remote_identity), self.format_stream_types(session.streams)))
         if str(session.remote_identity.uri) not in set(str(s.remote_identity.uri) for s in self.sessions if s is not session):
             self.dispatch_server_message('%s has joined the room %s' % (format_identity(session.remote_identity), self.format_stream_types(session.streams)), exclude=session)
 
@@ -448,9 +448,9 @@ class Room(object):
                 return
 
         self.dispatch_conference_info()
-        log.info(u'Room %s - %s left conference after %s' % (self.uri, format_identity(session.remote_identity), self.format_session_duration(session)))
+        log.info('Room %s - %s left conference after %s' % (self.uri, format_identity(session.remote_identity), self.format_session_duration(session)))
         if not self.sessions:
-            log.info(u'Room %s - Last participant left conference' % self.uri)
+            log.info('Room %s - Last participant left conference' % self.uri)
         if str(session.remote_identity.uri) not in set(str(s.remote_identity.uri) for s in self.sessions if s is not session):
             self.dispatch_server_message('%s has left the room after %s' % (format_identity(session.remote_identity), self.format_session_duration(session)))
 
@@ -465,7 +465,7 @@ class Room(object):
 
     def handle_incoming_subscription(self, subscribe_request, data):
         log.info('Room %s - subscription from %s' % (self.uri, data.headers['From'].uri))
-        if subscribe_request.event != 'conference':
+        if subscribe_request.event != b'conference':
             #log.info('Room %s - Subscription for event %s rejected: only conference event is supported' % (self.uri, subscribe_request.event))
             subscribe_request.reject(489)
             return
@@ -506,7 +506,7 @@ class Room(object):
             num_str = 'Two'
         else:
             num_str = str(num)
-        txt = u'%s participant%s' % (num_str, '' if num==1 else 's')
+        txt = '%s participant%s' % (num_str, '' if num==1 else 's')
         presence_state = BonjourPresenceState('available', txt)
         if self.bonjour_services is Null:
             # This is the room being published all the time
@@ -523,7 +523,7 @@ class Room(object):
     def _NH_RTPStreamDidEnableEncryption(self, notification):
         stream = notification.sender
         session = stream.session
-        log.info(u'Room %s - %s %s stream enabled %s encryption' % (self.uri,
+        log.info('Room %s - %s %s stream enabled %s encryption' % (self.uri,
                                                                    format_identity(session.remote_identity),
                                                                    stream.type,
                                                                    stream.encryption.type))
@@ -531,7 +531,7 @@ class Room(object):
     def _NH_RTPStreamDidNotEnableEncryption(self, notification):
         stream = notification.sender
         session = stream.session
-        log.info(u'Room %s - %s %s stream did not enable encryption: %s' % (self.uri,
+        log.info('Room %s - %s %s stream did not enable encryption: %s' % (self.uri,
                                                                            format_identity(session.remote_identity),
                                                                            stream.type,
                                                                            notification.data.reason))
@@ -562,7 +562,7 @@ class Room(object):
         if stream.type != 'audio':
             return
         session = stream.session
-        log.info(u'Room %s - audio stream for session %s timed out' % (self.uri, format_identity(session.remote_identity)))
+        log.info('Room %s - audio stream for session %s timed out' % (self.uri, format_identity(session.remote_identity)))
         if session.streams == [stream]:
             session.end()
 
@@ -610,7 +610,7 @@ class Room(object):
         session = notification.sender.session
         chunk = notification.data.chunk
         if nickname:
-            if nickname in self.session_nickname_map.values() and (session not in self.session_nickname_map or self.session_nickname_map[session] != nickname):
+            if nickname in list(self.session_nickname_map.values()) and (session not in self.session_nickname_map or self.session_nickname_map[session] != nickname):
                 notification.sender.reject_nickname(chunk, 425, 'Nickname reserved or already in use')
                 return
             self.session_nickname_map[session] = nickname
@@ -634,9 +634,9 @@ class Room(object):
         session = notification.sender
         if notification.data.originator == 'remote':
             if notification.data.on_hold:
-                log.info(u'Room %s - %s has put the audio session on hold' % (self.uri, format_identity(session.remote_identity)))
+                log.info('Room %s - %s has put the audio session on hold' % (self.uri, format_identity(session.remote_identity)))
             else:
-                log.info(u'Room %s - %s has taken the audio session out of hold' % (self.uri, format_identity(session.remote_identity)))
+                log.info('Room %s - %s has taken the audio session out of hold' % (self.uri, format_identity(session.remote_identity)))
             self.dispatch_conference_info()
 
     def _NH_SIPSessionNewProposal(self, notification):
@@ -673,22 +673,22 @@ class Room(object):
         session = notification.sender
         for stream in notification.data.added_streams:
             notification.center.add_observer(self, sender=stream)
-            txt = u'%s has added %s' % (format_identity(session.remote_identity), stream.type)
-            log.info(u'Room %s - %s' % (self.uri, txt))
+            txt = '%s has added %s' % (format_identity(session.remote_identity), stream.type)
+            log.info('Room %s - %s' % (self.uri, txt))
             self.dispatch_server_message(txt, exclude=session)
             if stream.type == 'audio':
-                log.info(u'Room %s - audio stream %s/%sHz, end-points: %s:%d <-> %s:%d' % (self.uri, stream.codec, stream.sample_rate,
+                log.info('Room %s - audio stream %s/%sHz, end-points: %s:%d <-> %s:%d' % (self.uri, stream.codec, stream.sample_rate,
                                                                                           stream.local_rtp_address, stream.local_rtp_port,
                                                                                           stream.remote_rtp_address, stream.remote_rtp_port))
                 if stream.encryption.type != 'ZRTP':
                     # We don't listen for stream notifications early enough
                     if stream.encryption.active:
-                        log.info(u'Room %s - %s %s stream enabled %s encryption' % (self.uri,
+                        log.info('Room %s - %s %s stream enabled %s encryption' % (self.uri,
                                                                                    format_identity(session.remote_identity),
                                                                                    stream.type,
                                                                                    stream.encryption.type))
                     else:
-                        log.info(u'Room %s - %s %s stream did not enable encryption' % (self.uri,
+                        log.info('Room %s - %s %s stream did not enable encryption' % (self.uri,
                                                                                        format_identity(session.remote_identity),
                                                                                        stream.type))
 
@@ -698,8 +698,8 @@ class Room(object):
 
         for stream in notification.data.removed_streams:
             notification.center.remove_observer(self, sender=stream)
-            txt = u'%s has removed %s' % (format_identity(session.remote_identity), stream.type)
-            log.info(u'Room %s - %s' % (self.uri, txt))
+            txt = '%s has removed %s' % (format_identity(session.remote_identity), stream.type)
+            log.info('Room %s - %s' % (self.uri, txt))
             self.dispatch_server_message(txt, exclude=session)
             if stream.type == 'audio':
                 try:
@@ -713,12 +713,12 @@ class Room(object):
                 elif len(self.audio_conference.streams) == 1:
                     self.moh_player.play()
             if not session.streams:
-                log.info(u'Room %s - %s has removed all streams, session will be terminated' % (self.uri, format_identity(session.remote_identity)))
+                log.info('Room %s - %s has removed all streams, session will be terminated' % (self.uri, format_identity(session.remote_identity)))
                 session.end()
         self.dispatch_conference_info()
 
     def _NH_SIPSessionTransferNewIncoming(self, notification):
-        log.info(u'Room %s - Call transfer request rejected, REFER must be out of dialog (RFC4579 5.5)' % self.uri)
+        log.info('Room %s - Call transfer request rejected, REFER must be out of dialog (RFC4579 5.5)' % self.uri)
         notification.sender.reject_transfer(403)
 
     def _NH_SIPSessionWillEnd(self, notification):
@@ -777,8 +777,8 @@ class Room(object):
             return "%d bytes" % size
 
 
+@implementer(IObserver)
 class MoHPlayer(object):
-    implements(IObserver)
 
     def __init__(self, conference):
         self.conference = conference
@@ -789,7 +789,7 @@ class MoHPlayer(object):
     def start(self):
         files = glob('%s/*.wav' % Resources.get('sounds/moh'))
         if not files:
-            log.error(u'No files found, MoH is disabled')
+            log.error('No files found, MoH is disabled')
             return
         random.shuffle(files)
         self.files = cycle(files)
@@ -833,8 +833,8 @@ class MoHPlayer(object):
     _NH_WavePlayerDidEnd = _NH_WavePlayerDidFail
 
 
+@implementer(IObserver)
 class WelcomeHandler(object):
-    implements(IObserver)
 
     def __init__(self, room, initial, session, streams):
         self.room = room
@@ -872,7 +872,7 @@ class WelcomeHandler(object):
         try:
             player.play().wait()
         except WavePlayerError as e:
-            log.warning(u'Error playing file %s: %s' % (file, e))
+            log.warning('Error playing file %s: %s' % (file, e))
 
     def audio_welcome(self, stream):
         player = WavePlayer(stream.mixer, '', pause_time=1, initial_delay=1, volume=50)
@@ -977,8 +977,8 @@ class RoomFile(object):
         return FileSelector.for_file(self.name, hash=self.hash)
 
 
+@implementer(IObserver)
 class FileTransferHandler(object):
-    implements(IObserver)
 
     def __init__(self, room):
         self.room = weakref.ref(room)
@@ -1025,13 +1025,13 @@ class FileTransferHandler(object):
         notification_center.add_observer(self, sender=self.stream)
         notification_center.add_observer(self, sender=self.handler)
 
-        from_header = FromHeader(SIPURI.new(room.identity.uri), u'Conference File Transfer')
+        from_header = FromHeader(SIPURI.new(room.identity.uri), 'Conference File Transfer')
         to_header = ToHeader(SIPURI.new(destination))
         extra_headers = []
         if ThorNodeConfig.enabled:
             extra_headers.append(Header('Thor-Scope', 'conference-invitation'))
         extra_headers.append(Header('X-Originator-From', str(file.sender.uri)))
-        extra_headers.append(SubjectHeader(u'File uploaded by %s' % file.sender))
+        extra_headers.append(SubjectHeader('File uploaded by %s' % file.sender))
         self.session.connect(from_header, to_header, route=route, streams=[self.stream], is_focus=True, extra_headers=extra_headers)
 
     def _terminate(self, failure_reason=None):

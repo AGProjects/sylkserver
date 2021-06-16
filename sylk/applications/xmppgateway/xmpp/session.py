@@ -5,7 +5,7 @@ from application.python.descriptor import WriteOnceAttribute
 from application.python.types import Singleton
 from eventlib import coros, proc
 from twisted.internet import reactor
-from zope.interface import implements
+from zope.interface import implementer
 
 from sylk.applications.xmppgateway.xmpp.stanzas import ChatMessage, ChatComposingIndication, MessageReceipt, ErrorStanza, GroupChatMessage, GroupChatSubject, MUCAvailabilityPresence
 
@@ -105,9 +105,8 @@ class XMPPChatSession(object):
             notification_center.post_notification('XMPPChatSessionDidNotDeliverMessage', sender=self, data=NotificationData(message_id=message_id, code=408, reason='Timeout'))
 
 
-class XMPPChatSessionManager(object):
-    __metaclass__ = Singleton
-    implements(IObserver)
+@implementer(IObserver)
+class XMPPChatSessionManager(object, metaclass=Singleton):
 
     def __init__(self):
         self.sessions = {}
@@ -185,9 +184,8 @@ class XMPPIncomingMucSession(object):
         self._proc = None
 
 
-class XMPPMucSessionManager(object):
-    __metaclass__ = Singleton
-    implements(IObserver)
+@implementer(IObserver)
+class XMPPMucSessionManager(object, metaclass=Singleton):
 
     def __init__(self):
         self.incoming = {}

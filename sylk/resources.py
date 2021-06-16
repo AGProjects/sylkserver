@@ -20,12 +20,12 @@ class Resources(object):
             else:
                 application_directory = binary_directory
                 resources_component = 'resources'
-            cls._cached_directory = os.path.join(application_directory, resources_component).decode(sys.getfilesystemencoding())
+            cls._cached_directory = os.path.join(application_directory, resources_component)
         return cls._cached_directory
 
     @classmethod
     def get(cls, resource):
-        return os.path.join(cls.directory, resource or u'')
+        return os.path.join(cls.directory, resource or '')
 
 
 class VarResources(object):
@@ -41,10 +41,10 @@ class VarResources(object):
                 path = '/var'
             else:
                 path = 'var'
-            cls._cached_directory = os.path.abspath(path).decode(sys.getfilesystemencoding())
+            cls._cached_directory = os.path.abspath(path)
         return cls._cached_directory
 
     @classmethod
     def get(cls, resource):
-        return os.path.join(cls.directory, resource or u'')
+        return os.path.join(cls.directory, resource or '')
 

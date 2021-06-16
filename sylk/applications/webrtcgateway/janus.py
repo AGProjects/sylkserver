@@ -9,7 +9,7 @@ from eventlib.twistedutil import block_on
 from twisted.internet import reactor, defer
 from twisted.internet.protocol import ReconnectingClientFactory
 from twisted.python.failure import Failure
-from zope.interface import implements
+from zope.interface import implementer
 
 from sylk import __version__
 from .configuration import JanusConfig
@@ -86,7 +86,7 @@ class JanusClientProtocol(WebSocketClientProtocol):
         super(JanusClientProtocol, self).connectionLost(reason)
         self.notification_center.post_notification('JanusBackendDisconnected', sender=self, data=NotificationData(reason=reason.getErrorMessage()))
 
-    def disconnect(self, code=1000, reason=u''):
+    def disconnect(self, code=1000, reason=''):
         self.sendClose(code, reason)
 
     def _send_request(self, request):
@@ -126,11 +126,11 @@ class JanusClientProtocol(WebSocketClientProtocol):
     def set_event_handler(self, handle_id, event_handler):
         if event_handler is None:
             self._event_handlers.pop(handle_id, None)
-            log.debug("Destroy Janus session, %d handlers in use" % len(self._event_handlers.keys()));
+            log.debug("Destroy Janus session, %d handlers in use" % len(list(self._event_handlers.keys())));
         else:
             assert callable(event_handler)
             self._event_handlers[handle_id] = event_handler
-            log.debug("Create Janus session, %d handlers in use" % len(self._event_handlers.keys()));
+            log.debug("Create Janus session, %d handlers in use" % len(list(self._event_handlers.keys())));
 
     def info(self):
         return self._send_request(janus.InfoRequest())
@@ -163,10 +163,8 @@ class JanusClientFactory(ReconnectingClientFactory, WebSocketClientFactory):
     protocol = JanusClientProtocol
 
 
-class JanusBackend(object):
-    __metaclass__ = Singleton
-
-    implements(IObserver)
+@implementer(IObserver)
+class JanusBackend(object, metaclass=Singleton):
 
     def __init__(self):
         self.factory = JanusClientFactory(url=JanusConfig.api_url, protocols=['janus-protocol'], useragent='SylkServer/%s' % __version__)
@@ -276,13 +274,13 @@ class JanusPluginHandle(object):
             log.warning('could not detach Janus plugin: %s', e)
         self.backend.set_event_handler(self.id, None)
 
-    def message(self, body, jsep=None, async=False):
+    def message(self, body, jsep=None, _async=False):
         deferred = self.backend.message(self.session.id, self.id, body, jsep)
-        return deferred if async else block_on(deferred)
+        return deferred if _async else block_on(deferred)
 
-    def trickle(self, candidates, async=False):
+    def trickle(self, candidates, _async=False):
         deferred = self.backend.trickle(self.session.id, self.id, candidates)
-        return deferred if async else block_on(deferred)
+        return deferred if _async else block_on(deferred)
 
 
 class GenericPluginHandle(JanusPluginHandle):

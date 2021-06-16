@@ -52,13 +52,13 @@ class MessageProtocol(xmppim.MessageProtocol):
             if msg.html is not None:
                 html_body = msg.html.toXml()
             if msg.body is not None:
-                body = unicode(msg.body)
+                body = str(msg.body)
             try:
                 elem = next(c for c in msg.elements() if c.uri == RECEIPTS_NS)
             except StopIteration:
                 use_receipt = False
             else:
-                use_receipt = elem.name == u'request'
+                use_receipt = elem.name == 'request'
             if msg_type == 'chat':
                 message = ChatMessage(sender, recipient, body, html_body, id=msg_id, use_receipt=use_receipt)
                 notification_center.post_notification('XMPPGotChatMessage', sender=self.parent, data=NotificationData(message=message))
@@ -86,7 +86,7 @@ class MessageProtocol(xmppim.MessageProtocol):
             except StopIteration:
                 pass
             else:
-                if elem.name == u'received' and msg_id is not None:
+                if elem.name == 'received' and msg_id is not None:
                     receipt = MessageReceipt(sender, recipient, msg_id)
                     notification_center.post_notification('XMPPGotReceipt', sender=self.parent, data=NotificationData(receipt=receipt))
 
@@ -186,7 +186,7 @@ class MUCServerProtocol(xmppim.BasePresenceProtocol):
         if msg.html is not None:
             html_body = msg.html.toXml()
         if msg.body is not None:
-            body = unicode(msg.body)
+            body = str(msg.body)
 
         if body or html_body:
             message = GroupChatMessage(sender, recipient, body, html_body, id=msg.getAttribute('id', None))
@@ -203,7 +203,7 @@ class MUCServerProtocol(xmppim.BasePresenceProtocol):
         invited_user_uri = FrozenURI.parse('xmpp:'+msg.x.invite['to'])
         invited_user = Identity(invited_user_uri)
         if msg.x.invite.reason is not None and msg.x.invite.reason.uri == MUC_USER_NS:
-            reason = unicode(msg.x.invite.reason)
+            reason = str(msg.x.invite.reason)
         else:
             reason = None
         invitation = IncomingInvitationMessage(sender, recipient, invited_user=invited_user, reason=reason, id=msg.getAttribute('id', None))

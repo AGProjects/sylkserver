@@ -24,7 +24,7 @@ class SylkInternalComponent(InternalComponent):
         InternalComponent.stopService(self)
         iqDeferreds = self._iqDeferreds
         self._iqDeferreds = {}
-        for d in iqDeferreds.itervalues():
+        for d in iqDeferreds.values():
             d.errback(xmlstream.TimeoutError("Shutting down"))
 
     def request(self, request):

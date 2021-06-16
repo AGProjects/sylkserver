@@ -23,11 +23,10 @@ from sipsimple.threading import run_in_thread, run_in_twisted_thread
 from sipsimple.threading.green import call_in_green_thread, run_in_green_thread
 from sipsimple.util import ISOTimestamp
 from shutil import copyfileobj, rmtree
-from string import maketrans
 from twisted.internet import reactor
 from typing import Generic, Container, Iterable, Sized, TypeVar, Dict, Set, Optional, Union
 from werkzeug.exceptions import InternalServerError
-from zope.interface import implements
+from zope.interface import implementer
 
 from sylk.accounts import DefaultAccount
 from sylk.session import Session
@@ -386,14 +385,14 @@ class Videoroom(object):
                         bitrate = other_participant_bitrate
                     if session.bitrate != bitrate:
                         session.bitrate = bitrate
-                        session.janus_handle.message(janus.VideoroomUpdatePublisher(bitrate=bitrate), async=True)
+                        session.janus_handle.message(janus.VideoroomUpdatePublisher(bitrate=bitrate), _async=True)
             else:
                 bitrate = self.config.max_bitrate // limit(len(self._sessions) - 1, min=1)
                 self.log.debug('participant bitrate is {}'.format(bitrate))
                 for session in self._sessions:
                     if session.bitrate != bitrate:
                         session.bitrate = bitrate
-                        session.janus_handle.message(janus.VideoroomUpdatePublisher(bitrate=bitrate), async=True)
+                        session.janus_handle.message(janus.VideoroomUpdatePublisher(bitrate=bitrate), _async=True)
 
     # todo: make Videoroom be a context manager that is retained/released on enter/exit and implement __nonzero__ to be different from __len__
     # todo: so that a videoroom is not accidentally released by the last participant leaving while a new participant waits to join
@@ -464,7 +463,7 @@ class SessionContainer(Sized, Iterable[SessionT], Container[SessionT], Generic[S
 
 
 class OperationName(str):
-    __normalizer__ = maketrans('-', '_')
+    __normalizer__ = str.maketrans('-', '_')
 
     @property
     def normalized(self):
@@ -509,8 +508,8 @@ class GreenEvent(object):
 
 
 # noinspection PyPep8Naming
+@implementer(IObserver)
 class ConnectionHandler(object):
-    implements(IObserver)
 
     janus = JanusBackend()
 
@@ -544,7 +543,7 @@ class ConnectionHandler(object):
             if self._stop_pending:  # if stop was already called it means we were already disconnected
                 self.stop()
             else:
-                self.protocol.disconnect(3000, unicode(e))
+                self.protocol.disconnect(3000, str(e))
         else:
             self.state = 'started'
             self.ready_event.set()
@@ -567,7 +566,7 @@ class ConnectionHandler(object):
             # thread, so making detach and destroy request without waiting for the detach to finish can result in errors from race conditions.
             # Because we do not want to wait for them, we will rely instead on the fact that janus automatically detaches the plugin handles
             # when it destroys a session, so we only remove our event handlers and issue a destroy request for the session.
-            for account_info in self.accounts_map.values():
+            for account_info in list(self.accounts_map.values()):
                 if account_info.janus_handle is not None:
                     self.janus.set_event_handler(account_info.janus_handle.id, None)
             for session in self.sip_sessions:
@@ -1462,7 +1461,7 @@ class ConnectionHandler(object):
             return
         elif data.content_type == "message/cpim":
             try:
-                content = data.content if isinstance(data.content, unicode) else data.content.decode('latin1')  # preserve >
+                content = data.content if isinstance(data.content, str) else data.content.decode('latin1')  # preserve >
                 cpim_message = CPIMPayload.decode(content.encode('utf-8'))
             except CPIMParserError:
                 self.log.info('message rejected: CPIM parse error')
@@ -1702,7 +1701,7 @@ class ConnectionHandler(object):
         session = notification.sender.sylk_session  # type: VideoroomSessionInfo
         message = notification.data.message
         sender = sylkrtc.SIPIdentity(uri=str(message.sender.uri), display_name=message.sender.display_name)
-        content = message.content if isinstance(message.content, unicode) else message.content.decode('latin1')  # preserve binary data for transmitting over JSON
+        content = message.content if isinstance(message.content, str) else message.content.decode('latin1')  # preserve binary data for transmitting over JSON
         if any(header.name == 'Message-Type' and header.value == 'status' and header.namespace == 'urn:ag-projects:xml:ns:cpim' for header in message.additional_headers):
             message_type = 'status'
         else:
@@ -1760,8 +1759,8 @@ class ConnectionHandler(object):
                                                                   timestamp=timestamp))
 
 # noinspection PyPep8Naming
+@implementer(IObserver)
 class VideoroomChatHandler(object):
-    implements(IObserver)
 
     def __init__(self, session):
         self.sylk_session = session  # type: VideoroomSessionInfo

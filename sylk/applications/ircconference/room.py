@@ -1,6 +1,6 @@
 
 import random
-import urllib
+import urllib.request, urllib.parse, urllib.error
 
 import lxml.html
 import lxml.html.clean
@@ -20,7 +20,7 @@ from sipsimple.threading import run_in_twisted_thread
 from sipsimple.threading.green import run_in_green_thread
 from twisted.internet import protocol, reactor
 from twisted.words.protocols import irc
-from zope.interface import implements
+from zope.interface import implementer
 
 from sylk.applications.ircconference.configuration import get_room_configuration
 from sylk.applications.ircconference.logger import log
@@ -30,9 +30,9 @@ from sylk.resources import Resources
 def format_identity(identity):
     uri = identity.uri
     if identity.display_name:
-        return u'%s <sip:%s@%s>' % (identity.display_name, uri.user, uri.host)
+        return '%s <sip:%s@%s>' % (identity.display_name, uri.user, uri.host)
     else:
-        return u'sip:%s@%s' % (uri.user, uri.host)
+        return 'sip:%s@%s' % (uri.user, uri.host)
 
 def format_stream_types(streams):
     if not streams:
@@ -83,13 +83,12 @@ class IRCMessage(object):
         self.content_type = content_type
 
 
-class IRCRoom(object):
+@implementer(IObserver)
+class IRCRoom(object, metaclass=Singleton):
     """
     Object representing a conference room, it will handle the message dispatching
     among all the participants.
     """
-    __metaclass__ = Singleton
-    implements(IObserver)
 
     def __init__(self, uri):
         self.uri = uri
@@ -225,7 +224,7 @@ class IRCRoom(object):
                 endpoint.add(Media(id(stream), media_type=format_conference_stream_type(stream)))
             user.add(endpoint)
         for nick in irc_participants:
-            irc_uri = '%s@%s' % (urllib.quote(nick), irc_configuration.server[0])
+            irc_uri = '%s@%s' % (urllib.parse.quote(nick), irc_configuration.server[0])
             user = User(irc_uri, display_text=nick)
             users.add(user)
             endpoint = Endpoint(irc_uri, display_text=nick)
@@ -250,16 +249,16 @@ class IRCRoom(object):
             pass
         else:
             notification_center.add_observer(self, sender=audio_stream)
-            log.info(u'Audio stream using %s/%sHz, end-points: %s:%d <-> %s:%d' % (audio_stream.codec, audio_stream.sample_rate,
+            log.info('Audio stream using %s/%sHz, end-points: %s:%d <-> %s:%d' % (audio_stream.codec, audio_stream.sample_rate,
                                                                                   audio_stream.local_rtp_address, audio_stream.local_rtp_port,
                                                                                   audio_stream.remote_rtp_address, audio_stream.remote_rtp_port))
             welcome_handler = WelcomeHandler(self, session)
             welcome_handler.start()
         self.get_conference_info()
         if len(self.sessions) == 1:
-            log.info(u'%s started conference %s %s' % (format_identity(session.remote_identity), self.uri, format_stream_types(session.streams)))
+            log.info('%s started conference %s %s' % (format_identity(session.remote_identity), self.uri, format_stream_types(session.streams)))
         else:
-            log.info(u'%s joined conference %s %s' % (format_identity(session.remote_identity), self.uri, format_stream_types(session.streams)))
+            log.info('%s joined conference %s %s' % (format_identity(session.remote_identity), self.uri, format_stream_types(session.streams)))
         if str(session.remote_identity.uri) not in set(str(s.remote_identity.uri) for s in self.sessions if s is not session):
             self.dispatch_server_message('%s has joined the room %s' % (format_identity(session.remote_identity), format_stream_types(session.streams)), exclude=session)
 
@@ -287,9 +286,9 @@ class IRCRoom(object):
         notification_center.remove_observer(self, sender=session)
         self.sessions.remove(session)
         self.get_conference_info()
-        log.info(u'%s left conference %s after %s' % (format_identity(session.remote_identity), self.uri, format_session_duration(session)))
+        log.info('%s left conference %s after %s' % (format_identity(session.remote_identity), self.uri, format_session_duration(session)))
         if not self.sessions:
-            log.info(u'Last participant left conference %s' % self.uri)
+            log.info('Last participant left conference %s' % self.uri)
         if str(session.remote_identity.uri) not in set(str(s.remote_identity.uri) for s in self.sessions if s is not session):
             self.dispatch_server_message('%s has left the room after %s' % (format_identity(session.remote_identity), format_session_duration(session)))
 
@@ -326,9 +325,9 @@ class IRCRoom(object):
         session = notification.sender
         if notification.data.originator == 'remote':
             if notification.data.on_hold:
-                log.info(u'%s has put the audio session on hold' % format_identity(session.remote_identity))
+                log.info('%s has put the audio session on hold' % format_identity(session.remote_identity))
             else:
-                log.info(u'%s has taken the audio session out of hold' % format_identity(session.remote_identity))
+                log.info('%s has taken the audio session out of hold' % format_identity(session.remote_identity))
             self.get_conference_info()
 
     def _NH_SIPSessionNewProposal(self, notification):
@@ -353,10 +352,10 @@ class IRCRoom(object):
         session = notification.sender
         for stream in notification.data.added_streams:
             notification.center.add_observer(self, sender=stream)
-            log.info(u'%s has added %s to %s' % (format_identity(session.remote_identity), stream.type, self.uri))
+            log.info('%s has added %s to %s' % (format_identity(session.remote_identity), stream.type, self.uri))
             self.dispatch_server_message('%s has added %s' % (format_identity(session.remote_identity), stream.type), exclude=session)
             if stream.type == 'audio':
-                log.info(u'Audio stream using %s/%sHz, end-points: %s:%d <-> %s:%d' % (stream.codec, stream.sample_rate,
+                log.info('Audio stream using %s/%sHz, end-points: %s:%d <-> %s:%d' % (stream.codec, stream.sample_rate,
                                                                                       stream.local_rtp_address, stream.local_rtp_port,
                                                                                       stream.remote_rtp_address, stream.remote_rtp_port))
                 welcome_handler = WelcomeHandler(self, session)
@@ -364,7 +363,7 @@ class IRCRoom(object):
 
         for stream in notification.data.removed_streams:
             notification.center.remove_observer(self, sender=stream)
-            log.info(u'%s has removed %s from %s' % (format_identity(session.remote_identity), stream.type, self.uri))
+            log.info('%s has removed %s from %s' % (format_identity(session.remote_identity), stream.type, self.uri))
             self.dispatch_server_message('%s has removed %s' % (format_identity(session.remote_identity), stream.type), exclude=session)
             if stream.type == 'audio':
                 try:
@@ -375,7 +374,7 @@ class IRCRoom(object):
                 if len(self.audio_conference.streams) == 0:
                     self.audio_conference.hold()
             if not session.streams:
-                log.info(u'%s has removed all streams from %s, session will be terminated' % (format_identity(session.remote_identity), self.uri))
+                log.info('%s has removed all streams from %s, session will be terminated' % (format_identity(session.remote_identity), self.uri))
                 session.end()
         self.get_conference_info()
 
@@ -384,7 +383,7 @@ class IRCRoom(object):
         if stream.type != 'audio':
             return
         session = stream.session
-        log.info(u'Audio stream for session %s timed out' % format_identity(session.remote_identity))
+        log.info('Audio stream for session %s timed out' % format_identity(session.remote_identity))
         if session.streams == [stream]:
             session.end()
 
@@ -392,7 +391,7 @@ class IRCRoom(object):
         stream = notification.sender
         message = notification.data.message
         if message.content_type not in ('text/html', 'text/plain'):
-            log.info(u'Unsupported content type: %s, ignoring message' % message.content_type)
+            log.info('Unsupported content type: %s, ignoring message' % message.content_type)
             stream.msrp_session.send_report(notification.data.chunk, 413, 'Unwanted message')
             return
         stream.msrp_session.send_report(notification.data.chunk, 200, 'OK')
@@ -466,8 +465,8 @@ class IRCRoom(object):
         self.dispatch_server_message('%s %s' % (notification.data.user, notification.data.action))
 
 
+@implementer(IObserver)
 class WelcomeHandler(object):
-    implements(IObserver)
 
     def __init__(self, room, session):
         self.room = room
@@ -493,7 +492,7 @@ class WelcomeHandler(object):
         try:
             player.play().wait()
         except WavePlayerError as e:
-            log.warning(u'Error playing file %s: %s' % (file, e))
+            log.warning('Error playing file %s: %s' % (file, e))
 
     def play_audio_welcome(self, welcome_prompt):
         try:
@@ -584,7 +583,7 @@ class IRCBot(irc.IRCClient):
         if channel == self.nickname:
             self.msg(username, "Sorry, I don't support private messages, I'm a bot.")
             return
-        uri = SIPURI.parse('sip:%s@%s' % (urllib.quote(username), self.factory.config.server[0]))
+        uri = SIPURI.parse('sip:%s@%s' % (urllib.parse.quote(username), self.factory.config.server[0]))
         irc_message = IRCMessage(username, uri, message.decode('utf-8'))
         data = NotificationData(message=irc_message)
         NotificationCenter().post_notification('IRCBotGotMessage', self.factory, data)

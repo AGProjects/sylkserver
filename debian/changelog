@@ -1,3 +1,9 @@
+sylkserver (6.0.0) unstable; urgency=medium
+
+  * Migrate to Python 3
+
+ -- Adrian Georgescu <ag@ag-projects.com>  Wed, 16 Jun 2021 09:22:45 +0200
+
 sylkserver (5.8.0) unstable; urgency=medium
 
   * [webrtcgateway] Added support for SIP Messages (RFC 3428)

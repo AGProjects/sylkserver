@@ -7,8 +7,7 @@ from sipsimple.payloads.iscomposing import IsComposingDocument, IsComposingMessa
 from sipsimple.streams.msrp.chat import CPIMPayload, CPIMParserError
 from sipsimple.threading.green import run_in_green_thread
 from sipsimple.util import ISOTimestamp
-
-from zope.interface import implements
+from zope.interface import implementer
 
 from sylk.applications import SylkApplication
 from sylk.applications.xmppgateway.configuration import XMPPGatewayConfig
@@ -24,8 +23,8 @@ from sylk.applications.xmppgateway.xmpp.session import XMPPChatSession
 from sylk.applications.xmppgateway.xmpp.stanzas import ChatMessage, ChatComposingIndication, NormalMessage
 
 
+@implementer(IObserver)
 class XMPPGatewayApplication(SylkApplication):
-    implements(IObserver)
 
     def __init__(self):
         self.xmpp_manager = XMPPManager()
@@ -428,7 +427,7 @@ class XMPPGatewayApplication(SylkApplication):
     def _NH_ChatSessionDidStart(self, notification):
         handler = notification.sender
         log.info('Chat session established sip:%s <--> xmpp:%s' % (handler.sip_identity.uri, handler.xmpp_identity.uri))
-        for k,v in self.pending_sessions.items():
+        for k,v in list(self.pending_sessions.items()):
             if v is handler:
                 del self.pending_sessions[k]
                 break
@@ -443,7 +442,7 @@ class XMPPGatewayApplication(SylkApplication):
     def _NH_ChatSessionDidFail(self, notification):
         handler = notification.sender
         uris = None
-        for k,v in self.pending_sessions.items():
+        for k,v in list(self.pending_sessions.items()):
             if v is handler:
                 uris = k
                 del self.pending_sessions[k]

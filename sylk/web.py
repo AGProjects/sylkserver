@@ -19,7 +19,7 @@ __all__ = 'Klein', 'StaticFileResource', 'WebServer', 'server'
 
 
 # Set the 'Server' header string which Twisted Web will use
-twisted.web.server.version = b'SylkServer/%s' % __version__
+twisted.web.server.version = b'SylkServer/%s' % __version__.encode()
 
 
 class StaticFileResource(File):
@@ -35,9 +35,7 @@ class RootResource(Resource):
         return 'Welcome to SylkServer!'
 
 
-class WebServer(object):
-    __metaclass__ = Singleton
-
+class WebServer(object, metaclass=Singleton):
     def __init__(self):
         self.base = Resource()
         self.base.putChild('', RootResource())

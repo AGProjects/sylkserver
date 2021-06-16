@@ -7,7 +7,7 @@ from eventlib import proc
 from sipsimple.account.bonjour import BonjourPresenceState
 from sipsimple.audio import WavePlayer, WavePlayerError
 from twisted.internet import reactor
-from zope.interface import implements
+from zope.interface import implementer
 
 from sylk.applications import SylkApplication, ApplicationLogger
 from sylk.applications.playback.configuration import get_config
@@ -24,7 +24,7 @@ class PlaybackApplication(SylkApplication):
         self.bonjour_services = []
         if ServerConfig.enable_bonjour:
             application_map = dict((item.split(':')) for item in ServerConfig.application_map)
-            for uri, app in application_map.iteritems():
+            for uri, app in application_map.items():
                 if app == 'playback':
                     config = get_config('%s' % uri)
                     if config is None:
@@ -32,7 +32,7 @@ class PlaybackApplication(SylkApplication):
                     if os.path.isfile(config.file) and os.access(config.file, os.R_OK):
                         service = BonjourService(service='sipuri', name='Playback Test', uri_user=uri, is_focus=False)
                         service.start()
-                        service.presence_state = BonjourPresenceState('available', u'File: %s' % os.path.basename(config.file))
+                        service.presence_state = BonjourPresenceState('available', 'File: %s' % os.path.basename(config.file))
                         self.bonjour_services.append(service)
 
     def stop(self):
@@ -46,7 +46,7 @@ class PlaybackApplication(SylkApplication):
         if config is None:
             config = get_config('%s' % session.request_uri.user)
             if config is None:
-                log.info(u'Session %s rejected: no configuration found for %s' % (session.call_id, session.request_uri))
+                log.info('Session %s rejected: no configuration found for %s' % (session.call_id, session.request_uri))
                 session.reject(488)
                 return
         stream_types = {'audio'}
@@ -70,8 +70,8 @@ class PlaybackApplication(SylkApplication):
         request.reject(405)
 
 
+@implementer(IObserver)
 class PlaybackHandler(object):
-    implements(IObserver)
 
     def __init__(self, config, session):
         self.config = config
@@ -103,11 +103,11 @@ class PlaybackHandler(object):
             return
         player = WavePlayer(audio_stream.mixer, config.file)
         audio_stream.bridge.add(player)
-        log.info(u'Playing file %s for session %s' % (config.file, self.session.call_id))
+        log.info('Playing file %s for session %s' % (config.file, self.session.call_id))
         try:
             player.play().wait()
         except (ValueError, WavePlayerError) as e:
-            log.warning(u'Error playing file %s: %s' % (config.file, e))
+            log.warning('Error playing file %s: %s' % (config.file, e))
         except proc.ProcExit:
             pass
         finally:

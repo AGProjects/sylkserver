@@ -21,14 +21,14 @@ class DefaultContactURIFactory(object):
             # The first part of the key might be PublicGRUU and so on, but we don't care about
             # those here, so ignore them
             _, key = key
-        if not isinstance(key, (basestring, Route)):
+        if not isinstance(key, (str, Route)):
             raise KeyError("key must be a transport name or Route instance")
 
-        transport = key if isinstance(key, basestring) else key.transport
+        transport = key if isinstance(key, str) else key.transport
         parameters = {} if transport=='udp' else {'transport': transport}
         if SIPConfig.local_ip not in (None, '0.0.0.0'):
             ip = SIPConfig.local_ip.normalized
-        elif isinstance(key, basestring):
+        elif isinstance(key, str):
             ip = host.default_ip
         else:
             ip = host.outgoing_ip_for(key.address)
@@ -54,10 +54,10 @@ class DefaultAccount(Account):
     enabled = True
 
     def __new__(cls):
-        with AccountManager.load.lock:
-            if not AccountManager.load.called:
-                raise RuntimeError("cannot instantiate %s before calling AccountManager.load" % cls.__name__)
-            return SettingsObject.__new__(cls)
+        #with AccountManager.load.lock:
+        #    if not AccountManager.load.called:
+        #        raise RuntimeError("cannot instantiate %s before calling AccountManager.load" % cls.__name__)
+        return SettingsObject.__new__(cls)
 
     def __init__(self):
         super(DefaultAccount, self).__init__('default@sylkserver')

@@ -34,7 +34,7 @@ def content_to_sdpstream(content):
             parameters_str = ';'.join(('%s=%s' % (p.name, p.value) for p in item.parameters))
             fmtp = '%d %s' % (item.id, str(parameters_str)) 
             attributes.append(SDPAttribute(b'fmtp', fmtp.encode()))
-    media_stream.formats = map(str, formats)
+    media_stream.formats = list(map(str, formats))
     media_stream.attributes = attributes  # set attributes so that _codec_list is generated
     if content.description.encryption:
         if content.description.encryption.required:
@@ -127,7 +127,7 @@ def sdpstream_to_content(sdp, index):
         content.description.encryption.cryptos.append(jingle.Crypto(suite, key_params, tag, session_params))
     if media_stream.has_ice_candidates:
         foundation_counter = count(1)
-        foundation_map = defaultdict(foundation_counter.next)
+        foundation_map = defaultdict(foundation_counter.__next__)
         id_counter = count(100)
         if not media_stream.has_ice_attributes and not sdp.has_ice_attributes:
             raise ValueError

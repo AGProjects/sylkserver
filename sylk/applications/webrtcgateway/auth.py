@@ -76,4 +76,4 @@ def IMAP4SSL_open(self, host = '', port = imaplib.IMAP4_SSL_PORT):
                                   ca_certs=ca_cert_file)
     self.file = self.sslobj.makefile('rb')
 
-imaplib.IMAP4_SSL.__dict__['open']=IMAP4SSL_open
+setattr(imaplib.IMAP4_SSL, 'open', IMAP4SSL_open)

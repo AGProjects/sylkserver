@@ -38,7 +38,7 @@ class StringProducer(object):
         pass
 
 def _construct_and_send(result, request, destination):
-    for device_token, push_parameters in result.iteritems():
+    for device_token, push_parameters in result.items():
         request.token = device_token
         request.app_id = push_parameters['app']
         request.platform = push_parameters['platform']

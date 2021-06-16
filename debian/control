@@ -1,25 +1,24 @@
 Source: sylkserver
 Section: net
 Priority: optional
-Maintainer: Dan Pascu <dan@ag-projects.com>
-Uploaders: Adrian Georgescu <ag@ag-projects.com>
-Build-Depends: debhelper (>= 11), dh-python, python-all (>= 2.7), rename
+Maintainer: Adrian Georgescu <ag@ag-projects.com>
+Uploaders: Tijmen de Mes <tijmen@ag-projects.com>
+Build-Depends: debhelper (>= 11), dh-python, python3, rename
 Standards-Version: 4.5.0
 
 Package: sylkserver
 Architecture: all
-Depends: ${python:Depends}, ${misc:Depends},
+Depends: ${python3:Depends}, ${misc:Depends},
          lsb-base,
-         python-application (>= 2.8.0),
-         python-autobahn,
-         python-eventlib,
-         python-klein,
-         python-lxml,
-         python-sipsimple (>= 3.5.0),
-         python-systemd,
-         python-twisted,
-         python-typing
-Suggests: libavahi-compat-libdnssd1, python-wokkel, sylkserver-webrtc-gateway
+         python3-application,
+         python3-autobahn,
+         python3-eventlib,
+         python3-klein,
+         python3-lxml,
+         python3-sipsimple,
+         python3-systemd,
+         python3-twisted
+Suggests: libavahi-compat-libdnssd1, python3-wokkel, sylkserver-webrtc-gateway
 Recommends: sylkserver-sounds
 Description: Extensible real-time-communications application server
  SylkServer is a SIP applications server that provides applications like
@@ -39,7 +38,7 @@ Description: Extensible real-time-communications application server sounds
 Package: sylkserver-webrtc-gateway
 Architecture: all
 Depends: ${misc:Depends}, sylkserver, janus
-Recommends: python-cassandra (>=3.7.1-2.1)
+Recommends: python3-cassandra
 Description: Extensible real-time-communications application server WebRTC gateway
  SylkServer is a SIP applications server that provides applications like
  echo, playback and conference, as well as act as a gateway between SIP

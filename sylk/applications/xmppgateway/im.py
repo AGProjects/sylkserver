@@ -15,7 +15,7 @@ from sipsimple.streams.msrp.chat import CPIMPayload, ChatIdentity, CPIMHeader
 from sipsimple.threading import run_in_twisted_thread
 from sipsimple.threading.green import run_in_green_thread, run_in_waitable_green_thread
 from twisted.internet import reactor
-from zope.interface import implements
+from zope.interface import implementer
 
 from sylk.accounts import DefaultAccount
 from sylk.applications.xmppgateway.configuration import XMPPGatewayConfig
@@ -33,8 +33,8 @@ __all__ = 'ChatSessionHandler', 'SIPMessageSender', 'SIPMessageError'
 SESSION_TIMEOUT = XMPPGatewayConfig.sip_session_timeout
 
 
+@implementer(IObserver)
 class ChatSessionHandler(object):
-    implements(IObserver)
 
     sip_identity = WriteOnceAttribute()
     xmpp_identity = WriteOnceAttribute()
@@ -366,7 +366,7 @@ class ChatSessionHandler(object):
 
 
 def chunks(text, size):
-    for i in xrange(0, len(text), size):
+    for i in range(0, len(text), size):
         yield text[i:i+size]
 
 
@@ -377,8 +377,8 @@ class SIPMessageError(Exception):
         self.reason = reason
 
 
+@implementer(IObserver)
 class SIPMessageSender(object):
-    implements(IObserver)
 
     def __init__(self, message, content_type=None, use_cpim=False):
         # TODO: sometimes we may want to send it to the GRUU, for example when a XMPP client

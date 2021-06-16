@@ -84,15 +84,15 @@ class BooleanProperty(AbstractProperty):
 
 
 class IntegerProperty(AbstractProperty):
-    data_type = int, long
+    data_type = int, int
 
 
 class NumberProperty(AbstractProperty):
-    data_type = int, long, float
+    data_type = int, int, float
 
 
 class StringProperty(AbstractProperty):
-    data_type = str, unicode
+    data_type = str, str
 
 
 class FixedValueProperty(AbstractProperty):
@@ -162,7 +162,7 @@ class ObjectProperty(AbstractProperty):
 
 class PropertyContainer(object):
     def __init__(self, cls):
-        self.__dict__.update({item.name: item for cls in reversed(cls.__mro__) for item in cls.__dict__.itervalues() if isinstance(item, AbstractProperty)})
+        self.__dict__.update({item.name: item for cls in reversed(cls.__mro__) for item in cls.__dict__.values() if isinstance(item, AbstractProperty)})
 
     def __getitem__(self, name):
         return self.__dict__[name]
@@ -171,7 +171,7 @@ class PropertyContainer(object):
         return name in self.__dict__
 
     def __iter__(self):
-        return self.__dict__.itervalues()
+        return iter(self.__dict__.values())
 
     @property
     def names(self):
@@ -182,15 +182,12 @@ class JSONObjectType(type):
     # noinspection PyShadowingBuiltins
     def __init__(cls, name, bases, dictionary):
         super(JSONObjectType, cls).__init__(name, bases, dictionary)
-        for name, property in ((name, item) for name, item in dictionary.iteritems() if isinstance(item, AbstractProperty)):
+        for name, property in ((name, item) for name, item in dictionary.items() if isinstance(item, AbstractProperty)):
             property.name = name
         cls.__properties__ = PropertyContainer(cls)
 
 
-class JSONObject(object):
-    __metaclass__ = JSONObjectType
-
-    # noinspection PyShadowingBuiltins
+class JSONObject(object, metaclass=JSONObjectType):
     def __init__(self, **data):
         for property in self.__properties__:
             if property.name in data:
@@ -290,16 +287,14 @@ class JSONArrayType(type):
         cls.parser = ArrayParser(cls)
 
 
-class JSONArray(object):
-    __metaclass__ = JSONArrayType
-
+class JSONArray(object, metaclass=JSONArrayType):
     item_type = object
 
     item_validator = None  # this should only be defined for primitive item types
     list_validator = None
 
     def __init__(self, iterable):
-        if isinstance(iterable, basestring):  # prevent iterable primitive types from being interpreted as arrays
+        if isinstance(iterable, str):  # prevent iterable primitive types from being interpreted as arrays
             raise ValueError('Invalid value for {.__class__.__name__}: {!r}'.format(self, iterable))
         items = list(self.parser.parse_list(iterable))
         if self.list_validator is not None:
@@ -500,15 +495,15 @@ class BooleanArray(JSONArray):
 
 
 class IntegerArray(JSONArray):
-    item_type = int, long
+    item_type = int, int
 
 
 class NumberArray(JSONArray):
-    item_type = int, long, float
+    item_type = int, int, float
 
 
 class StringArray(JSONArray):
-    item_type = str, unicode
+    item_type = str, str
 
 
 class ArrayOf(object):

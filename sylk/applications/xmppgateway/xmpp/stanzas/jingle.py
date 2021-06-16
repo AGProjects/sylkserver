@@ -462,7 +462,7 @@ class Content(object):
         return element
 
 
-class EmptyType(unicode):
+class EmptyType(str):
     @classmethod
     def fromElement(cls, element):
         return cls(element.name)
@@ -473,9 +473,9 @@ class EmptyType(unicode):
 class ReasonType(EmptyType):
     pass
 
-class AlternativeSessionReason(unicode):
+class AlternativeSessionReason(str):
     def __new__(cls, value):
-        obj = unicode.__new__(cls, 'alternative-session')
+        obj = str.__new__(cls, 'alternative-session')
         obj.sid = value
         return obj
 
@@ -513,7 +513,7 @@ class Reason(object):
             element.addElement('text', content=self.text)
         return element
 
-class Info(unicode):
+class Info(str):
 
     @classmethod
     def fromElement(cls, element):
@@ -525,7 +525,7 @@ class Info(unicode):
 class MuteInfo(Info):
 
     def __new__(cls, value, creator, name):
-        obj = unicode.__new__(cls, value)
+        obj = str.__new__(cls, value)
         obj.creator = creator
         obj.name = name
         return obj

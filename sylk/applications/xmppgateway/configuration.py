@@ -3,9 +3,7 @@ from application.system import host
 from application.configuration import ConfigSection, ConfigSetting
 from application.configuration.datatypes import StringList
 from sipsimple.configuration.datatypes import NonNegativeInteger
-
-from sylk.configuration.datatypes import IPAddress, Port
-from sylk.configuration.datatypes import Path
+from sylk.configuration.datatypes import IPAddress, Port, Path
 
 
 class XMPPGatewayConfig(ConfigSection):

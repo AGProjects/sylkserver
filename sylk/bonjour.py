@@ -12,7 +12,7 @@ from sipsimple.threading import call_in_twisted_thread, run_in_twisted_thread
 from sipsimple.threading.green import Command, run_in_green_thread
 from threading import Lock
 from twisted.internet import reactor
-from zope.interface import implements
+from zope.interface import implementer
 
 from sylk.accounts import DefaultAccount
 
@@ -21,8 +21,8 @@ class RestartSelect(Exception):
     pass
 
 
+@implementer(IObserver)
 class BonjourService(object):
-    implements(IObserver)
 
     def __init__(self, service='sipfocus', name='SylkServer', uri_user=None, is_focus=True):
         self.account = DefaultAccount()
@@ -146,7 +146,7 @@ class BonjourService(object):
         if self._register_timer is not None and self._register_timer.active():
             self._register_timer.cancel()
         self._register_timer = None
-        supported_transports = set(transport for transport in settings.sip.transport_list if transport!='tls' or self.account.tls.certificate is not None)
+        supported_transports = set(transport for transport in settings.sip.transport_list if transport!='tls' or settings.tls.certificate is not None)
         registered_transports = set(file.transport for file in self._files if isinstance(file, BonjourRegistrationFile))
         missing_transports = supported_transports - registered_transports
         added_transports = set()
