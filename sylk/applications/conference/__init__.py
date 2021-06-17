@@ -98,6 +98,8 @@ class ConferenceApplication(SylkApplication):
     def incoming_session(self, session):
         peer = '%s:%s' % (session.transport, session.peer_address)
         log.info('Session %s from %s: %s -> %s' % (session.call_id, peer, session.remote_identity.uri, session.local_identity.uri))
+        settings = SIPSimpleSettings()
+        
         audio_streams = [stream for stream in session.proposed_streams if stream.type=='audio']
         chat_streams = [stream for stream in session.proposed_streams if stream.type=='chat']
         transfer_streams = [stream for stream in session.proposed_streams if stream.type=='file-transfer']
@@ -138,7 +140,7 @@ class ConferenceApplication(SylkApplication):
                     session.reject(404)
                     return
             else:
-                transfer_stream.handler.save_directory = os.path.join(ConferenceConfig.file_transfer_dir.normalized, room.uri)
+                transfer_stream.handler.save_directory = os.path.join(settings.file_transfer.directory.normalized, room.uri)
 
         NotificationCenter().add_observer(self, sender=session)
         if audio_stream:
