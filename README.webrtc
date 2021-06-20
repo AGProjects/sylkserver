@@ -16,23 +16,26 @@ information.
 Architecture
 ------------
 
- +--------+         +---------+ +-------------+     +----------+
- |        |         |         | |   Janus     |     |  SIP     |
- | WebRTC | SylkRTC | Sylk    | |   SFU       +<--->+  RTP     |
- | client +<------->+ Server  | |   Server    |     |  client  |
- |        |   API   | webrtc  | +-------------+     +----------+
- +--------+         | gateway | <-------------+     +----------+
-                    | app     | <----------+  |     |  SIP     |
-                    |         | <---+      |  +---->|  Message |
-                    +---------+     |      |        |  client  |
- +--------+        +----------------+--+   |        +----------+
- | XMPP   |<------>| Sylk XMPP gateway |   |        +----------+
- | chat   |        +-+-----------------+   |        |  SIP     |
- | client |          |   +-----------------+--+     |  MSRP    |
- +--------+      MUC +-->| Sylk Conference app|<--->|  client  |
-                         +--------------------+     +----------+
-         
-
+ +--------+          +---------+ +-------------+       +----------+
+ |        |          |         | |   Janus     |  RTP  |  SIP     |
+ | WebRTC | SylkRTC  | Sylk    | |   SFU       +<----->|  A/V     |
+ | client +<-------->+ Server  | |   Server    |       |  client  |
+ |        |  WebAPI  | webrtc  | +-------------+       +----------+
+ +--------+          | gateway |          SIP          +----------+
+               +---->| app     | <---------------------|  SIP     |
+               |     |         | <---+                 |  Message |
+               |     +---------+     |                 |  client  |
+               |     +---------------+-----+  MSRP     +----------+
+           SIP |     | Sylk MSRP switch    |<------+   +----------+
+               |     | Conference          |       |   |  SIP     |
+               |     | application         |<--+   +---+  Chat    |
+               |     +---------------------+   |       |  client  |
+ +--------+    |     +---------------------+   | MUC   +----------+
+ | XMPP   |    +-----| Sylk XMPP           |---+       +----------+
+ | chat   |  XMPP    | Server 2 Server     |    SIP    |  SIP     |
+ | client |--------->| gateway application |---------->|  Message |
+ +--------+          +---------------------+           +----------+
+                                                       
 
 End-point requirements
 ----------------------
