@@ -113,7 +113,7 @@ class WebHandler(object):
                                         autoPingTimeout=GeneralConfig.websocket_ping_interval/2)
 
         self.web = WebRTCGatewayWeb(self.factory)
-        server.register_resource('webrtcgateway', self.web.resource)
+        server.register_resource(b'webrtcgateway', self.web.resource)
 
         log.info('WebSocket handler started at %s' % ws_url)
         log.info('Allowed web origins: %s' % ', '.join(GeneralConfig.web_origins))
