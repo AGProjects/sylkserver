@@ -32,13 +32,13 @@ class RootResource(Resource):
 
     def render_GET(self, request):
         request.setHeader('Content-Type', 'text/plain')
-        return 'Welcome to SylkServer!'
+        return b'Welcome to SylkServer!'
 
 
 class WebServer(object, metaclass=Singleton):
     def __init__(self):
         self.base = Resource()
-        self.base.putChild('', RootResource())
+        self.base.putChild(b'', RootResource())
         self.site = Site(self.base, logPath=os.devnull)
         self.site.noisy = False
         self.listener = None
