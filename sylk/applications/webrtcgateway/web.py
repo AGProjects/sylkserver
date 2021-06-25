@@ -62,7 +62,7 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
             if session_id in videoroom:
                 request.setHeader('Access-Control-Allow-Origin', '*')
                 request.setHeader('Access-Control-Allow-Headers', 'content-type')
-                method = request.method.upper()
+                method = request.method.upper().decode()
                 session = videoroom[session_id]
                 if method == 'POST':
                     def log_result(result):
