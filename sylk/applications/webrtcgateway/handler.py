@@ -1,4 +1,5 @@
 
+import base64
 import hashlib
 import json
 import random
@@ -515,7 +516,7 @@ class ConnectionHandler(object):
 
     def __init__(self, protocol):
         self.protocol = protocol
-        self.device_id = hashlib.md5(protocol.peer).digest().encode('base64').rstrip('=\n')
+        self.device_id = base64.b64encode(hashlib.md5(protocol.peer.encode('utf-8')).digest()).rstrip(b'=\n').decode('utf-8')
         self.janus_session = None      # type: Optional[JanusSession]
         self.accounts_map = {}         # account ID -> account
         self.devices_map = {}          # device ID -> account
