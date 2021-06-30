@@ -21,7 +21,7 @@ class JanusRequestBase(JSONObject):
 
     def __init__(self, **kw):
         if 'transaction' not in kw:
-            kw['transaction'] = hex_encode(os.urandom(16))  # uuid4().hex is really slow
+            kw['transaction'] = hex_encode(os.urandom(16)).decode()  # uuid4().hex is really slow
         super(JanusRequestBase, self).__init__(**kw)
 
 

@@ -97,7 +97,7 @@ class JanusClientProtocol(WebSocketClientProtocol):
         deferred = defer.Deferred()
         message = json.dumps(request.__data__)
         self.notification_center.post_notification('WebRTCJanusTrace', sender=self, data=NotificationData(direction='OUTGOING', message=message, peer=self.peer))
-        self.sendMessage(message)
+        self.sendMessage(message.encode())
         self._pending_transactions[request.transaction] = request, deferred
         return deferred
 
