@@ -211,7 +211,7 @@ class ConferenceHandler(object):
                                                 FromHeader(SIPURI.new(self.session.local_identity.uri)),
                                                 ToHeader(target_uri),
                                                 ContactHeader(contact_uri),
-                                                'conference',
+                                                b'conference',
                                                 RouteHeader(route.uri),
                                                 credentials=account.credentials,
                                                 refresh=refresh_interval)
