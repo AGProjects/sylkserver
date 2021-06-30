@@ -1787,7 +1787,7 @@ class VideoroomChatHandler(object):
         notification_center = NotificationCenter()
         from_uri = SIPURI.parse(self.account.uri)
         to_uri = SIPURI.parse('sip:{}'.format(self.room.uri))
-        to_uri.host = to_uri.host.replace('videoconference', 'conference', 1)  # TODO: find a way to define this
+        to_uri.host = to_uri.host.replace(b'videoconference', b'conference', 1)  # TODO: find a way to define this
         credentials = Credentials(username=from_uri.user, password=self.account.password.encode('utf-8'), digest=True)
         sip_account = DefaultAccount()
         sip_settings = SIPSimpleSettings()
