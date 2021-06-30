@@ -58,7 +58,7 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
     def sendMessage(self, payload, *args, **kw):
         self.notification_center.post_notification('WebRTCClientTrace', sender=self, data=NotificationData(direction='OUTGOING', message=payload, peer=self.peer))
         #log.info('Sending %s to web socket %s' % (payload, self.peer));
-        super(SylkWebSocketServerProtocol, self).sendMessage(payload, *args, **kw)
+        super(SylkWebSocketServerProtocol, self).sendMessage(payload.encode(), *args, **kw)
 
     def disconnect(self, code=1000, reason=''):
         self.sendClose(code, reason)
