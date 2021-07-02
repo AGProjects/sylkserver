@@ -343,7 +343,7 @@ class Room(object):
 
     def dispatch_conference_info(self):
         data = self.conference_info
-        for subscription in (subscription for subscription in self.subscriptions if subscription.state == 'active'):
+        for subscription in (subscription for subscription in self.subscriptions if subscription.state.lower() == 'active'):
             try:
                 subscription.push_content(conference.ConferenceDocument.content_type, data)
             except (SIPCoreError, SIPCoreInvalidStateError):
