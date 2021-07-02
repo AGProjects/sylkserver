@@ -259,15 +259,20 @@ class Room(object):
             session, message_type, data = self.incoming_message_queue.wait()
             if message_type == 'message':
                 message = data.message
-                if message.sender.uri != session.remote_identity.uri:
+
+                if str(message.sender.uri) != str(session.remote_identity.uri):
                     continue
-                if message.content.startswith('?OTR:'):
+
+                if isinstance(message.content, bytes) and message.content.startswith(b'?OTR:'):
                     continue
+
                 if message.timestamp is None:
                     message.timestamp = ISOTimestamp.utcnow()
+
                 message.sender.display_name = self.last_nicknames_map.get(str(session.remote_identity.uri), message.sender.display_name)
                 recipient = message.recipients[0]
-                private = len(message.recipients) == 1 and '%s@%s' % (recipient.uri.user, recipient.uri.host) != self.uri
+                private = len(message.recipients) == 1 and '%s@%s' % (recipient.uri.user.decode(), recipient.uri.host.decode()) != str(self.uri)
+
                 if private:
                     self.dispatch_private_message(session, message)
                 else:
