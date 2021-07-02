@@ -43,10 +43,14 @@ from sylk.web import server as web_server
 
 def format_identity(identity):
     uri = identity.uri
+
+    user = uri.user.decode() if isinstance(uri.user, bytes) else uri.user
+    host = uri.host.decode() if isinstance(uri.host, bytes) else uri.host
+
     if identity.display_name:
-        return '%s <%s@%s>' % (identity.display_name, uri.user, uri.host)
+        return '%s <%s@%s>' % (identity.display_name, user, host)
     else:
-        return '%s@%s' % (uri.user, uri.host)
+        return '%s@%s' % (user, host)
 
 
 class ScreenImage(object):
@@ -54,8 +58,9 @@ class ScreenImage(object):
         self.room = weakref.ref(room)
         self.room_uri = room.uri
         self.sender = sender
-        self.filename = os.path.join(ConferenceConfig.screensharing_images_dir, room.uri, '%s@%s_%s.jpg' % (sender.uri.user, sender.uri.host, ''.join(random.sample(string.letters+string.digits, 10))))
-        self.url = URL(web_server.url + '/conference/' + room.uri + '/screensharing')
+        self.filename = os.path.join(ConferenceConfig.screensharing_images_dir, room.uri, '%s@%s_%s.jpg' % (sender.uri.user.decode(), sender.uri.host.decode(), ''.join(random.sample(string.ascii_letters+string.digits, 10))))
+        url = web_server.url + '/conference/' + room.uri + '/screensharing'        
+        self.url = URL(url)
         self.url.query_items['image'] = os.path.basename(self.filename)
         self.state = None
         self.timer = None
@@ -582,7 +587,7 @@ class Room(object):
             self.incoming_message_queue.send((session, 'message', data))
         elif content_type == 'application/blink-screensharing':
             stream.msrp_session.send_report(notification.data.chunk, 200, 'OK')
-            self.add_screen_image(message.sender, message.content)
+            self.add_screen_image(message.sender, message.content.encode())
         elif content_type == 'application/blink-zrtp-sas':
             if not self.config.zrtp_auto_verify:
                 stream.msrp_session.send_report(notification.data.chunk, 413, 'Unwanted message')

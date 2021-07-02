@@ -56,7 +56,7 @@ class ConferenceWeb(object, metaclass=Singleton):
         return NoResource('Nothing to see here, move along.')
 
     @app.route('/<string:room_uri>/screensharing')
-    def scheensharing(self, request, room_uri):
+    def screensharing(self, request, room_uri):
         try:
             room = self.conference._rooms[room_uri]
         except KeyError:
