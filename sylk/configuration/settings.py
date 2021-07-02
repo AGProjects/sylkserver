@@ -107,6 +107,8 @@ class LogsSettingsExtension(LogsSettings):
     trace_sip = Setting(type=bool, default=ServerConfig.trace_sip)
     trace_msrp = Setting(type=bool, default=ServerConfig.trace_msrp)
     trace_pjsip = Setting(type=bool, default=ServerConfig.trace_core)
+    trace_notifications = Setting(type=bool, default=ServerConfig.trace_notifications)
+
 
 
 class RTPSettingsExtension(RTPSettings):
