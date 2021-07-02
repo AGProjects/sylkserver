@@ -733,7 +733,7 @@ class ConnectionHandler(object):
             self.log.debug("sending message from '%s' to '%s' using proxy %s" % (identity, uri, route))
 
             from_uri = SIPURI.parse(account.uri)
-            content = content.encode('utf-8')
+            content = content if isinstance(content, bytes) else content.encode()
             ns = CPIMNamespace('urn:ietf:params:imdn', 'imdn')
             additional_headers = [CPIMHeader('Message-ID', ns, message_id)]
             if add_disposition:
@@ -903,7 +903,7 @@ class ConnectionHandler(object):
         uri = request.uri
         content_type = request.content_type
         content = request.content if content_type.startswith('text') else request.content.encode('latin1')
-        message_id = request.message_id.encode('ascii')
+        message_id = request.message_id
         timestamp = request.timestamp
         self.log.info('sending message ({content_type}) to: {uri}'.format(content_type=content_type, uri=uri))
         self._send_sip_message(account_info, uri, message_id, content, content_type, timestamp=timestamp)
@@ -915,7 +915,7 @@ class ConnectionHandler(object):
             raise APIError('Unknown account specified: {request.account}'.format(request=request))
 
         uri = request.uri
-        message_id = request.message_id.encode('ascii')
+        message_id = request.message_id
         state = request.state
         if state == 'delivered':
             notification = DeliveryNotification(state)
@@ -1468,7 +1468,7 @@ class ConnectionHandler(object):
                 self.log.info('message rejected: CPIM parse error')
                 return
             else:
-                body = cpim_message.content
+                body = cpim_message.content if isinstance(cpim_message.content, str) else cpim_message.content.decode()
                 content_type = cpim_message.content_type
                 sender = cpim_message.sender or FromHeader(SIPURI.parse('{}'.format(data.sender)), data.displayname)
                 disposition = next(([item.strip() for item in header.value.split(',')] for header in cpim_message.additional_headers if header.name == 'Disposition-Notification'), None)
@@ -1731,7 +1731,7 @@ class ConnectionHandler(object):
 
         body = CPIMPayload.decode(notification.sender.body)
         message_id = next((header.value for header in body.additional_headers if header.name == 'Message-ID'), None)
-        account_info = self.accounts_map['%s@%s' % (body.sender.uri.user, body.sender.uri.host)]
+        account_info = self.accounts_map['{}@{}'.format(body.sender.uri.user.decode('utf-8'), body.sender.uri.host.decode('utf-8'))]
         timestamp = body.timestamp
 
         if body.content_type != IMDNDocument.content_type:
@@ -1749,7 +1749,7 @@ class ConnectionHandler(object):
         body = CPIMPayload.decode(notification.sender.body)
         self.log.warning('could not deliver message to %s: %d %s' % (', '.join(([str(item.uri) for item in body.recipients])), notification.data.code, notification.data.reason))
         message_id = next((header.value for header in body.additional_headers if header.name == 'Message-ID'), None)
-        account_info = self.accounts_map['%s@%s' % (body.sender.uri.user, body.sender.uri.host)]
+        account_info = self.accounts_map['{}@{}'.format(body.sender.uri.user.decode('utf-8'), body.sender.uri.host.decode('utf-8'))]
         timestamp = body.timestamp
         if body.content_type != IMDNDocument.content_type:
             self.send(sylkrtc.AccountDispositionNotificationEvent(account=account_info.id,
