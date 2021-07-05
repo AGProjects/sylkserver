@@ -62,10 +62,10 @@ class ConferenceWeb(object, metaclass=Singleton):
         except KeyError:
             return NoResource('Room not found')
         request.setHeader('Content-Type', 'text/html; charset=utf-8')
-        if 'image' not in request.args or not request.args.get('image', [''])[0].endswith('jpg'):
+        if b'image' not in request.args or not request.args.get(b'image', [''])[0].endswith(b'jpg'):
             return ErrorPage(400, 'Bad Request', '\"image\" not provided')
         images_path = os.path.join(ConferenceConfig.screensharing_images_dir, room.uri)
-        image_path = os.path.basename(urllib.parse.unquote(request.args['image'][0]))
+        image_path = os.path.basename(urllib.parse.unquote(request.args[b'image'][0]))
         if not os.path.isfile(os.path.join(images_path, image_path)):
             return NoResource('Image not found')
         image = os.path.join('screensharing_img', image_path)

@@ -44,7 +44,7 @@ class ConferenceApplication(SylkApplication):
 
     def start(self):
         self.web = ConferenceWeb(self)
-        web_server.register_resource('conference', self.web.resource)
+        web_server.register_resource(b'conference', self.web.resource)
 
         # cleanup old files
         for path in (ConferenceConfig.file_transfer_dir, ConferenceConfig.screensharing_images_dir):
