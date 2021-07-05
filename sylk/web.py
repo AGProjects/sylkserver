@@ -1,3 +1,4 @@
+import mimetypes
 
 from application import log
 from application.python.types import Singleton
@@ -21,8 +22,45 @@ __all__ = 'Klein', 'StaticFileResource', 'WebServer', 'server'
 # Set the 'Server' header string which Twisted Web will use
 twisted.web.server.version = b'SylkServer/%s' % __version__.encode()
 
+def loadMimeTypes(mimetype_locations='mime.types', init=mimetypes.init):
+    """
+    Produces a mapping of extensions (with leading dot) to MIME types.
+
+    It does this by calling the C{init} function of the L{mimetypes} module.
+    This will have the side effect of modifying the global MIME types cache
+    in that module.
+
+    Multiple file locations containing mime-types can be passed as a list.
+    The files will be sourced in that order, overriding mime-types from the
+    files sourced beforehand, but only if a new entry explicitly overrides
+    the current entry.
+
+    @param mimetype_locations: Optional. List of paths to C{mime.types} style
+        files that should be used.
+    @type mimetype_locations: iterable of paths or L{None}
+    @param init: The init function to call. Defaults to the global C{init}
+        function of the C{mimetypes} module. For internal use (testing) only.
+    @type init: callable
+    """
+    init(mimetype_locations)
+    mimetypes.types_map.update(
+        {
+            '.conf':  'text/plain',
+            '.diff':  'text/plain',
+            '.flac':  'audio/x-flac',
+            '.java':  'text/plain',
+            '.oz':    'text/x-oz',
+            '.swf':   'application/x-shockwave-flash',
+            '.wml':   'text/vnd.wap.wml',
+            '.xul':   'application/vnd.mozilla.xul+xml',
+            '.patch': 'text/plain'
+        }
+    )
+    return mimetypes.types_map
+    
 
 class StaticFileResource(File):
+    contentTypes = loadMimeTypes()
     def directoryListing(self):
         return NoResource('Directory listing not available')
 
