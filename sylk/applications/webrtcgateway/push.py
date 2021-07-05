@@ -22,7 +22,7 @@ headers = Headers({'User-Agent': ['SylkServer'],
 
 
 @implementer(IBodyProducer)
-class StringProducer(object):
+class BytesProducer(object):
     def __init__(self, data):
         self.body = data
         self.length = len(data)
@@ -69,40 +69,48 @@ def conference_invite(originator, destination, room, call_id, audio, video):
 def _send_push_notification(payload, destination, token):
     if GeneralConfig.sylk_push_url:
         try:
-            r = yield agent.request('POST', GeneralConfig.sylk_push_url, headers, StringProducer(json.dumps(payload.__data__)))
+            r = yield agent.request(b'POST',
+                                    GeneralConfig.sylk_push_url.encode(),
+                                    headers,
+                                    BytesProducer(json.dumps(payload.__data__).encode())
+                                    )
         except Exception as e:
             log.info('Error sending push notification to %s: %s', GeneralConfig.sylk_push_url, e)
         else:
             try:
                 raw_body = yield readBody(r)
-                body = json.loads(raw_body)
             except Exception as e:
                 log.warning('Error reading response body: %s', e)
-                body = {}
+            else:
+                try:
+                    body = json.loads(raw_body)
+                except Exception as e:
+                    log.warning('Error parsing response body: %s', e)
+                    body = {}
 
-            try:  
-                platform = body['data']['platform']  
+            try:
+                platform = body['data']['platform']
             except KeyError:
-                platform = 'Unknown platform' 
- 
+                platform = 'Unknown platform'
+
             if r.code != 200:
                 try:
                     reason = body['data']['reason']
                 except KeyError:
                     reason = None
-                
-                try:   
+
+                try:
                     details = body['data']['body']['_content']['error']['message']
                 except  KeyError:
                     details = None
-                    
+
                 if reason and details:
                     error_description = "%s %s" % (reason, details)
                 elif reason:
                     error_description = reason
                 else:
                     error_description = body
-            
+
                 if r.code == 410:
                     if body and 'application/json' in r.headers.getRawHeaders('content-type'):
                         try:
@@ -114,7 +122,7 @@ def _send_push_notification(payload, destination, token):
                             tokens = TokenStorage()
                             tokens.remove(destination, token)
                 else:
-                    log.warning('Error sending %s push notification for videoroom to %s/%s: %s (%s) %s %s' % (platform.title(), payload.to, destination, token[:15], r.phrase, r.code, error_description))
+                    log.warning('Error sending %s push notification for videoroom to %s/%s: %s (%s) %s %s' % (platform.title(), payload.to, destination, token[:15], r.phrase.decode(), r.code, error_description))
             else:
                 log.info('Sent %s push notify for videoroom %s to %s/%s' % (platform.title(), payload.to, destination, token[:15]))
                 
