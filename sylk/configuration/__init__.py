@@ -72,6 +72,7 @@ class WebServerConfig(ConfigSection):
     hostname = ''
     certificate = ConfigSetting(type=Path, value=None)
     certificate_chain = ConfigSetting(type=Path, value=None)
+    log_dir = ConfigSetting(type=Path, value=Path(VarResources.get('log/sylkserver')))
 
 
 class ThorNodeConfig(ConfigSection):
