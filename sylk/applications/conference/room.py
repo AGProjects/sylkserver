@@ -4,6 +4,7 @@ import random
 import shutil
 import string
 import weakref
+import base64
 
 from collections import Counter, deque
 from glob import glob
@@ -78,7 +79,7 @@ class ScreenImage(object):
         makedirs(os.path.dirname(self.filename))
         tmp_filename = self.filename + '.tmp'
         try:
-            with open(tmp_filename, 'wb') as file:
+            with open(tmp_filename, 'wb+') as file:
                 file.write(image)
         except EnvironmentError as e:
             log.info('Room %s - cannot write screen sharing image: %s: %s' % (self.room_uri, self.filename, e))
@@ -587,7 +588,8 @@ class Room(object):
             self.incoming_message_queue.send((session, 'message', data))
         elif content_type == 'application/blink-screensharing':
             stream.msrp_session.send_report(notification.data.chunk, 200, 'OK')
-            self.add_screen_image(message.sender, message.content.encode())
+            image = base64.b64decode(message.content.encode())
+            self.add_screen_image(message.sender, image)
         elif content_type == 'application/blink-zrtp-sas':
             if not self.config.zrtp_auto_verify:
                 stream.msrp_session.send_report(notification.data.chunk, 413, 'Unwanted message')
