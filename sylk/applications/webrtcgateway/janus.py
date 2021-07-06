@@ -43,7 +43,7 @@ class JanusClientProtocol(WebSocketClientProtocol):
             log.warn('Unexpected binary payload received')
             return
 
-        self.notification_center.post_notification('WebRTCJanusTrace', sender=self, data=NotificationData(direction='INCOMING', message=payload, peer=self.peer))
+        self.notification_center.post_notification('WebRTCJanusTrace', sender=self, data=NotificationData(direction='INCOMING', message=payload.decode(), peer=self.peer))
 
         try:
             message = janus.JanusMessage.from_payload(json.loads(payload))
