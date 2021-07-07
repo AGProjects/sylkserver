@@ -1483,6 +1483,9 @@ class ConnectionHandler(object):
         sender = sylkrtc.SIPIdentity(uri=str(sender.uri), display_name=sender.display_name)
         timestamp = str(cpim_message.timestamp) if cpim_message is not None and cpim_message.timestamp is not None else str(ISOTimestamp.now())
 
+        if content_type == "application/im-iscomposing+xml":
+            return
+
         if content_type == IMDNDocument.content_type:
             document = IMDNDocument.parse(body)
             imdn_message_id = document.message_id.value
