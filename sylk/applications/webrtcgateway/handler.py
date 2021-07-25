@@ -709,6 +709,7 @@ class ConnectionHandler(object):
         return uuidv4
 
     def _lookup_sip_target_route(self, uri):
+        # TODO - add support for outbound proxy setting from server configuration -adi
         sip_uri = SIPURI.parse('sip:%s' % uri)
         settings = SIPSimpleSettings()
         try:
