@@ -42,7 +42,7 @@ else:
             user_agent       = columns.Text(required=False)
 
 
-class FileStorage(object):
+class FileTokenStorage(object):
     def __init__(self):
         self._tokens = defaultdict()
 
@@ -110,7 +110,7 @@ class FileStorage(object):
         self._save()
 
 
-class CassandraStorage(object):
+class CassandraTokenStorage(object):
     @run_in_thread('cassandra')
     def load(self):
         connection.setup(CassandraConfig.cluster_contact_points, CassandraConfig.keyspace, protocol_version=4)
@@ -165,6 +165,6 @@ class CassandraStorage(object):
 class TokenStorage(object, metaclass=Singleton):
     def __new__(self):
         if CASSANDRA_MODULES_AVAILABLE and CassandraConfig.cluster_contact_points:
-            return CassandraStorage()
+            return CassandraTokenStorage()
         else:
-            return FileStorage()
+            return FileTokenStorage()
