@@ -67,8 +67,11 @@ api_secret = 0745f2f74f34451c89343afcdcae5809
 ; Contact points to cassandra cluster
 ; cluster_contact_points =
 
-; Keyspace to use to retrieve tokens
+; Keyspace to use for storage
 ; keyspace =
+
+; Table name for token storage
+; push_tokens_table = push_tokens
 
 ; Per room configuration options
 ; [room1@videoconference.example.com]

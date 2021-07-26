@@ -10,6 +10,8 @@ from twisted.internet import defer
 from sylk.configuration import ServerConfig
 
 from .configuration import CassandraConfig
+from .errors import StorageError
+from .logger import log
 
 __all__ = 'TokenStorage',
 
@@ -29,17 +31,14 @@ else:
         pass
     else:
         CASSANDRA_MODULES_AVAILABLE = True
+        from cassandra import InvalidRequest
+        from cassandra.cqlengine import CQLEngineException
         from cassandra.cqlengine.query import LWTException
-        class PushTokens(Model):
-            username         = columns.Text(partition_key=True)
-            domain           = columns.Text(partition_key=True)
-            device_id        = columns.Text()
-            app              = columns.Text()
-            background_token = columns.Text(required=False)
-            device_token     = columns.Text(primary_key=True)
-            platform         = columns.Text()
-            silent           = columns.Text()
-            user_agent       = columns.Text(required=False)
+        from cassandra.cluster import NoHostAvailable
+        from cassandra.policies import DCAwareRoundRobinPolicy
+        from .models.storage.cassandra import PushTokens
+        if CassandraConfig.push_tokens_table:
+            PushTokens.__table_name__ = CassandraConfig.push_tokens_table
 
 
 class FileTokenStorage(object):
@@ -76,10 +75,11 @@ class FileTokenStorage(object):
             'device_id': contact_params['pn_device'],
             'platform': contact_params['pn_type'],
             'silent': contact_params['pn_silent'],
-            'app': contact_params['pn_app'],
+            'app_id': contact_params['pn_app'],
             'user_agent': user_agent,
             'background_token': background_token
         }
+        key = f"{data['app_id']}-{data['device_id']}"
         if account in self._tokens:
             if isinstance(self._tokens[account], set):
                 self._tokens[account] = {}
@@ -87,33 +87,44 @@ class FileTokenStorage(object):
             if contact_params['pn_device'] in self._tokens[account]:
                 del self._tokens[account][contact_params['pn_device']]
 
+            # Remove old storage layout based on token
+            if token in self._tokens[account]:
+                del self._tokens[account][token]
+
             # Remove old unsplit token if exists, can be removed if all tokens are stored split
             if background_token is not None:
                 try:
                     del self._tokens[account][contact_params['pn_tok']]
                 except IndexError:
                     pass
-            self._tokens[account][token] = data
+            self._tokens[account][key] = data
         else:
-            self._tokens[account] = {token: data}
+            self._tokens[account] = {key: data}
         self._save()
 
-    def remove(self, account, device_token):
+    def remove(self, account, app_id, device_id):
+        key = f'{app_id}-{device_id}'
         try:
-            device_token = device_token.split('#')[0]
-        except IndexError:
-            pass
-        try:
-            del self._tokens[account][device_token]
+            del self._tokens[account][key]
         except KeyError:
             pass
         self._save()
 
 
+class CassandraConnection(object, metaclass=Singleton):
+    @run_in_thread('cassandra')
+    def __init__(self):
+        try:
+            self.session = connection.setup(CassandraConfig.cluster_contact_points, CassandraConfig.keyspace, load_balancing_policy=DCAwareRoundRobinPolicy(), protocol_version=4)
+        except NoHostAvailable:
+            self.log.error("Not able to connect to any of the Cassandra contact points")
+            raise StorageError
+
+
 class CassandraTokenStorage(object):
     @run_in_thread('cassandra')
     def load(self):
-        connection.setup(CassandraConfig.cluster_contact_points, CassandraConfig.keyspace, protocol_version=4)
+        CassandraConnection();
 
     def __getitem__(self, key):
         deferred = defer.Deferred()
@@ -123,8 +134,9 @@ class CassandraTokenStorage(object):
             username, domain = key.split('@', 1)
             tokens = {}
             for device in PushTokens.objects(PushTokens.username == username, PushTokens.domain == domain):
-                tokens[device.device_token] = {'device_id': device.device_id, 'platform': device.platform,
-                                            'silent': device.silent, 'app': device.app}
+                tokens[f'{device.app_id}-{device.device_id}'] = {'device_id': device.device_id, 'token': device.token,
+                                                                 'platform': device.platform, 'silent': device.silent,
+                                                                 'app_id': device.app_id, 'background_token': device.background_token}
             deferred.callback(tokens)
             return tokens
         query_tokens(key)
@@ -145,19 +157,23 @@ class CassandraTokenStorage(object):
                 PushTokens.objects(PushTokens.username == username, PushTokens.domain == domain, PushTokens.device_token == contact_params['pn_tok']).if_exists().delete()
             except LWTException:
                 pass
-        PushTokens.create(username=username, domain=domain, device_id=contact_params['pn_device'],
-                          device_token=token, background_token=background_token, platform=contact_params['pn_type'],
-                          silent=contact_params['pn_silent'], app=contact_params['pn_app'], user_agent=user_agent)
+        try:
+            PushTokens.create(username=username, domain=domain, device_id=contact_params['pn_device'],
+                              device_token=token, background_token=background_token, platform=contact_params['pn_type'],
+                              silent=contact_params['pn_silent'], app_id=contact_params['pn_app'], user_agent=user_agent)
+        except (CQLEngineException, InvalidRequest) as e:
+            self.logger.error(f'Storing token failed: {e}')
+            raise StorageError
 
     @run_in_thread('cassandra')
-    def remove(self, account, device_token):
+    def remove(self, account, app_id, device_id):
         username, domain = account.split('@', 1)
         try:
             device_token = device_token.split('#')[0]
         except IndexError:
             pass
         try:
-            PushTokens.objects(PushTokens.username == username, PushTokens.domain == domain, PushTokens.device_token == device_token).if_exists().delete()
+            PushTokens.objects(PushTokens.username == username, PushTokens.domain == domain, PushTokens.device_id == device_id, PushTokens.app_id == app_id).if_exists().delete()
         except LWTException:
             pass
 

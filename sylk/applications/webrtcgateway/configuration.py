@@ -133,6 +133,7 @@ class CassandraConfig(ConfigSection):
 
     cluster_contact_points = ConfigSetting(type=HostnameList, value=None)
     keyspace = ConfigSetting(type=str, value='')
+    push_tokens_table = ConfigSetting(type=str, value='')
 
 
 class RoomConfig(ConfigSection):
