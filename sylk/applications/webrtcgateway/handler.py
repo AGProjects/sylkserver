@@ -1750,7 +1750,8 @@ class ConnectionHandler(object):
         notification_center.remove_observer(self, sender=notification.sender)
         data = notification.data
         body = CPIMPayload.decode(notification.sender.body)
-        self.log.warning('could not deliver message to %s: %d %s' % (', '.join(([str(item.uri) for item in body.recipients])), notification.data.code, notification.data.reason))
+        reason = data.reason.decode() if isinstance(data.reason, bytes) else data.reason
+        self.log.warning('could not deliver message to %s: %d %s' % (', '.join(([str(item.uri) for item in body.recipients])), data.code, reason))
         message_id = next((header.value for header in body.additional_headers if header.name == 'Message-ID'), None)
         account_info = self.accounts_map['{}@{}'.format(body.sender.uri.user.decode('utf-8'), body.sender.uri.host.decode('utf-8'))]
         timestamp = body.timestamp
@@ -1759,7 +1760,7 @@ class ConnectionHandler(object):
                                                                   state='failed',
                                                                   message_id=message_id,
                                                                   code=data.code,
-                                                                  reason=data.reason,
+                                                                  reason=reason,
                                                                   timestamp=timestamp))
 
 # noinspection PyPep8Naming
