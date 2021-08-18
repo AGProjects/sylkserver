@@ -19,7 +19,7 @@ class PushTokens(Model):
 class ChatMessage(Model):
     __table_name__  = 'chat_messages_by_timestamp'
     __options__     = {'default_time_to_live': '31536000',
-                        'gc_grace_seconds': '345600'}
+                       'gc_grace_seconds': '345600'}
     account         = columns.Text(partition_key=True)
     contact         = columns.Text()
     created_at      = columns.DateTime(primary_key=True)
@@ -35,7 +35,7 @@ class ChatMessage(Model):
 class ChatMessageIdMapping(Model):
     __table_name__  = 'chat_message_created_at_by_id'
     __options__     = {'default_time_to_live': '31536000',
-                        'gc_grace_seconds': '345600'}
+                       'gc_grace_seconds': '345600'}
     message_id      = columns.Text(partition_key=True)
     created_at      = columns.DateTime()
 
@@ -44,6 +44,7 @@ class PublicKey(Model):
     __table_name__   = 'public_key_by_account'
     public_key       = columns.Text()
     account          = columns.Text(partition_key=True)
+    created_at       = columns.DateTime()
 
 
 class ChatAccount(Model):
