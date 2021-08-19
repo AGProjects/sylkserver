@@ -2,7 +2,7 @@
 from sylk.applications import SylkApplication
 
 from .logger import log
-from .storage import TokenStorage
+from .storage import TokenStorage, MessageStorage
 from .web import WebHandler, AdminWebHandler
 
 
@@ -17,6 +17,9 @@ class WebRTCGatewayApplication(SylkApplication):
         # Load tokens from the storage
         token_storage = TokenStorage()
         token_storage.load()
+        # Setup message storage
+        message_storage = MessageStorage()
+        message_storage.load()
 
     def stop(self):
         self.web_handler.stop()
