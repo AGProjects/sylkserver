@@ -434,7 +434,7 @@ class CassandraMessageStorage(object):
         deferred = defer.Deferred()
 
         @run_in_thread('cassandra')
-        def query_tokens(key, message_id):
+        def query_messages(key, message_id):
             messages = []
             try:
                 timestamp = ChatMessageIdMapping.objects(ChatMessageIdMapping.message_id == message_id)[0]
@@ -446,7 +446,7 @@ class CassandraMessageStorage(object):
                 messages.append(message)
             deferred.callback(messages)
 
-        query_tokens(key[0], key[1])
+        query_messages(key[0], key[1])
         return deferred
 
     def get_account(self, account):
