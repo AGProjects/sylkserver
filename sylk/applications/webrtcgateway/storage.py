@@ -124,7 +124,7 @@ class CassandraConnection(object, metaclass=Singleton):
 class CassandraTokenStorage(object):
     @run_in_thread('cassandra')
     def load(self):
-        CassandraConnection();
+        CassandraConnection()
 
     def __getitem__(self, key):
         deferred = defer.Deferred()
@@ -169,11 +169,8 @@ class CassandraTokenStorage(object):
     def remove(self, account, app_id, device_id):
         username, domain = account.split('@', 1)
         try:
-            device_token = device_token.split('#')[0]
-        except IndexError:
-            pass
-        try:
-            PushTokens.objects(PushTokens.username == username, PushTokens.domain == domain, PushTokens.device_id == device_id, PushTokens.app_id == app_id).if_exists().delete()
+            PushTokens.objects(PushTokens.username == username, PushTokens.domain == domain,
+                               PushTokens.device_id == device_id, PushTokens.app_id == app_id).if_exists().delete()
         except LWTException:
             pass
 
