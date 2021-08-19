@@ -871,9 +871,9 @@ class ConnectionHandler(object):
             self.account_handles_map.pop(account_info.janus_handle.id)
             account_info.janus_handle = None
 
-        if 'pn_tok' in account_info.contact_params:
+        if 'pn_app' in account_info.contact_params:
             storage = TokenStorage()
-            storage.remove(request.account, account_info.contact_params['pn_tok'])
+            storage.remove(request.account, account_info.contact_params['pn_app'], account_info.contact_params['pn_device'])
 
         self.log.info('registered')
 
@@ -887,7 +887,7 @@ class ConnectionHandler(object):
                 'pn_tok': request.token,
                 'pn_type': request.platform,
                 'pn_device': request.device,
-                'pn_silent': str(int(request.silent is True)) # janus expects a string
+                'pn_silent': str(int(request.silent is True))  # janus expects a string
             }
             storage = TokenStorage()
             storage.add(request.account, account_info.contact_params, account_info.user_agent)
