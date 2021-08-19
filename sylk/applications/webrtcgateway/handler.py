@@ -24,7 +24,7 @@ from sipsimple.threading import run_in_thread, run_in_twisted_thread
 from sipsimple.threading.green import call_in_green_thread, run_in_green_thread
 from sipsimple.util import ISOTimestamp
 from shutil import copyfileobj, rmtree
-from twisted.internet import reactor
+from twisted.internet import reactor, defer
 from typing import Generic, Container, Iterable, Sized, TypeVar, Dict, Set, Optional, Union
 from werkzeug.exceptions import InternalServerError
 from zope.interface import implementer
@@ -36,7 +36,7 @@ from .configuration import GeneralConfig, get_room_config, ExternalAuthConfig, J
 from .janus import JanusBackend, JanusError, JanusSession, SIPPluginHandle, VideoroomPluginHandle
 from .logger import ConnectionLogger, VideoroomLogger
 from .models import sylkrtc, janus
-from .storage import TokenStorage
+from .storage import TokenStorage, MessageStorage
 from .auth import AuthHandler
 
 
@@ -754,6 +754,16 @@ class ConnectionHandler(object):
             #self._message_queue.append((message_id, content, content_type))
             message_request.send()
 
+    def _fork_event_to_online_accounts(self, account_info, event):
+        for protocol in self.protocol.factory.connections.difference([self.protocol]):
+            connection_handler = protocol.connection_handler
+            try:
+                connection_handler.accounts_map[account_info.id]
+            except KeyError:
+                pass
+            else:
+                connection_handler.send(event)
+
     def _handle_janus_sip_event(self, event):
         operation = Operation(type='event', name='janus-sip', data=event)
         self.operations_queue.send(operation)
@@ -905,8 +915,23 @@ class ConnectionHandler(object):
         content = request.content if content_type.startswith('text') else request.content.encode('latin1')
         message_id = request.message_id
         timestamp = request.timestamp
+
+        storage = MessageStorage()
+        storage.add(account=account_info.id,
+                    contact=uri,
+                    direction="outgoing",
+                    content=content,
+                    content_type=content_type,
+                    timestamp=timestamp,
+                    disposition_notification=['positive-delivery', 'display'],
+                    message_id=message_id,
+                    state='pending')
+
         self.log.info('sending message ({content_type}) to: {uri}'.format(content_type=content_type, uri=uri))
         self._send_sip_message(account_info, uri, message_id, content, content_type, timestamp=timestamp)
+
+        event = sylkrtc.AccountSyncEvent(account=account_info.id, type='message', action='add', content=request)
+        self._fork_event_to_online_accounts(account_info, event)
 
     def _RH_account_disposition_notification(self, request):
         try:
@@ -923,8 +948,73 @@ class ConnectionHandler(object):
             notification = DisplayNotification(state)
 
         content = IMDNDocument.create(message_id=message_id, datetime=request.timestamp, recipient_uri=uri, notification=notification)
+        storage = MessageStorage()
+        storage.update(account=account_info.id,
+                       state=state,
+                       message_id=message_id)
         self.log.info('sending IMDN message ({status}) to: {uri}'.format(status=state, uri=uri))
         self._send_sip_message(account_info, uri, str(uuid.uuid4()), content, IMDNDocument.content_type, add_disposition=False)
+
+    def _RH_account_sync_conversations(self, request):
+        try:
+            account_info = self.accounts_map[request.account]
+        except KeyError:
+            raise APIError('Unknown account specified: {request.account}'.format(request=request))
+
+        storage = MessageStorage()
+        messages = storage[[account_info.id, request.message_id]]
+
+        if isinstance(messages, defer.Deferred):
+            messages.addCallback(lambda result: self.send(sylkrtc.AccountSyncConversationsEvent(account=account_info.id, messages=result)))
+
+    def _RH_account_remove_message(self, request):
+        try:
+            account_info = self.accounts_map[request.account]
+        except KeyError:
+            raise APIError('Unknown account specified: {request.account}'.format(request=request))
+
+        contact = request.contact
+        message_id = request.message_id
+
+        storage = MessageStorage()
+        storage.removeMessage(account=account_info.id, message_id=message_id)
+
+        content = sylkrtc.AccountMessageRemoveEventData(contact=contact, message_id=message_id)
+        storage.add(account=account_info.id,
+                    contact=contact,
+                    direction='',
+                    content=json.dumps(content.__data__),
+                    content_type='application/sylk-message-remove',
+                    timestamp=str(ISOTimestamp.now()),
+                    disposition_notification='',
+                    message_id=str(uuid.uuid4()))
+
+        event = sylkrtc.AccountSyncEvent(account=account_info.id, type='message', action='remove', content=content)
+        self._fork_event_to_online_accounts(account_info, event)
+
+    def _RH_account_remove_conversation(self, request):
+        try:
+            account_info = self.accounts_map[request.account]
+        except KeyError:
+            raise APIError('Unknown account specified: {request.account}'.format(request=request))
+
+        contact = request.contact
+
+        storage = MessageStorage()
+        storage.removeChat(account=account_info.id, contact=contact)
+
+        storage.add(account=account_info.id,
+                    contact=contact,
+                    direction='',
+                    content=contact,
+                    content_type='application/sylk-conversation-remove',
+                    timestamp=str(ISOTimestamp.now()),
+                    disposition_notification='',
+                    message_id=str(uuid.uuid4()))
+
+        content = sylkrtc.AccountConversationRemoveEventData(contact=contact)
+        event = sylkrtc.AccountSyncEvent(account=account_info.id, type='conversation', action='remove', content=content)
+        self._fork_event_to_online_accounts(account_info, event)
 
     def _RH_session_create(self, request):
         if request.session in self.sip_sessions:
@@ -1334,6 +1424,8 @@ class ConnectionHandler(object):
             account_info.registration_state = 'registered'
             self.send(sylkrtc.AccountRegisteredEvent(account=account_info.id))
             self.log.info('registered')
+            storage = MessageStorage()
+            storage.add_account(account=account_info.id)
 
     def _EH_janus_sip_event_registration_failed(self, event):
         try:
@@ -1491,6 +1583,21 @@ class ConnectionHandler(object):
             imdn_message_id = document.message_id.value
             imdn_status = document.notification.status.__str__()
             self.log.info('received IMDN message ({status}) from: {originator.uri}'.format(status=imdn_status, originator=sender))
+            storage = MessageStorage()
+            storage.update(account=account_info.id,
+                           state=imdn_status,
+                           message_id=imdn_message_id)
+
+            storage.add(account=account_info.id,
+                        contact=sender.uri,
+                        direction="incoming",
+                        content=json.dumps({'message_id': imdn_message_id, 'state': imdn_status}),
+                        content_type='message/imdn+json',
+                        timestamp=timestamp,
+                        disposition_notification='',
+                        message_id=message_id,
+                        state='received')
+
             self.send(sylkrtc.AccountDispositionNotificationEvent(account=account_info.id,
                                                                   state=imdn_status,
                                                                   message_id=imdn_message_id,
@@ -1499,6 +1606,17 @@ class ConnectionHandler(object):
                                                                   reason=''))
         else:
             self.log.info('received message ({content_type}) from: {originator.uri}'.format(content_type=content_type, originator=sender))
+
+            storage = MessageStorage()
+            storage.add(account=account_info.id,
+                        contact=sender.uri,
+                        direction="incoming",
+                        content=body,
+                        content_type=content_type,
+                        timestamp=timestamp,
+                        disposition_notification=disposition,
+                        message_id=message_id,
+                        state='received')
             self.send(sylkrtc.AccountMessageEvent(account=account_info.id,
                                                   sender=sender,
                                                   content=body,
@@ -1738,12 +1856,20 @@ class ConnectionHandler(object):
         timestamp = body.timestamp
 
         if body.content_type != IMDNDocument.content_type:
-            self.send(sylkrtc.AccountDispositionNotificationEvent(account=account_info.id,
-                                                                  state='accepted',
-                                                                  message_id=message_id,
-                                                                  code=data.code,
-                                                                  reason=data.reason,
-                                                                  timestamp=timestamp))
+            storage = MessageStorage()
+            storage.update(account=account_info.id,
+                           state='accepted',
+                           message_id=message_id)
+
+            event = sylkrtc.AccountDispositionNotificationEvent(account=account_info.id,
+                                                                state='accepted',
+                                                                message_id=message_id,
+                                                                message_timestamp=str(timestamp),
+                                                                code=data.code,
+                                                                reason=data.reason,
+                                                                timestamp=str(ISOTimestamp.now()))
+            self.send(event)
+            self._fork_event_to_online_accounts(account_info, event)
 
     def _NH_SIPMessageDidFail(self, notification):
         notification_center = NotificationCenter()
@@ -1755,13 +1881,23 @@ class ConnectionHandler(object):
         message_id = next((header.value for header in body.additional_headers if header.name == 'Message-ID'), None)
         account_info = self.accounts_map['{}@{}'.format(body.sender.uri.user.decode('utf-8'), body.sender.uri.host.decode('utf-8'))]
         timestamp = body.timestamp
+
         if body.content_type != IMDNDocument.content_type:
-            self.send(sylkrtc.AccountDispositionNotificationEvent(account=account_info.id,
-                                                                  state='failed',
-                                                                  message_id=message_id,
-                                                                  code=data.code,
-                                                                  reason=reason,
-                                                                  timestamp=timestamp))
+            storage = MessageStorage()
+            storage.update(account=account_info.id,
+                           state='failed',
+                           message_id=message_id)
+
+            event = sylkrtc.AccountDispositionNotificationEvent(account=account_info.id,
+                                                                state='failed',
+                                                                message_id=message_id,
+                                                                code=data.code,
+                                                                reason=reason,
+                                                                message_timestamp=str(timestamp),
+                                                                timestamp=str(ISOTimestamp.now()))
+            self.send(event)
+            self._fork_event_to_online_accounts(account_info, event)
+
 
 # noinspection PyPep8Naming
 @implementer(IObserver)

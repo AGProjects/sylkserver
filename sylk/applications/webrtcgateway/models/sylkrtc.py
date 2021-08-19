@@ -1,10 +1,11 @@
 
 from application.python import subclasses
 
-from .jsonobjects import BooleanProperty, IntegerProperty, StringProperty, ArrayProperty, ObjectProperty, FixedValueProperty, LimitedChoiceProperty
+from .jsonobjects import BooleanProperty, IntegerProperty, StringProperty, ArrayProperty, ObjectProperty, FixedValueProperty, LimitedChoiceProperty, AbstractObjectProperty
 from .jsonobjects import JSONObject, JSONArray, StringArray, CompositeValidator
 from .validators import AORValidator, DisplayNameValidator, LengthValidator, UniqueItemsValidator
 
+from sipsimple.util import ISOTimestamp
 
 # Base models (these are abstract and should not be used directly)
 
@@ -116,6 +117,43 @@ class DispositionNotifications(StringArray):
     list_validator = UniqueItemsValidator()
 
 
+class Message(JSONObject):
+    contact = StringProperty()  # type: SIPIdentity
+    timestamp = StringProperty()
+    disposition = ArrayProperty(DispositionNotifications, optional=True)
+    message_id = StringProperty()
+    content_type = StringProperty()
+    content = StringProperty()
+    direction = StringProperty(optional=True)
+    state = LimitedChoiceProperty(['delivered', 'failed', 'displayed', 'forbidden', 'error', 'accepted', 'pending', 'received'], optional=True)
+
+    def __init__(self, **kw):
+        if 'msg_timestamp' in kw:
+            kw['timestamp'] = str(ISOTimestamp(kw['msg_timestamp']))
+            del kw['msg_timestamp']
+        super(Message, self).__init__(**kw)
+
+
+class ContactMessages(JSONArray):
+    item_type = Message
+
+
+class AccountMessageRemoveEventData(JSONObject):
+    contact = StringProperty()
+    message_id = StringProperty()
+
+
+class AccountConversationRemoveEventData(JSONObject):
+    contact = StringProperty()
+
+
+class AccountDispositionNotificationEventData(JSONObject):
+    message_id = StringProperty()
+    state = LimitedChoiceProperty(['accepted', 'delivered', 'displayed', 'failed', 'processed', 'stored', 'forbidden', 'error'])
+    message_timstamp = StringProperty()
+    code = IntegerProperty()
+    reason = StringProperty()
+
 # Response models
 
 class AckResponse(SylkRTCResponseBase):
@@ -163,14 +201,28 @@ class AccountMessageEvent(AccountEventBase):
     message_id = StringProperty()
     content_type = StringProperty()
     content = StringProperty()
+    direction = StringProperty(optional=True)
 
 
 class AccountDispositionNotificationEvent(AccountEventBase):
     event = FixedValueProperty('disposition-notification')
     message_id = StringProperty()
-    state = LimitedChoiceProperty(['accepted', 'delivered', 'displayed','failed', 'processed', 'stored', 'forbidden', 'error'])
+    message_timestamp = StringProperty()
+    state = LimitedChoiceProperty(['accepted', 'delivered', 'displayed', 'failed', 'processed', 'stored', 'forbidden', 'error'])
     code = IntegerProperty()
     reason = StringProperty()
+
+
+class AccountSyncConversationsEvent(AccountEventBase):
+    event = FixedValueProperty('sync-conversations')
+    messages = ArrayProperty(ContactMessages)
+
+
+class AccountSyncEvent(AccountEventBase):
+    event = FixedValueProperty('sync')
+    type = StringProperty()
+    action = StringProperty()
+    content = AbstractObjectProperty()
 
 
 class AccountRegisteringEvent(AccountRegistrationStateEvent):
@@ -358,6 +410,22 @@ class AccountDispositionNotificationRequest(AccountRequestBase):
     message_id = StringProperty()
     state = LimitedChoiceProperty(['delivered', 'failed', 'displayed', 'forbidden', 'error'])
     timestamp = StringProperty()
+
+
+class AccountSyncConversationsRequest(AccountRequestBase):
+    sylkrtc = FixedValueProperty('account-sync-conversations')
+    message_id = StringProperty(optional=True)
+
+
+class AccountMessageRemoveRequest(AccountRequestBase):
+    sylkrtc = FixedValueProperty('account-remove-message')
+    message_id = StringProperty()
+    contact = StringProperty(validator=AORValidator())
+
+
+class AccountConversationRemoveRequest(AccountRequestBase):
+    sylkrtc = FixedValueProperty('account-remove-conversation')
+    contact = StringProperty(validator=AORValidator())
 
 
 # Session request models
