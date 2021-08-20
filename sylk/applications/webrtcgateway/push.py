@@ -120,7 +120,7 @@ def _send_push_notification(payload, destination, token):
                         else:
                             log.info('Purging expired push token %s/%s' % (destination, token))
                             tokens = TokenStorage()
-                            tokens.remove(destination, token)
+                            tokens.remove(destination, payload.app_id, payload.device_id)
                 else:
                     log.warning('Error sending %s push notification for videoroom to %s/%s: %s (%s) %s %s' % (platform.title(), payload.to, destination, token[:15], r.phrase.decode(), r.code, error_description))
             else:
