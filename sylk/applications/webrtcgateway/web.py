@@ -20,7 +20,7 @@ from .janus import JanusBackend
 from .logger import log
 from .models import sylkrtc
 from .protocol import SYLK_WS_PROTOCOL
-from .storage import TokenStorage
+from .storage import TokenStorage, MessageStorage
 
 
 __all__ = 'WebHandler', 'AdminWebHandler'
@@ -32,6 +32,9 @@ class FileUploadRequest(object):
         self.shared_file = shared_file
         self.content = content
         self.had_error = False
+
+
+class ApiTokenAuthError(Exception): pass
 
 
 class WebRTCGatewayWeb(object, metaclass=Singleton):
@@ -95,6 +98,49 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
                 else:
                     return 'OK'
         raise Forbidden()
+
+    def verify_api_token(self, request, account, msg_id, token=None):
+        if token:
+            auth_headers = request.requestHeaders.getRawHeaders('Authorization', default=None)
+            if auth_headers:
+                method, auth_token = auth_headers[0].split()
+            else:
+                log.warning(f'Authorization headers missing on message history request for {account}')
+
+            if not auth_headers or method != 'Apikey' or auth_token != token:
+                log.warning(f'Token authentication error for {account}')
+                raise ApiTokenAuthError()
+            else:
+                log.info(f'Returning message history for {account}')
+                return self.get_account_messages(request, account)
+
+    def tokenError(self, error, request):
+        raise ApiTokenAuthError()
+
+    def get_account_messages(self, request, account, msg_id=None):
+        account = account.lower()
+        storage = MessageStorage()
+        messages = storage[[account, msg_id]]
+        request.setHeader('Content-Type', 'application/json')
+        if isinstance(messages, defer.Deferred):
+            return messages.addCallback(lambda result:
+                                        json.dumps(sylkrtc.MessageHistoryData(account=account, messages=result).__data__))
+
+    @app.handle_errors(ApiTokenAuthError)
+    def auth_error(self, request, failure):
+        request.setResponseCode(401)
+        return b'Unauthorized'
+
+    @app.route('/messages/history/<string:account>', methods=['OPTIONS', 'GET'])
+    @app.route('/messages/history/<string:account>/<string:msg_id>', methods=['OPTIONS', 'GET'])
+    def messages(self, request, account, msg_id=None):
+        storage = MessageStorage()
+        token = storage.get_account_token(account)
+        if isinstance(token, defer.Deferred):
+            token.addCallback(lambda result: self.verify_api_token(request, account, msg_id, result))
+            return token
+        else:
+            return self.verify_api_token(request, account, msg_id, token)
 
 
 class WebHandler(object):

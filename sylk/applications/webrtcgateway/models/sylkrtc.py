@@ -118,7 +118,7 @@ class DispositionNotifications(StringArray):
 
 
 class Message(JSONObject):
-    contact = StringProperty()  # type: SIPIdentity
+    contact = StringProperty(validator=AORValidator())
     timestamp = StringProperty()
     disposition = ArrayProperty(DispositionNotifications, optional=True)
     message_id = StringProperty()
@@ -136,6 +136,11 @@ class Message(JSONObject):
 
 class ContactMessages(JSONArray):
     item_type = Message
+
+
+class MessageHistoryData(JSONObject):
+    account = StringProperty(validator=AORValidator())
+    messages = ArrayProperty(ContactMessages)
 
 
 class AccountMessageRemoveEventData(JSONObject):
