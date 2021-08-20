@@ -113,6 +113,7 @@ class GeneralConfig(ConfigSection):
     http_management_interface = ConfigSetting(type=ManagementInterfaceAddress, value=ManagementInterfaceAddress('127.0.0.1'))
     http_management_auth_secret = ConfigSetting(type=str, value=None)
     sylk_push_url = ConfigSetting(type=str, value=None)
+    local_sip_messages = False
 
 
 class JanusConfig(ConfigSection):

@@ -15,7 +15,7 @@ from collections import deque
 from eventlib import coros, proc
 from itertools import count
 from sipsimple.configuration.settings import SIPSimpleSettings
-from sipsimple.core import SIPURI, FromHeader, ToHeader, Credentials, Message, RouteHeader
+from sipsimple.core import SIPURI, FromHeader, ToHeader, Credentials, Message, RouteHeader, Route, Header
 from sipsimple.lookup import DNSLookup, DNSLookupError
 from sipsimple.payloads.imdn import IMDNDocument, DeliveryNotification, DisplayNotification
 from sipsimple.streams import MediaStreamRegistry
@@ -30,6 +30,7 @@ from werkzeug.exceptions import InternalServerError
 from zope.interface import implementer
 
 from sylk.accounts import DefaultAccount
+from sylk.configuration import SIPConfig
 from sylk.session import Session
 from . import push
 from .configuration import GeneralConfig, get_room_config, ExternalAuthConfig, JanusConfig
@@ -712,6 +713,8 @@ class ConnectionHandler(object):
 
     def _lookup_sip_target_route(self, uri):
         # TODO - add support for outbound proxy setting from server configuration -adi
+        if GeneralConfig.local_sip_messages:
+            return Route(address=SIPConfig.local_ip, port=SIPConfig.local_tcp_port, transport='tcp')
         sip_uri = SIPURI.parse('sip:%s' % uri)
         settings = SIPSimpleSettings()
         try:
@@ -738,8 +741,11 @@ class ConnectionHandler(object):
             content = content if isinstance(content, bytes) else content.encode()
             ns = CPIMNamespace('urn:ietf:params:imdn', 'imdn')
             additional_headers = [CPIMHeader('Message-ID', ns, message_id)]
+            additional_sip_headers = []
             if add_disposition:
                 additional_headers.append(CPIMHeader('Disposition-Notification', ns, 'positive-delivery, display'))
+            if GeneralConfig.local_sip_messages:
+                additional_sip_headers.append(Header('X-Sylk-App', 'webrtcgateway'))
             payload = CPIMPayload(content,
                                   content_type,
                                   charset='utf-8',
@@ -750,7 +756,13 @@ class ConnectionHandler(object):
             payload, content_type = payload.encode()
 
             credentials = Credentials(username=from_uri.user, password=account.password.encode('utf-8'), digest=True)
-            message_request = Message(FromHeader(from_uri, account.display_name), ToHeader(sip_uri), RouteHeader(route.uri), content_type, payload, credentials=credentials)
+            message_request = Message(FromHeader(from_uri, account.display_name),
+                                      ToHeader(sip_uri),
+                                      RouteHeader(route.uri),
+                                      content_type,
+                                      payload,
+                                      credentials=credentials,
+                                      extra_headers=additional_sip_headers)
             notification_center = NotificationCenter()
             notification_center.add_observer(self, sender=message_request)
             #self._message_queue.append((message_id, content, content_type))
