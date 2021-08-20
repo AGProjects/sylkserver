@@ -570,6 +570,8 @@ class ConnectionHandler(object):
             for account_info in list(self.accounts_map.values()):
                 if account_info.janus_handle is not None:
                     self.janus.set_event_handler(account_info.janus_handle.id, None)
+                notification_center = NotificationCenter()
+                notification_center.remove_observer(self, sender=account_info.id)
             for session in self.sip_sessions:
                 if session.janus_handle is not None:
                     self.janus.set_event_handler(session.janus_handle.id, None)
@@ -821,7 +823,9 @@ class ConnectionHandler(object):
         account_info.auth_handle = AuthHandler(account_info, self)
         self.accounts_map[account_info.id] = account_info
         self.devices_map[self.device_id] = account_info.id
-        self.connections_map[self.protocol.peer] =  account_info.id
+        self.connections_map[self.protocol.peer] = account_info.id
+        notification_center = NotificationCenter()
+        notification_center.add_observer(self, sender=account_info.id)
         self.log.info('added using {request.user_agent}'.format(request=request))
 
     def _RH_account_remove(self, request):
@@ -834,6 +838,8 @@ class ConnectionHandler(object):
         if account_info.janus_handle is not None:
             account_info.janus_handle.detach()
             self.account_handles_map.pop(account_info.janus_handle.id)
+            notification_center = NotificationCenter()
+            notification_center.remove_observer(self, sender=account_info.id)
         self.log.info('removed')
 
         try:
@@ -1542,88 +1548,7 @@ class ConnectionHandler(object):
         pass
 
     def _EH_janus_sip_event_message(self, event):
-        try:
-            account_info = self.account_handles_map[event.sender]
-        except KeyError:
-            self.log.warning('could not find account with handle ID {event.sender} for message event'.format(event=event))
-            return
-
-        data = event.plugindata.data.result  # type: janus.SIPResultMessage
-        cpim_message = None
-        if data.content_type == "application/im-iscomposing+xml":
-            return
-        elif data.content_type == "message/cpim":
-            try:
-                content = data.content if isinstance(data.content, str) else data.content.decode('latin1')  # preserve >
-                cpim_message = CPIMPayload.decode(content.encode('utf-8'))
-            except CPIMParserError:
-                self.log.info('message rejected: CPIM parse error')
-                return
-            else:
-                body = cpim_message.content if isinstance(cpim_message.content, str) else cpim_message.content.decode()
-                content_type = cpim_message.content_type
-                sender = cpim_message.sender or FromHeader(SIPURI.parse('{}'.format(data.sender)), data.displayname)
-                disposition = next(([item.strip() for item in header.value.split(',')] for header in cpim_message.additional_headers if header.name == 'Disposition-Notification'), None)
-                message_id = next((header.value for header in cpim_message.additional_headers if header.name == 'Message-ID'), None)
-        else:
-            body = data.content
-            content_type = data.content_type
-            sender = FromHeader(SIPURI.parse('{}'.format(data.sender)), data.displayname)
-            disposition = None
-            message_id = str(uuid.uuid4())
-
-        sender = sylkrtc.SIPIdentity(uri=str(sender.uri), display_name=sender.display_name)
-        timestamp = str(cpim_message.timestamp) if cpim_message is not None and cpim_message.timestamp is not None else str(ISOTimestamp.now())
-
-        if content_type == "application/im-iscomposing+xml":
-            return
-
-        if content_type == IMDNDocument.content_type:
-            document = IMDNDocument.parse(body)
-            imdn_message_id = document.message_id.value
-            imdn_status = document.notification.status.__str__()
-            self.log.info('received IMDN message ({status}) from: {originator.uri}'.format(status=imdn_status, originator=sender))
-            storage = MessageStorage()
-            storage.update(account=account_info.id,
-                           state=imdn_status,
-                           message_id=imdn_message_id)
-
-            storage.add(account=account_info.id,
-                        contact=sender.uri,
-                        direction="incoming",
-                        content=json.dumps({'message_id': imdn_message_id, 'state': imdn_status}),
-                        content_type='message/imdn+json',
-                        timestamp=timestamp,
-                        disposition_notification='',
-                        message_id=message_id,
-                        state='received')
-
-            self.send(sylkrtc.AccountDispositionNotificationEvent(account=account_info.id,
-                                                                  state=imdn_status,
-                                                                  message_id=imdn_message_id,
-                                                                  timestamp=timestamp,
-                                                                  code=200,
-                                                                  reason=''))
-        else:
-            self.log.info('received message ({content_type}) from: {originator.uri}'.format(content_type=content_type, originator=sender))
-
-            storage = MessageStorage()
-            storage.add(account=account_info.id,
-                        contact=sender.uri,
-                        direction="incoming",
-                        content=body,
-                        content_type=content_type,
-                        timestamp=timestamp,
-                        disposition_notification=disposition,
-                        message_id=message_id,
-                        state='received')
-            self.send(sylkrtc.AccountMessageEvent(account=account_info.id,
-                                                  sender=sender,
-                                                  content=body,
-                                                  content_type=content_type,
-                                                  timestamp=timestamp,
-                                                  disposition_notification=disposition,
-                                                  message_id=message_id))
+        pass
 
     def _EH_janus_videoroom(self, event):
         if isinstance(event, janus.PluginEvent):
@@ -1845,6 +1770,26 @@ class ConnectionHandler(object):
         session = notification.sender.sylk_session  # type: VideoroomSessionInfo
         data = notification.data
         self.send(sylkrtc.VideoroomMessageDeliveryEvent(session=session.id, delivered=False, message_id=data.message_id, code=data.code, reason=data.reason))
+
+    def _NH_SIPApplicationGotAccountDispositionNotification(self, notification):
+        try:
+            self.accounts_map[notification.sender]
+        except KeyError:
+            return
+
+        message = notification.data.message
+        self.log.info('received IMDN message ({status}) from: {originator.uri}'.format(status=message.state, originator=notification.data.sender))
+        self.send(message)
+
+    def _NH_SIPApplicationGotAccountMessage(self, notification):
+        try:
+            self.accounts_map[notification.sender]
+        except KeyError:
+            return
+
+        message = notification.data
+        self.log.info('received message ({content_type}) from: {originator.uri}'.format(content_type=message.content_type, originator=message.sender))
+        self.send(message)
 
     def _NH_SIPMessageDidSucceed(self, notification):
         self.log.info('message was accepted by remote party')

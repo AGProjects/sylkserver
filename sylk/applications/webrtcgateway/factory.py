@@ -64,6 +64,7 @@ class SylkWebSocketServerFactory(WebSocketServerFactory):
         super(SylkWebSocketServerFactory, self).__init__(*args, **kw)
         notification_center = NotificationCenter()
         notification_center.add_observer(self, name='JanusBackendDisconnected')
+        notification_center.add_observer(self, name='SIPApplicationGotMessage')
 
     def buildProtocol(self, addr):
         protocol = self.protocol()
