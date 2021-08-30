@@ -123,7 +123,7 @@ class CassandraConnection(object, metaclass=Singleton):
         try:
             self.session = connection.setup(CassandraConfig.cluster_contact_points, CassandraConfig.keyspace, load_balancing_policy=DCAwareRoundRobinPolicy(), protocol_version=4)
         except NoHostAvailable:
-            self.log.error("Not able to connect to any of the Cassandra contact points")
+            log.error("Not able to connect to any of the Cassandra contact points")
             raise StorageError
 
 
@@ -168,7 +168,7 @@ class CassandraTokenStorage(object):
                               device_token=token, background_token=background_token, platform=contact_params['pn_type'],
                               silent=contact_params['pn_silent'], app_id=contact_params['pn_app'], user_agent=user_agent)
         except (CQLEngineException, InvalidRequest) as e:
-            self.logger.error(f'Storing token failed: {e}')
+            log.error(f'Storing token failed: {e}')
             raise StorageError
 
     @run_in_thread('cassandra')
