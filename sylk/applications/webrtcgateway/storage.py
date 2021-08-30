@@ -552,6 +552,10 @@ class CassandraMessageStorage(object):
                 raise StorageError
             else:
                 return
+
+        if content_type == 'text/pgp-private-key':
+            return
+
         try:
             ChatMessage.create(account=account, direction=direction, contact=contact, content_type=content_type,
                                content=content, created_at=timestamp, message_id=message_id,
