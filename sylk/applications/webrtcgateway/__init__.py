@@ -142,7 +142,7 @@ class WebRTCGatewayApplication(SylkApplication):
                 message = sylkrtc.AccountDispositionNotificationEvent(account=account.account,
                                                                       state=imdn_status,
                                                                       message_id=imdn_message_id,
-                                                                      message_timestamp = imdn_datetime,
+                                                                      message_timestamp=imdn_datetime,
                                                                       timestamp=timestamp,
                                                                       code=200,
                                                                       reason='')
