@@ -139,6 +139,10 @@ class WebRTCGatewayApplication(SylkApplication):
                                state=imdn_status,
                                message_id=imdn_message_id)
 
+                storage.update(account=str(sender.uri),
+                               state=imdn_status,
+                               message_id=imdn_message_id)
+
                 message = sylkrtc.AccountDispositionNotificationEvent(account=account.account,
                                                                       state=imdn_status,
                                                                       message_id=imdn_message_id,
