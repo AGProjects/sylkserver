@@ -103,7 +103,10 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
         if token:
             auth_headers = request.requestHeaders.getRawHeaders('Authorization', default=None)
             if auth_headers:
-                method, auth_token = auth_headers[0].split()
+                try:
+                    method, auth_token = auth_headers[0].split()
+                except ValueError:
+                    log.warning(f'Authorization headers is not correct for message history request for {account}, it should be in the format: Apikey [TOKEN]')
             else:
                 log.warning(f'Authorization headers missing on message history request for {account}')
 
@@ -112,7 +115,7 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
                 raise ApiTokenAuthError()
             else:
                 log.info(f'Returning message history for {account}')
-                return self.get_account_messages(request, account)
+                return self.get_account_messages(request, account, msg_id)
 
     def tokenError(self, error, request):
         raise ApiTokenAuthError()
