@@ -347,6 +347,7 @@ class FileMessageStorage(object):
         except (OSError, IOError):
             makedirs(os.path.join(self._storage_path, account[0]))
 
+        timestamp_not_found = True
         try:
             id_by_timestamp = self._load_id_by_timestamp(account)
         except (OSError, IOError):
@@ -357,6 +358,7 @@ class FileMessageStorage(object):
             except KeyError:
                 pass
             else:
+                timestamp_not_found = False
                 if content_type == 'message/imdn+json':
                     return
 
@@ -386,7 +388,9 @@ class FileMessageStorage(object):
 
         self._save_messages(account, messages)
 
-        id_by_timestamp[message_id] = timestamp
+        if timestamp_not_found:
+            id_by_timestamp[message_id] = timestamp
+
         self._save_id_by_timestamp(account, id_by_timestamp)
 
     @run_in_thread('file-io')
@@ -531,11 +535,14 @@ class CassandraMessageStorage(object):
             msg_timestamp = datetime.datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%S.%f%z")
         timestamp = datetime.datetime.now()
 
+        timestamp_not_found = True
         try:
             created_at = ChatMessageIdMapping.objects(ChatMessageIdMapping.message_id == message_id)[0]
         except IndexError:
             pass
         else:
+            timestamp_not_found = False
+            timestamp = created_at.created_at
             if content_type == 'message/imdn+json':
                 return
             if ChatMessage.objects(ChatMessage.account == account,
@@ -560,7 +567,8 @@ class CassandraMessageStorage(object):
             ChatMessage.create(account=account, direction=direction, contact=contact, content_type=content_type,
                                content=content, created_at=timestamp, message_id=message_id,
                                disposition=disposition_notification, state=state, msg_timestamp=msg_timestamp)
-            ChatMessageIdMapping.create(created_at=timestamp, message_id=message_id)
+            if timestamp_not_found:
+                ChatMessageIdMapping.create(created_at=timestamp, message_id=message_id)
         except (CQLEngineException, InvalidRequest) as e:
             log.error(f'Storing message failed: {e}')
             raise StorageError
