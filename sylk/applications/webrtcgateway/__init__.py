@@ -18,6 +18,7 @@ from zope.interface import implementer
 
 from sylk.applications import SylkApplication
 from sylk.configuration import SIPConfig
+from sylk.web import server
 
 from .configuration import GeneralConfig
 from .logger import log
@@ -89,9 +90,8 @@ class WebRTCGatewayApplication(SylkApplication):
             message_storage.add_account(account)
             message_request.answer(200)
             token = secrets.token_urlsafe()
-            self._send_sip_message(from_header.uri, json.dumps({'token': token}), 'application/sylk-api-token')
-            storage = MessageStorage()
-            storage.add_account_token(account=account, token=token)
+            self._send_sip_message(from_header.uri, json.dumps({'token': token, 'url': f'{server.url}/webrtcgateway/messages/history/{account}'}), 'application/sylk-api-token')
+            message_storage.add_account_token(account=account, token=token)
             return
 
         account = message_storage.get_account(f'{to_header.uri.user}@{to_header.uri.host}')
