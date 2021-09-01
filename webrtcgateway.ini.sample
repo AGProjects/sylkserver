@@ -33,6 +33,12 @@
 ; Sylk-push URL to send conference push notification
 ; sylk_push_url =
 
+; Send sip messages only to ourself, skipping any outbound destination.
+; This setting should be enabled if you have no SIP proxy, no outbound proxy
+; configured and a different authentication method. You should also add the
+; listening IP to the trusted list in the main configuration
+; local_sip_messages =
+
 [Janus]
 ; URL pointing to the Janus API endpoint (only WebSocket is supported)
 ; api_url = ws://127.0.0.1:8188
