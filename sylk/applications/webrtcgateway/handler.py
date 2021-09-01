@@ -1010,6 +1010,35 @@ class ConnectionHandler(object):
         event = sylkrtc.AccountSyncEvent(account=account_info.id, type='message', action='remove', content=content)
         self._fork_event_to_online_accounts(account_info, event)
 
+        # Delete from receiver
+        def receiver_remove_message(msg_id, messages):
+            for message in messages:
+                if message.message_id == msg_id and message.direction == 'incoming':
+                    account = message.account
+                    message_id = message.message_id
+                    storage = MessageStorage()
+                    storage.removeMessage(account=account, message_id=message_id)
+
+                    content = sylkrtc.AccountMessageRemoveEventData(contact=message.contact, message_id=message_id)
+                    storage.add(account=account,
+                                contact=message.contact,
+                                direction='',
+                                content=json.dumps(content.__data__),
+                                content_type='application/sylk-message-remove',
+                                timestamp=str(ISOTimestamp.now()),
+                                disposition_notification='',
+                                message_id=str(uuid.uuid4()))
+
+                    event = sylkrtc.AccountSyncEvent(account=account, type='message', action='remove', content=content)
+                    account_object = type('account_object', (object,), {'id': account})
+                    self._fork_event_to_online_accounts(account_object, event)
+                    self.log.info("Removed receiver message")
+                    break
+
+        messages = storage[[contact, '']]
+        if isinstance(messages, defer.Deferred):
+            messages.addCallback(lambda result: receiver_remove_message(msg_id=request.message_id, messages=result))
+
     def _RH_account_remove_conversation(self, request):
         try:
             account_info = self.accounts_map[request.account]
