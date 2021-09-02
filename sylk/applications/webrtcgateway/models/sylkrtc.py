@@ -148,6 +148,10 @@ class AccountMessageRemoveEventData(JSONObject):
     message_id = StringProperty()
 
 
+class AccountMarkConversationReadEventData(JSONObject):
+    contact = StringProperty()
+
+
 class AccountConversationRemoveEventData(JSONObject):
     contact = StringProperty()
 
@@ -420,6 +424,11 @@ class AccountDispositionNotificationRequest(AccountRequestBase):
 class AccountSyncConversationsRequest(AccountRequestBase):
     sylkrtc = FixedValueProperty('account-sync-conversations')
     message_id = StringProperty(optional=True)
+
+
+class AccountMarkConversationReadRequest(AccountRequestBase):
+    sylkrtc = FixedValueProperty('account-mark-conversation-read')
+    contact = StringProperty(validator=AORValidator())
 
 
 class AccountMessageRemoveRequest(AccountRequestBase):

@@ -985,6 +985,29 @@ class ConnectionHandler(object):
         if isinstance(messages, defer.Deferred):
             messages.addCallback(lambda result: self.send(sylkrtc.AccountSyncConversationsEvent(account=account_info.id, messages=result)))
 
+    def _RH_account_mark_conversation_read(self, request):
+        try:
+            account_info = self.accounts_map[request.account]
+        except KeyError:
+            raise APIError('Unknown account specified: {request.account}'.format(request=request))
+
+        contact = request.contact
+        event = sylkrtc.AccountMarkConversationReadEventData(contact=request.contact)
+
+        storage = MessageStorage()
+        storage.mark_conversation_read(account_info.id, contact)
+        storage.add(account=account_info.id,
+                    contact=request.contact,
+                    direction='',
+                    content=request.contact,
+                    content_type='application/sylk-conversation-read',
+                    timestamp=str(ISOTimestamp.now()),
+                    disposition_notification='',
+                    message_id=str(uuid.uuid4()))
+
+        event = sylkrtc.AccountSyncEvent(account=account_info.id, type='conversation', action='read', content=event)
+        self._fork_event_to_online_accounts(account_info, event)
+
     def _RH_account_remove_message(self, request):
         try:
             account_info = self.accounts_map[request.account]

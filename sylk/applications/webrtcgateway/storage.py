@@ -300,6 +300,19 @@ class FileMessageStorage(object):
         self._save()
 
     @run_in_thread('file-io')
+    def mark_conversation_read(self, account, contact):
+        try:
+            messages = self._load_messages(account)
+        except (OSError, IOError):
+            return
+        else:
+            for idx, message in enumerate(messages):
+                if message['contact'] == contact:
+                    message['disposition'] = []
+                    messages[idx] = message
+            self._save_messages(account, messages)
+
+    @run_in_thread('file-io')
     def update(self, account, state, message_id):
         try:
             messages = self._load_messages(account)
@@ -501,6 +514,13 @@ class CassandraMessageStorage(object):
         except IndexError:
             log.error(f'Updating API token for {account} failed')
             raise StorageError
+
+    @run_in_thread('cassandra')
+    def mark_conversation_read(self, account, contact):
+        for message in ChatMessage.objects(ChatMessage.account == account):
+            if message.contact == contact:
+                message.disposition.clear()
+                message.save()
 
     @run_in_thread('cassandra')
     def update(self, account, state, message_id):
