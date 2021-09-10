@@ -519,8 +519,11 @@ class CassandraMessageStorage(object):
     def mark_conversation_read(self, account, contact):
         for message in ChatMessage.objects(ChatMessage.account == account):
             if message.contact == contact:
-                message.disposition.clear()
-                message.save()
+                if message.content_type == 'application/sylk-conversation-read':
+                    message.delete()
+                else:
+                    message.disposition.clear()
+                    message.save()
 
     @run_in_thread('cassandra')
     def update(self, account, state, message_id):
