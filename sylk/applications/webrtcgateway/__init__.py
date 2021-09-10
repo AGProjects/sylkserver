@@ -108,6 +108,7 @@ class WebRTCGatewayApplication(SylkApplication):
             log.debug(f'processing SIP message from {from_header.uri} to {account.account}')
             message_request.answer(200)
 
+            cpim_message = None
             if content_type == "message/cpim":
                 cpim_message = CPIMPayload.decode(data.body)
                 body = cpim_message.content if isinstance(cpim_message.content, str) else cpim_message.content.decode()
