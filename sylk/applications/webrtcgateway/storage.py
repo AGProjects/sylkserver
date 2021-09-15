@@ -380,7 +380,8 @@ class FileMessageStorage(object):
                     return
 
         if content_type == 'text/pgp-public-key':
-            self._public_keys[contact] = {'content': content, 'created_at': timestamp}
+            key = account if direction == "outgoing" else contact
+            self._public_keys[key] = {'content': content, 'created_at': timestamp}
             self._save()
             return
 
@@ -575,7 +576,7 @@ class CassandraMessageStorage(object):
 
         if content_type == 'text/pgp-public-key':
             try:
-                PublicKey.create(account=contact, public_key=content, created_at=timestamp)
+                PublicKey.create(account=account if direction == "outgoing" else contact, public_key=content, created_at=timestamp)
                 ChatMessageIdMapping.create(created_at=timestamp, message_id=message_id)
             except (CQLEngineException, InvalidRequest) as e:
                 log.error(f'Storing public key failed: {e}')
