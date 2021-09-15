@@ -532,6 +532,21 @@ class CassandraMessageStorage(object):
                     message.disposition.clear()
                     message.save()
 
+    def get_public_key(self, account):
+        deferred = defer.Deferred()
+
+        @run_in_thread('cassandra')
+        def query_key(account):
+            try:
+                public_key = PublicKey.objects(PublicKey.account == account)[0]
+            except (IndexError, InvalidRequest):
+                deferred.callback(None)
+            else:
+                deferred.callback(public_key.public_key)
+
+        query_key(account)
+        return deferred
+
     @run_in_thread('cassandra')
     def update(self, account, state, message_id):
         try:

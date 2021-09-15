@@ -820,6 +820,12 @@ class ConnectionHandler(object):
     def _RH_ping(self, request):
         pass
 
+    def _RH_lookup_public_key(self, request):
+        storage = MessageStorage()
+        public_key = storage.get_public_key(account=request.uri)
+        if isinstance(public_key, defer.Deferred):
+            public_key.addCallback(lambda result: self.send(sylkrtc.LookupPublicKeyEvent(uri=request.uri, public_key=result)))
+
     def _RH_account_add(self, request):
         if request.account in self.accounts_map:
             raise APIError('Account {request.account} already added'.format(request=request))

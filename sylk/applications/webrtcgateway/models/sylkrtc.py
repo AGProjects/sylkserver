@@ -180,6 +180,12 @@ class ReadyEvent(JSONObject):
     sylkrtc = FixedValueProperty('ready-event')
 
 
+class LookupPublicKeyEvent(JSONObject):
+    sylkrtc = FixedValueProperty('lookup-public-key-event')
+    uri = StringProperty(validator=AORValidator())
+    public_key = StringProperty(optional=True)
+
+
 # Account events
 
 class AccountIncomingSessionEvent(AccountEventBase):
@@ -372,6 +378,13 @@ class VideoroomRaisedHandsEvent(VideoroomEventBase):
 
 class PingRequest(SylkRTCRequestBase):
     sylkrtc = FixedValueProperty('ping')
+
+
+# Lookup Public key model
+
+class LookupPublicKeyRequest(SylkRTCRequestBase):
+    sylkrtc = FixedValueProperty('lookup-public-key')
+    uri = StringProperty(validator=AORValidator())
 
 
 # Account request models
