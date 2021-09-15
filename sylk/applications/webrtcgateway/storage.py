@@ -385,6 +385,12 @@ class FileMessageStorage(object):
             self._save()
             return
 
+        if content_type == 'text/pgp-private-key':
+            if timestamp_not_found:
+                id_by_timestamp[message_id] = timestamp
+                self._save_id_by_timestamp(account, id_by_timestamp)
+            return
+
         if not isinstance(disposition_notification, list) and disposition_notification == '':
             disposition_notification = []
 
@@ -585,6 +591,11 @@ class CassandraMessageStorage(object):
                 return
 
         if content_type == 'text/pgp-private-key':
+            if timestamp_not_found:
+                try:
+                    ChatMessageIdMapping.create(created_at=timestamp, message_id=message_id)
+                except (CQLEngineException, InvalidRequest):
+                    pass
             return
 
         try:
