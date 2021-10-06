@@ -1892,7 +1892,8 @@ class ConnectionHandler(object):
         data = notification.data
         body = CPIMPayload.decode(notification.sender.body)
         reason = data.reason.decode() if isinstance(data.reason, bytes) else data.reason
-        self.log.warning('could not deliver message to %s: %d %s' % (', '.join(([str(item.uri) for item in body.recipients])), data.code, reason))
+        callid = data.headers.get('Call-ID', Null).body if hasattr(data, 'headers') else None
+        self.log.warning('could not deliver message to %s: %d %s (%s)' % (', '.join(([str(item.uri) for item in body.recipients])), data.code, reason, callid))
         message_id = next((header.value for header in body.additional_headers if header.name == 'Message-ID'), None)
         account_info = self.accounts_map['{}@{}'.format(body.sender.uri.user.decode('utf-8'), body.sender.uri.host.decode('utf-8'))]
         timestamp = body.timestamp
