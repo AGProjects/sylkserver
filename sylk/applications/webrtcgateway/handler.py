@@ -944,7 +944,7 @@ class ConnectionHandler(object):
         storage.add(account=account_info.id,
                     contact=uri,
                     direction="outgoing",
-                    content=content,
+                    content = content if isinstance(content, str) else content.decode('latin1'),
                     content_type=content_type,
                     timestamp=timestamp,
                     disposition_notification=['positive-delivery', 'display'],
