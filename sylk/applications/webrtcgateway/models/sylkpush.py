@@ -22,7 +22,7 @@ class CallEventBase(SylkRTCEventBase):
     event = None  # specified by subclass
     originator = StringProperty()
     from_display_name = StringProperty(optional=True, default=None)
-    media_type = LimitedChoiceProperty(['audio', 'video'])
+    media_type = LimitedChoiceProperty(['audio', 'video', 'sms'])
 
 
 # Events to use used in a SylkPushRequest
@@ -40,3 +40,17 @@ class ConferenceInviteEvent(CallEventBase):
         data['from'] = data.pop('originator')
         return data
 
+
+class MessageEvent(CallEventBase):
+    event = FixedValueProperty('message')
+    to = StringProperty()
+    badge = IntegerProperty(default=1)
+
+    @property
+    def __data__(self):
+        data = super(MessageEvent, self).__data__
+        for key in list(data):
+            # Fixup keys
+            data[key.replace('_', '-')] = data.pop(key)
+        data['from'] = data.pop('originator')
+        return data

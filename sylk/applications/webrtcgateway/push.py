@@ -37,9 +37,12 @@ class BytesProducer(object):
     def stopProducing(self):
         pass
 
+
 def _construct_and_send(result, request, destination):
     for device, push_parameters in result.items():
         request.token = push_parameters['token']
+        if isinstance(request, sylkpush.MessageEvent) and push_parameters['background_token']:
+            request.token = push_parameters['background_token']
         request.app_id = push_parameters['app_id']
         request.platform = push_parameters['platform']
         request.device_id = push_parameters['device_id']
@@ -64,6 +67,21 @@ def conference_invite(originator, destination, room, call_id, audio, video):
         else:
             _construct_and_send(user_tokens, request, destination)
 
+def message(originator, destination, call_id, badge):
+    tokens = TokenStorage()
+    media_type = 'sms'
+
+    request = sylkpush.MessageEvent(token='dummy', app_id='dummy', platform='dummy', device_id='dummy',
+                                    originator=originator.uri, from_display_name=originator.display_name, to=destination, call_id=str(call_id),
+                                    media_type=media_type, badge=badge)
+    user_tokens = tokens[destination]
+    if isinstance(user_tokens, set):
+        return
+    else:
+        if isinstance(user_tokens, defer.Deferred):
+            user_tokens.addCallback(lambda result: _construct_and_send(result, request, destination))
+        else:
+            _construct_and_send(user_tokens, request, destination)
 
 @defer.inlineCallbacks
 def _send_push_notification(payload, destination, token):
@@ -122,9 +140,8 @@ def _send_push_notification(payload, destination, token):
                             tokens = TokenStorage()
                             tokens.remove(destination, payload.app_id, payload.device_id)
                 else:
-                    log.warning('Error sending %s push notification for videoroom to %s/%s: %s (%s) %s %s' % (platform.title(), payload.to, destination, token[:15], r.phrase.decode(), r.code, error_description))
+                    log.warning('Error sending %s push notification to %s/%s: %s (%s) %s %s' % (platform.title(), payload.to, destination, token[:15], r.phrase.decode(), r.code, error_description))
             else:
-                log.info('Sent %s push notify for videoroom %s to %s/%s' % (platform.title(), payload.to, destination, token[:15]))
-                
+                log.info('Sent %s push notify for %s to %s/%s' % (platform.title(), payload.to, destination, token[:15]))
     else:
         log.warning('Cannot send push notification: no Sylk push server configured')

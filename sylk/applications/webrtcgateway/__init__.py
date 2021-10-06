@@ -25,7 +25,7 @@ from .logger import log
 from .models import sylkrtc
 from .storage import TokenStorage, MessageStorage
 from .web import WebHandler, AdminWebHandler
-
+from . import push
 
 
 @implementer(IObserver)
@@ -186,6 +186,22 @@ class WebRTCGatewayApplication(SylkApplication):
                                                       message_id=message_id)
 
                 notification_center.post_notification(name='SIPApplicationGotAccountMessage', sender=account.account, data=message)
+
+                if content_type == 'text/plain' or content_type == 'text/html':
+
+                    def get_unread_messages(messages, originator):
+                        unread = 1
+                        for message in messages:
+                            if ((message.content_type == 'text/plain' or message.content_type == 'text/html')
+                                    and message.direction == 'incoming' and message.contact != account.account
+                                    and 'display' in message.disposition):
+                                unread = unread + 1
+                        push.message(originator=originator, destination=account.account, call_id=str(uuid.uuid4()), badge=unread)
+
+                    messages = storage[[account.account, '']]
+                    if isinstance(messages, defer.Deferred):
+                        messages.addCallback(lambda result: get_unread_messages(messages=result, originator=message.sender))
+
             return
         to_header = data.headers.get('To', Null)
         log.info('rejecting SIP %s message from %s to %s, account not found in storage' % (content_type, from_header.uri, '%s@%s' % (to_header.uri.user, to_header.uri.host)))
