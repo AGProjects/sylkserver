@@ -140,7 +140,7 @@ class CassandraTokenStorage(object):
             username, domain = key.split('@', 1)
             tokens = {}
             for device in PushTokens.objects(PushTokens.username == username, PushTokens.domain == domain):
-                tokens[f'{device.app_id}-{device.device_id}'] = {'device_id': device.device_id, 'token': device.token,
+                tokens[f'{device.app_id}-{device.device_id}'] = {'device_id': device.device_id, 'token': device.device_token,
                                                                  'platform': device.platform, 'silent': device.silent,
                                                                  'app_id': device.app_id, 'background_token': device.background_token}
             deferred.callback(tokens)
@@ -151,18 +151,24 @@ class CassandraTokenStorage(object):
     @run_in_thread('cassandra')
     def add(self, account, contact_params, user_agent):
         username, domain = account.split('@', 1)
-        try:
-            (token, background_token) = contact_params['pn_tok'].split('-')
-        except ValueError:
-            token = contact_params['pn_tok']
-            background_token = None
+
+        token = contact_params['pn_tok']
+        background_token = None
+        if contact_params['pn_type'] == 'ios':
+            try:
+                (token, background_token) = contact_params['pn_tok'].split('-')
+            except ValueError:
+                pass
 
         # Remove old unsplit token if exists, can be removed if all tokens are stored split
         if background_token is not None:
             try:
-                PushTokens.objects(PushTokens.username == username, PushTokens.domain == domain, PushTokens.device_token == contact_params['pn_tok']).if_exists().delete()
-            except LWTException:
+                old_token = PushTokens.objects(PushTokens.username == username, PushTokens.domain == domain)[0]
+            except (IndexError, LWTException):
                 pass
+            else:
+                if old_token.device_token == contact_params['pn_tok']:
+                    old_token.delete()
         try:
             PushTokens.create(username=username, domain=domain, device_id=contact_params['pn_device'],
                               device_token=token, background_token=background_token, platform=contact_params['pn_type'],

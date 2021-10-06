@@ -38,12 +38,12 @@ class BytesProducer(object):
         pass
 
 def _construct_and_send(result, request, destination):
-    for device_token, push_parameters in result.items():
-        request.token = device_token
-        request.app_id = push_parameters['app']
+    for device, push_parameters in result.items():
+        request.token = push_parameters['token']
+        request.app_id = push_parameters['app_id']
         request.platform = push_parameters['platform']
         request.device_id = push_parameters['device_id']
-        _send_push_notification(request, destination, device_token)
+        _send_push_notification(request, destination, request.token)
 
 def conference_invite(originator, destination, room, call_id, audio, video):
     tokens = TokenStorage()
