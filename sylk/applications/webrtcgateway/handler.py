@@ -1332,8 +1332,9 @@ class ConnectionHandler(object):
                 room.log.info('invitation from %s for %s', originator.uri, account)
                 room.log.debug('invitation from %s for %s with session-id %s', originator.uri, account, session_id)
                 connection_handler.log.info('received an invitation from %s for %s to join room %s', originator.uri, account, room.uri)
-        for participant in participants:
-            push.conference_invite(originator=originator, destination=participant, room=room.uri, call_id=session_id, audio=room.audio, video=room.video)
+        for participant in participants.difference([base_session.account.id]):
+            if not any(session.account.id == participant for session in base_session.room):
+                push.conference_invite(originator=originator, destination=participant, room=room.uri, call_id=session_id, audio=room.audio, video=room.video)
 
     def _RH_videoroom_session_trickle(self, request):
         try:
