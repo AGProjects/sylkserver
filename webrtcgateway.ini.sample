@@ -88,3 +88,4 @@ api_secret = 0745f2f74f34451c89343afcdcae5809
 ; max_bitrate = 512000
 ; video_codec = h264
 ; video_disabled = False
+; invite_participants = test@example.com

@@ -97,6 +97,22 @@ class AuthType(str):
         return str.__new__(cls, value)
 
 
+class SIPAddressList(object):
+    """A list of SIP uris separated by commas"""
+
+    def __new__(cls, value):
+        if isinstance(value, (tuple, list)):
+            return [SIPAddress(x) for x in value]
+        elif isinstance(value, str):
+            if value.lower() in ('none', ''):
+                return []
+            items = re.split(r'\s*,\s*', value)
+            items = {SIPAddress(item) for item in items}
+            return items
+        else:
+            raise TypeError('value must be a string, list or tuple')
+
+
 # Configuration objects
 
 class GeneralConfig(ConfigSection):
@@ -147,6 +163,7 @@ class RoomConfig(ConfigSection):
     max_bitrate = ConfigSetting(type=VideoBitrate, value=JanusConfig.max_bitrate)
     video_codec = ConfigSetting(type=VideoCodec, value=JanusConfig.video_codec)
     video_disabled = False
+    invite_participants = ConfigSetting(type=SIPAddressList, value=[])
 
 
 class VideoroomConfiguration(object):

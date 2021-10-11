@@ -285,6 +285,12 @@ class Videoroom(object):
         if self._raised_hands:
             session.owner.send(sylkrtc.VideoroomRaisedHandsEvent(session=session.id, raised_hands=self._raised_hands))
 
+        if self.config.invite_participants and len(self._sessions) == 1:
+            originator = sylkrtc.SIPIdentity(uri=session.account.id, display_name=session.account.display_name)
+            for participant in self.config.invite_participants:
+                if session.account.id != participant:
+                    push.conference_invite(originator=originator, destination=participant, room=self.uri, call_id=session.id, audio=self.audio, video=self.video)
+
     # noinspection DuplicatedCode
     def discard(self, session):
         if session in self._sessions:
