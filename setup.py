@@ -37,7 +37,7 @@ setup(
     requires=[],
 
     packages=find_packages('sylk'),
-    scripts=['sylk-server'],
+    scripts=['sylk-server', 'sylk-db-maintenance'],
     data_files=[('/etc/sylkserver', glob.glob('*.ini.sample')),
                 ('/etc/sylkserver/tls', glob.glob('resources/tls/*.crt'))] + list_resources('resources', destination_directory='share/sylkserver')
 )

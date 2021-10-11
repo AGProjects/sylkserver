@@ -116,6 +116,13 @@ class FileTokenStorage(object):
             pass
         self._save()
 
+    def removeAll(self, account):
+        try:
+            del self._tokens[account]
+        except KeyError:
+            pass
+        self._save()
+
 
 class CassandraConnection(object, metaclass=Singleton):
     @run_in_thread('cassandra')
@@ -294,6 +301,16 @@ class FileMessageStorage(object):
 
         if account not in self._accounts:
             self._accounts[account] = {'last_login': timestamp}
+            self._save()
+
+    def remove_account(self, account):
+        if account in self._accounts:
+            del self._accounts[account]
+            self._save()
+
+    def remove_public_key_account(self, account):
+        if account in self._accounts:
+            del self.public_keys[account]
             self._save()
 
     def add_account_token(self, account, token):
