@@ -89,3 +89,5 @@ api_secret = 0745f2f74f34451c89343afcdcae5809
 ; video_codec = h264
 ; video_disabled = False
 ; invite_participants = test@example.com
+; persistent = False
+

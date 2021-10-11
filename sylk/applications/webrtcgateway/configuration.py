@@ -164,6 +164,7 @@ class RoomConfig(ConfigSection):
     video_codec = ConfigSetting(type=VideoCodec, value=JanusConfig.video_codec)
     video_disabled = False
     invite_participants = ConfigSetting(type=SIPAddressList, value=[])
+    persistent = False
 
 
 class VideoroomConfiguration(object):

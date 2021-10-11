@@ -242,6 +242,8 @@ class Videoroom(object):
             self.log.info('created')
         if self.config.video_disabled:
             self.video = False
+        if self.config.persistent:
+            self.read_files_from_disk()
 
     @property
     def active_participants(self):
@@ -356,9 +358,12 @@ class Videoroom(object):
         makedirs(self.config.filesharing_dir)
         path = self._fix_path(os.path.join(self.config.filesharing_dir, upload_request.shared_file.filename))
         upload_request.shared_file.filename = os.path.basename(path)
+        meta_path = os.path.join(self.config.filesharing_dir, f'meta-{upload_request.shared_file.filename}')
         try:
             with open(path, 'wb') as output_file:
                 copyfileobj(upload_request.content, output_file)
+            with open(meta_path, 'w+') as output_file:
+                output_file.write(json.dumps(upload_request.shared_file.__data__))
         except (OSError, IOError):
             upload_request.had_error = True
             unlink(path)
@@ -374,8 +379,26 @@ class Videoroom(object):
                 session.owner.send(sylkrtc.VideoroomFileSharingEvent(session=session.id, files=[upload_request.shared_file]))
             upload_request.deferred.callback('OK')
 
+    @run_in_thread('file-io')
+    def read_files_from_disk(self):
+        with os.scandir(self.config.filesharing_dir) as file_list:
+            for entry in file_list:
+                if not entry.name.startswith('.') and entry.is_file() and not entry.name.startswith('meta-'):
+                    try:
+                        with open(os.path.join(self.config.filesharing_dir, f'meta-{entry.name}'), 'r') as f:
+                            content = f.read()
+                    except (OSError, IOError):
+                        continue
+                    try:
+                        test = json.loads(content)
+                    except (json.JSONDecodeError):
+                        continue
+                    shared_file = sylkrtc.SharedFile(**test)
+                    self._shared_files.append(shared_file)
+
     def cleanup(self):
-        self._remove_files()
+        if not self.config.persistent:
+            self._remove_files()
 
     @run_in_thread('file-io')
     def _remove_files(self):
