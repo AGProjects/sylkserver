@@ -146,6 +146,7 @@ class RoomConfig(ConfigSection):
     deny = ConfigSetting(type=PolicySettingValue, value=PolicySettingValue('none'))
     max_bitrate = ConfigSetting(type=VideoBitrate, value=JanusConfig.max_bitrate)
     video_codec = ConfigSetting(type=VideoCodec, value=JanusConfig.video_codec)
+    video_disabled = False
 
 
 class VideoroomConfiguration(object):

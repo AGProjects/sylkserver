@@ -240,6 +240,8 @@ class Videoroom(object):
             self.log.info('created (recording on)')
         else:
             self.log.info('created')
+        if self.config.video_disabled:
+            self.video = False
 
     @property
     def active_participants(self):

@@ -87,3 +87,4 @@ api_secret = 0745f2f74f34451c89343afcdcae5809
 ; allow = domain1.com, test1@example.com, test2@example.com
 ; max_bitrate = 512000
 ; video_codec = h264
+; video_disabled = False
