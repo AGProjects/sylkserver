@@ -312,14 +312,14 @@ if __name__ == '__main__':
 
     subparsers = parser.add_subparsers(dest='action')
 
-    dbinit = subparsers.add_parser('dbinit', help='Initialize/Update databasei (default)')
+    dbinit = subparsers.add_parser('dbinit', help='initialize/Update database (default)')
 
     remove = subparsers.add_parser('remove', help='remove all data from an account')
     remove.add_argument('account', help='Account')
 
     remove_messages_sub = subparsers.add_parser('remove_messages', help='remove all messages from an account')
     remove_messages_sub.add_argument('account', help='Account')
-    remove_messages_sub.add_argument('contact', nargs='?', help='Optional contact to remove messages from')
+    remove_messages_sub.add_argument('contact', nargs='?', help='optional contact to remove messages from')
 
     options = parser.parse_args()
 
