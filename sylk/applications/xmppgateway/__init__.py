@@ -200,7 +200,6 @@ class XMPPGatewayApplication(SylkApplication):
         if Null in (content_type, from_header, to_header):
             message_request.answer(400)
             return
-            
 
         # Check domain
         if from_header.uri.host not in XMPPGatewayConfig.domains:

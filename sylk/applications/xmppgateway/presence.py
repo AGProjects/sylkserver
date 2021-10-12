@@ -384,7 +384,7 @@ class X2SPresenceHandler(object):
                     subscription = Subscription(subscription_uri, FromHeader(self.xmpp_identity.uri.as_sip_uri()),
                                                 ToHeader(subscription_uri),
                                                 ContactHeader(contact_uri),
-                                                'presence',
+                                                b'presence',
                                                 RouteHeader(route.uri),
                                                 refresh=refresh_interval)
                     notification_center.add_observer(self, sender=subscription)

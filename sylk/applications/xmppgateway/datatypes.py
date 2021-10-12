@@ -45,9 +45,9 @@ class BaseURI(object):
     @classmethod
     def parse(cls, value):
         if isinstance(value, BaseSIPURI):
-            user = str(value.user)
-            host = str(value.host)
-            resource = str(value.parameters.get('gr', '')) or None
+            user = value.user.decode()
+            host = value.host.decode()
+            resource = value.parameters.get('gr', '') or None
             return cls(user, host, resource)
         elif isinstance(value, JID):
             user = value.user
@@ -63,9 +63,9 @@ class BaseURI(object):
                 uri = SIPURI.parse(value)
             except SIPCoreError:
                 raise ValueError('invalid SIP uri: %s' % value)
-            user = str(uri.user)
-            host = str(uri.host)
-            resource = str(uri.parameters.get('gr', '')) or None
+            user = uri.user.decode()
+            host = uri.host.decode()
+            resource = uri.parameters.get('gr', '') or None
         else:
             try:
                 jid = JID(value[5:])
@@ -115,7 +115,7 @@ class BaseURI(object):
         return '%s@%s' % (self.user, self.host)
 
     def __str__(self):
-        return str(self).encode('utf-8')
+        return '%s@%s' % (self.user, self.host)
 
 
 class URI(BaseURI):
