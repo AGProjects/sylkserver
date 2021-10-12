@@ -37,7 +37,7 @@ sylkserver (6.0.0) unstable; urgency=medium
   * [webrtcgateway] Fixed settings conference room file transfer directory
   * [xmppgateway] Fixed encoding SDP attributes in xmpp gateway
 
- -- Adrian Georgescu <ag@ag-projects.com>  Thu, 02 Sep 2021 09:22:45 +0200
+ -- Adrian Georgescu <ag@ag-projects.com>  Tue, 12 Oct 2021 10:23:27 -0300
 
 sylkserver (5.8.0) unstable; urgency=medium
 
