@@ -1,5 +1,6 @@
 
 import hashlib
+import codecs
 import random
 import string
 
@@ -13,14 +14,14 @@ sylkserver_prefix = hashlib.md5(b'sylkserver').hexdigest()
 
 def generate_sylk_resource():
     r = 'sylk-'+''.join(random.choice(string.ascii_letters+string.digits) for x in range(32))
-    return r.encode('hex')
+    return codecs.encode(r.encode('utf-8'), 'hex')
 
 
 def is_sylk_resource(r):
     if r.startswith('urn:uuid:') or len(r) != 74:
         return False
     try:
-        decoded = r.decode('hex')
+        decoded = codecs.decode(r, 'hex')
     except TypeError:
         return False
     else:
@@ -28,11 +29,11 @@ def is_sylk_resource(r):
 
 
 def encode_resource(r):
-    return r.encode('utf-8').encode('hex')
+    return codecs.encode(r.encode('utf-8'), 'hex')
 
 
 def decode_resource(r):
-    return r.decode('hex').decode('utf-8')
+    return codecs.decode(r, 'hex').decode('utf-8')
 
 
 class BaseURI(object):
