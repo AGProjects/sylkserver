@@ -126,7 +126,7 @@ class XMPPManager(object, metaclass=Singleton):
                     except Exception:
                         log.exception('Setting TLS certificate chain file')
                         return
-                self._s2s_listener = reactor.listenTLS(port, self._s2s_factory, ssl_ctx_factory, interface=interface)
+                self._s2s_listener = reactor.listenSSL(port, self._s2s_factory, ssl_ctx_factory, interface=interface)
         else:
             self._s2s_listener = reactor.listenTCP(port, self._s2s_factory, interface=interface)
 
