@@ -743,10 +743,13 @@ class ConnectionHandler(object):
         return uuidv4
 
     def _lookup_sip_target_route(self, uri):
-        # TODO - add support for outbound proxy setting from server configuration -adi
         if GeneralConfig.local_sip_messages:
             return Route(address=SIPConfig.local_ip, port=SIPConfig.local_tcp_port, transport='tcp')
-        sip_uri = SIPURI.parse('sip:%s' % uri)
+        proxy = GeneralConfig.outbound_sip_proxy
+        if proxy is not None:
+            sip_uri = SIPURI(host=proxy.host, port=proxy.port, parameters={'transport': proxy.transport})
+        else:
+            sip_uri = SIPURI.parse('sip:%s' % uri)
         settings = SIPSimpleSettings()
         try:
             routes = self.resolver.lookup_sip_proxy(sip_uri, settings.sip.transport_list).wait()
