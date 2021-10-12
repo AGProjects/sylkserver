@@ -1,8 +1,43 @@
 sylkserver (6.0.0) unstable; urgency=medium
 
-  * Migrate to Python 3
+  * Migrated to Python3
+  * Added log dir server settings
+  * Fixed loading mime types in a sandboxed environment
+  * Added trace_notification server setting
+  * Set relative ./var path if started from local directory
+  * Log SIP session failure_reson
+  * Log spool directory at start
+  * Log available codecs at start
+  * [webrtcgateway] Added database maintenance script (init db/remove data)
+  * [webrtcgateway] Added push requests for messages
+  * [webrtcgateway] Added config option to make conference room persitent (don't remove uploaded files)
+  * [webrtcgateway] Added config option to send a push notify when first participant joins
+  * [webrtcgateway] Added config option to disable video in a conference room
+  * [webrtcgateway] Added offline storage for text messaging
+  * [webrtcgateway] Added real time message syncronization between end-points
+  * [webrtcgateway] Added authorization token generator for external SIP devices
+  * [webrtcgateway] Added sync conversations journal for external SIP devices
+  * [webrtcgateway] Fixed webserver and screensharing resource for conferences
+  * [webrtcgateway] Fixed sending conference info notifications
+  * [webrtcgateway] Fixed handling screen sharing in conference
+  * [webrtcgateway] Added message storage functions/API to websocket connection
+  * [webrtcgateway] Refactored token storage
+  * [webrtcgateway] Fixed Janus trace logging
+  * [webrtcgateway] Fixed saving shared screens in conference
+  * [webrtcgateway] Fixed dispatching messages in conference app
+  * [webrtcgateway] Fixed conference subscription for sessions from sylkserver
+  * [webrtcgateway] Fixed conference chat destination
+  * [webrtcgateway] Fixed websocket for communicating with janus
+  * [webrtcgateway] Fixed websocket to webrtc client
+  * [webrtcgateway] Fixed encoding deviceid in base64
+  * [webrtcgateway] Fixed method encoding for file uploads in webrtc webserver
+  * [webrtcgateway] Fixed resource register for webrtc application webserver
+  * [webrtcgateway] Fixed webserver root and path encoding
+  * [webrtcgateway] Update WebRTC diagram
+  * [webrtcgateway] Fixed settings conference room file transfer directory
+  * [xmppgateway] Fixed encoding SDP attributes in xmpp gateway
 
- -- Adrian Georgescu <ag@ag-projects.com>  Wed, 16 Jun 2021 09:22:45 +0200
+ -- Adrian Georgescu <ag@ag-projects.com>  Thu, 02 Sep 2021 09:22:45 +0200
 
 sylkserver (5.8.0) unstable; urgency=medium
 
