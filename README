@@ -215,6 +215,7 @@ The server implements relevant features from the following standards:
  - MSRP Alternative Connection Model RFC6135
  - Indication of Message Composition RFC3994
  - CPIM Message Format RFC3862
+ - Instant Message Disposition Notification (IMDN) RFC5438
  - Conference event package RFC4575
  - A Framework for Conferencing with SIP RFC4353
  - Conferencing for User Agents RFC4579
