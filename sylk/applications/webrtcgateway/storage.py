@@ -83,7 +83,8 @@ class FileTokenStorage(object):
             'silent': contact_params['pn_silent'],
             'app_id': contact_params['pn_app'],
             'user_agent': user_agent,
-            'background_token': background_token
+            'background_token': background_token,
+            'device_token': token
         }
         key = f"{data['app_id']}-{data['device_id']}"
         if account in self._tokens:
@@ -101,7 +102,7 @@ class FileTokenStorage(object):
             if background_token is not None:
                 try:
                     del self._tokens[account][contact_params['pn_tok']]
-                except IndexError:
+                except (IndexError, KeyError):
                     pass
             self._tokens[account][key] = data
         else:
