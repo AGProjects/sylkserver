@@ -309,6 +309,9 @@ class FileMessageStorage(object):
         if account not in self._accounts:
             self._accounts[account] = {'last_login': timestamp}
             self._save()
+        else:
+            self._accounts[account]['last_login'] = timestamp
+            self._save()
 
     def remove_account(self, account):
         if account in self._accounts:
