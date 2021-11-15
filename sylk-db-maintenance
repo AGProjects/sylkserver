@@ -227,8 +227,7 @@ def remove_account(account):
         storage.remove_public_key(account)
 
         storage_path = os.path.join(ServerConfig.spool_dir, 'conversations')
-
-        if os.path_exists(os.path.join(storage_path, account[0], f'{account}_messages.json')):
+        if os.path.exists(os.path.join(storage_path, account[0], f'{account}_messages.json')):
             os.remove(os.path.join(storage_path, account[0], f'{account}_messages.json'))
 
 
@@ -290,7 +289,7 @@ def remove_messages(account, contact):
                 log.info(f'Removed {size} messages from {account}')
     else:
         storage_path = os.path.join(ServerConfig.spool_dir, 'conversations')
-        if os.path_exists(os.path.join(storage_path, account[0], f'{account}_messages.json')):
+        if os.path.exists(os.path.join(storage_path, account[0], f'{account}_messages.json')):
             os.remove(os.path.join(storage_path, account[0], f'{account}_messages.json'))
         log.info('Messages for {account} removed')
 
