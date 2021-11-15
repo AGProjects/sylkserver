@@ -229,6 +229,12 @@ class FileMessageStorage(object):
             pass
         else:
             self._accounts.update(accounts)
+        try:
+            public_keys = json.load(open(os.path.join(self._storage_path, 'public_keys.json'), 'r'))
+        except (OSError, IOError):
+            pass
+        else:
+            self._public_keys.update(public_keys)
 
     def _load_id_by_timestamp(self, account):
         try:
