@@ -313,6 +313,12 @@ class FileMessageStorage(object):
             self._accounts[account]['last_login'] = timestamp
             self._save()
 
+    def get_public_key(self, account):
+        try:
+            return self._public_keys[account]['content']
+        except KeyError:
+            return None
+
     def remove_account(self, account):
         if account in self._accounts:
             del self._accounts[account]
