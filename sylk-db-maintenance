@@ -214,21 +214,25 @@ def remove_account(account):
         if not ask("Would you like to continue?"):
             sys.exit()
         from sylk.applications.webrtcgateway.storage import TokenStorage, MessageStorage
-
+        from sipsimple.threading import ThreadManager
+        import time
         log.Formatter.prefix_format = parse_level
         log.Formatter.prefix_length = 0
         storage = TokenStorage()
         storage.load()
+        time.sleep(.5)
         storage.removeAll(account)
 
         storage = MessageStorage()
         storage.load()
+        time.sleep(.5)
         storage.remove_account(account)
         storage.remove_public_key(account)
 
         storage_path = os.path.join(ServerConfig.spool_dir, 'conversations')
         if os.path.exists(os.path.join(storage_path, account[0], f'{account}_messages.json')):
             os.remove(os.path.join(storage_path, account[0], f'{account}_messages.json'))
+        ThreadManager().stop()
 
 
 def remove_messages(account, contact):
@@ -243,6 +247,7 @@ def remove_messages(account, contact):
     from sylk.applications.webrtcgateway.configuration import CassandraConfig
     from sylk.applications.webrtcgateway.models.storage.cassandra import ChatMessage
     from sylk.applications.webrtcgateway.storage import MessageStorage
+    from sipsimple.threading import ThreadManager
 
     log.Formatter.prefix_format = parse_level
     log.Formatter.prefix_length = 0
@@ -251,7 +256,8 @@ def remove_messages(account, contact):
         storage = MessageStorage()
         storage.load()
         storage.removeChat(account, contact)
-        log.info('Messages from {contact} for {account} removed')
+        ThreadManager().stop()
+        log.info(f'Messages from {contact} for {account} removed')
         sys.exit()
 
     configuration = CassandraConfig.__cfgtype__(CassandraConfig.__cfgfile__)
