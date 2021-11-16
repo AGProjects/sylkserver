@@ -44,6 +44,14 @@ class parse_level:
             return f"{'  ......':<8s} "
 
 
+class parse_level_indent:
+    def format(record):
+        if record.levelname != 'INFO':
+            return f'{record.levelname:<16s} '
+        else:
+            return f"{'  ......':<16s} "
+
+
 def ask(question):
     try:
         while (res := input(colors.TGREEN + f"{'>>':>8s} {question} (Enter y/n) " + colors.ENDC).lower()) not in {"y", "n"}:pass
