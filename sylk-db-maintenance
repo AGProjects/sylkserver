@@ -339,6 +339,10 @@ if __name__ == '__main__':
     log.Formatter.prefix_format = parse_level
     log.Formatter.prefix_length = 0
 
+    if not options.action:
+        parser.print_help()
+        sys.exit()
+
     configuration = ServerConfig.__cfgtype__(ServerConfig.__cfgfile__)
     if configuration.files:
         log.info('Reading configuration from {}'.format(', '.join(configuration.files)))
@@ -349,5 +353,5 @@ if __name__ == '__main__':
         remove_account(options.account)
     elif options.action == 'remove_messages':
         remove_messages(options.account, options.contact)
-    else:
+    elif options.action == 'dbinit':
         db_init()
