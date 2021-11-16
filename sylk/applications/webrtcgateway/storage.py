@@ -459,9 +459,7 @@ class FileMessageStorage(object):
         except (OSError, IOError):
             pass
         else:
-            for message in messages:
-                if message['contact'] == contact:
-                    messages.remove(message)
+            messages[:] = [message for message in messages if message['contact'] != contact]
 
             self._save_messages(account, messages)
 
