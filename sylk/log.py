@@ -26,7 +26,10 @@ def shemit(self, record):
         msg = self.format(record)
         stream = self.stream
         if type(msg) == bytes:
-            msg = msg.decode()
+            try:
+                msg = msg.decode()
+            except UnicodeDecodeError:
+                msg = msg.decode(errors='replace')
         stream.write(msg + self.terminator)
         self.flush()
     except RecursionError:
