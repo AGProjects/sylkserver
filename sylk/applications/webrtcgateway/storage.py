@@ -303,6 +303,11 @@ class FileMessageStorage(object):
         except KeyError:
             return None
 
+    def remove_account_token(self, account):
+        if account in self._accounts:
+            self._accounts[account]['api_token'] = ''
+            self._save()
+
     def add_account(self, account):
         timestamp = datetime.datetime.now()
 
@@ -324,8 +329,8 @@ class FileMessageStorage(object):
             del self._accounts[account]
             self._save()
 
-    def remove_public_key_account(self, account):
-        if account in self._accounts:
+    def remove_public_key(self, account):
+        if account in self._public_keys:
             del self.public_keys[account]
             self._save()
 

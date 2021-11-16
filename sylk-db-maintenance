@@ -54,8 +54,38 @@ def ask(question):
     return False
 
 
+def ask_num(question, num_range):
+    while True:
+        try:
+            res = input(colors.TGREEN + f"{'>>':>8s} {question} (Enter a number [0-{num_range}] or all) " + colors.ENDC)
+        except (EOFError, KeyboardInterrupt):
+            print('\n')
+            sys.exit(1)
+        try:
+            res = int(res)
+        except ValueError:
+            if res == 'all':
+                break
+            log.info('Enter a valid number')
+            continue
+        else:
+            if res not in range(0, num_range):
+                log.info('Enter a valid number')
+                continue
+            break
+    return res
+
+
 def bold(string):
     return colors.BOLD + string + colors.ENDC
+
+
+def green(string):
+    return colors.TGREEN + string + colors.ENDC
+
+
+def bold_green(string):
+    return colors.BOLD + colors.TGREEN + string + colors.ENDC
 
 
 def db_init():
@@ -297,7 +327,342 @@ def remove_messages(account, contact):
         storage_path = os.path.join(ServerConfig.spool_dir, 'conversations')
         if os.path.exists(os.path.join(storage_path, account[0], f'{account}_messages.json')):
             os.remove(os.path.join(storage_path, account[0], f'{account}_messages.json'))
-        log.info('Messages for {account} removed')
+        log.info(f'Messages for {account} removed')
+
+
+def remove_data(account, data_type):
+    data_types = ['push_token', 'api_token', 'public_key']
+    if data_type not in data_types:
+        return
+
+    log.info(f"\n{' SylkServer - Remove '+ data_type + ' ':*^80s}\n")
+    log.warn(f'Please note, this will remove the public key the account {account}')
+    if not ask("Would you like to continue?"):
+        sys.exit()
+
+    from sylk.applications.webrtcgateway.configuration import CassandraConfig
+    from sylk.applications.webrtcgateway.models.storage.cassandra import PushTokens, ChatAccount, ChatMessage, ChatMessageIdMapping, PublicKey
+
+    log.Formatter.prefix_format = parse_level
+    log.Formatter.prefix_length = 0
+
+    configuration = CassandraConfig.__cfgtype__(CassandraConfig.__cfgfile__)
+    if configuration.files:
+        log.info('Reading storage configuration from {}'.format(', '.join(configuration.files)))
+
+    if CassandraConfig.push_tokens_table:
+        PushTokens.__table_name__ = CassandraConfig.push_tokens_table
+
+    if CASSANDRA_MODULES_AVAILABLE and CassandraConfig.cluster_contact_points:
+        profile = ExecutionProfile(
+            load_balancing_policy=DCAwareRoundRobinPolicy(),
+            request_timeout=60
+        )
+        cluster = Cluster(CassandraConfig.cluster_contact_points, protocol_version=4, execution_profiles={EXEC_PROFILE_DEFAULT: profile})
+        try:
+            session = cluster.connect()
+        except NoHostAvailable as e:
+            log.warning("Can't connect to Cassandra cluster")
+            sys.exit()
+        else:
+            connection.set_session(session)
+            keyspace = cluster.metadata.keyspaces[CassandraConfig.keyspace]
+            log.info(f'Server has keyspace {bold(keyspace.name)} with replication strategy: {keyspace.replication_strategy.name}')
+            tables = [PushTokens, ChatAccount, PublicKey]
+
+            for table in tables:
+                table.__keyspace__ = CassandraConfig.keyspace
+
+            if data_type == 'api_token':
+                try:
+                    accounts = ChatAccount.objects(ChatAccount.account == account)
+                except LWTException:
+                    pass
+                else:
+                    size = len(accounts)
+                    for acc in accounts:
+                        acc.api_token = ''
+                        acc.save();
+                    log.info(f'Api token for {account} removed')
+                return
+
+            if data_type == 'push_token':
+                username, domain = account.split('@')
+                try:
+                    push_tokens = PushTokens.objects(PushTokens.username == username, PushTokens.domain == domain)
+                except LWTException:
+                    pass
+                else:
+                    size = len(push_tokens)
+                    log.info(f'{bold(str(size))} push token(s) stored\n')
+                    if size >= 2:
+                        for idx, token in enumerate(push_tokens):
+                            log.info(f'[{idx}]: {"App:":>13s} {token.app_id}\n{"Device ID:":>18s} {token.device_id}\n{"Token:":>18s} {token.device_token[:20]} ...\n')
+                        num = ask_num("Pick a token to delete", size-1)
+                        if num == 'all':
+                            for token in push_tokens:
+                                log.info(f'Removed token {token.device_token[:20]} from {account}')
+                                token.delete()
+                        else:
+                            log.info(f'Removed {push_tokens[num].device_token[:20]} from {account}')
+                            push_tokens[num].delete()
+                    else:
+                        for token in push_tokens:
+                            log.info(f'Removed token {token.device_token[:20]} from {account}')
+                            token.delete()
+                return
+
+            if data_type == 'public_key':
+                try:
+                    public_keys = PublicKey.objects(PublicKey.account == account)
+                except LWTException:
+                    pass
+                else:
+                    size = len(public_keys)
+                    for key in public_keys:
+                        key.delete()
+                        pass
+                    log.info(f'Removed public Key from {account}')
+                return
+    else:
+        log.warning('The python Cassandra drivers are not installed.')
+        log.warning('We will use the JSON and pickle backend to wipe the account data')
+        if not ask("Would you like to continue?"):
+            sys.exit()
+
+        from sylk.applications.webrtcgateway.storage import TokenStorage, MessageStorage
+        from sipsimple.threading import ThreadManager
+        import time
+        log.Formatter.prefix_format = parse_level
+        log.Formatter.prefix_length = 0
+        if data_type == 'api_token':
+            storage = MessageStorage()
+            storage.load()
+            time.sleep(.5)
+            storage.remove_account_token(account)
+            log.info(f'Api token for {account} removed')
+            return
+
+        if data_type == 'push_token':
+            storage = TokenStorage()
+            storage.load()
+            time.sleep(.5)
+            push_tokens = storage[account]
+            if push_tokens:
+                size = len(push_tokens)
+                log.info(f'{bold(str(size))} push token(s) stored\n')
+                if size >= 2:
+                    for idx, token in enumerate(push_tokens):
+                        token = push_tokens[token]
+                        log.info(f"[{idx}]: {'App:':>13s} {token['app_id']}\n{'Device ID:':>18s} {token['device_id']}\n{'Token:':>18s} {token['device_token'][:20]} ...\n")
+
+                    num = ask_num("Pick a token to delete", size - 1)
+                    if num == 'all':
+                        for token in push_tokens:
+                            token = push_tokens[token]
+                            log.info(f"Removed token {token['device_token'][:20]} from {account}")
+                            storage.remove(account, token['app_id'], token['device_id'])
+                    else:
+                        for idx, token in enumerate(push_tokens):
+                            token = push_tokens[token]
+                            if idx == num:
+                                log.info(f"Removed {token['device_token'][:20]} from {account}")
+                                storage.remove(account, token['app_id'], token['device_id'])
+                else:
+                    for token in push_tokens:
+                        token = push_tokens[token]
+                        log.info(f"Removed token {token['device_token'][:20]} from {account}")
+                        storage.remove(account, token['app_id'], token['device_id'])
+            return
+
+        if data_type == 'public_key':
+            storage = TokenStorage()
+            storage.load()
+            time.sleep(.5)
+            storage.remove_public_key(account)
+            log.info(f'Removed public Key from {account}')
+            return
+
+
+def show(account):
+    log.info(f"\n{' SylkServer - Show account data ':*^80s}\n")
+
+    from sylk.applications.webrtcgateway.configuration import CassandraConfig
+    from sylk.applications.webrtcgateway.models.storage.cassandra import PushTokens, ChatAccount, ChatMessage, ChatMessageIdMapping, PublicKey
+
+    log.Formatter.prefix_format = parse_level
+    log.Formatter.prefix_length = 0
+
+    configuration = CassandraConfig.__cfgtype__(CassandraConfig.__cfgfile__)
+    if configuration.files:
+        log.info('Reading storage configuration from {}'.format(', '.join(configuration.files)))
+
+    if CassandraConfig.push_tokens_table:
+        PushTokens.__table_name__ = CassandraConfig.push_tokens_table
+
+    if CASSANDRA_MODULES_AVAILABLE and CassandraConfig.cluster_contact_points:
+        profile = ExecutionProfile(
+            load_balancing_policy=DCAwareRoundRobinPolicy(),
+            request_timeout=60
+        )
+        cluster = Cluster(CassandraConfig.cluster_contact_points, protocol_version=4, execution_profiles={EXEC_PROFILE_DEFAULT: profile})
+        try:
+            session = cluster.connect()
+        except NoHostAvailable as e:
+            log.warning("Can't connect to Cassandra cluster")
+            sys.exit()
+        else:
+            connection.set_session(session)
+            keyspace = cluster.metadata.keyspaces[CassandraConfig.keyspace]
+            log.info(f'Server has keyspace {bold(keyspace.name)} with replication strategy: {keyspace.replication_strategy.name}')
+            tables = [PushTokens, ChatAccount, ChatMessage, ChatMessageIdMapping, PublicKey]
+
+            for table in tables:
+                table.__keyspace__ = CassandraConfig.keyspace
+
+            log.info(f"\n{'-'*80}\n{ account :^80s}\n{'-'*80}")
+
+            try:
+                accounts = ChatAccount.objects(ChatAccount.account == account)
+            except LWTException:
+                pass
+            else:
+                if not len(accounts):
+                    log.info(f'Message storage is {bold("not")} enabled')
+                else:
+                    log.info(f'{green("Message storage is")} {bold_green("enabled")}')
+
+                    for acc in accounts:
+                        if acc.api_token:
+                            row = session.execute(f'SELECT TTL(api_token) as ttl FROM {ChatAccount.__keyspace__}.{ChatAccount.__table_name__} where account=\'{acc.account}\'')
+                            log.info(f"{'API token for replication:':26s} {bold(str(acc.api_token))}\n{'TTL:':>26s} {row.one()['ttl']}\n")
+
+                        log.info(f'{"Last login at: "} {acc.last_login}\n')
+                    try:
+                        messages = ChatMessage.objects(ChatMessage.account == account)
+                    except LWTException:
+                        pass
+                    else:
+                        size = len(messages)
+                        log.info(f'{bold(str(size))} messages stored')
+                        text_messages = [message for message in messages if message.content_type.startswith('text')]
+                        imdn_messages = [message for message in messages if message.content_type.startswith('message/imdn')]
+                        other_messages = [message for message in messages if not message.content_type.startswith('message/imdn') and not message.content_type.startswith('text')]
+
+                        log.info(f'\n{"Text Messages:":>23s} {len(text_messages)}\n{"IMDN messages:":>23s} {len(imdn_messages)}\n{"Other Messages:":>23s} {len(other_messages)}\n')
+                        unread_messages = [message for message in messages if ((message.content_type == 'text/plain' or message.content_type == 'text/html')
+                                                                               and message.direction == 'incoming' and message.contact != account
+                                                                               and 'display' in message.disposition)]
+                        log.info(f'{"Unread text Messages:":>23s} {len(unread_messages)}\n')
+            username, domain = account.split('@')
+            try:
+                push_tokens = PushTokens.objects(PushTokens.username == username, PushTokens.domain == domain)
+            except LWTException:
+                pass
+            else:
+                size = len(push_tokens)
+                log.info(f'{bold(str(size))} push token(s) stored\n')
+                for token in push_tokens:
+                    log.info(f'{"App:":>18s} {token.app_id}\n{"Device ID:":>18s} {token.device_id}\n{"Token:":>18s} {token.device_token[:20]} ...\n')
+
+                    # from sylk.applications.webrtcgateway.storage import FileTokenStorage
+                    # storage = FileTokenStorage()
+                    # test = {}
+                    # test['pn_device'] = token.device_id
+                    # test['pn_silent'] = token.silent
+                    # test['pn_tok'] = f'{token.device_token}-{token.background_token}'
+                    # test['pn_app'] = token.app_id
+                    # test['pn_type'] = token.platform
+                    # storage.load()
+                    # import time
+                    # time.sleep(.5)
+                    # print(test)
+                    # storage.add(account, test, token.user_agent)
+
+
+            try:
+                public_keys = PublicKey.objects(PublicKey.account == account)
+            except LWTException:
+                pass
+            else:
+                size = len(public_keys)
+                log.info(f'{bold(str(size))} public key(s) stored\n')
+                log.Formatter.prefix_format = parse_level_indent
+                log.Formatter.prefix_length = 0
+                for key in public_keys:
+                    log.info(f'{key.public_key}')
+                log.Formatter.prefix_format = parse_level
+                log.Formatter.prefix_length = 0
+    else:
+        log.warning('The python Cassandra drivers are not installed.')
+        log.warning('We will use the JSON and pickle backend for the account data')
+        import time
+        from twisted.internet import defer
+        from sylk.applications.webrtcgateway.storage import TokenStorage, MessageStorage
+        from sipsimple.threading import ThreadManager
+
+        log.info(f"\n{'-'*80}\n{ account :^80s}\n{'-'*80}")
+
+        def print_messages(messages):
+            size = len(messages)
+            log.info(f'{bold(str(size))} messages stored')
+            text_messages = [message for message in messages if message['content_type'].startswith('text')]
+            imdn_messages = [message for message in messages if message['content_type'].startswith('message/imdn')]
+            other_messages = [message for message in messages if not message['content_type'].startswith('message/imdn') and not message['content_type'].startswith('text')]
+
+            log.info(f'\n{"Text Messages:":>23s} {len(text_messages)}\n{"IMDN messages:":>23s} {len(imdn_messages)}\n{"Other Messages:":>23s} {len(other_messages)}\n')
+
+            unread_messages = [message for message in messages if ((message['content_type'] == 'text/plain' or message['content_type'] == 'text/html')
+                                                                   and message['direction'] == 'incoming' and message['contact'] != account
+                                                                   and 'display' in message.disposition)]
+            log.info(f'{"Unread text Messages:":>23s} {len(unread_messages)}\n')
+
+        storage = MessageStorage()
+        storage.load()
+        time.sleep(.5)
+        acc = storage.get_account(account)
+        public_key = storage.get_public_key(account)
+        if not acc:
+            log.info(f'Message storage is {bold("not")} enabled')
+        else:
+            log.info(f'{green("Message storage is")} {bold_green("enabled")}')
+            token = storage.get_account_token(account)
+            if token:
+                ttl = storage._accounts[account]['token_expire']
+                log.info(f"{'API token for replication:':26s} {bold(str(token))}\n{'TTL:':>26s} {ttl}")
+
+            last_login = storage._accounts[account]['last_login']
+            log.info(f'{"Last login at: "} {last_login}\n')
+
+            msg = storage[[account, None]]
+            if isinstance(msg, defer.Deferred):
+                msg.addCallback(lambda result: print_messages(result))
+
+        storage = TokenStorage()
+        storage.load()
+        time.sleep(.5)
+        push_tokens = storage[account]
+        if push_tokens:
+            size = len(push_tokens)
+            log.info(f'{bold(str(size))} push token(s) stored\n')
+            for token in push_tokens:
+                token = push_tokens[token]
+                log.info(f"{'App:':>18s} {token['app_id']}\n{'Device ID:':>18s} {token['device_id']}\n{'Token:':>18s} {token['device_token'][:20]} ...\n")
+
+        size = 0
+        if public_key:
+            size = 1
+
+        log.info(f'{bold(str(size))} public key(s) stored\n')
+        log.Formatter.prefix_format = parse_level_indent
+        log.Formatter.prefix_length = 0
+        if public_key:
+            log.info(f'{public_key}')
+
+        log.Formatter.prefix_format = parse_level
+        log.Formatter.prefix_length = 0
+        time.sleep(1)
+        ThreadManager().stop()
 
 
 if __name__ == '__main__':
@@ -319,12 +684,27 @@ if __name__ == '__main__':
 
     dbinit = subparsers.add_parser('dbinit', help='initialize/Update database (default)')
 
-    remove = subparsers.add_parser('remove', help='remove all data from an account')
-    remove.add_argument('account', help='Account')
+    remove = subparsers.add_parser('remove', help='remove data from an account')
+    subparsers_remove = remove.add_subparsers(dest='remove_action')
 
-    remove_messages_sub = subparsers.add_parser('remove_messages', help='remove all messages from an account')
+    remove_all = subparsers_remove.add_parser('all', help='remove all data from an account')
+    remove_all.add_argument('account', help='Account')
+
+    remove_messages_sub = subparsers_remove.add_parser('messages', help='remove all messages from an account')
     remove_messages_sub.add_argument('account', help='Account')
     remove_messages_sub.add_argument('contact', nargs='?', help='optional contact to remove messages from')
+
+    remove_api_token = subparsers_remove.add_parser('api_token', help='remove api token from an account')
+    remove_api_token.add_argument('account', help='Account')
+
+    remove_push_token = subparsers_remove.add_parser('push_token', help='remove push token(s) from an account')
+    remove_push_token.add_argument('account', help='Account')
+
+    remove_public_key = subparsers_remove.add_parser('public_key', help='remove public key from an account')
+    remove_public_key.add_argument('account', help='Account')
+
+    show_data = subparsers.add_parser('show', help='show all data from an account')
+    show_data.add_argument('account', help='Account')
 
     options = parser.parse_args()
 
@@ -350,8 +730,13 @@ if __name__ == '__main__':
         log.info('Not reading any configuration files (using internal defaults)')
 
     if options.action == 'remove':
-        remove_account(options.account)
-    elif options.action == 'remove_messages':
-        remove_messages(options.account, options.contact)
+        if options.remove_action == 'all':
+            remove_account(options.account)
+        elif options.remove_action == 'remove_messages':
+            remove_messages(options.account, options.contact)
+        elif options.remove_action in ['api_token', 'push_token', 'public_key']:
+            remove_data(options.account, options.remove_action)
+    elif options.action == 'show':
+        show(options.account)
     elif options.action == 'dbinit':
         db_init()
