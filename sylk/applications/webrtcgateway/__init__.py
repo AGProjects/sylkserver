@@ -121,6 +121,7 @@ class WebRTCGatewayApplication(SylkApplication):
                 sender = from_header
                 disposition = None
                 message_id = str(uuid.uuid4())
+                content_type = str(content_type)
 
             timestamp = str(cpim_message.timestamp) if cpim_message is not None and cpim_message.timestamp is not None else str(ISOTimestamp.now())
             sender = sylkrtc.SIPIdentity(uri=str(sender.uri), display_name=sender.display_name)
