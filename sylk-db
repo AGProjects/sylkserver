@@ -344,7 +344,7 @@ def remove_data(account, data_type):
         return
 
     log.info(f"\n{' SylkServer - Remove '+ data_type + ' ':*^80s}\n")
-    log.warn(f'Please note, this will remove the public key the account {account}')
+    log.warn(f'Please note, this will remove the {data_type} the account {account}')
     if not ask("Would you like to continue?"):
         sys.exit()
 
