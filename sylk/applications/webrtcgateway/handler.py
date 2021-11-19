@@ -859,6 +859,8 @@ class ConnectionHandler(object):
         public_key = storage.get_public_key(account=request.uri)
         if isinstance(public_key, defer.Deferred):
             public_key.addCallback(lambda result: self.send(sylkrtc.LookupPublicKeyEvent(uri=request.uri, public_key=result)))
+        else:
+            self.send(sylkrtc.LookupPublicKeyEvent(uri=request.uri, public_key=public_key))
 
     def _RH_account_add(self, request):
         if request.account in self.accounts_map:
