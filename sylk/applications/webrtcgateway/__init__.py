@@ -67,6 +67,7 @@ class WebRTCGatewayApplication(SylkApplication):
         content_type = data.headers.get('Content-Type', Null).content_type
         from_header = data.headers.get('From', Null)
         to_header = data.headers.get('To', Null)
+        from_sip_header = data.headers.get('X-Sylk-From-Sip', Null)
 
         if Null in (content_type, from_header, to_header):
             message_request.answer(400)
@@ -110,9 +111,82 @@ class WebRTCGatewayApplication(SylkApplication):
         else:
             self.check_account(account, message_request, data)
 
+        if from_sip_header is not Null:
+            log.info("message is originating from SIP endpoint")
+            sender_account = message_storage.get_account(f'{from_header.uri.user}@{from_header.uri.host}')
+            if isinstance(sender_account, defer.Deferred):
+                sender_account.addCallback(lambda result: self.check_sender_account(result, message_request, data))
+            else:
+                self.check_sender_account(sender_account, message_request, data)
+
+    def check_sender_account(self, account, message_request, data):
+        content_type = data.headers.get('Content-Type', Null).content_type
+        from_header = data.headers.get('From', Null)
+        to_header = data.headers.get('To', Null)
+
+        if account is not None:
+            log.debug(f"storage is enabled for originator {account.account}")
+
+            cpim_message = None
+            if content_type == "message/cpim":
+                cpim_message = CPIMPayload.decode(data.body)
+                body = cpim_message.content if isinstance(cpim_message.content, str) else cpim_message.content.decode()
+                content_type = cpim_message.content_type
+                sender = cpim_message.sender or from_header
+                disposition = next(([item.strip() for item in header.value.split(',')] for header in cpim_message.additional_headers if header.name == 'Disposition-Notification'), None)
+                message_id = next((header.value for header in cpim_message.additional_headers if header.name == 'Message-ID'), str(uuid.uuid4()))
+            else:
+                body = data.body.decode('utf-8')
+                sender = from_header
+                disposition = None
+                message_id = str(uuid.uuid4())
+                content_type = str(content_type)
+
+            timestamp = str(cpim_message.timestamp) if cpim_message is not None and cpim_message.timestamp is not None else str(ISOTimestamp.now())
+            sender = sylkrtc.SIPIdentity(uri=str(sender.uri), display_name=sender.display_name)
+            destination = sylkrtc.SIPIdentity(uri=str(to_header.uri), display_name=to_header.display_name)
+
+            message = None
+            notification_center = NotificationCenter()
+            ignored_content_types = ("application/im-iscomposing+xml", 'text/pgp-public-key', IMDNDocument.content_type)
+            if content_type in ignored_content_types:
+                return
+
+            log.debug('storing outgoing SIP message ({content_type}) from: {originator} to {destination.uri}'.format(content_type=content_type, originator=account.account, destination=destination))
+            storage = MessageStorage()
+
+            storage.add(account=account.account,
+                        contact=f'{to_header.uri.user}@{to_header.uri.host}',
+                        direction="outgoing",
+                        content=body,
+                        content_type=content_type,
+                        timestamp=timestamp,
+                        disposition_notification=disposition,
+                        message_id=message_id,
+                        state='accepted')
+
+            message = sylkrtc.AccountSyncEvent(account=account.account,
+                                               type='message',
+                                               action='add',
+                                               content=sylkrtc.AccountMessageRequest(
+                                                   transaction='1',
+                                                   account=account.account,
+                                                   uri=f'{to_header.uri.user}@{to_header.uri.host}',
+                                                   message_id=message_id,
+                                                   content=body,
+                                                   content_type=content_type,
+                                                   timestamp=timestamp
+                                               ))
+
+            notification_center.post_notification(name='SIPApplicationGotOutgoingAccountMessage', sender=account.account, data=message)
+            return
+
+        log.info('not storing outgoing SIP message (%s) from %s to %s, originator account not found in storage' % (content_type, from_header.uri, '%s@%s' % (to_header.uri.user, to_header.uri.host)))
+
     def check_account(self, account, message_request, data):
         content_type = data.headers.get('Content-Type', Null).content_type
         from_header = data.headers.get('From', Null)
+        to_header = data.headers.get('To', Null)
 
         if account is not None:
             log.debug(f'processing SIP message from {from_header.uri} to {account.account}')
@@ -140,6 +214,7 @@ class WebRTCGatewayApplication(SylkApplication):
             notification_center = NotificationCenter()
             if content_type == "application/im-iscomposing+xml":
                 return
+
             if content_type == IMDNDocument.content_type:
                 document = IMDNDocument.parse(body)
                 imdn_message_id = document.message_id.value
@@ -180,7 +255,7 @@ class WebRTCGatewayApplication(SylkApplication):
                 storage = MessageStorage()
                 storage.add(account=account.account,
                             contact=str(sender.uri),
-                            direction="incoming",
+                            direction='incoming',
                             content=body,
                             content_type=content_type,
                             timestamp=timestamp,
@@ -214,7 +289,6 @@ class WebRTCGatewayApplication(SylkApplication):
                         messages.addCallback(lambda result: get_unread_messages(messages=result, originator=message.sender))
 
             return
-        to_header = data.headers.get('To', Null)
         log.info('rejecting SIP %s message from %s to %s, account not found in storage' % (content_type, from_header.uri, '%s@%s' % (to_header.uri.user, to_header.uri.host)))
         message_request.answer(404)
 
