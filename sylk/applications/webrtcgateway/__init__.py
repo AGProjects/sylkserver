@@ -7,7 +7,7 @@ import uuid
 from application.notification import IObserver, NotificationCenter, NotificationData
 from application.python import Null
 from sipsimple.configuration.settings import SIPSimpleSettings
-from sipsimple.core import SIPURI, FromHeader, ToHeader, Message, RouteHeader
+from sipsimple.core import SIPURI, FromHeader, ToHeader, Message, RouteHeader, Header
 from sipsimple.lookup import DNSLookup, DNSLookupError
 from sipsimple.payloads.imdn import IMDNDocument
 from sipsimple.streams.msrp.chat import CPIMPayload, CPIMParserError
@@ -92,6 +92,16 @@ class WebRTCGatewayApplication(SylkApplication):
             token = secrets.token_urlsafe()
             self._send_sip_message(from_header.uri, json.dumps({'token': token, 'url': f'{server.url}/webrtcgateway/messages/history/{account}'}), 'application/sylk-api-token')
             message_storage.add_account_token(account=account, token=token)
+            return
+
+        if content_type == 'application/sylk-api-pgp-key-lookup':
+            account = f'{to_header.uri.user}@{to_header.uri.host}'
+            message_request.answer(200)
+            public_key = message_storage.get_public_key(account)
+            if isinstance(public_key, defer.Deferred):
+                public_key.addCallback(lambda result: self._send_public_key(from_header.uri, to_header.uri, result))
+            else:
+                self._send_public_key(from_header.uri, to_header.uri, public_key)
             return
 
         account = message_storage.get_account(f'{to_header.uri.user}@{to_header.uri.host}')
@@ -227,18 +237,31 @@ class WebRTCGatewayApplication(SylkApplication):
         log.debug('DNS lookup for SIP message proxy for {} yielded {}'.format(uri, route))
         return route
 
+    def _send_public_key(self, from_header, to_header, public_key):
+        if public_key:
+            self._send_sip_message(from_header, public_key, 'text/pgp-public-key', str(to_header))
+
     @run_in_green_thread
-    def _send_sip_message(self, uri, content, content_type='text/plain'):
+    def _send_sip_message(self, uri, content, content_type='text/plain', identity=None):
         route = self._lookup_sip_target_route(uri)
         sip_uri = SIPURI.parse('%s' % uri)
         if route:
-            identity = f'sylkserver@{SIPConfig.local_ip}'
+            if content_type == 'text/pgp-public-key' and identity is not None:
+                identity = identity
+            else:
+                identity = f'sip:sylkserver@{SIPConfig.local_ip}'
             log.debug("sending message from '%s' to '%s' using proxy %s" % (identity, uri, route))
 
-            from_uri = SIPURI.parse(f'sip:{identity}')
+            from_uri = SIPURI.parse(identity)
             content = content if isinstance(content, bytes) else content.encode()
 
-            message_request = Message(FromHeader(from_uri, 'SylkServer'), ToHeader(sip_uri), RouteHeader(route.uri), content_type, content)
+            message_request = Message(FromHeader(from_uri),
+                                      ToHeader(sip_uri),
+                                      RouteHeader(route.uri),
+                                      content_type,
+                                      content,
+                                      extra_headers=[Header('X-Sylk-To-Sip', 'yes')])
+
             notification_center = NotificationCenter()
             notification_center.add_observer(self, sender=message_request)
             message_request.send()
