@@ -1006,6 +1006,8 @@ class ConnectionHandler(object):
             notification = DeliveryNotification(state)
         elif state == 'displayed':
             notification = DisplayNotification(state)
+        elif state == 'error':
+            notification = DisplayNotification(state)
 
         content = IMDNDocument.create(message_id=message_id, datetime=request.timestamp, recipient_uri=uri, notification=notification)
         storage = MessageStorage()
