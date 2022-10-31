@@ -14,7 +14,7 @@ class GeneralConfig(ConfigSection):
     __cfgfile__ = 'playback.ini'
     __section__ = 'Playback'
 
-    files_dir = ConfigSetting(type=Path, value=Path(Resources.get('sounds/playback')))
+    files_dir = ConfigSetting(type=Path, value=Path(Resources.get('sounds')))
     enable_video = False
     answer_delay = 1
 

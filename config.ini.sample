@@ -12,9 +12,10 @@
 ; of the Request URI This static mapping can be overwritten by adding
 ; X-Sylk-App header set to the value of a valid SylkServer application name
 ; application_map = echo:echo,123:conference,test:ircconference,gmail.com:xmppgateway
+application_map = echo:echo,playback:playback
 
 ; Disable the specified applications
-; disabled_applications =
+disabled_applications = ircconference, xmppgateway
 
 ; Directory where extra applications are stored
 ; extra_applications_dir =

@@ -12,5 +12,9 @@
 
 ; [test@conference.example.com]
 ; file = test.wav
-
 ; enable_video and answer_delay can be overridden here
+
+[playback]
+file = moh/Cool_Grass_vbr.wav
+enable_video = True
+answer_delay = 2
