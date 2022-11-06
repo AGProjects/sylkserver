@@ -1,7 +1,9 @@
 ; Playback application configuration
 
 [Playback]
-; files_dir = /usr/share/sylkserver/sounds/playback
+; commented values are the defaults
+
+; files_dir = /usr/share/sylkserver/sounds/
 
 ; Toggle video support (SylkServer will send a color bar)
 ; enable_video = False
