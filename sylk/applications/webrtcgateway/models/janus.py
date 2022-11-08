@@ -8,9 +8,9 @@ from typing import Union
 
 from ..configuration import JanusConfig
 from .jsonobjects import AbstractProperty, BooleanProperty, IntegerProperty, StringProperty, ArrayProperty, ObjectProperty
-from .jsonobjects import FixedValueProperty, LimitedChoiceProperty, AbstractObjectProperty, JSONObject, JSONArray
+from .jsonobjects import FixedValueProperty, LimitedChoiceProperty, AbstractObjectProperty, JSONObject, JSONArray, StringArray
 from .sylkrtc import ICECandidates
-from .validators import URIValidator
+from .validators import URIValidator, UniqueItemsValidator
 
 
 # Base models (these are abstract and should not be used directly)
@@ -123,6 +123,7 @@ class VideoroomPublisher(JSONObject):
 class VideoroomPublishers(JSONArray):
     item_type = VideoroomPublisher
 
+
 class ContactParams(JSONObject):
     pn_app = StringProperty(optional=True)
     pn_tok = StringProperty(optional=True)
@@ -136,6 +137,11 @@ class ContactParams(JSONObject):
         for key in list(data):
             data[key.replace('_', '-')] = data.pop(key)
         return data
+
+
+class IncomingHeaderPrefixes(StringArray):
+    list_validator = UniqueItemsValidator()
+
 
 # Janus requests
 
@@ -208,19 +214,37 @@ class SIPRegister(JSONObject):
     proxy = StringProperty(optional=True)
     send_register = BooleanProperty(optional=True)
     contact_params = ObjectProperty(ContactParams)
+    incoming_header_prefixes = ArrayProperty(IncomingHeaderPrefixes, optional=True)
+
 
 class SIPUnregister(JSONObject):
     request = FixedValueProperty('unregister')
+
+
+class Header(JSONObject):
+    name = StringProperty()
+    value = StringProperty()
+
+
+class Headers(JSONArray):
+    item_type = Header
+
+    @property
+    def __data__(self):
+        data = super(Headers, self).__data__
+        return {item['name']: item['value'] for item in data}
 
 
 class SIPCall(JSONObject):
     request = FixedValueProperty('call')
     uri = StringProperty(validator=URIValidator())  # this comes from the client request.uri which was validated as an AOR and we need a URI
     srtp = LimitedChoiceProperty(['sdes_optional', 'sdes_mandatory'], optional=True)
+    headers = ArrayProperty(Headers, optional=True)
 
 
 class SIPAccept(JSONObject):
     request = FixedValueProperty('accept')
+    headers = ArrayProperty(Headers, optional=True)
 
 
 class SIPDecline(JSONObject):
@@ -441,6 +465,7 @@ class SIPResultAccepting(JSONObject):
 class SIPResultAccepted(JSONObject):
     event = FixedValueProperty('accepted')
     username = StringProperty(optional=True)  # not used (only present for outgoing)
+    headers = AbstractProperty(optional=True)
 
 
 class SIPResultHolding(JSONObject):
@@ -466,6 +491,7 @@ class SIPResultIncomingCall(JSONObject):
     username = StringProperty()
     displayname = StringProperty(optional=True)
     srtp = LimitedChoiceProperty(['sdes_optional', 'sdes_mandatory'], optional=True)
+    headers = AbstractProperty(optional=True)
 
 
 class SIPResultMissedCall(JSONObject):

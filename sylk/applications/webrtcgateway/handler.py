@@ -43,7 +43,7 @@ from .auth import AuthHandler
 
 class AccountInfo(object):
     # noinspection PyShadowingBuiltins
-    def __init__(self, id, password, display_name=None, user_agent=None):
+    def __init__(self, id, password, display_name=None, user_agent=None, incoming_header_prefixes=None):
         self.id = id
         self.password = password
         self.display_name = display_name
@@ -51,6 +51,7 @@ class AccountInfo(object):
         self.registration_state = None
         self.janus_handle = None  # type: Optional[SIPPluginHandle]
         self.contact_params = {}
+        self.incoming_header_prefixes = incoming_header_prefixes.__data__ if incoming_header_prefixes is not None else []
         self.auth_handle = None
         self.auth_state = None
 
@@ -60,7 +61,12 @@ class AccountInfo(object):
 
     @property
     def user_data(self):
-        return dict(username=self.uri, display_name=self.display_name, user_agent=self.user_agent, ha1_secret=self.password, contact_params=self.contact_params)
+        return dict(username=self.uri,
+                    display_name=self.display_name,
+                    user_agent=self.user_agent,
+                    ha1_secret=self.password,
+                    contact_params=self.contact_params,
+                    incoming_header_prefixes=self.incoming_header_prefixes)
 
 
 class SessionPartyIdentity(object):
@@ -896,7 +902,7 @@ class ConnectionHandler(object):
             raise APIError('SIP domain not allowed: %s' % domain)
 
         # Create and store our mapping
-        account_info = AccountInfo(request.account, request.password, request.display_name, request.user_agent)
+        account_info = AccountInfo(request.account, request.password, request.display_name, request.user_agent, request.incoming_header_prefixes)
         # get the auth config for domain
         account_info.auth_handle = AuthHandler(account_info, self)
         self.accounts_map[account_info.id] = account_info
@@ -904,6 +910,7 @@ class ConnectionHandler(object):
         self.connections_map[self.protocol.peer] = account_info.id
         notification_center = NotificationCenter()
         notification_center.add_observer(self, sender=account_info.id)
+        self.log.debug(f'Incoming header prefixes: {request.incoming_header_prefixes}')
         self.log.info('added using {request.user_agent}'.format(request=request))
 
     def _RH_account_remove(self, request):
@@ -1167,9 +1174,9 @@ class ConnectionHandler(object):
 
         # Create a new plugin handle and 'register' it, without actually doing so
         janus_handle = SIPPluginHandle(self.janus_session, event_handler=self._handle_janus_sip_event)
-
+        headers = {'headers': request.headers.__data__} if request.headers is not None else {}
         try:
-            janus_handle.call(account_info, uri=request.uri, sdp=request.sdp, proxy=proxy)
+            janus_handle.call(account_info, uri=request.uri, sdp=request.sdp, proxy=proxy, **headers)
         except Exception:
             janus_handle.detach()
             raise
@@ -1192,7 +1199,8 @@ class ConnectionHandler(object):
         if session_info.state != 'connecting':
             raise APIError('Invalid state for answering session {session.id}: {session.state}'.format(session=session_info))
 
-        session_info.janus_handle.accept(sdp=request.sdp)
+        headers = {'headers': request.headers.__data__} if request.headers is not None else {}
+        session_info.janus_handle.accept(sdp=request.sdp, **headers)
         self.log.info('incoming session {session.id} answered'.format(session=session_info))
 
     def _RH_session_trickle(self, request):
@@ -1600,11 +1608,12 @@ class ConnectionHandler(object):
         data = event.plugindata.data.result  # type: janus.SIPResultIncomingCall
         call_id = event.plugindata.data.call_id
         originator = sylkrtc.SIPIdentity(uri=data.username, display_name=data.displayname)
+        headers = {'headers': data.headers} if data.headers else {}
         session = SIPSessionInfo(self._callid_to_uuid(call_id))
         session.janus_handle = account_info.janus_handle
         session.init_incoming(account_info, originator.uri, originator.display_name)
         self.sip_sessions.add(session)
-        self.send(sylkrtc.AccountIncomingSessionEvent(account=account_info.id, session=session.id, originator=originator, sdp=event.jsep.sdp, call_id=call_id))
+        self.send(sylkrtc.AccountIncomingSessionEvent(account=account_info.id, session=session.id, originator=originator, sdp=event.jsep.sdp, call_id=call_id, **headers))
         self.log.info('incoming session {session.id} from {session.remote_identity.uri!s}'.format(session=session))
 
     def _EH_janus_sip_event_missed_call(self, event):
@@ -1644,7 +1653,9 @@ class ConnectionHandler(object):
         session_info.state = 'accepted'
         if session_info.direction == 'outgoing':
             assert event.jsep is not None
-            self.send(sylkrtc.SessionAcceptedEvent(session=session_info.id, sdp=event.jsep.sdp, call_id=event.plugindata.data.call_id))
+            data = event.plugindata.data.result  # type: janus.SIPResultAccepted
+            headers = {'headers': data.headers} if data.headers else {}
+            self.send(sylkrtc.SessionAcceptedEvent(session=session_info.id, sdp=event.jsep.sdp, call_id=event.plugindata.data.call_id, **headers))
         else:
             self.send(sylkrtc.SessionAcceptedEvent(session=session_info.id))
         self.log.debug('{session.direction} session {session.id} state: {session.state}'.format(session=session_info))

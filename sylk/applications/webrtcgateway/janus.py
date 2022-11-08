@@ -300,13 +300,16 @@ class SIPPluginHandle(JanusPluginHandle):
     def unregister(self):
         self.message(janus.SIPUnregister())
 
-    def call(self, account, uri, sdp, proxy=None):
+    def call(self, account, uri, sdp, headers=None, proxy=None):
+        headers = {'headers': headers} if headers is not None else {}
+
         # in order to make a call we need to register first. do so without actually registering, as we are already registered
         self.message(janus.SIPRegister(proxy=proxy, send_register=False, **account.user_data))
-        self.message(janus.SIPCall(uri=uri, srtp='sdes_optional'), jsep=janus.SDPOffer(sdp=sdp))
+        self.message(janus.SIPCall(uri=uri, srtp='sdes_optional', **headers), jsep=janus.SDPOffer(sdp=sdp))
 
-    def accept(self, sdp):
-        self.message(janus.SIPAccept(), jsep=janus.SDPAnswer(sdp=sdp))
+    def accept(self, sdp, headers=None):
+        headers = {'headers': headers} if headers is not None else {}
+        self.message(janus.SIPAccept(**headers), jsep=janus.SDPAnswer(sdp=sdp))
 
     def decline(self, code=486):
         self.message(janus.SIPDecline(code=code))

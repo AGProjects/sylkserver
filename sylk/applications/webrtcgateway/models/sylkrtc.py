@@ -1,7 +1,7 @@
 
 from application.python import subclasses
 
-from .jsonobjects import BooleanProperty, IntegerProperty, StringProperty, ArrayProperty, ObjectProperty, FixedValueProperty, LimitedChoiceProperty, AbstractObjectProperty
+from .jsonobjects import BooleanProperty, IntegerProperty, StringProperty, ArrayProperty, ObjectProperty, FixedValueProperty, LimitedChoiceProperty, AbstractObjectProperty, AbstractProperty
 from .jsonobjects import JSONObject, JSONArray, StringArray, CompositeValidator
 from .validators import AORValidator, DisplayNameValidator, LengthValidator, UniqueItemsValidator
 
@@ -57,6 +57,15 @@ class VideoroomSessionStateEvent(VideoroomEventBase):
 
 
 # Miscellaneous models
+
+class Header(JSONObject):
+    name = StringProperty()
+    value = StringProperty()
+
+
+class Headers(JSONArray):
+    item_type = Header
+
 
 class SIPIdentity(JSONObject):
     uri = StringProperty(validator=AORValidator())
@@ -163,6 +172,11 @@ class AccountDispositionNotificationEventData(JSONObject):
     code = IntegerProperty()
     reason = StringProperty()
 
+
+class IncomingHeaderPrefixes(StringArray):
+    list_validator = UniqueItemsValidator()
+
+
 # Response models
 
 class AckResponse(SylkRTCResponseBase):
@@ -194,6 +208,7 @@ class AccountIncomingSessionEvent(AccountEventBase):
     originator = ObjectProperty(SIPIdentity)  # type: SIPIdentity
     sdp = StringProperty()
     call_id = StringProperty()
+    headers = AbstractProperty(optional=True)
 
 
 class AccountMissedSessionEvent(AccountEventBase):
@@ -269,6 +284,7 @@ class SessionAcceptedEvent(SessionStateEvent):
     state = FixedValueProperty('accepted')
     sdp = StringProperty(optional=True)  # missing for incoming sessions
     call_id = StringProperty(optional=True)
+    headers = AbstractProperty(optional=True)
 
 
 class SessionEstablishedEvent(SessionStateEvent):
@@ -414,6 +430,7 @@ class AccountAddRequest(AccountRequestBase):
     password = StringProperty(validator=LengthValidator(minimum=1, maximum=9999))
     display_name = StringProperty(optional=True)
     user_agent = StringProperty(optional=True)
+    incoming_header_prefixes = ArrayProperty(IncomingHeaderPrefixes, optional=True)
 
 
 class AccountRemoveRequest(AccountRequestBase):
@@ -482,11 +499,13 @@ class SessionCreateRequest(SessionRequestBase):
     account = StringProperty(validator=AORValidator())
     uri = StringProperty(validator=AORValidator())
     sdp = StringProperty()
+    headers = ArrayProperty(Headers, optional=True)
 
 
 class SessionAnswerRequest(SessionRequestBase):
     sylkrtc = FixedValueProperty('session-answer')
     sdp = StringProperty()
+    headers = ArrayProperty(Headers, optional=True)
 
 
 class SessionTrickleRequest(SessionRequestBase):
