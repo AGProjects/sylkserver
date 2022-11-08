@@ -116,6 +116,7 @@ class SIPSessionInfo(object):
         self.janus_handle = None       # type: Optional[SIPPluginHandle]
         self.slow_download = False
         self.slow_upload = False
+        self._message_queue = deque()
 
     def init_outgoing(self, account, destination):
         self.account = account
@@ -1766,10 +1767,8 @@ class ConnectionHandler(object):
             self.log.warning('could not find SIP session with handle ID {event.sender} for delivery event'.format(event=event))
             return
 
-        self.log.info(event.__data__)
         data = event.plugindata.data.result
         message_id, content, content_type = session_info._message_queue.popleft()
-        self.log.info(content)
         body = CPIMPayload.decode(content)
         timestamp = body.timestamp
 
