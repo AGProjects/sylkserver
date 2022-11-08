@@ -812,6 +812,29 @@ class ConnectionHandler(object):
             else:
                 connection_handler.send(event)
 
+    def _send_in_dialog_sip_message(self, session, message_id, content, content_type='text/plain', timestamp=None):
+            identity = str(session.account.uri)
+            if session.account.display_name:
+                identity = '"%s" <%s>' % (session.account.display_name, identity)
+            self.log.info("sending in dialag message from '%s' to '%s' " % (identity, session.remote_identity.uri))
+
+            from_uri = SIPURI.parse(session.account.uri)
+            sip_uri = SIPURI.parse('sip:%s' % session.remote_identity.uri)
+            content = content if isinstance(content, bytes) else content.encode()
+            ns = CPIMNamespace('urn:ietf:params:imdn', 'imdn')
+            additional_headers = [CPIMHeader('Message-ID', ns, message_id)]
+            payload = CPIMPayload(content,
+                                  content_type,
+                                  charset='utf-8',
+                                  sender=ChatIdentity(from_uri, session.account.display_name),
+                                  recipients=[ChatIdentity(sip_uri, None)],
+                                  timestamp=timestamp if timestamp is not None else str(ISOTimestamp.now()),
+                                  additional_headers=additional_headers)
+            payload, content_type = payload.encode()
+
+            session.janus_handle.sendMessage(content_type=content_type, content=payload)
+            session._message_queue.append((message_id, payload, content_type))
+
     def _handle_janus_sip_event(self, event):
         operation = Operation(type='event', name='janus-sip', data=event)
         self.operations_queue.send(operation)
@@ -1199,6 +1222,18 @@ class ConnectionHandler(object):
         else:
             session_info.janus_handle.hangup()
         self.log.info('{session.direction} session {session.id} will terminate'.format(session=session_info))
+
+    def _RH_session_message(self, request):
+        self.log.info("Sending janus in dailaog message")
+        try:
+            session_info = self.sip_sessions[request.session]
+        except KeyError:
+            raise APIError('Unknown session {request.session}'.format(request=request))
+
+        if session_info.state not in ('established'):
+            raise APIError('Invalid state session {session.id}: {session.state}i for sending messages'.format(session=session_info))
+
+        self._send_in_dialog_sip_message(session_info, message_id=request.message_id, content=request.content, content_type=request.content_type, timestamp=request.timestamp)
 
     def _RH_videoroom_join(self, request):
         if request.session in self.videoroom_sessions:
@@ -1657,7 +1692,100 @@ class ConnectionHandler(object):
         pass
 
     def _EH_janus_sip_event_message(self, event):
+        data = event.plugindata.data.result  # type: janus.SIPResultMessage
+
+        try:
+            session_info = self.sip_sessions[event.sender]
+        except KeyError:
+            return
+
+        if not event.plugindata.data.call_id:
+            return
+
+        cpim_message = None
+        if data.content_type in ("application/im-iscomposing+xml", "text/pgp-public-key"):
+            return
+        elif data.content_type == "message/cpim":
+            try:
+                content = data.content if isinstance(data.content, str) else data.content.decode('latin1')
+                cpim_message = CPIMPayload.decode(content.encode('utf-8'))
+            except CPIMParserError:
+                self.log.info('message rejected: CPIM parse error')
+                return
+            else:
+                body = cpim_message.content if isinstance(cpim_message.content, str) else cpim_message.content.decode()
+                content_type = cpim_message.content_type
+                sender = cpim_message.sender or FromHeader(SIPURI.parse('{}'.format(data.sender)), data.displayname)
+                disposition = next(([item.strip() for item in header.value.split(',')] for header in cpim_message.additional_headers if header.name == 'Disposition-Notification'), None)
+                message_id = next((header.value for header in cpim_message.additional_headers if header.name == 'Message-ID'), None)
+        else:
+            body = data.content
+            content_type = data.content_type
+            sender = FromHeader(SIPURI.parse('{}'.format(data.sender)), data.displayname)
+            disposition = None
+            message_id = str(uuid.uuid4())
+
+        timestamp = str(cpim_message.timestamp) if cpim_message is not None and cpim_message.timestamp is not None else str(ISOTimestamp.now())
+        sender = sylkrtc.SIPIdentity(uri=str(sender.uri), display_name=sender.display_name)
+
+        if content_type in ("application/im-iscomposing+xml", "text/pgp-public-key"):
+            return
+
+        if content_type == IMDNDocument.content_type:
+            document = IMDNDocument.parse(body)
+            imdn_message_id = document.message_id.value
+            imdn_status = document.notification.status.__str__()
+            imdn_datetime = document.datetime.__str__()
+            self.log.info('received in dialog IMDN message ({status}) from: {originator.uri}'.format(status=imdn_status, originator=sender))
+
+            self.send(sylkrtc.SessionMessageDispositionNotificationEvent(session=session_info.id,
+                                                                         state=imdn_status,
+                                                                         message_id=imdn_message_id,
+                                                                         message_timestamp=imdn_datetime,
+                                                                         timestamp=timestamp,
+                                                                         code=200,
+                                                                         reason=''))
+        else:
+            self.log.info('received n dialog message ({content_type}) from: {originator.uri}'.format(content_type=content_type, originator=sender))
+
+            self.send(sylkrtc.SessionMessageEvent(session=session_info.id,
+                                                  sender=sender,
+                                                  content=body,
+                                                  content_type=content_type,
+                                                  timestamp=timestamp,
+                                                  disposition_notification=disposition,
+                                                  message_id=message_id))
+
+    def _EH_janus_sip_event_messagesent(self, event):
         pass
+
+    def _EH_janus_sip_event_messagedelivery(self, event):
+        try:
+            session_info = self.sip_sessions[event.sender]
+        except KeyError:
+            self.log.warning('could not find SIP session with handle ID {event.sender} for delivery event'.format(event=event))
+            return
+
+        self.log.info(event.__data__)
+        data = event.plugindata.data.result
+        message_id, content, content_type = session_info._message_queue.popleft()
+        self.log.info(content)
+        body = CPIMPayload.decode(content)
+        timestamp = body.timestamp
+
+        if data.code < 300:
+            self.log.info('in dialog message was delivered to remote party: %s', data.reason)
+            state = 'accepted'
+        else:
+            self.log.info('message was not delivered to remote party %s: %s', data.code, data.reason)
+            state = 'failed'
+        self.send(sylkrtc.SessionMessageDispositionNotificationEvent(session=session_info.id,
+                                                                     code=data.code,
+                                                                     reason=data.reason,
+                                                                     state=state,
+                                                                     message_id=message_id,
+                                                                     message_timestamp=str(timestamp),
+                                                                     timestamp=str(ISOTimestamp.now())))
 
     def _EH_janus_videoroom(self, event):
         if isinstance(event, janus.PluginEvent):

@@ -280,6 +280,26 @@ class SessionTerminatedEvent(SessionStateEvent):
     reason = StringProperty(optional=True)
 
 
+class SessionMessageEvent(SessionEventBase):
+    event = FixedValueProperty('message')
+    sender = ObjectProperty(SIPIdentity)  # type: SIPIdentity
+    timestamp = StringProperty()
+    disposition_notification = ArrayProperty(DispositionNotifications, optional=True)
+    message_id = StringProperty()
+    content_type = StringProperty()
+    content = StringProperty()
+    direction = StringProperty(optional=True)
+
+
+class SessionMessageDispositionNotificationEvent(SessionEventBase):
+    event = FixedValueProperty('disposition-notification')
+    message_id = StringProperty()
+    message_timestamp = StringProperty()
+    state = LimitedChoiceProperty(['accepted', 'delivered', 'displayed', 'failed', 'processed', 'stored', 'forbidden', 'error'])
+    code = IntegerProperty()
+    reason = StringProperty()
+
+
 # Video room events
 
 class VideoroomConfigureEvent(VideoroomEventBase):
@@ -476,6 +496,14 @@ class SessionTrickleRequest(SessionRequestBase):
 
 class SessionTerminateRequest(SessionRequestBase):
     sylkrtc = FixedValueProperty('session-terminate')
+
+
+class SessionMessageRequest(SessionRequestBase):
+    sylkrtc = FixedValueProperty('session-message')
+    message_id = StringProperty()
+    content = StringProperty()
+    content_type = StringProperty()
+    timestamp = StringProperty()
 
 
 # Videoroom request models

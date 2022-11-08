@@ -314,6 +314,8 @@ class SIPPluginHandle(JanusPluginHandle):
     def hangup(self):
         self.message(janus.SIPHangup())
 
+    def sendMessage(self, **message):
+        self.message(janus.SIPMessage(**message))
 
 class VideoroomPluginHandle(JanusPluginHandle):
     plugin = 'janus.plugin.videoroom'

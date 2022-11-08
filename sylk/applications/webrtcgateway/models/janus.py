@@ -232,6 +232,12 @@ class SIPHangup(JSONObject):
     request = FixedValueProperty('hangup')
 
 
+class SIPMessage(JSONObject):
+    request = FixedValueProperty('message')
+    content_type = StringProperty()
+    content = StringProperty()
+
+
 # Videoroom plugin messages (to be used as body for MessageRequest for videoroom plugin messages)
 
 class VideoroomCreate(JSONObject):
@@ -492,6 +498,12 @@ class SIPResultMessageSent(JSONObject):
     event = FixedValueProperty('messagesent')
 
 
+class SIPResultMessageDelivery(JSONObject):
+    event = FixedValueProperty('messagedelivery')
+    code = IntegerProperty()
+    reason = StringProperty()
+
+
 class SIPResultDTMFSent(JSONObject):
     event = FixedValueProperty('dtmfsent')
 
@@ -609,12 +621,19 @@ class SIPInfoSentEvent(SIPPluginData):
 
 class SIPMessageEvent(SIPPluginData):
     sip = FixedValueProperty('event')
+    call_id = StringProperty(optional=True)
     result = ObjectProperty(SIPResultMessage)             # type: SIPResultMessage
 
 
 class SIPMessageSentEvent(SIPPluginData):
     sip = FixedValueProperty('event')
     result = ObjectProperty(SIPResultMessageSent)         # type: SIPResultMessageSent
+
+
+class SIPMessageDeliveryEvent(SIPPluginData):
+    sip = FixedValueProperty('event')
+    call_id = StringProperty(optional=True)
+    result = ObjectProperty(SIPResultMessageDelivery)         # type: SIPResultMessageSent
 
 
 class SIPDTMFSentEvent(SIPPluginData):
