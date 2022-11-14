@@ -3,6 +3,10 @@
 ; For the gateway to work Janus needs to be properly installed and configured,
 ; please refer to README.webrtc for detailed instructions
 ;
+
+; [WebServer] section in config.ini must be properly configured for using
+; HTTPS transport
+
 [General]
 ; List of allowed web origins. The connection origin (Origin header in the
 ; HTTP request) will be checked against the list defined here, if the domain
