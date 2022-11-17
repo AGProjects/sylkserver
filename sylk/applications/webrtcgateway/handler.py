@@ -2082,16 +2082,16 @@ class ConnectionHandler(object):
         callid = data.headers.get('Call-ID', Null).body if hasattr(data, 'headers') else None
         self.log.warning('could not deliver message to %s: %d %s (%s)' % (', '.join(([str(item.uri) for item in body.recipients])), data.code, reason, callid))
         message_id = next((header.value for header in body.additional_headers if header.name == 'Message-ID'), None)
-        account_info = self.accounts_map['{}@{}'.format(body.sender.uri.user.decode('utf-8'), body.sender.uri.host.decode('utf-8'))]
+        account = '{}@{}'.format(body.sender.uri.user.decode('utf-8'), body.sender.uri.host.decode('utf-8'))
         timestamp = body.timestamp
 
         if body.content_type != IMDNDocument.content_type:
             storage = MessageStorage()
-            storage.update(account=account_info.id,
+            storage.update(account=account,
                            state='failed',
                            message_id=message_id)
 
-            event = sylkrtc.AccountDispositionNotificationEvent(account=account_info.id,
+            event = sylkrtc.AccountDispositionNotificationEvent(account=account,
                                                                 state='failed',
                                                                 message_id=message_id,
                                                                 code=data.code,
@@ -2099,7 +2099,12 @@ class ConnectionHandler(object):
                                                                 message_timestamp=str(timestamp),
                                                                 timestamp=str(ISOTimestamp.now()))
             self.send(event)
-            self._fork_event_to_online_accounts(account_info, event)
+            try:
+                account_info = self.accounts_map[account]
+            except KeyError:
+                pass
+            else:
+                self._fork_event_to_online_accounts(account_info, event)
 
 
 # noinspection PyPep8Naming
