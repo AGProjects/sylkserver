@@ -214,6 +214,7 @@ class SIPRegister(JSONObject):
     proxy = StringProperty(optional=True)
     send_register = BooleanProperty(optional=True)
     contact_params = ObjectProperty(ContactParams)
+    force_tcp = BooleanProperty(optional=True)
     incoming_header_prefixes = ArrayProperty(IncomingHeaderPrefixes, optional=True)
 
 
