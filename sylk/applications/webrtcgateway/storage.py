@@ -297,7 +297,7 @@ class FileMessageStorage(object):
 
     def get_account_token(self, account):
         try:
-            if datetime.datetime.now() < datetime.datetime.fromisoformat(self._accounts[account]['token_expire']):
+            if datetime.datetime.now() < datetime.datetime.fromisoformat(self._json_dateconverter(self._accounts[account]['token_expire'])):
                 return self._accounts[account]['api_token']
             return None
         except KeyError:
