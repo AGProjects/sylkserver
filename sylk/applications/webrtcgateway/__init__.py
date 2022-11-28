@@ -319,10 +319,9 @@ class WebRTCGatewayApplication(SylkApplication):
         route = self._lookup_sip_target_route(uri)
         sip_uri = SIPURI.parse('%s' % uri)
         if route:
-            if content_type == 'text/pgp-public-key' and identity is not None:
-                identity = identity
-            else:
+            if identity is None:
                 identity = f'sip:sylkserver@{SIPConfig.local_ip}'
+
             log.debug("sending message from '%s' to '%s' using proxy %s" % (identity, uri, route))
 
             from_uri = SIPURI.parse(identity)
