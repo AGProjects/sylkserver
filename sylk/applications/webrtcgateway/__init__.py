@@ -315,7 +315,7 @@ class WebRTCGatewayApplication(SylkApplication):
             self._send_sip_message(from_header, public_key, 'text/pgp-public-key', str(to_header))
 
     @run_in_green_thread
-    def _send_sip_message(self, uri, content, content_type='text/plain', identity=None):
+    def _send_sip_message(self, uri, content, content_type='text/plain', identity=None, extra_headers=[]):
         route = self._lookup_sip_target_route(uri)
         sip_uri = SIPURI.parse('%s' % uri)
         if route:
@@ -327,13 +327,15 @@ class WebRTCGatewayApplication(SylkApplication):
 
             from_uri = SIPURI.parse(identity)
             content = content if isinstance(content, bytes) else content.encode()
+            headers = [Header('X-Sylk-To-Sip', 'yes')] + extra_headers
+            
 
             message_request = Message(FromHeader(from_uri),
                                       ToHeader(sip_uri),
                                       RouteHeader(route.uri),
                                       content_type,
                                       content,
-                                      extra_headers=[Header('X-Sylk-To-Sip', 'yes')])
+                                      extra_headers=headers)
 
             notification_center = NotificationCenter()
             notification_center.add_observer(self, sender=message_request)
