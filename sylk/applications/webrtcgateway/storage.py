@@ -510,7 +510,10 @@ class CassandraMessageStorage(object):
                 timestamp = timestamp.created_at
             for message in ChatMessage.objects(ChatMessage.account == key, ChatMessage.created_at > timestamp):
                 timestamp_naive = message.msg_timestamp
-                timestamp_utc = timestamp_naive.replace(tzinfo=datetime.timezone.utc)
+                try:
+                    timestamp_utc = timestamp_naive.replace(tzinfo=datetime.timezone.utc)
+                except AttributeError:
+                    continue
                 message.msg_timestamp = timestamp_utc
                 messages.append(message)
             deferred.callback(messages)
