@@ -105,6 +105,59 @@ class WebRTCGatewayApplication(SylkApplication):
                 self._send_public_key(from_header.uri, to_header.uri, public_key)
             return
 
+        if content_type == 'application/sylk-api-message-remove':
+            account = f'{from_header.uri.user}@{from_header.uri.host}'
+            contact = f'{to_header.uri.user}@{to_header.uri.host}'
+            message_id = data.body.decode('utf-8')
+
+            storage = MessageStorage()
+            storage.removeMessage(account=account, message_id=message_id)
+
+            content = sylkrtc.AccountMessageRemoveEventData(contact=contact, message_id=message_id)
+            storage.add(account=account,
+                        contact=contact,
+                        direction='',
+                        content=json.dumps(content.__data__),
+                        content_type='application/sylk-message-remove',
+                        timestamp=str(ISOTimestamp.now()),
+                        disposition_notification='',
+                        message_id=str(uuid.uuid4()))
+
+            event = sylkrtc.AccountSyncEvent(account=account, type='message', action='remove', content=content)
+            self._send_sip_message(from_header.uri, json.dumps(content.__data__), 'application/sylk-message-remove', str(to_header.uri))
+            notification_center = NotificationCenter()
+            notification_center.post_notification(name='SIPApplicationGotAccountRemoveMessage', sender=account, data=event)
+
+            def receiver_remove_message(msg_id, messages):
+                for message in messages:
+                    if message.message_id == msg_id and message.direction == 'incoming':
+                        account = message.account
+                        message_id = message.message_id
+                        storage = MessageStorage()
+                        storage.removeMessage(account=account, message_id=message_id)
+
+                        content = sylkrtc.AccountMessageRemoveEventData(contact=message.contact, message_id=message_id)
+                        storage.add(account=account,
+                                    contact=message.contact,
+                                    direction='',
+                                    content=json.dumps(content.__data__),
+                                    content_type='application/sylk-message-remove',
+                                    timestamp=str(ISOTimestamp.now()),
+                                    disposition_notification='',
+                                    message_id=str(uuid.uuid4()))
+
+                        event = sylkrtc.AccountSyncEvent(account=account, type='message', action='remove', content=content)
+                        notification_center.post_notification(name='SIPApplicationGotAccountRemoveMessage', sender=account, data=event)
+                        log.info("Removed receiver message")
+                        break
+
+            messages = storage[[contact, '']]
+            if isinstance(messages, defer.Deferred):
+                messages.addCallback(lambda result: receiver_remove_message(msg_id=message_id, messages=result))
+
+            message_request.answer(200)
+            return
+
         account = message_storage.get_account(f'{to_header.uri.user}@{to_header.uri.host}')
         if isinstance(account, defer.Deferred):
             account.addCallback(lambda result: self.check_account(result, message_request, data))

@@ -2048,6 +2048,15 @@ class ConnectionHandler(object):
         self.log.info('received outgoing message ({content_type}) to {destination}'.format(content_type=message.content.content_type, destination=message.content.uri))
         self.send(message)
 
+    def _NH_SIPApplicationGotAccountRemoveMessage(self, notification):
+        try:
+            self.accounts_map[notification.sender]
+        except KeyError:
+            return
+
+        message = notification.data
+        self.send(message)
+
     def _NH_SIPMessageDidSucceed(self, notification):
         self.log.info('message was accepted by remote party')
         data = notification.data
