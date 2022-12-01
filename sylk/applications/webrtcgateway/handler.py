@@ -809,6 +809,26 @@ class ConnectionHandler(object):
             #self._message_queue.append((message_id, content, content_type))
             message_request.send()
 
+    def _send_simple_sip_message(self, account, uri, content, content_type='text/plain'):
+        route = self._lookup_sip_target_route(uri)
+        sip_uri = SIPURI.parse('sip:%s' % uri)
+        if route:
+            identity = str(account)
+            self.log.info("sending simple message from '%s' to '%s' using proxy %s" % (identity, uri, route))
+
+            from_uri = SIPURI.parse(f'sip:{identity}')
+            content = content if isinstance(content, bytes) else content.encode()
+
+            message_request = Message(FromHeader(from_uri),
+                                      ToHeader(sip_uri),
+                                      RouteHeader(route.uri),
+                                      content_type,
+                                      content,
+                                      extra_headers=[Header('X-Sylk-To-Sip', 'yes')])
+
+            notification_center = NotificationCenter()
+            message_request.send()
+
     def _fork_event_to_online_accounts(self, account_info, event):
         for protocol in self.protocol.factory.connections.difference([self.protocol]):
             connection_handler = protocol.connection_handler
@@ -1107,6 +1127,8 @@ class ConnectionHandler(object):
 
         event = sylkrtc.AccountSyncEvent(account=account_info.id, type='message', action='remove', content=content)
         self._fork_event_to_online_accounts(account_info, event)
+
+        self._send_simple_sip_message(contact, account_info.id, json.dumps(content.__data__), 'application/sylk-message-remove')
 
         # Delete from receiver
         def receiver_remove_message(msg_id, messages):
