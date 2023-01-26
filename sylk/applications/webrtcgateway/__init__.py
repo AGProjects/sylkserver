@@ -158,12 +158,6 @@ class WebRTCGatewayApplication(SylkApplication):
             message_request.answer(200)
             return
 
-        account = message_storage.get_account(f'{to_header.uri.user}@{to_header.uri.host}')
-        if isinstance(account, defer.Deferred):
-            account.addCallback(lambda result: self.check_account(result, message_request, data))
-        else:
-            self.check_account(account, message_request, data)
-
         if from_sip_header is not Null:
             log.info("message is originating from SIP endpoint")
             sender_account = message_storage.get_account(f'{from_header.uri.user}@{from_header.uri.host}')
@@ -171,6 +165,13 @@ class WebRTCGatewayApplication(SylkApplication):
                 sender_account.addCallback(lambda result: self.check_sender_account(result, message_request, data))
             else:
                 self.check_sender_account(sender_account, message_request, data)
+
+        account = message_storage.get_account(f'{to_header.uri.user}@{to_header.uri.host}')
+        if isinstance(account, defer.Deferred):
+            account.addCallback(lambda result: self.check_account(result, message_request, data))
+        else:
+            self.check_account(account, message_request, data)
+
         message_request.answer(200)
 
     def check_sender_account(self, account, message_request, data):
