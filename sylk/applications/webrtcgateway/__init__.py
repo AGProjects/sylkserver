@@ -395,6 +395,9 @@ class WebRTCGatewayApplication(SylkApplication):
             message_request.send()
 
     def _NH_SIPMessageDidSucceed(self, notification):
+        notification_center = NotificationCenter()
+        notification_center.remove_observer(self, sender=notification.sender)
+
         log.info('message was accepted by remote party')
 
     def _NH_SIPMessageDidFail(self, notification):

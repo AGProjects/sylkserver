@@ -2080,6 +2080,9 @@ class ConnectionHandler(object):
         self.send(message)
 
     def _NH_SIPMessageDidSucceed(self, notification):
+        notification_center = NotificationCenter()
+        notification_center.remove_observer(self, sender=notification.sender)
+
         self.log.info('message was accepted by remote party')
         data = notification.data
 
