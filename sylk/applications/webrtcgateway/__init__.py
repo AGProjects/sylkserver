@@ -429,5 +429,5 @@ class MessageHandler(object):
         notification_center.remove_observer(self, sender=notification.sender)
         data = notification.data
         reason = data.reason.decode() if isinstance(data.reason, bytes) else data.reason
-        log.warning('could not deliver message %d %s' % (data.code, reason))
+        log.warning('could not deliver outgoing message %d %s' % (data.code, reason))
 
