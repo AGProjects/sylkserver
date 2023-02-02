@@ -58,10 +58,10 @@ class WebRTCGatewayApplication(SylkApplication):
         session.reject(403)
 
     def incoming_subscription(self, request, data):
-        request.answer(405)
+        request.reject(405)
 
     def incoming_referral(self, request, data):
-        request.answer(405)
+        request.reject(405)
 
     def incoming_message(self, message_request, data):
         content_type = data.headers.get('Content-Type', Null).content_type
