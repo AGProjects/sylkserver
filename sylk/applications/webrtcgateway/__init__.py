@@ -33,7 +33,6 @@ class WebRTCGatewayApplication(SylkApplication):
     def __init__(self):
         self.web_handler = WebHandler()
         self.admin_web_handler = AdminWebHandler()
-        self.resolver = DNSLookup()
 
     def start(self):
         self.web_handler.start()
@@ -105,6 +104,7 @@ class MessageHandler(object):
 
     def __init__(self):
         self.message_storage = MessageStorage()
+        self.resolver = DNSLookup()
         self.from_header = None
         self.to_header = None
         self.content_type = None
