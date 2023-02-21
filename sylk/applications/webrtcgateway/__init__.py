@@ -7,7 +7,7 @@ import uuid
 from application.notification import IObserver, NotificationCenter, NotificationData
 from application.python import Null
 from sipsimple.configuration.settings import SIPSimpleSettings
-from sipsimple.core import SIPURI, FromHeader, ToHeader, Message, RouteHeader, Header, Route
+from sipsimple.core import SIPURI, FromHeader, ToHeader, Message, RouteHeader, Header, Route, Request
 from sipsimple.lookup import DNSLookup, DNSLookupError
 from sipsimple.payloads.imdn import IMDNDocument
 from sipsimple.streams.msrp.chat import CPIMPayload, CPIMParserError, Message as SIPMessage
@@ -97,6 +97,13 @@ class ParsedSIPMessage(SIPMessage):
         self.message_id = message_id
         self.disposition = disposition
         self.destination = destination
+
+
+@implementer(IObserver)
+class ReplicatedMessage(Message):
+    def __init__(self, from_header, to_header, route_header, content_type, body, credentials=None, extra_headers=None):
+        super(ReplicatedMessage, self).__init__(from_header, to_header, route_header, content_type, body, credentials=None, extra_headers=None)
+        self._request = Request("MESSAGE", from_header.uri, from_header, to_header, route_header, credentials=credentials, extra_headers=extra_headers, content_type=content_type, body=body if isinstance(body, bytes) else body.encode())
 
 
 @implementer(IObserver)
@@ -432,6 +439,17 @@ class MessageHandler(object):
             log.debug("sending message from '%s' to '%s' to self %s" % (identity, uri, route))
             headers = [Header('X-Sylk-From-Sip', 'yes')] + extra_headers
             self._outgoing_message(uri, identity, content, content_type, headers=headers, route=route, subscribe=False)
+
+    @run_in_green_thread
+    def outgoing_replicated_message(self, uri, content, content_type='text/plain', identity=None, extra_headers=[]):
+        route = self._lookup_sip_target_route(identity)
+        if route:
+            if identity is None:
+                identity = f'sip:sylkserver@{SIPConfig.local_ip}'
+
+            log.info("sending message from '%s' to '%s' using proxy %s" % (identity, uri, route))
+            headers = [Header('X-Sylk-To-Sip', 'yes'), Header('X-Replicated-Message', 'yes')] + extra_headers
+            self._outgoing_message(uri, identity, content, content_type, headers=headers, route=route, message_type=ReplicatedMessage)
 
     def handle_notification(self, notification):
         handler = getattr(self, '_NH_%s' % notification.name, Null)
