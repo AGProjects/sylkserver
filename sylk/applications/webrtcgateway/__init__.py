@@ -1,23 +1,30 @@
 
+import base64
 import json
+import hashlib
 import random
+import os
 import secrets
 import uuid
+import urllib.parse
 
 from application.notification import IObserver, NotificationCenter, NotificationData
 from application.python import Null
+from application.system import unlink
 from sipsimple.configuration.settings import SIPSimpleSettings
 from sipsimple.core import SIPURI, FromHeader, ToHeader, Message, RouteHeader, Header, Route, Request
 from sipsimple.lookup import DNSLookup, DNSLookupError
 from sipsimple.payloads.imdn import IMDNDocument
 from sipsimple.streams.msrp.chat import CPIMPayload, CPIMParserError, Message as SIPMessage
+from sipsimple.threading import run_in_twisted_thread
 from sipsimple.threading.green import run_in_green_thread
 from sipsimple.util import ISOTimestamp
-from twisted.internet import defer
+from twisted.internet import defer, reactor
 from zope.interface import implementer
 
 from sylk.applications import SylkApplication
 from sylk.configuration import SIPConfig
+from sylk.session import IllegalStateError
 from sylk.web import server
 
 from .configuration import GeneralConfig
@@ -53,8 +60,97 @@ class WebRTCGatewayApplication(SylkApplication):
         handler(notification)
 
     def incoming_session(self, session):
-        log.debug('New incoming session {session.call_id} from sip:{uri.user}@{uri.host} rejected'.format(session=session, uri=session.remote_identity.uri))
-        session.reject(403)
+        log.info('New incoming session {session.call_id} from sip:{uri.user}@{uri.host}'.format(session=session, uri=session.remote_identity.uri))
+        transfer_streams = [stream for stream in session.proposed_streams if stream.type == 'file-transfer']
+
+        if not transfer_streams:
+            log.info(u'Session rejected: invalid media')
+            session.reject(488)
+            return
+
+        transfer_stream = transfer_streams[0]
+
+        if transfer_stream.direction == 'sendonly':
+            # file transfer 'pull'
+            log.info('Session rejected: requested file not found')
+            session.reject(404)
+            return
+
+        sender = f'{session.remote_identity.uri.user}@{session.remote_identity.uri.host}'
+        receiver = f'{session.local_identity.uri.user}@{session.local_identity.uri.host}'
+
+        message_storage = MessageStorage()
+        account = defer.maybeDeferred(message_storage.get_account, receiver)
+        account.addCallback(lambda result: self._check_receiver_session(result, session, transfer_stream))
+
+        sender_account = defer.maybeDeferred(message_storage.get_account, sender)
+        sender_account.addCallback(lambda result: self._check_sender_session(result, session, transfer_stream))
+
+        d1 = defer.DeferredList([account, sender_account], consumeErrors=True)
+        d1.addCallback(lambda result: self._handle_lookup_result(result, session, [transfer_stream]))
+
+        NotificationCenter().add_observer(self, sender=session)
+
+    def _encode_and_hash_uri(self, uri):
+        return base64.b64encode(hashlib.md5(uri.encode('utf-8')).digest()).rstrip(b'=\n').decode('utf-8')
+
+    def _set_save_directory(self, session, transfer_stream, sender=None, receiver=None):
+        transfer_id = str(uuid.uuid4())
+        settings = SIPSimpleSettings()
+        if receiver is None:
+            receiver = f'{session.local_identity.uri.user}@{session.local_identity.uri.host}'
+            hashed_receiver = self._encode_and_hash_uri(receiver)
+            hashed_sender = self._encode_and_hash_uri(sender)
+            prefix = hashed_receiver[:1]
+            folder = os.path.join(settings.file_transfer.directory.normalized, prefix, hashed_receiver, hashed_sender, transfer_id)
+        else:
+            sender = f'{session.remote_identity.uri.user}@{session.remote_identity.uri.host}'
+            hashed_receiver = self._encode_and_hash_uri(receiver)
+            hashed_sender = self._encode_and_hash_uri(sender)
+            prefix = hashed_sender[:1]
+            folder = os.path.join(settings.file_transfer.directory.normalized, prefix, hashed_sender, hashed_receiver, transfer_id)
+
+        metadata = sylkrtc.TransferredFile(transfer_id=transfer_id,
+                                           sender=sylkrtc.SIPIdentity(uri=sender, display_name=session.remote_identity.display_name),
+                                           receiver=sylkrtc.SIPIdentity(uri=receiver, display_name=session.local_identity.display_name),
+                                           filename=transfer_stream.file_selector.name,
+                                           prefix=prefix,
+                                           path=folder,
+                                           filesize=transfer_stream.file_selector.size,
+                                           timestamp=str(ISOTimestamp.now()))
+
+        transfer_stream.handler.save_directory = folder
+        session.metadata = metadata
+        log.info('File transfer from %s to %s will be saved to %s/%s' % (metadata.sender.uri, metadata.receiver.uri, metadata.path, metadata.filename))
+
+    def _check_receiver_session(self, account, session, transfer_stream):
+        if account is None:
+            raise Exception("Receiver account for filetransfer not found")
+
+        self._set_save_directory(session, transfer_stream, receiver=account.account)
+
+    def _check_sender_session(self, account, session, transfer_stream):
+        if account is not None:
+            return
+
+        self._set_save_directory(session, transfer_stream, sender=account.account)
+
+    def _handle_lookup_result(self, result, session, streams):
+        for (success, value) in result:
+            if not success:
+                self._reject_session(session, value.getErrorMessage())
+                return
+        self._accept_session(session, streams)
+
+    def _reject_session(self, session, error):
+        log.warning(f'File transfer rejected: {error}')
+        session.reject(404)
+
+    def _accept_session(self, session, streams):
+        try:
+            session.accept(streams)
+        except IllegalStateError:
+            session.reject(500)
 
     def incoming_subscription(self, request, data):
         request.reject(405)
@@ -87,6 +183,25 @@ class WebRTCGatewayApplication(SylkApplication):
 
         message_handler = MessageHandler()
         message_handler.incoming_message(data)
+
+    def _NH_SIPSessionDidStart(self, notification):
+        session = notification.sender
+        try:
+            transfer_stream = next(stream for stream in session.streams if stream.type == 'file-transfer')
+        except StopIteration:
+            pass
+        else:
+            transfer_handler = FileTransferHandler()
+            transfer_handler.init_incoming(transfer_stream)
+
+    def _NH_SIPSessionDidEnd(self, notification):
+        session = notification.sender
+        notification.center.remove_observer(self, sender=session)
+
+    def _NH_SIPSessionDidFail(self, notification):
+        session = notification.sender
+        notification.center.remove_observer(self, sender=session)
+        log.info('File transfer from %s to %s failed: %s (%s)' % (session.remote_identity.uri, session.local_identity.uri, notification.data.reason, notification.data.failure_reason))
 
 
 class ParsedSIPMessage(SIPMessage):
@@ -468,3 +583,94 @@ class MessageHandler(object):
         reason = data.reason.decode() if isinstance(data.reason, bytes) else data.reason
         log.warning('could not deliver outgoing message %d %s' % (data.code, reason))
 
+
+@implementer(IObserver)
+class FileTransferHandler(object):
+    def __init__(self):
+        self.session = None
+        self.stream = None
+        self.handler = None
+        self.direction = None
+
+    def init_incoming(self, stream):
+        self.direction = 'incoming'
+        self.stream = stream
+        self.session = stream.session
+        self.handler = stream.handler
+        notification_center = NotificationCenter()
+        notification_center.add_observer(self, sender=self.stream)
+        notification_center.add_observer(self, sender=self.handler)
+
+    @run_in_green_thread
+    def init_outgoing(self, destination, file):
+        self.direction = 'outgoing'
+
+    def _terminate(self, failure_reason=None):
+        notification_center = NotificationCenter()
+        notification_center.remove_observer(self, sender=self.stream)
+        notification_center.remove_observer(self, sender=self.handler)
+
+        if failure_reason is None:
+            if self.direction == 'incoming' and self.stream.direction == 'recvonly':
+                if not hasattr(self.session, 'metadata'):
+                    return
+
+                metadata = self.session.metadata
+                filepath = os.path.join(metadata.path, metadata.filename)
+                meta_filepath = os.path.join(metadata.path, f'meta-{metadata.filename}')
+
+                try:
+                    with open(meta_filepath, 'w+') as output_file:
+                        output_file.write(json.dumps(metadata.__data__))
+                except (OSError, IOError):
+                    unlink(meta_filepath)
+                    log.warning('Could not save metadata %s' % meta_filepath)
+
+                log.info('File transfer finished, saved to %s' % filepath)
+                settings = SIPSimpleSettings()
+                stripped_path = os.path.relpath(metadata.path, f'{settings.file_transfer.directory.normalized}/{metadata.prefix}')
+                file_path = urllib.parse.quote(f'webrtcgateway/filetransfer/{stripped_path}/{metadata.filename}')
+                file_url = f'{server.url}/{file_path}'
+
+                payload = 'File transfer available at %s (%s)' % (file_url, self.format_file_size(metadata.filesize))
+                message_handler = MessageHandler()
+                message_handler.outgoing_replicated_message(f'sip:{metadata.receiver.uri}', payload, identity=f'sip:{metadata.sender.uri}')
+                message_handler.outgoing_message(f'sip:{metadata.receiver.uri}', payload, identity=f'sip:{metadata.sender.uri}')
+                message_handler.outgoing_message_to_self(f'sip:{metadata.receiver.uri}', payload, identity=f'sip:{metadata.sender.uri}')
+        else:
+            pass
+
+        self.session = None
+        self.stream = None
+        self.handler = None
+
+    @staticmethod
+    def format_file_size(size):
+        infinite = float('infinity')
+        boundaries = [(             1024, '%d bytes',               1),
+                      (          10*1024, '%.2f KB',           1024.0),  (     1024*1024, '%.1f KB',           1024.0),
+                      (     10*1024*1024, '%.2f MB',      1024*1024.0),  (1024*1024*1024, '%.1f MB',      1024*1024.0),
+                      (10*1024*1024*1024, '%.2f GB', 1024*1024*1024.0),  (      infinite, '%.1f GB', 1024*1024*1024.0)]
+        for boundary, format, divisor in boundaries:
+            if size < boundary:
+                return format % (size/divisor,)
+        else:
+            return "%d bytes" % size
+
+    @run_in_twisted_thread
+    def handle_notification(self, notification):
+        handler = getattr(self, '_NH_%s' % notification.name, Null)
+        handler(notification)
+
+    def _NH_MediaStreamDidNotInitialize(self, notification):
+        self._terminate(failure_reason=notification.data.reason)
+
+    def _NH_FileTransferHandlerDidEnd(self, notification):
+        if self.direction == 'incoming':
+            if self.stream.direction == 'sendonly':
+                reactor.callLater(3, self.session.end)
+            else:
+                reactor.callLater(1, self.session.end)
+        else:
+            self.session.end()
+        self._terminate(failure_reason=notification.data.reason)

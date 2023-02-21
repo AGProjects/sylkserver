@@ -1,8 +1,10 @@
 
 import json
+import os
 
 from application.python.types import Singleton
 from autobahn.twisted.resource import WebSocketResource
+from sipsimple.configuration.settings import SIPSimpleSettings
 from twisted.internet import defer, reactor
 from twisted.python.failure import Failure
 from twisted.web.server import Site
@@ -99,6 +101,25 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
                     return 'OK'
         raise Forbidden()
 
+    @app.route('/filetransfer/<string:sender>/<string:receiver>/<string:transfer_id>/<string:filename>', methods=['GET'])
+    def filetransfer(self, request, sender, receiver, transfer_id, filename):
+        filename = secure_filename(filename)
+        settings = SIPSimpleSettings()
+        folder = os.path.join(settings.file_transfer.directory.normalized, sender[:1], sender, receiver, transfer_id)
+        path = '%s/%s' % (folder, filename)
+        log_path = os.path.join(sender, receiver, transfer_id, filename)
+        if os.path.exists(path):
+            file_size = os.path.getsize(path)
+            split_tup = os.path.splitext(path)
+            file_extension = split_tup[1]
+            render_type = 'inline' if file_extension and file_extension.lower() in ('.jpg', '.png', '.jpeg', '.gif') else 'attachment'
+            request.setHeader('Content-Disposition', '%s;filename=%s' % (render_type, filename))
+            log.info('Web %s file download %s (%s)' % (render_type, log_path, self.format_file_size(file_size)))
+            return File(path)
+        else:
+            log.warning(f'File not found: {path}')
+            raise NotFound()
+
     def verify_api_token(self, request, account, msg_id, token=None):
         if token:
             auth_headers = request.requestHeaders.getRawHeaders('Authorization', default=None)
@@ -148,6 +169,18 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
         else:
             return self.verify_api_token(request, account, msg_id, token)
 
+    @staticmethod
+    def format_file_size(size):
+        infinite = float('infinity')
+        boundaries = [(             1024, '%d bytes',               1),
+                      (          10*1024, '%.2f KB',           1024.0),  (     1024*1024, '%.1f KB',           1024.0),
+                      (     10*1024*1024, '%.2f MB',      1024*1024.0),  (1024*1024*1024, '%.1f MB',      1024*1024.0),
+                      (10*1024*1024*1024, '%.2f GB', 1024*1024*1024.0),  (      infinite, '%.1f GB', 1024*1024*1024.0)]
+        for boundary, format, divisor in boundaries:
+            if size < boundary:
+                return format % (size/divisor,)
+        else:
+            return "%d bytes" % size
 
 class WebHandler(object):
     def __init__(self):

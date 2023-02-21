@@ -122,6 +122,17 @@ class SharedFiles(JSONArray):
     item_type = SharedFile
 
 
+class TransferredFile(JSONObject):
+    filename = StringProperty()
+    filesize = IntegerProperty()
+    sender = ObjectProperty(SIPIdentity)  # type: SIPIdentity
+    receiver = ObjectProperty(SIPIdentity)
+    transfer_id = StringProperty()
+    prefix = StringProperty()
+    path = StringProperty()
+    timestamp = StringProperty()
+
+
 class DispositionNotifications(StringArray):
     list_validator = UniqueItemsValidator()
 
