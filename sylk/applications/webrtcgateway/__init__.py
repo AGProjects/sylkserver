@@ -7,7 +7,7 @@ import uuid
 from application.notification import IObserver, NotificationCenter, NotificationData
 from application.python import Null
 from sipsimple.configuration.settings import SIPSimpleSettings
-from sipsimple.core import SIPURI, FromHeader, ToHeader, Message, RouteHeader, Header
+from sipsimple.core import SIPURI, FromHeader, ToHeader, Message, RouteHeader, Header, Route
 from sipsimple.lookup import DNSLookup, DNSLookupError
 from sipsimple.payloads.imdn import IMDNDocument
 from sipsimple.streams.msrp.chat import CPIMPayload, CPIMParserError, Message as SIPMessage
@@ -421,6 +421,17 @@ class MessageHandler(object):
             log.info("sending message from '%s' to '%s' using proxy %s" % (identity, uri, route))
             headers = [Header('X-Sylk-To-Sip', 'yes')] + extra_headers
             self._outgoing_message(uri, identity, content, content_type, headers=headers, route=route)
+
+    @run_in_green_thread
+    def outgoing_message_to_self(self, uri, content, content_type='text/plain', identity=None, extra_headers=[]):
+        route = Route(address=SIPConfig.local_ip, port=SIPConfig.local_tcp_port, transport='tcp')
+        if route:
+            if identity is None:
+                identity = f'sip:sylkserver@{SIPConfig.local_ip}'
+
+            log.debug("sending message from '%s' to '%s' to self %s" % (identity, uri, route))
+            headers = [Header('X-Sylk-From-Sip', 'yes')] + extra_headers
+            self._outgoing_message(uri, identity, content, content_type, headers=headers, route=route, subscribe=False)
 
     def handle_notification(self, notification):
         handler = getattr(self, '_NH_%s' % notification.name, Null)
