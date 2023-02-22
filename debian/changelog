@@ -1,14 +1,11 @@
 sylkserver (6.1.0) UNRELEASED; urgency=medium
 
-  * Updated default file location for playback application
-  * Improve default settings and include playback URI by default
-  * Updated docs
-  * [webrtcgateway] Added support for receiving MSRP filetransfers
+  * [webrtcgateway] Added initial support for asynchronous file transfers
   * [webrtcgateway] Added houskeeper method to remove expired filetransfers
   * [webrtcgateway] Added support for sending In-Dialog SIP messages
   * [webrtcgateway] Added the ability to get/set custom headers in a SIP call
   * [webrtcgateway] Added support for deleting messages with a custom SIP message
-  * [webrtcgateway] Added support for key lookup with a custom SIP message
+  * [webrtcgateway] Added support for PGP key lookup with a custom SIP message
   * [webrtcgateway] Added message storage for the originator of incoming SIP messages
   * [webrtcgateway] Added work around to prevent tracebacks on non UTF-8 messages
   * [webrtcgateway] Fixed push tokens pickle storage
@@ -23,6 +20,9 @@ sylkserver (6.1.0) UNRELEASED; urgency=medium
   * [webrtcgateway] Extend sylk-db script with more functionality
   * [webrtcgateway] Support newer Janus versions
   * [webrtcgateway] Refactored message handling in webrtcgateway main app
+  * Updated default file location for playback application
+  * Improve default settings and include playback URI by default
+  * Updated docs
 
  -- Tijmen de Mes <tijmen@ag-projects.com>  Wed, 22 Feb 2023 13:30:52 +0100
 
