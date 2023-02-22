@@ -208,7 +208,7 @@ class WebRTCGatewayApplication(SylkApplication):
         if content_type == 'message/cpim':
             try:
                 cpim_message = CPIMPayload.decode(data.body)
-            except CPIMParserError:
+            except (CPIMParserError, UnicodeDecodeError):  # TODO: fix decoding in sipsimple
                 log.warning('SIP message from %s to %s rejected: CPIM parse error' % (from_header.uri, '%s@%s' % (to_header.uri.user, to_header.uri.host)))
                 message_request.answer(400)
                 return
