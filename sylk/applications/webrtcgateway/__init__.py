@@ -5,8 +5,10 @@ import hashlib
 import random
 import os
 import secrets
+import time
 import uuid
 import urllib.parse
+import errno
 
 from application.notification import IObserver, NotificationCenter, NotificationData
 from application.python import Null
@@ -16,7 +18,7 @@ from sipsimple.core import SIPURI, FromHeader, ToHeader, Message, RouteHeader, H
 from sipsimple.lookup import DNSLookup, DNSLookupError
 from sipsimple.payloads.imdn import IMDNDocument
 from sipsimple.streams.msrp.chat import CPIMPayload, CPIMParserError, Message as SIPMessage
-from sipsimple.threading import run_in_twisted_thread
+from sipsimple.threading import run_in_twisted_thread, run_in_thread
 from sipsimple.threading.green import run_in_green_thread
 from sipsimple.util import ISOTimestamp
 from twisted.internet import defer, reactor
@@ -50,10 +52,45 @@ class WebRTCGatewayApplication(SylkApplication):
         # Setup message storage
         message_storage = MessageStorage()
         message_storage.load()
+        self.clean_filetransfers()
 
     def stop(self):
         self.web_handler.stop()
         self.admin_web_handler.stop()
+
+    @run_in_thread('file-io')
+    def clean_filetransfers(self):
+        settings = SIPSimpleSettings()
+        top = settings.file_transfer.directory.normalized
+        removed_dirs = removed_files = 0
+        for root, dirs, files in os.walk(top, topdown=False):
+            for name in files:
+                file = os.path.join(root, name)
+                statinfo = os.stat(file)
+                current_time = time.time()
+                remove_after_days = GeneralConfig.filetransfer_expire_days
+                if (statinfo.st_size >= 1024 * 1024 * 50 and statinfo.st_mtime < current_time - 86400 * remove_after_days):
+                    log.info(f"[housekeeper] Removing expired filetranfer file: {file}")
+                    removed_files += 1
+                    unlink(file)
+                elif statinfo.st_mtime < current_time - 86400 * 2 * remove_after_days:
+                    log.info(f"[housekeeper] Removing expired filetranfer file: {file}")
+                    removed_files += 1
+                    unlink(file)
+
+            for name in dirs:
+                dir = os.path.join(root, name)
+                try:
+                    os.rmdir(dir)
+                except OSError as ex:
+                    if ex.errno == errno.ENOTEMPTY:
+                        pass
+                else:
+                    removed_dirs += 1
+                    log.info(f"[housekeeper] Removing expired filetranfer dir {dir}")
+
+        log.info(f"[housekeeper] Removed {removed_files} files, {removed_dirs} directories")
+        reactor.callLater(3600, self.clean_filetransfers)
 
     def handle_notification(self, notification):
         handler = getattr(self, '_NH_%s' % notification.name, Null)

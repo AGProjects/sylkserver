@@ -130,6 +130,7 @@ class GeneralConfig(ConfigSection):
     http_management_auth_secret = ConfigSetting(type=str, value=None)
     sylk_push_url = ConfigSetting(type=str, value=None)
     local_sip_messages = False
+    filetransfer_expire_days = 15
 
 
 class JanusConfig(ConfigSection):
