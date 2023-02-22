@@ -1,4 +1,4 @@
-sylkserver (6.1.0) UNRELEASED; urgency=medium
+sylkserver (6.1.0) unstable; urgency=medium
 
   * [webrtcgateway] Added initial support for asynchronous file transfers
   * [webrtcgateway] Added houskeeper method to remove expired filetransfers
@@ -24,7 +24,7 @@ sylkserver (6.1.0) UNRELEASED; urgency=medium
   * Improve default settings and include playback URI by default
   * Updated docs
 
- -- Tijmen de Mes <tijmen@ag-projects.com>  Wed, 22 Feb 2023 13:30:52 +0100
+ -- Tijmen de Mes <tijmen@ag-projects.com>  Wed, 22 Feb 2023 16:07:16 +0100
 
 sylkserver (6.0.0) unstable; urgency=medium
 
