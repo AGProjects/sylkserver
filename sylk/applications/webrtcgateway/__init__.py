@@ -60,6 +60,7 @@ class WebRTCGatewayApplication(SylkApplication):
         handler(notification)
 
     def incoming_session(self, session):
+        # TODO: handle diverted sessions?
         log.info('New incoming session {session.call_id} from sip:{uri.user}@{uri.host}'.format(session=session, uri=session.remote_identity.uri))
         transfer_streams = [stream for stream in session.proposed_streams if stream.type == 'file-transfer']
 
