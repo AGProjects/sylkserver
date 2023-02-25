@@ -70,11 +70,11 @@ class WebRTCGatewayApplication(SylkApplication):
                 current_time = time.time()
                 remove_after_days = GeneralConfig.filetransfer_expire_days
                 if (statinfo.st_size >= 1024 * 1024 * 50 and statinfo.st_mtime < current_time - 86400 * remove_after_days):
-                    log.info(f"[housekeeper] Removing expired filetranfer file: {file}")
+                    log.info(f"[housekeeper] Removing expired filetransfer file: {file}")
                     removed_files += 1
                     unlink(file)
                 elif statinfo.st_mtime < current_time - 86400 * 2 * remove_after_days:
-                    log.info(f"[housekeeper] Removing expired filetranfer file: {file}")
+                    log.info(f"[housekeeper] Removing expired file transfer file: {file}")
                     removed_files += 1
                     unlink(file)
 
@@ -87,7 +87,7 @@ class WebRTCGatewayApplication(SylkApplication):
                         pass
                 else:
                     removed_dirs += 1
-                    log.info(f"[housekeeper] Removing expired filetranfer dir {dir}")
+                    log.info(f"[housekeeper] Removing expired file transfer dir {dir}")
 
         log.info(f"[housekeeper] Removed {removed_files} files, {removed_dirs} directories")
         reactor.callLater(3600, self.clean_filetransfers)
