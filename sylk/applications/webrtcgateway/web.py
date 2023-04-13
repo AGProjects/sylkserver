@@ -103,7 +103,6 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
 
     @app.route('/filetransfer/<string:sender>/<string:receiver>/<string:transfer_id>/<string:filename>', methods=['GET'])
     def filetransfer(self, request, sender, receiver, transfer_id, filename):
-        filename = secure_filename(filename)
         settings = SIPSimpleSettings()
         folder = os.path.join(settings.file_transfer.directory.normalized, sender[:1], sender, receiver, transfer_id)
         path = '%s/%s' % (folder, filename)
