@@ -448,7 +448,7 @@ class Room(object):
             if len(self.audio_conference.streams) == 0:
                 self.moh_player.pause()
                 self.audio_conference.hold()
-            elif len(self.audio_conference.streams) == 1:
+            elif len(self.audio_conference.streams) == 1 and not self.config.disable_music_on_hold:
                 self.moh_player.play()
         try:
             next(stream for stream in session.streams if stream.type == 'file-transfer')
@@ -722,7 +722,7 @@ class Room(object):
                 if len(self.audio_conference.streams) == 0:
                     self.moh_player.pause()
                     self.audio_conference.hold()
-                elif len(self.audio_conference.streams) == 1:
+                elif len(self.audio_conference.streams) == 1 and not self.config.disable_music_on_hold:
                     self.moh_player.play()
             if not session.streams:
                 log.info('Room %s - %s has removed all streams, session will be terminated' % (self.uri, format_identity(session.remote_identity)))
@@ -922,7 +922,7 @@ class WelcomeHandler(object):
             stream.bridge.remove(player)
             self.room.audio_conference.add(stream)
             self.room.audio_conference.unhold()
-            if len(self.room.audio_conference.streams) == 1:
+            if len(self.room.audio_conference.streams) == 1 and not self.config.disable_music_on_hold:
                 self.room.moh_player.play()
             else:
                 self.room.moh_player.pause()

@@ -118,6 +118,7 @@ class RoomConfig(ConfigSection):
     advertise_xmpp_support = ConferenceConfig.advertise_xmpp_support
     webrtc_gateway_url = ConferenceConfig.webrtc_gateway_url
 
+    disable_music_on_hold = False
     zrtp_auto_verify = ConferenceConfig.zrtp_auto_verify
 
 
