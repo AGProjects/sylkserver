@@ -922,7 +922,7 @@ class WelcomeHandler(object):
             stream.bridge.remove(player)
             self.room.audio_conference.add(stream)
             self.room.audio_conference.unhold()
-            if len(self.room.audio_conference.streams) == 1 and not self.config.disable_music_on_hold:
+            if len(self.room.audio_conference.streams) == 1 and not self.room.config.disable_music_on_hold:
                 self.room.moh_player.play()
             else:
                 self.room.moh_player.pause()
