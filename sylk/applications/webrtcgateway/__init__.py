@@ -30,6 +30,7 @@ from sylk.session import IllegalStateError
 from sylk.web import server
 
 from .configuration import GeneralConfig
+from .datatypes import FileTransferData
 from .logger import log
 from .models import sylkrtc
 from .storage import TokenStorage, MessageStorage
@@ -117,60 +118,34 @@ class WebRTCGatewayApplication(SylkApplication):
         sender = f'{session.remote_identity.uri.user}@{session.remote_identity.uri.host}'
         receiver = f'{session.local_identity.uri.user}@{session.local_identity.uri.host}'
 
+        file_selector = transfer_stream.file_selector
+        transfer_data = FileTransferData(file_selector.name,
+                                         file_selector.size,
+                                         file_selector.type,
+                                         str(uuid.uuid4()),
+                                         sender,
+                                         receiver)
+        session.transfer_data = transfer_data
+
         message_storage = MessageStorage()
         account = defer.maybeDeferred(message_storage.get_account, receiver)
         account.addCallback(lambda result: self._check_receiver_session(result))
 
         sender_account = defer.maybeDeferred(message_storage.get_account, sender)
-        sender_account.addCallback(lambda result: self._check_sender_session(result, session, transfer_stream))
+        sender_account.addCallback(lambda result: self._check_sender_session(result, session))
 
         d1 = defer.DeferredList([account, sender_account], consumeErrors=True)
         d1.addCallback(lambda result: self._handle_lookup_result(result, session, transfer_stream))
 
         NotificationCenter().add_observer(self, sender=session)
 
-    def _encode_and_hash_uri(self, uri):
-        return base64.b64encode(hashlib.md5(uri.encode('utf-8')).digest()).rstrip(b'=\n').decode('utf-8')
-
-    def _set_save_directory(self, session, transfer_stream, sender=None, receiver=None):
-        transfer_id = str(uuid.uuid4())
-        settings = SIPSimpleSettings()
-        if receiver is None:
-            receiver = f'{session.local_identity.uri.user}@{session.local_identity.uri.host}'
-            hashed_receiver = self._encode_and_hash_uri(receiver)
-            hashed_sender = self._encode_and_hash_uri(sender)
-            prefix = hashed_receiver[:1]
-            folder = os.path.join(settings.file_transfer.directory.normalized, prefix, hashed_receiver, hashed_sender, transfer_id)
-        else:
-            sender = f'{session.remote_identity.uri.user}@{session.remote_identity.uri.host}'
-            hashed_receiver = self._encode_and_hash_uri(receiver)
-            hashed_sender = self._encode_and_hash_uri(sender)
-            prefix = hashed_sender[:1]
-            folder = os.path.join(settings.file_transfer.directory.normalized, prefix, hashed_sender, hashed_receiver, transfer_id)
-
-        metadata = sylkrtc.TransferredFile(transfer_id=transfer_id,
-                                           sender=sylkrtc.SIPIdentity(uri=sender, display_name=session.remote_identity.display_name),
-                                           receiver=sylkrtc.SIPIdentity(uri=receiver, display_name=session.local_identity.display_name),
-                                           filename=transfer_stream.file_selector.name,
-                                           prefix=prefix,
-                                           path=folder,
-                                           filesize=transfer_stream.file_selector.size,
-                                           timestamp=str(ISOTimestamp.now()))
-
-        transfer_stream.handler.save_directory = folder
-        session.metadata = metadata
-        log.info('File transfer from %s to %s will be saved to %s/%s' % (metadata.sender.uri, metadata.receiver.uri, metadata.path, metadata.filename))
-
     def _check_receiver_session(self, account):
         if account is None:
             raise Exception("Receiver account for filetransfer not found")
 
-    def _check_sender_session(self, account, session, transfer_stream):
-        if account is not None:
-            self._set_save_directory(session, transfer_stream, sender=account.account)
-        else:
-            receiver = f'{session.local_identity.uri.user}@{session.local_identity.uri.host}'
-            self._set_save_directory(session, transfer_stream, receiver=receiver)
+    def _check_sender_session(self, account, session):
+        if account is None:
+            session.transfer_data.update_path_for_receiver()
             raise Exception("Sender account for filetransfer not found")
 
     def _handle_lookup_result(self, result, session, stream):
@@ -179,6 +154,8 @@ class WebRTCGatewayApplication(SylkApplication):
             self._reject_session(session, "Sender and receiver accounts for filetransfer were not found")
             return
 
+        stream.handler.save_directory = session.transfer_data.path
+        log.info('File transfer from {sender.uri} to {receiver.uri} will be saved to {path}/{filename}'.format(**session.transfer_data.__dict__))
         self._accept_session(session, [stream])
 
     def _reject_session(self, session, error):
@@ -652,12 +629,12 @@ class FileTransferHandler(object):
 
         if failure_reason is None:
             if self.direction == 'incoming' and self.stream.direction == 'recvonly':
-                if not hasattr(self.session, 'metadata'):
+                if not hasattr(self.session, 'transfer_data'):
                     return
 
-                metadata = self.session.metadata
-                filepath = os.path.join(metadata.path, metadata.filename)
-                meta_filepath = os.path.join(metadata.path, f'meta-{metadata.filename}')
+                transfer_data = self.session.transfer_data
+                metadata = sylkrtc.TransferredFile(**transfer_data.__dict__, hash=self.stream.file_selector.hash)
+                meta_filepath = os.path.join(transfer_data.path, f'meta-{metadata.filename}')
 
                 try:
                     with open(meta_filepath, 'w+') as output_file:
@@ -666,13 +643,9 @@ class FileTransferHandler(object):
                     unlink(meta_filepath)
                     log.warning('Could not save metadata %s' % meta_filepath)
 
-                log.info('File transfer finished, saved to %s' % filepath)
-                settings = SIPSimpleSettings()
-                stripped_path = os.path.relpath(metadata.path, f'{settings.file_transfer.directory.normalized}/{metadata.prefix}')
-                file_path = urllib.parse.quote(f'webrtcgateway/filetransfer/{stripped_path}/{metadata.filename}')
-                file_url = f'{server.url}/{file_path}'
+                log.info('File transfer finished, saved to %s' % transfer_data.full_path)
 
-                payload = 'File transfer available at %s (%s)' % (file_url, self.format_file_size(metadata.filesize))
+                payload = 'File transfer available at %s (%s)' % (transfer_data.url, self.format_file_size(metadata.filesize))
                 message_handler = MessageHandler()
                 message_handler.outgoing_replicated_message(f'sip:{metadata.receiver.uri}', payload, identity=f'sip:{metadata.sender.uri}')
                 message_handler.outgoing_message(f'sip:{metadata.receiver.uri}', payload, identity=f'sip:{metadata.sender.uri}')
