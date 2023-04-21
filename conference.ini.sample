@@ -42,6 +42,9 @@ screensharing_images_dir = /var/spool/sylkserver/conference/screensharing
 ; access_policy = allow, deny
 ; allow = all
 ; deny = none
+;
+; Disable music on hold, Default Policy
+; disable_music_on_hold = False
 
 ; Access Lists can be applied per room overriding the Default Policy
 ;
@@ -49,4 +52,7 @@ screensharing_images_dir = /var/spool/sylkserver/conference/screensharing
 ; access_policy = allow, deny
 ; allow = example.com, test@domain.com
 ; deny = all
+;
+; Disable music on hold, can be applied per room overriding the Default Policy
+; disable_music_on_hold = False
 
