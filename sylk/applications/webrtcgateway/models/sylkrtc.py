@@ -472,6 +472,7 @@ class AccountMessageRequest(AccountRequestBase):
     content = StringProperty()
     content_type = StringProperty()
     timestamp = StringProperty()
+    server_generated = BooleanProperty(optional=True)
 
 
 class AccountDispositionNotificationRequest(AccountRequestBase):

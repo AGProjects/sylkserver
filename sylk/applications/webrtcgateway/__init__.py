@@ -418,7 +418,8 @@ class MessageHandler(object):
                                                message_id=self.parsed_message.message_id,
                                                content=self.parsed_message.content,
                                                content_type=self.parsed_message.content_type,
-                                               timestamp=str(self.parsed_message.timestamp)
+                                               timestamp=str(self.parsed_message.timestamp),
+                                               server_generated=True
                                            ))
 
         notification_center = NotificationCenter()
