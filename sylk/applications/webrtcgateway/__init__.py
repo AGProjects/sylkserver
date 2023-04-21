@@ -119,13 +119,13 @@ class WebRTCGatewayApplication(SylkApplication):
 
         message_storage = MessageStorage()
         account = defer.maybeDeferred(message_storage.get_account, receiver)
-        account.addCallback(lambda result: self._check_receiver_session(result, session, transfer_stream))
+        account.addCallback(lambda result: self._check_receiver_session(result))
 
         sender_account = defer.maybeDeferred(message_storage.get_account, sender)
         sender_account.addCallback(lambda result: self._check_sender_session(result, session, transfer_stream))
 
         d1 = defer.DeferredList([account, sender_account], consumeErrors=True)
-        d1.addCallback(lambda result: self._handle_lookup_result(result, session, [transfer_stream]))
+        d1.addCallback(lambda result: self._handle_lookup_result(result, session, transfer_stream))
 
         NotificationCenter().add_observer(self, sender=session)
 
@@ -161,24 +161,25 @@ class WebRTCGatewayApplication(SylkApplication):
         session.metadata = metadata
         log.info('File transfer from %s to %s will be saved to %s/%s' % (metadata.sender.uri, metadata.receiver.uri, metadata.path, metadata.filename))
 
-    def _check_receiver_session(self, account, session, transfer_stream):
+    def _check_receiver_session(self, account):
         if account is None:
             raise Exception("Receiver account for filetransfer not found")
 
-        self._set_save_directory(session, transfer_stream, receiver=account.account)
-
     def _check_sender_session(self, account, session, transfer_stream):
         if account is not None:
+            self._set_save_directory(session, transfer_stream, sender=account.account)
+        else:
+            receiver = f'{session.local_identity.uri.user}@{session.local_identity.uri.host}'
+            self._set_save_directory(session, transfer_stream, receiver=receiver)
+            raise Exception("Sender account for filetransfer not found")
+
+    def _handle_lookup_result(self, result, session, stream):
+        reject_session = all([success is not True for (success, value) in result])
+        if reject_session:
+            self._reject_session(session, "Sender and receiver accounts for filetransfer were not found")
             return
 
-        self._set_save_directory(session, transfer_stream, sender=account.account)
-
-    def _handle_lookup_result(self, result, session, streams):
-        for (success, value) in result:
-            if not success:
-                self._reject_session(session, value.getErrorMessage())
-                return
-        self._accept_session(session, streams)
+        self._accept_session(session, [stream])
 
     def _reject_session(self, session, error):
         log.warning(f'File transfer rejected: {error}')
