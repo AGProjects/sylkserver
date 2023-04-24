@@ -20,13 +20,13 @@ from twisted.internet import reactor, defer
 from zope.interface import implementer
 
 from sylk.configuration import SIPConfig
+from sylk.web import server
 
 from . import push
 from .configuration import GeneralConfig
 from .logger import log
 from .models import sylkrtc
 from .storage import MessageStorage
-from .web import server
 
 
 class ParsedSIPMessage(SIPMessage):
