@@ -1,13 +1,10 @@
 
-import base64
 import json
-import hashlib
 import random
 import os
 import secrets
 import time
 import uuid
-import urllib.parse
 import errno
 
 from application.notification import IObserver, NotificationCenter, NotificationData
