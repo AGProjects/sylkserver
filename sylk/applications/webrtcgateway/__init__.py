@@ -18,11 +18,10 @@ from sylk.session import IllegalStateError
 
 from .configuration import GeneralConfig
 from .datatypes import FileTransferData
-from .handler import FileTransferHandler, MessageHandler
+from .sip_handlers import FileTransferHandler, MessageHandler
 from .logger import log
 from .storage import TokenStorage, MessageStorage
 from .web import WebHandler, AdminWebHandler
-from . import push
 
 
 @implementer(IObserver)
