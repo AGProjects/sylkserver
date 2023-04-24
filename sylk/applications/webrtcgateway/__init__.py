@@ -1,5 +1,4 @@
 
-import json
 import os
 import time
 import uuid
@@ -10,8 +9,7 @@ from application.python import Null
 from application.system import unlink
 from sipsimple.configuration.settings import SIPSimpleSettings
 from sipsimple.streams.msrp.chat import CPIMPayload, CPIMParserError
-from sipsimple.threading import run_in_twisted_thread, run_in_thread
-from sipsimple.threading.green import run_in_green_thread
+from sipsimple.threading import run_in_thread
 from twisted.internet import defer, reactor
 from zope.interface import implementer
 
@@ -20,9 +18,8 @@ from sylk.session import IllegalStateError
 
 from .configuration import GeneralConfig
 from .datatypes import FileTransferData
-from .handler import MessageHandler
+from .handler import FileTransferHandler, MessageHandler
 from .logger import log
-from .models import sylkrtc
 from .storage import TokenStorage, MessageStorage
 from .web import WebHandler, AdminWebHandler
 from . import push
@@ -208,79 +205,3 @@ class WebRTCGatewayApplication(SylkApplication):
         session = notification.sender
         notification.center.remove_observer(self, sender=session)
         log.info('File transfer from %s to %s failed: %s (%s)' % (session.remote_identity.uri, session.local_identity.uri, notification.data.reason, notification.data.failure_reason))
-
-
-@implementer(IObserver)
-class FileTransferHandler(object):
-    def __init__(self):
-        self.session = None
-        self.stream = None
-        self.handler = None
-        self.direction = None
-
-    def init_incoming(self, stream):
-        self.direction = 'incoming'
-        self.stream = stream
-        self.session = stream.session
-        self.handler = stream.handler
-        notification_center = NotificationCenter()
-        notification_center.add_observer(self, sender=self.stream)
-        notification_center.add_observer(self, sender=self.handler)
-
-    @run_in_green_thread
-    def init_outgoing(self, destination, file):
-        self.direction = 'outgoing'
-
-    def _terminate(self, failure_reason=None):
-        notification_center = NotificationCenter()
-        notification_center.remove_observer(self, sender=self.stream)
-        notification_center.remove_observer(self, sender=self.handler)
-
-        if failure_reason is None:
-            if self.direction == 'incoming' and self.stream.direction == 'recvonly':
-                if not hasattr(self.session, 'transfer_data'):
-                    return
-
-                transfer_data = self.session.transfer_data
-                metadata = sylkrtc.TransferredFile(**transfer_data.__dict__, hash=self.stream.file_selector.hash)
-                meta_filepath = os.path.join(transfer_data.path, f'meta-{metadata.filename}')
-
-                try:
-                    with open(meta_filepath, 'w+') as output_file:
-                        output_file.write(json.dumps(metadata.__data__))
-                except (OSError, IOError):
-                    unlink(meta_filepath)
-                    log.warning('Could not save metadata %s' % meta_filepath)
-
-                log.info('File transfer finished, saved to %s' % transfer_data.full_path)
-
-                payload = 'File transfer available at %s (%s)' % (transfer_data.url, transfer_data.formatted_file_size)
-                message_handler = MessageHandler()
-                message_handler.outgoing_replicated_message(f'sip:{metadata.receiver.uri}', payload, identity=f'sip:{metadata.sender.uri}')
-                message_handler.outgoing_message(f'sip:{metadata.receiver.uri}', payload, identity=f'sip:{metadata.sender.uri}')
-                message_handler.outgoing_message_to_self(f'sip:{metadata.receiver.uri}', payload, identity=f'sip:{metadata.sender.uri}')
-        else:
-            pass
-
-        self.session = None
-        self.stream = None
-        self.handler = None
-
-
-    @run_in_twisted_thread
-    def handle_notification(self, notification):
-        handler = getattr(self, '_NH_%s' % notification.name, Null)
-        handler(notification)
-
-    def _NH_MediaStreamDidNotInitialize(self, notification):
-        self._terminate(failure_reason=notification.data.reason)
-
-    def _NH_FileTransferHandlerDidEnd(self, notification):
-        if self.direction == 'incoming':
-            if self.stream.direction == 'sendonly':
-                reactor.callLater(3, self.session.end)
-            else:
-                reactor.callLater(1, self.session.end)
-        else:
-            self.session.end()
-        self._terminate(failure_reason=notification.data.reason)
