@@ -645,7 +645,7 @@ class FileTransferHandler(object):
 
                 log.info('File transfer finished, saved to %s' % transfer_data.full_path)
 
-                payload = 'File transfer available at %s (%s)' % (transfer_data.url, self.format_file_size(metadata.filesize))
+                payload = 'File transfer available at %s (%s)' % (transfer_data.url, transfer_data.formatted_file_size)
                 message_handler = MessageHandler()
                 message_handler.outgoing_replicated_message(f'sip:{metadata.receiver.uri}', payload, identity=f'sip:{metadata.sender.uri}')
                 message_handler.outgoing_message(f'sip:{metadata.receiver.uri}', payload, identity=f'sip:{metadata.sender.uri}')
@@ -657,18 +657,6 @@ class FileTransferHandler(object):
         self.stream = None
         self.handler = None
 
-    @staticmethod
-    def format_file_size(size):
-        infinite = float('infinity')
-        boundaries = [(             1024, '%d bytes',               1),
-                      (          10*1024, '%.2f KB',           1024.0),  (     1024*1024, '%.1f KB',           1024.0),
-                      (     10*1024*1024, '%.2f MB',      1024*1024.0),  (1024*1024*1024, '%.1f MB',      1024*1024.0),
-                      (10*1024*1024*1024, '%.2f GB', 1024*1024*1024.0),  (      infinite, '%.1f GB', 1024*1024*1024.0)]
-        for boundary, format, divisor in boundaries:
-            if size < boundary:
-                return format % (size/divisor,)
-        else:
-            return "%d bytes" % size
 
     @run_in_twisted_thread
     def handle_notification(self, notification):

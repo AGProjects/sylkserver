@@ -65,3 +65,20 @@ class FileTransferData(object):
     @hashed_receiver.setter
     def hashed_receiver(self, value):
         self._hashed_receiver = self._encode_and_hash_uri(value)
+
+    @property
+    def formatted_file_size(self):
+        return self.format_file_size(self.filesize)
+
+    @staticmethod
+    def format_file_size(size):
+        infinite = float('infinity')
+        boundaries = [(             1024, '%d bytes',               1),
+                      (          10*1024, '%.2f KB',           1024.0),  (     1024*1024, '%.1f KB',           1024.0),
+                      (     10*1024*1024, '%.2f MB',      1024*1024.0),  (1024*1024*1024, '%.1f MB',      1024*1024.0),
+                      (10*1024*1024*1024, '%.2f GB', 1024*1024*1024.0),  (      infinite, '%.1f GB', 1024*1024*1024.0)]
+        for boundary, format, divisor in boundaries:
+            if size < boundary:
+                return format % (size/divisor,)
+        else:
+            return "%d bytes" % size
