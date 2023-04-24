@@ -13,7 +13,7 @@ from .models import sylkpush
 from .storage import TokenStorage
 
 
-__all__ = 'conference_invite'
+__all__ = 'conference_invite', 'message'
 
 
 agent = Agent(reactor)
