@@ -392,6 +392,7 @@ class MessageHandler(object):
             headers = [Header('X-Sylk-To-Sip', 'yes'), Header('X-Replicated-Message', 'yes')] + extra_headers
             self._outgoing_message(uri, identity, content, content_type, headers=headers, route=route, message_type=ReplicatedMessage)
 
+
     def handle_notification(self, notification):
         handler = getattr(self, '_NH_%s' % notification.name, Null)
         handler(notification)
@@ -454,7 +455,7 @@ class FileTransferHandler(object):
 
                 log.info('File transfer finished, saved to %s' % transfer_data.full_path)
 
-                payload = 'File transfer available at %s (%s)' % (transfer_data.url, transfer_data.formatted_file_size)
+                payload = transfer_data.message_payload
                 message_handler = MessageHandler()
                 message_handler.outgoing_replicated_message(f'sip:{metadata.receiver.uri}', payload, identity=f'sip:{metadata.sender.uri}')
                 message_handler.outgoing_message(f'sip:{metadata.receiver.uri}', payload, identity=f'sip:{metadata.sender.uri}')

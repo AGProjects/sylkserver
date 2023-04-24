@@ -1,13 +1,16 @@
 import base64
 import hashlib
+import json
 import os
 import urllib.parse
 
 from sipsimple.util import ISOTimestamp
 from sipsimple.configuration.settings import SIPSimpleSettings
 
+from sipsimple.streams.msrp.chat import CPIMPayload, ChatIdentity, CPIMHeader, CPIMNamespace
 from sylk.web import server
 from sylk.configuration.datatypes import URL
+
 from .models import sylkrtc
 
 
@@ -67,8 +70,34 @@ class FileTransferData(object):
         self._hashed_receiver = self._encode_and_hash_uri(value)
 
     @property
+    def message_payload(self):
+        return f'File transfer available at {self.url} ({self.formatted_file_size})'
+
+    def cpim_message_payload(self, metadata):
+        return self.build_cpim_payload(self.sender.uri,
+                                       self.receiver.uri,
+                                       self.transfer_id,
+                                       json.dumps(sylkrtc.FileTransferMessage(**metadata.__data__).__data__),
+                                       content_type='application/sylk-file-transfer')
+
+    @property
     def formatted_file_size(self):
         return self.format_file_size(self.filesize)
+
+    @staticmethod
+    def build_cpim_payload(account, uri, message_id, content, content_type='text/plain'):
+        ns = CPIMNamespace('urn:ietf:params:imdn', 'imdn')
+        additional_headers = [CPIMHeader('Message-ID', ns, message_id)]
+        additional_headers.append(CPIMHeader('Disposition-Notification', ns, 'positive-delivery, display'))
+        payload = CPIMPayload(content,
+                              content_type,
+                              charset='utf-8',
+                              sender=ChatIdentity(account, None),
+                              recipients=[ChatIdentity(uri, None)],
+                              timestamp=str(ISOTimestamp.now()),
+                              additional_headers=additional_headers)
+        payload, content_type = payload.encode()
+        return payload
 
     @staticmethod
     def format_file_size(size):
