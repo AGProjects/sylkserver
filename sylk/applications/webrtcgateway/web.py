@@ -20,7 +20,6 @@ from sylk import __version__ as sylk_version
 from sylk.resources import Resources
 from sylk.web import File, Klein, StaticFileResource, server
 
-from . import push
 from .configuration import GeneralConfig, JanusConfig
 from .datatypes import FileTransferData
 from .factory import SylkWebSocketServerFactory
