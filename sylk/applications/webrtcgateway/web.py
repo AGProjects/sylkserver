@@ -2,6 +2,11 @@
 import json
 import os
 
+import hashlib
+from shutil import copyfileobj
+from application.system import makedirs
+from sipsimple.streams.msrp.filetransfer import FileSelector
+
 from application.python.types import Singleton
 from autobahn.twisted.resource import WebSocketResource
 from sipsimple.configuration.settings import SIPSimpleSettings
@@ -17,11 +22,13 @@ from sylk.web import File, Klein, StaticFileResource, server
 
 from . import push
 from .configuration import GeneralConfig, JanusConfig
+from .datatypes import FileTransferData
 from .factory import SylkWebSocketServerFactory
 from .janus import JanusBackend
 from .logger import log
 from .models import sylkrtc
 from .protocol import SYLK_WS_PROTOCOL
+from .sip_handlers import MessageHandler
 from .storage import TokenStorage, MessageStorage
 
 
@@ -101,23 +108,113 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
                     return 'OK'
         raise Forbidden()
 
-    @app.route('/filetransfer/<string:sender>/<string:receiver>/<string:transfer_id>/<string:filename>', methods=['GET'])
+    @app.route('/filetransfer/<string:sender>/<string:receiver>/<string:transfer_id>/<string:filename>', methods=['GET', 'POST', 'OPTIONS'])
     def filetransfer(self, request, sender, receiver, transfer_id, filename):
-        settings = SIPSimpleSettings()
-        folder = os.path.join(settings.file_transfer.directory.normalized, sender[:1], sender, receiver, transfer_id)
-        path = '%s/%s' % (folder, filename)
-        log_path = os.path.join(sender, receiver, transfer_id, filename)
-        if os.path.exists(path):
-            file_size = os.path.getsize(path)
-            split_tup = os.path.splitext(path)
-            file_extension = split_tup[1]
-            render_type = 'inline' if file_extension and file_extension.lower() in ('.jpg', '.png', '.jpeg', '.gif') else 'attachment'
-            request.setHeader('Content-Disposition', '%s;filename=%s' % (render_type, filename))
-            log.info('Web %s file download %s (%s)' % (render_type, log_path, self.format_file_size(file_size)))
-            return File(path)
+        request.setHeader('Access-Control-Allow-Origin', '*')
+        request.setHeader('Access-Control-Allow-Headers', 'content-type')
+        method = request.method.upper().decode()
+
+        if method == 'POST':
+            ip = request.getClientIP()
+            connection_handlers = [connection.connection_handler for connection in self._ws_factory.connections if connection.peer.split(":")[1] == ip]
+            sender_connection = next((connection_handler for connection_handler in connection_handlers if sender in connection_handler.accounts_map), False)
+            if not sender_connection:
+                raise Forbidden
+
+            # TODO: Form support to support extra metadata?
+            filename = secure_filename(filename)
+            filesize = int(request.getHeader('Content-Length'))
+            filetype = request.getHeader('Content-Type') if request.getHeader('Content-Type') else 'application/octet-stream'
+            transfer_data = FileTransferData(filename, filesize, filetype, transfer_id, sender, receiver, content=request.content)
+
+            message_storage = MessageStorage()
+            account = defer.maybeDeferred(message_storage.get_account, receiver)
+            account.addCallback(lambda result: self._check_receiver(result))
+
+            sender_account = defer.maybeDeferred(message_storage.get_account, sender)
+            sender_account.addCallback(lambda result: self._check_sender(result, transfer_data))
+
+            d1 = defer.DeferredList([account, sender_account], consumeErrors=True)
+            d1.addCallback(lambda result: self._handle_lookup_result(result, transfer_data, sender_connection))
+            return d1
+        elif method == 'GET':
+            settings = SIPSimpleSettings()
+            folder = os.path.join(settings.file_transfer.directory.normalized, sender[:1], sender, receiver, transfer_id)
+            path = f'{folder}/{filename}'
+            log_path = os.path.join(sender, receiver, transfer_id, filename)
+            if os.path.exists(path):
+                file_size = os.path.getsize(path)
+                split_tup = os.path.splitext(path)
+                file_extension = split_tup[1]
+                render_type = 'inline' if file_extension and file_extension.lower() in ('.jpg', '.png', '.jpeg', '.gif') else 'attachment'
+                request.setHeader('Content-Disposition', '%s;filename=%s' % (render_type, filename))
+                log.info('Web %s file download %s (%s)' % (render_type, log_path, FileTransferData.format_file_size(file_size)))
+                return File(path)
+            else:
+                log.warning('Download failed, file not found: %s' % (log_path))
+                raise NotFound()
         else:
-            log.warning(f'File not found: {path}')
-            raise NotFound()
+            return 'OK'
+
+    def _check_receiver(self, account):
+        if account is None:
+            raise Exception("Receiver account for file upload not found")
+
+    def _check_sender(self, account, transfer_data):
+        if account is None:
+            transfer_data.update_path_for_receiver()
+            raise Exception("Sender account for file upload not found")
+
+    def _handle_lookup_result(self, result, transfer_data, connection):
+        reject_session = all([success is not True for (success, value) in result])
+        if reject_session:
+            self._reject_upload("Sender and receiver accounts for file upload were not found")
+            return
+
+        log.info('File upload from {sender.uri} to {receiver.uri} will be saved to {path}/{filename}'.format(**transfer_data.__dict__))
+        return self._accept_upload(transfer_data, connection)
+
+    def _reject_upload(self, error):
+        log.warning(f'File upload rejected: {error}')
+        raise NotFound()
+
+    def _accept_upload(self, transfer_data, connection):
+        makedirs(transfer_data.path)
+        with open(os.path.join(transfer_data.path, transfer_data.filename), 'wb') as output_file:
+            copyfileobj(transfer_data.content, output_file)
+
+        part_size = 64 * 1024
+        sha1 = hashlib.sha1()
+
+        with open(os.path.join(transfer_data.path, transfer_data.filename), 'rb') as f:
+            while True:
+                data = f.read(part_size)
+                if not data:
+                    break
+                sha1.update(data)
+
+        file_selector = FileSelector.for_file(os.path.join(transfer_data.path, transfer_data.filename))
+        file_selector.hash = sha1
+
+        metadata = sylkrtc.TransferredFile(**transfer_data.__dict__, hash=file_selector.hash)
+
+        meta_filepath = os.path.join(transfer_data.path, f'meta-{metadata.filename}')
+
+        try:
+            with open(meta_filepath, 'w+') as output_file:
+                output_file.write(json.dumps(metadata.__data__))
+        except (OSError, IOError):
+            log.warning('Could not save metadata %s' % meta_filepath)
+
+        payload = transfer_data.cpim_message_payload(metadata)
+
+        message_handler = MessageHandler()
+        message_handler.outgoing_message_to_self(f'sip:{metadata.receiver.uri}', payload, content_type='message/cpim', identity=f'sip:{metadata.sender.uri}')
+        message_handler.outgoing_replicated_message(f'sip:{metadata.receiver.uri}', payload, content_type='message/cpim', identity=f'sip:{metadata.sender.uri}')
+        message_handler.outgoing_message(f'sip:{metadata.receiver.uri}', payload, content_type='message/cpim', identity=f'sip:{metadata.sender.uri}')
+
+        return "OK"
+
 
     def verify_api_token(self, request, account, msg_id, token=None):
         if token:
@@ -168,18 +265,6 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
         else:
             return self.verify_api_token(request, account, msg_id, token)
 
-    @staticmethod
-    def format_file_size(size):
-        infinite = float('infinity')
-        boundaries = [(             1024, '%d bytes',               1),
-                      (          10*1024, '%.2f KB',           1024.0),  (     1024*1024, '%.1f KB',           1024.0),
-                      (     10*1024*1024, '%.2f MB',      1024*1024.0),  (1024*1024*1024, '%.1f MB',      1024*1024.0),
-                      (10*1024*1024*1024, '%.2f GB', 1024*1024*1024.0),  (      infinite, '%.1f GB', 1024*1024*1024.0)]
-        for boundary, format, divisor in boundaries:
-            if size < boundary:
-                return format % (size/divisor,)
-        else:
-            return "%d bytes" % size
 
 class WebHandler(object):
     def __init__(self):
