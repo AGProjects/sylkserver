@@ -131,6 +131,9 @@ class TransferredFile(JSONObject):
     prefix = StringProperty()
     path = StringProperty()
     timestamp = StringProperty()
+    url = StringProperty(optional=True)
+    filetype = StringProperty(optional=True)
+    hash = StringProperty(optional=True)
 
 
 class DispositionNotifications(StringArray):
