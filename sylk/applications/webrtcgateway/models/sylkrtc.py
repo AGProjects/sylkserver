@@ -136,6 +136,18 @@ class TransferredFile(JSONObject):
     hash = StringProperty(optional=True)
 
 
+class FileTransferMessage(JSONObject):
+    filename = StringProperty()
+    filesize = IntegerProperty()
+    sender = ObjectProperty(SIPIdentity)  # type: SIPIdentity
+    receiver = ObjectProperty(SIPIdentity)
+    transfer_id = StringProperty()
+    timestamp = StringProperty()
+    url = StringProperty(optional=True)
+    filetype = StringProperty(optional=True)
+    hash = StringProperty(optional=True)
+
+
 class DispositionNotifications(StringArray):
     list_validator = UniqueItemsValidator()
 
