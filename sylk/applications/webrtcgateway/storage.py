@@ -9,12 +9,14 @@ from application.system import makedirs
 from collections import defaultdict
 from sipsimple.threading import run_in_thread
 from sipsimple.util import ISOTimestamp
+from shutil import rmtree
 from twisted.internet import defer
 from types import SimpleNamespace
 
 from sylk.configuration import ServerConfig
 
 from .configuration import CassandraConfig
+from .datatypes import FileTransferData
 from .errors import StorageError
 from .logger import log
 
@@ -487,6 +489,14 @@ class FileMessageStorage(object):
                 else:
                     item = [n for n in messages if n['created_at'] == timestamp and n['message_id'] == message_id]
                     if len(item) == 1:
+                        if item[0]['content_type'] == 'application/sylk-file-transfer':
+                            data = FileTransferData('', '', '', item[0]['message_id'], item[0]['account'], item[0]['contact'])
+                            try:
+                                rmtree(data.path)
+                            except FileNotFoundError:
+                                pass
+                            else:
+                                print(f"Removed {data.path}")
                         messages.remove(item[0])
                         self._save_messages(account, messages)
 
@@ -690,9 +700,22 @@ class CassandraMessageStorage(object):
             return
         else:
             try:
-                ChatMessage.objects(ChatMessage.account == account,
-                                    ChatMessage.created_at == timestamp.created_at,
-                                    ChatMessage.message_id == message_id).if_exists().delete()
+                messages = ChatMessage.objects(ChatMessage.account == account,
+                                               ChatMessage.created_at == timestamp.created_at,
+                                               # ChatMessage.message_id == message_id).if_exists().delete()
+                                               ChatMessage.message_id == message_id)
+
+                for message in messages:
+                    if message.content_type == 'application/sylk-file-transfer':
+                        data = FileTransferData('', '', '', message.message_id, message.account, message.contact)
+                        try:
+                            rmtree(data.path)
+                        except FileNotFoundError:
+                            pass
+                        else:
+                            print(f"Removed {data.path}")
+
+                messages.if_exists().delete()
             except LWTException:
                 pass
 
