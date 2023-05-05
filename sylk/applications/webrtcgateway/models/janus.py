@@ -124,6 +124,19 @@ class VideoroomPublishers(JSONArray):
     item_type = VideoroomPublisher
 
 
+class Stream(JSONObject):
+    type= StringProperty()
+    active = BooleanProperty()
+    mindex = IntegerProperty()
+    mid = IntegerProperty()
+    ready = BooleanProperty()
+    send = BooleanProperty()
+
+
+class Streams(JSONArray):
+    item_type = Stream
+
+
 class ContactParams(JSONObject):
     pn_app = StringProperty(optional=True)
     pn_tok = StringProperty(optional=True)
@@ -707,6 +720,12 @@ class VideoroomAttached(VideoroomPluginData):
 class VideoroomSlowLink(VideoroomPluginData):
     videoroom = FixedValueProperty('slow_link')
     # current_bitrate = IntegerProperty()  # this is actually defined as 'current-bitrate' in JSON, so we cannot map it to an attribute name. also not used.
+
+
+class VideoroomUpdatedEvent(VideoroomPluginData):  # SVC temporal layer change
+    videoroom = FixedValueProperty('updated')
+    room = IntegerProperty()
+    streams = ArrayProperty(Streams)
 
 
 class VideoroomErrorEvent(VideoroomPluginData):

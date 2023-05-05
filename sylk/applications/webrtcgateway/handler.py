@@ -1957,6 +1957,9 @@ class ConnectionHandler(object):
     def _EH_janus_videoroom_slow_link(self, event):
         pass
 
+    def _EH_janus_videoroom_updated(self, event):
+        pass
+
     def _EH_janus_videoroom_event_publishers(self, event):
         try:
             videoroom_session = self.videoroom_sessions[event.sender]
