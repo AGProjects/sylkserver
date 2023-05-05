@@ -125,10 +125,10 @@ class VideoroomPublishers(JSONArray):
 
 
 class Stream(JSONObject):
-    type= StringProperty()
+    type = StringProperty()
     active = BooleanProperty()
     mindex = IntegerProperty()
-    mid = IntegerProperty()
+    mid = StringProperty()
     ready = BooleanProperty()
     send = BooleanProperty()
 
