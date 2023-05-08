@@ -1667,7 +1667,7 @@ class ConnectionHandler(object):
             self.log.warning('could not find SIP session with handle ID {event.sender} for accepted event'.format(event=event))
             return
 
-        if session_info.state == 'established':  # We had early media
+        if session_info.state == 'established' or session_info.state == 'early_media':  # We had early media
             session_info.state = 'accepted'
             self.send(sylkrtc.SessionAcceptedEvent(session=session_info.id))
             self.log.debug('{session.direction} session {session.id} state: {session.state}'.format(session=session_info))
