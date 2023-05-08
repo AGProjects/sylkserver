@@ -827,7 +827,6 @@ class ConnectionHandler(object):
                                       content,
                                       extra_headers=[Header('X-Sylk-To-Sip', 'yes')])
 
-            notification_center = NotificationCenter()
             message_request.send()
 
     def _fork_event_to_online_accounts(self, account_info, event):
@@ -997,7 +996,7 @@ class ConnectionHandler(object):
             storage = TokenStorage()
             storage.remove(request.account, account_info.contact_params['pn_app'], account_info.contact_params['pn_device'])
 
-        self.log.info('registered')
+        self.log.info('unregistered')
 
     def _RH_account_devicetoken(self, request):
         if request.account not in self.accounts_map:
