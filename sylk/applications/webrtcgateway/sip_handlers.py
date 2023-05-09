@@ -459,7 +459,11 @@ class FileTransferHandler(object):
                 message_handler = MessageHandler()
                 message_handler.outgoing_replicated_message(f'sip:{metadata.receiver.uri}', payload, identity=f'sip:{metadata.sender.uri}')
                 message_handler.outgoing_message(f'sip:{metadata.receiver.uri}', payload, identity=f'sip:{metadata.sender.uri}')
-                message_handler.outgoing_message_to_self(f'sip:{metadata.receiver.uri}', payload, identity=f'sip:{metadata.sender.uri}')
+
+                cpim_payload = transfer_data.cpim_message_payload(metadata)
+                message_handler.outgoing_message_to_self(f'sip:{metadata.receiver.uri}', cpim_payload, content_type='message/cpim', identity=f'sip:{metadata.sender.uri}')
+                message_handler.outgoing_replicated_message(f'sip:{metadata.receiver.uri}', cpim_payload, content_type='message/cpim', identity=f'sip:{metadata.sender.uri}')
+                message_handler.outgoing_message(f'sip:{metadata.receiver.uri}', cpim_payload, content_type='message/cpim', identity=f'sip:{metadata.sender.uri}')
         else:
             pass
 
