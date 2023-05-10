@@ -1,3 +1,23 @@
+sylkserver (6.2.0) unstable; urgency=medium
+
+  * [webrtcgateway] Added upload support for filetransfers from webrtc
+  * [webrtcgateway] Added filetransfer message to send to webrtc end-points
+  * [webrtcgateway] Refactored filetransfers internally to datatype class
+  * [webrtcgateway] Extend filetransfer meta storage
+  * [webrtcgateway] Reworked storage conditions for filetransfers
+  * [webrtcgateway] Remove transferred files when originator deletes message
+  * [webrtcgateway] Send CPIM filetransfer messages to all end-points
+  * [webrtcgateway] Only send plain text filetransfer messages to SIP
+                    end-points and don't store them
+  * [webrtcgateway] Added extra field to indicate server generated messages
+  * [webrtcgateway] Moved SIP application handlers to seperate file
+  * [webrtcgateway] Prevent traceback by handling videoroom update event
+  * [webrtcgateway] Fixed early media race condition
+  * [webrtcgateway] Fixed filename in filetransfer route
+  * [conference] Added setting to disable moh in conference rooms
+
+ -- Tijmen de Mes <tijmen@ag-projects.com>  Wed, 10 May 2023 11:05:49 +0200
+
 sylkserver (6.1.0) unstable; urgency=medium
 
   * [webrtcgateway] Added initial support for asynchronous file transfers
