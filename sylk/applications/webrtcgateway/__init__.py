@@ -1,7 +1,6 @@
 
 import os
 import time
-import uuid
 import errno
 
 from application.notification import IObserver, NotificationCenter
@@ -108,7 +107,7 @@ class WebRTCGatewayApplication(SylkApplication):
         transfer_data = FileTransferData(file_selector.name,
                                          file_selector.size,
                                          file_selector.type,
-                                         str(uuid.uuid4()),
+                                         transfer_stream.transfer_id,
                                          sender,
                                          receiver)
         session.transfer_data = transfer_data
