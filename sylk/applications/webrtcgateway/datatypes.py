@@ -2,6 +2,7 @@ import base64
 import hashlib
 import json
 import os
+from datetime import datetime, timedelta
 import urllib.parse
 
 from sipsimple.util import ISOTimestamp
@@ -11,11 +12,12 @@ from sipsimple.streams.msrp.chat import CPIMPayload, ChatIdentity, CPIMHeader, C
 from sylk.web import server
 from sylk.configuration.datatypes import URL
 
+from .configuration import GeneralConfig
 from .models import sylkrtc
 
 
 class FileTransferData(object):
-    def __init__(self, filename, filesize, filetype, transfer_id, sender, receiver, content=None):
+    def __init__(self, filename, filesize, filetype, transfer_id, sender, receiver, content=None, url=None):
         self.content = content
         self.filename = filename
         self.filesize = filesize
@@ -28,7 +30,8 @@ class FileTransferData(object):
         self.prefix = self.hashed_sender[:1]
         self.path = self._get_initial_path()
         self.timestamp = str(ISOTimestamp.now())
-        self.url = self._set_url()
+        self.until = self._set_until()
+        self.url = self._set_url() if not url else url
 
     def _encode_and_hash_uri(self, uri):
         return base64.urlsafe_b64encode(hashlib.md5(uri.encode('utf-8')).digest()).rstrip(b'=\n').decode('utf-8')
@@ -42,6 +45,10 @@ class FileTransferData(object):
         self.prefix = self.hashed_receiver[:1]
         self.path = os.path.join(settings.file_transfer.directory.normalized, self.prefix, self.hashed_receiver, self.hashed_sender, self.transfer_id)
         self.url = self._set_url()
+
+    def _set_until(self):
+        remove_after_days = GeneralConfig.filetransfer_expire_days
+        return str(ISOTimestamp(datetime.now() + timedelta(days=remove_after_days)))
 
     def _set_url(self):
         settings = SIPSimpleSettings()
