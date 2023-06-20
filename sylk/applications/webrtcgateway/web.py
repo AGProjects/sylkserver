@@ -205,19 +205,19 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
         except (OSError, IOError):
             log.warning('Could not save metadata %s' % meta_filepath)
 
-        payload = transfer_data.cpim_message_payload(metadata)
 
         message_handler = MessageHandler()
+        payload = transfer_data.cpim_message_payload(metadata)
         message_handler.outgoing_message_to_self(f'sip:{metadata.receiver.uri}', payload, content_type='message/cpim', identity=f'sip:{metadata.sender.uri}')
-        message_handler.outgoing_replicated_message(f'sip:{metadata.receiver.uri}', payload, content_type='message/cpim', identity=f'sip:{metadata.sender.uri}')
-        message_handler.outgoing_message(f'sip:{metadata.receiver.uri}', payload, content_type='message/cpim', identity=f'sip:{metadata.sender.uri}')
-
-        message_handler.outgoing_replicated_message(f'sip:{metadata.receiver.uri}', transfer_data.message_payload, content_type='text/plain', identity=f'sip:{metadata.sender.uri}')
-        message_handler.outgoing_message(f'sip:{metadata.receiver.uri}', transfer_data.message_payload, content_type='text/plain', identity=f'sip:{metadata.sender.uri}')
 
         xml_payload = transfer_data.cpim_rcsfthttp_message_payload(metadata)
         message_handler.outgoing_replicated_message(f'sip:{metadata.receiver.uri}', xml_payload, content_type='message/cpim', identity=f'sip:{metadata.sender.uri}')
         message_handler.outgoing_message(f'sip:{metadata.receiver.uri}', xml_payload, content_type='message/cpim', identity=f'sip:{metadata.sender.uri}')
+
+        if not metadata.filename.endswith('.asc'):
+            message_handler.outgoing_replicated_message(f'sip:{metadata.receiver.uri}', transfer_data.message_payload, content_type='text/plain', identity=f'sip:{metadata.sender.uri}')
+            message_handler.outgoing_message(f'sip:{metadata.receiver.uri}', transfer_data.message_payload, content_type='text/plain', identity=f'sip:{metadata.sender.uri}')
+
         return "OK"
 
 
