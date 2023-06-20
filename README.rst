@@ -236,6 +236,7 @@ The server implements relevant features from the following standards:
  - WebRTC standards http://www.w3.org/TR/webrtc/
  - RTP Topologies RFC7667
    3.7 Selective Forwarding Middlebox
+ - OMA RCC0.7 Filetransfer over HTTP/POST
 
 
 Support
