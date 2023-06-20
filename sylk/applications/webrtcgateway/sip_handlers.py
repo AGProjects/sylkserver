@@ -12,6 +12,7 @@ from sipsimple.configuration.settings import SIPSimpleSettings
 from sipsimple.core import SIPURI, FromHeader, ToHeader, Message, Request, RouteHeader, Route, Header
 from sipsimple.lookup import DNSLookup, DNSLookupError
 from sipsimple.payloads.imdn import IMDNDocument
+from sipsimple.payloads.rcsfthttp import FTHTTPDocument
 from sipsimple.streams.msrp.chat import CPIMPayload, Message as SIPMessage
 from sipsimple.threading import run_in_twisted_thread
 from sipsimple.threading.green import run_in_green_thread
@@ -27,6 +28,7 @@ from .configuration import GeneralConfig
 from .logger import log
 from .models import sylkrtc
 from .storage import MessageStorage
+from .datatypes import FileTransferData
 
 
 class ParsedSIPMessage(SIPMessage):
@@ -97,6 +99,21 @@ class MessageHandler(object):
         timestamp = str(cpim_message.timestamp) if cpim_message is not None and cpim_message.timestamp is not None else str(ISOTimestamp.now())
         sender = sylkrtc.SIPIdentity(uri=str(sender.uri), display_name=sender.display_name)
         destination = sylkrtc.SIPIdentity(uri=str(self.to_header.uri), display_name=self.to_header.display_name)
+
+        if content_type == FTHTTPDocument.content_type:
+            document = FTHTTPDocument.parse(body)
+            for info in document:
+                if info.type == 'file':
+                    transfer_data = FileTransferData(info.file_name.value,
+                                                     int(info.file_size.value),
+                                                     info.content_type.value,
+                                                     message_id,
+                                                     sender.uri,
+                                                     destination.uri,
+                                                     url=info.data.url)
+                    metadata = sylkrtc.TransferredFile(**transfer_data.__dict__)
+                    body = json.dumps(sylkrtc.FileTransferMessage(**metadata.__data__).__data__)
+                    content_type = 'application/sylk-file-transfer'
 
         self.parsed_message = ParsedSIPMessage(body, content_type, sender=sender, disposition=disposition, message_id=message_id, timestamp=timestamp, destination=destination)
 
@@ -391,7 +408,6 @@ class MessageHandler(object):
             log.info("sending message from '%s' to '%s' using proxy %s" % (identity, uri, route))
             headers = [Header('X-Sylk-To-Sip', 'yes'), Header('X-Replicated-Message', 'yes')] + extra_headers
             self._outgoing_message(uri, identity, content, content_type, headers=headers, route=route, message_type=ReplicatedMessage)
-
 
     def handle_notification(self, notification):
         handler = getattr(self, '_NH_%s' % notification.name, Null)
