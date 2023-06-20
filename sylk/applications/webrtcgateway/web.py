@@ -214,10 +214,16 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
 
         message_handler.outgoing_replicated_message(f'sip:{metadata.receiver.uri}', transfer_data.message_payload, content_type='text/plain', identity=f'sip:{metadata.sender.uri}')
         message_handler.outgoing_message(f'sip:{metadata.receiver.uri}', transfer_data.message_payload, content_type='text/plain', identity=f'sip:{metadata.sender.uri}')
+
+        xml_payload = transfer_data.cpim_rcsfthttp_message_payload(metadata)
+        message_handler.outgoing_replicated_message(f'sip:{metadata.receiver.uri}', xml_payload, content_type='message/cpim', identity=f'sip:{metadata.sender.uri}')
+        message_handler.outgoing_message(f'sip:{metadata.receiver.uri}', xml_payload, content_type='message/cpim', identity=f'sip:{metadata.sender.uri}')
         return "OK"
 
 
     def verify_api_token(self, request, account, msg_id, token=None):
+        # print(msg_id)
+        # return self.get_account_messages(request, account)
         if token:
             auth_headers = request.requestHeaders.getRawHeaders('Authorization', default=None)
             if auth_headers:

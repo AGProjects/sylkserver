@@ -7,6 +7,7 @@ import urllib.parse
 
 from sipsimple.util import ISOTimestamp
 from sipsimple.configuration.settings import SIPSimpleSettings
+from sipsimple.payloads.rcsfthttp import FTHTTPDocument, FileInfo
 
 from sipsimple.streams.msrp.chat import CPIMPayload, ChatIdentity, CPIMHeader, CPIMNamespace
 from sylk.web import server
@@ -86,6 +87,18 @@ class FileTransferData(object):
                                        self.transfer_id,
                                        json.dumps(sylkrtc.FileTransferMessage(**metadata.__data__).__data__),
                                        content_type='application/sylk-file-transfer')
+
+    def cpim_rcsfthttp_message_payload(self, metadata):
+        return self.build_cpim_payload(self.sender.uri,
+                                       self.receiver.uri,
+                                       self.transfer_id,
+                                       FTHTTPDocument.create(file=[FileInfo(file_size=metadata.filesize,
+                                                                            file_name=metadata.filename,
+                                                                            content_type=metadata.filetype,
+                                                                            url=metadata.url,
+                                                                            until=metadata.until,
+                                                                            hash=metadata.hash)]),
+                                       content_type=FTHTTPDocument.content_type)
 
     @property
     def formatted_file_size(self):
