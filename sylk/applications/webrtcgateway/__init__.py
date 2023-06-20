@@ -2,6 +2,7 @@
 import os
 import time
 import errno
+import re
 
 from application.notification import IObserver, NotificationCenter
 from application.python import Null
@@ -86,12 +87,6 @@ class WebRTCGatewayApplication(SylkApplication):
         # TODO: handle diverted sessions?
         log.info('New incoming session {session.call_id} from sip:{uri.user}@{uri.host}'.format(session=session, uri=session.remote_identity.uri))
         transfer_streams = [stream for stream in session.proposed_streams if stream.type == 'file-transfer']
-
-        if not transfer_streams:
-            log.info(u'Session rejected: invalid media')
-            session.reject(488)
-            return
-
         transfer_stream = transfer_streams[0]
 
         if transfer_stream.direction == 'sendonly':
@@ -104,6 +99,25 @@ class WebRTCGatewayApplication(SylkApplication):
         receiver = f'{session.local_identity.uri.user}@{session.local_identity.uri.host}'
 
         file_selector = transfer_stream.file_selector
+        if transfer_stream.direction == 'sendonly':
+            transfer_data = FileTransferData(file_selector.name,
+                                             file_selector.size,
+                                             file_selector.type,
+                                             transfer_stream.transfer_id,
+                                             receiver,
+                                             sender)
+            session.transfer_data = transfer_data
+            message_storage = MessageStorage()
+            account = defer.maybeDeferred(message_storage.get_account, receiver)
+            account.addCallback(lambda result: self._check_receiver_session(result))
+
+            sender_account = defer.maybeDeferred(message_storage.get_account, sender)
+            sender_account.addCallback(lambda result: self._check_sender_session(result, session))
+
+            d1 = defer.DeferredList([account, sender_account], consumeErrors=True)
+            d1.addCallback(lambda result: self._handle_pull_transfer(result, session, transfer_stream))
+            return
+
         transfer_data = FileTransferData(file_selector.name,
                                          file_selector.size,
                                          file_selector.type,
@@ -142,6 +156,50 @@ class WebRTCGatewayApplication(SylkApplication):
         stream.handler.save_directory = session.transfer_data.path
         log.info('File transfer from {sender.uri} to {receiver.uri} will be saved to {path}/{filename}'.format(**session.transfer_data.__dict__))
         self._accept_session(session, [stream])
+
+    def _handle_pull_transfer(self, result, session, stream):
+        reject_session = all([success is not True for (success, value) in result])
+        if reject_session:
+            self._reject_session(session, "Sender and receiver accounts for filetransfer were not found")
+            return
+
+        transfer_data = session.transfer_data
+        original_filename = transfer_data.filename
+
+        if not os.path.exists(transfer_data.full_path):
+            filename, ext = os.path.splitext(transfer_data.filename)
+            filename = re.sub(r"-[0-9]$", '', filename)
+            transfer_data.filename = f'{filename}{ext}'
+
+        if not os.path.exists(transfer_data.full_path):
+            transfer_data.filename = original_filename
+            transfer_data.update_path_for_receiver()
+
+        if not os.path.exists(transfer_data.full_path):
+            filename, ext = os.path.splitext(transfer_data.filename)
+            filename = re.sub(r"-[0-9]$", '', filename)
+            transfer_data.filename = f'{filename}{ext}'
+
+        if os.path.exists(transfer_data.full_path):
+            meta_filepath = os.path.join(transfer_data.path, f'meta-{transfer_data.filename}')
+            import json
+            from sipsimple.streams.msrp.filetransfer import FileSelector
+            try:
+                with open(meta_filepath, 'r') as meta_file:
+                    metadata = json.load(meta_file)
+            except (OSError, IOError,ValueError):
+                log.warning('Could load metadata %s' % meta_filepath)
+                session.reject(404)
+                return
+            if stream.file_selector.hash == metadata['hash']:
+                file_selector_disk = FileSelector.for_file(os.path.join(transfer_data.path, transfer_data.filename))
+                stream.file_selector = file_selector_disk
+                NotificationCenter().add_observer(self, sender=session)
+                self._accept_session(session, [stream])
+                return
+        else:
+            log.warning(f'File transfer rejected, {original_filename} file is not found')
+            session.reject(500)
 
     def _reject_session(self, session, error):
         log.warning(f'File transfer rejected: {error}')
