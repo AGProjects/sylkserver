@@ -101,7 +101,7 @@ class FileTransferData(object):
                               charset='utf-8',
                               sender=ChatIdentity(account, None),
                               recipients=[ChatIdentity(uri, None)],
-                              timestamp=str(ISOTimestamp.now()),
+                              timestamp=str(ISOTimestamp.now().replace(microsecond=0)),
                               additional_headers=additional_headers)
         payload, content_type = payload.encode()
         return payload
