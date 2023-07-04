@@ -1075,7 +1075,11 @@ class ConnectionHandler(object):
             raise APIError('Unknown account specified: {request.account}'.format(request=request))
 
         storage = MessageStorage()
-        messages = storage[[account_info.id, request.message_id]]
+        try:
+            since = request.since
+        except AttributeError:
+            since = None
+        messages = storage[[account_info.id, request.message_id, since]]
 
         if isinstance(messages, defer.Deferred):
             messages.addCallback(lambda result: self.send(sylkrtc.AccountSyncConversationsEvent(account=account_info.id, messages=result)))

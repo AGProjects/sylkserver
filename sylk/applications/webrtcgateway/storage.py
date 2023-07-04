@@ -258,7 +258,7 @@ class FileMessageStorage(object):
         deferred = defer.Deferred()
 
         @run_in_thread('file-io')
-        def query(account, message_id):
+        def query(account, message_id, since):
             messages = []
             timestamp = None
 
@@ -277,6 +277,9 @@ class FileMessageStorage(object):
                 else:
                     timestamp = ISOTimestamp(timestamp)
 
+            if since and not message_id:
+                timestamp = ISOTimestamp(since)
+
             try:
                 messages = self._load_messages(account)
             except (OSError, IOError):
@@ -288,7 +291,11 @@ class FileMessageStorage(object):
                     deferred.callback(messages)
                 else:
                     deferred.callback(messages)
-        query(key[0], key[1])
+        try:
+            since = key[2]
+        except IndexError:
+            since = None
+        query(key[0], key[1], since)
         return deferred
 
     def get_account(self, account):
@@ -510,7 +517,7 @@ class CassandraMessageStorage(object):
         deferred = defer.Deferred()
 
         @run_in_thread('cassandra')
-        def query_messages(key, message_id):
+        def query_messages(key, message_id, since):
             messages = []
             try:
                 timestamp = ChatMessageIdMapping.objects(ChatMessageIdMapping.message_id == message_id)[0]
@@ -518,6 +525,10 @@ class CassandraMessageStorage(object):
                 timestamp = datetime.datetime.now() - datetime.timedelta(days=3)
             else:
                 timestamp = timestamp.created_at
+
+            if since and not message_id:
+                timestamp = ISOTimestamp(since)
+
             for message in ChatMessage.objects(ChatMessage.account == key, ChatMessage.created_at > timestamp):
                 timestamp_naive = message.msg_timestamp
                 try:
@@ -527,8 +538,11 @@ class CassandraMessageStorage(object):
                 message.msg_timestamp = timestamp_utc
                 messages.append(message)
             deferred.callback(messages)
-
-        query_messages(key[0], key[1])
+        try:
+            since = key[2]
+        except IndexError:
+            since = None
+        query_messages(key[0], key[1], since)
         return deferred
 
     def get_account(self, account):
