@@ -4,12 +4,12 @@ sylkserver (6.2.1) unstable; urgency=medium
   * [webrtcgateway] Send filetransfer text messages only on unencrypted files
   * [webrtcgateway] Send OMA RCS 0.7 message to sip devices when filetransfer is received
   * [webrtcgateway] Fixed timestamp in filetransfer data
-  * [webrtcgateway] Added support for receiving OMA RCS.07 filetransfers messages
+  * [webrtcgateway] Added support for receiving OMA RCS 0.7 filetransfers messages
   * [webrtcgateway] Support 'pull' MSRP filetransfers in webrtcgateway
   * [webrtcgateway] Added until to filetransfer JSON and metadata
   * [webrtcgateway] Use MSRP transfer id as identifier for incoming filetransfer
 
- -- Tijmen de Mes <tijmen@ag-projects.com>  Thu, 06 Jul 2023 12:34:32 +0200
+ -- Tijmen de Mes <tijmen@ag-projects.com>  Thu, 06 Jul 2023 12:56:36 +0200
 
 sylkserver (6.2.0) unstable; urgency=medium
 
