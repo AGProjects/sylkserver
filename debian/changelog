@@ -1,3 +1,9 @@
+sylkserver (6.2.2) unstable; urgency=medium
+
+  * [webrtcgateway] Fixed pull MSRP filetransfers
+
+ -- Tijmen de Mes <tijmen@ag-projects.com>  Fri, 07 Jul 2023 10:14:05 +0200
+
 sylkserver (6.2.1) unstable; urgency=medium
 
   * [webrtcgateway] Added API option to get messages from timestamp
