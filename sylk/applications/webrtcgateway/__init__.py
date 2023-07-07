@@ -89,12 +89,6 @@ class WebRTCGatewayApplication(SylkApplication):
         transfer_streams = [stream for stream in session.proposed_streams if stream.type == 'file-transfer']
         transfer_stream = transfer_streams[0]
 
-        if transfer_stream.direction == 'sendonly':
-            # file transfer 'pull'
-            log.info('Session rejected: requested file not found')
-            session.reject(404)
-            return
-
         sender = f'{session.remote_identity.uri.user}@{session.remote_identity.uri.host}'
         receiver = f'{session.local_identity.uri.user}@{session.local_identity.uri.host}'
 
