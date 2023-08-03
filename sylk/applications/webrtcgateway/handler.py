@@ -1122,7 +1122,7 @@ class ConnectionHandler(object):
         content = sylkrtc.AccountMessageRemoveEventData(contact=contact, message_id=message_id)
         storage.add(account=account_info.id,
                     contact=contact,
-                    direction='',
+                    direction='outgoing',
                     content=json.dumps(content.__data__),
                     content_type='application/sylk-message-remove',
                     timestamp=str(ISOTimestamp.now()),
@@ -1146,7 +1146,7 @@ class ConnectionHandler(object):
                     content = sylkrtc.AccountMessageRemoveEventData(contact=message.contact, message_id=message_id)
                     storage.add(account=account,
                                 contact=message.contact,
-                                direction='',
+                                direction='incoming',
                                 content=json.dumps(content.__data__),
                                 content_type='application/sylk-message-remove',
                                 timestamp=str(ISOTimestamp.now()),

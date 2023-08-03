@@ -148,7 +148,7 @@ class MessageHandler(object):
         content = sylkrtc.AccountMessageRemoveEventData(contact=contact, message_id=message_id)
         self.message_storage.add(account=account,
                                  contact=contact,
-                                 direction='',
+                                 direction='outgoing',
                                  content=json.dumps(content.__data__),
                                  content_type='application/sylk-message-remove',
                                  timestamp=str(ISOTimestamp.now()),
@@ -170,7 +170,7 @@ class MessageHandler(object):
                     content = sylkrtc.AccountMessageRemoveEventData(contact=message.contact, message_id=message_id)
                     self.message_storage.add(account=account,
                                              contact=message.contact,
-                                             direction='',
+                                             direction='incoming',
                                              content=json.dumps(content.__data__),
                                              content_type='application/sylk-message-remove',
                                              timestamp=str(ISOTimestamp.now()),
