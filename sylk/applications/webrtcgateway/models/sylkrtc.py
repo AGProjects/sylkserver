@@ -183,6 +183,7 @@ class MessageHistoryData(JSONObject):
 class AccountMessageRemoveEventData(JSONObject):
     contact = StringProperty()
     message_id = StringProperty()
+    direction = StringProperty(optional=True, default="outgoing")
 
 
 class AccountMarkConversationReadEventData(JSONObject):

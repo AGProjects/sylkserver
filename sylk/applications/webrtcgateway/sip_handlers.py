@@ -167,7 +167,7 @@ class MessageHandler(object):
                     message_id = message.message_id
                     self.message_storage.removeMessage(account=account, message_id=message_id)
 
-                    content = sylkrtc.AccountMessageRemoveEventData(contact=message.contact, message_id=message_id)
+                    content = sylkrtc.AccountMessageRemoveEventData(contact=message.contact, message_id=message_id, direction="incoming")
                     self.message_storage.add(account=account,
                                              contact=message.contact,
                                              direction='incoming',

@@ -1143,7 +1143,7 @@ class ConnectionHandler(object):
                     storage = MessageStorage()
                     storage.removeMessage(account=account, message_id=message_id)
 
-                    content = sylkrtc.AccountMessageRemoveEventData(contact=message.contact, message_id=message_id)
+                    content = sylkrtc.AccountMessageRemoveEventData(contact=message.contact, message_id=message_id, direction="incoming")
                     storage.add(account=account,
                                 contact=message.contact,
                                 direction='incoming',
