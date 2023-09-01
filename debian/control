@@ -15,7 +15,7 @@ Depends: ${python3:Depends}, ${misc:Depends},
          python3-eventlib,
          python3-klein,
          python3-lxml,
-         python3-sipsimple,
+         python3-sipsimple (>=5.3.0),
          python3-systemd,
          python3-twisted
 Suggests: libavahi-compat-libdnssd1, python3-wokkel, sylkserver-webrtc-gateway
