@@ -14,14 +14,7 @@ package on Debian and Ubuntu systems.
 Debian and Ubuntu packages
 --------------------------
 
-Install the AG Projects debian software signing key:
-
-wget http://download.ag-projects.com/agp-debian-gpg.key
-sudo apt-key add agp-debian-gpg.key
-
-Add these repository matching your distribution to /etc/apt/sources.list:
-
-http://projects.ag-projects.com/projects/documentation/wiki/Repositories
+See https://packages.ag-projects.com
 
 Update the list of available packages:
 
