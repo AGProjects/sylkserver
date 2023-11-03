@@ -22,7 +22,11 @@ sudo apt-get update
 
 Install SylkServer:
 
-sudo apt-get install sylkserver
+sudo apt-get install sylkserver 
+
+or
+
+sudo apt-get install sylkserver-webrtc-gateway
 
 Enable SylkServer:
 
@@ -30,13 +34,13 @@ Edit /etc/default/sylkserver and set RUN_SYLKSERVER=yes
 
 Configure SylkServer:
 
-Edit /etc/sylkserver/config.ini
+Edit the .ini files inside /etc/sylkserver/ folder.
 
 Run SylkServer:
 
-/etc/init.d/sylkserver start
+sudo systemctl start sylkserver
 
-High level application logs are logged to syslog.
+High level application logs are logged to journal, use journalctl -f to read the live logs
 
 Detail protocol traces are logged in /var/log/sylkserver/
 
@@ -44,30 +48,17 @@ Detail protocol traces are logged in /var/log/sylkserver/
 Manual installation
 -------------------
 
-The source code is managed using darcs version control tool. The darcs
-repository can be fetched with:
+The source code can be retrieved:
 
-darcs get http://devel.ag-projects.com/repositories/sylkserver
-
-To obtain the incremental changes after the initial get run:
-
-darcs pull -a
+1. Using git from https://github.com/AGProjects/sylkserver/
+2. Using darcs from http://devel.ag-projects.com/repositories/sylkserver
 
 Install the required dependencies:
 
- * python-sipsimple http://sipsimpleclient.org
- * python-application (>= 2.8.0)
- * python-autobahn
- * python-eventlib
- * python-lxml
- * python-klein
- * python-twisted
- * python-typing
- * python-werkzeug
-
-Optionally, install the following packages for extra functionality:
-
- * python-wokkel http://wokkel.ik.nu/
+ * python3-sipsimple from http://sipsimpleclient.org (>= 5.3.0)
+ * python3-autobahn
+ * python3-klein
+ * python3-wokkel
 
 To run SylkServer in the foreground:
 
@@ -78,8 +69,4 @@ To run SylkServer in the foreground in bonjour mode:
 ./sylk-server --no-fork --use-bonjour
 
 To toggle debug mode send SIGUSR1 signal to the sylk-server process.
-
-To install SylkServer manually system wide:
-
-sudo python setup.py install
 
