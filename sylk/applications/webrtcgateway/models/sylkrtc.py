@@ -303,6 +303,15 @@ class SessionProgressEvent(SessionStateEvent):
     state = FixedValueProperty('progress')
 
 
+class ProceedingEvent(SessionStateEvent):
+    state = FixedValueProperty('proceeding')
+    code = IntegerProperty()
+
+
+class RingingEvent(SessionStateEvent):
+    state = FixedValueProperty('ringing')
+
+
 class SessionEarlyMediaEvent(SessionStateEvent):
     state = FixedValueProperty('early-media')
     sdp = StringProperty(optional=True)

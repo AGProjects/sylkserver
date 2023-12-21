@@ -1249,7 +1249,7 @@ class ConnectionHandler(object):
         except KeyError:
             raise APIError('Unknown session {request.session}'.format(request=request))
 
-        if session_info.state not in ('connecting', 'progress', 'early_media', 'accepted', 'established'):
+        if session_info.state not in ('connecting', 'progress', 'early_media', 'accepted', 'established', 'ringing'):
             raise APIError('Invalid state for terminating session {session.id}: {session.state}'.format(session=session_info))
 
         if session_info.direction == 'incoming' and session_info.state == 'connecting':
@@ -1712,7 +1712,14 @@ class ConnectionHandler(object):
         pass
 
     def _EH_janus_sip_event_proceeding(self, event):
-        pass
+        data = event.plugindata.data.result  # type: janus.SIPResultMessage
+
+        try:
+            session_info = self.sip_sessions[event.sender]
+        except KeyError:
+            return
+
+        self.send(sylkrtc.ProceedingEvent(session=session_info.id, code=data.code))
 
     def _EH_janus_sip_event_progress(self, event):
         if (event.jsep):
@@ -1727,7 +1734,12 @@ class ConnectionHandler(object):
             self.log.debug('{session.direction} session {session.id} state: {session.state}'.format(session=session_info))
 
     def _EH_janus_sip_event_ringing(self, event):
-        pass
+        try:
+            session_info = self.sip_sessions[event.sender]
+        except KeyError:
+            return
+
+        self.send(sylkrtc.RingingEvent(session=session_info.id))
 
     def _EH_janus_sip_event_message(self, event):
         data = event.plugindata.data.result  # type: janus.SIPResultMessage
