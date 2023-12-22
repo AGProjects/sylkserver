@@ -1,3 +1,18 @@
+sylkserver (6.3.0) unstable; urgency=medium
+
+  * Updated documentation
+  * Increase minimum version of SDK required
+  * [conference] Handle non base64 images in conference room
+  * [webrtcgateway] Use twisted reactor for Cassandra connection
+  * [webrtcgateway] Catch race condition/exception when sending a message on a disconnected socket
+  * [webrtcgateway] Added file transfers to push notification for unread messages
+  * [webrtcgateway] Reject incoming sessions if they contain no transfer streams
+  * [webrtcgateway] Added support for ringing and proceeding events
+  * [webrtcgateway] Added direction to sync remove message content
+  * [webrtcgateway] Added direction to sync remove messages
+
+ -- Tijmen de Mes <tijmen@ag-projects.com>  Fri, 22 Dec 2023 10:16:34 +0100
+
 sylkserver (6.2.2) unstable; urgency=medium
 
   * [webrtcgateway] Fixed pull MSRP filetransfers
