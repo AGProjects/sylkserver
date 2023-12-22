@@ -4,6 +4,7 @@ import json
 from application.notification import NotificationCenter, NotificationData
 from autobahn.twisted.websocket import WebSocketServerProtocol
 from autobahn.websocket import ConnectionDeny
+from autobahn.exception import Disconnected
 
 from .handler import ConnectionHandler
 from .janus import JanusBackend
@@ -58,7 +59,10 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
     def sendMessage(self, payload, *args, **kw):
         self.notification_center.post_notification('WebRTCClientTrace', sender=self, data=NotificationData(direction='OUTGOING', message=payload, peer=self.peer))
         #log.info('Sending %s to web socket %s' % (payload, self.peer));
-        super(SylkWebSocketServerProtocol, self).sendMessage(payload.encode(), *args, **kw)
+        try:
+            super(SylkWebSocketServerProtocol, self).sendMessage(payload.encode(), *args, **kw)
+        except Disconnected as e:
+            pass
 
     def disconnect(self, code=1000, reason=''):
         self.sendClose(code, reason)
