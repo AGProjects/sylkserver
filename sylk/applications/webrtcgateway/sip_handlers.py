@@ -301,11 +301,11 @@ class MessageHandler(object):
 
             notification_center.post_notification(name='SIPApplicationGotAccountMessage', sender=account.account, data=message)
 
-            if self.parsed_message.content_type == 'text/plain' or self.parsed_message.content_type == 'text/html':
+            if self.parsed_message.content_type in ('text/plain', 'text/html', 'application/sylk-file-transfer'):
                 def get_unread_messages(messages, originator):
                     unread = 1
                     for message in messages:
-                        if ((message.content_type == 'text/plain' or message.content_type == 'text/html')
+                        if (message.content_type in ('text/plain', 'text/html', 'application/sylk-file-transfer')
                                 and message.direction == 'incoming' and message.contact != account.account
                                 and 'display' in message.disposition):
                             unread += 1
