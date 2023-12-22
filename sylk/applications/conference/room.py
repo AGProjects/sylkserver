@@ -588,7 +588,10 @@ class Room(object):
             self.incoming_message_queue.send((session, 'message', data))
         elif content_type == 'application/blink-screensharing':
             stream.msrp_session.send_report(notification.data.chunk, 200, 'OK')
-            image = base64.b64decode(message.content.encode())
+            try:
+                image = base64.b64decode(message.content.encode())
+            except AttributeError as e:
+                image = message.content
             self.add_screen_image(message.sender, image)
         elif content_type == 'application/blink-zrtp-sas':
             if not self.config.zrtp_auto_verify:
