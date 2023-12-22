@@ -131,7 +131,8 @@ class CassandraConnection(object, metaclass=Singleton):
     @run_in_thread('cassandra')
     def __init__(self):
         try:
-            self.session = connection.setup(CassandraConfig.cluster_contact_points, CassandraConfig.keyspace, load_balancing_policy=DCAwareRoundRobinPolicy(), protocol_version=4)
+            from cassandra.io import twistedreactor
+            self.session = connection.setup(CassandraConfig.cluster_contact_points, CassandraConfig.keyspace, load_balancing_policy=DCAwareRoundRobinPolicy(), protocol_version=4, connection_class=twistedreactor.TwistedConnection)
         except NoHostAvailable:
             log.error("Not able to connect to any of the Cassandra contact points")
             raise StorageError
