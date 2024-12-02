@@ -1107,6 +1107,8 @@ class ConnectionHandler(object):
         event = sylkrtc.AccountSyncEvent(account=account_info.id, type='conversation', action='read', content=event)
         self._fork_event_to_online_accounts(account_info, event)
 
+        self._send_simple_sip_message(contact, account_info.id, json.dumps(content.__data__), 'application/sylk-conversation-read')
+
     def _RH_account_remove_message(self, request):
         try:
             account_info = self.accounts_map[request.account]
@@ -2090,6 +2092,15 @@ class ConnectionHandler(object):
         self.send(message)
 
     def _NH_SIPApplicationGotAccountRemoveMessage(self, notification):
+        try:
+            self.accounts_map[notification.sender]
+        except KeyError:
+            return
+
+        message = notification.data
+        self.send(message)
+
+    def _NH_SIPApplicationGotConversationReadMessage(self, notification):
         try:
             self.accounts_map[notification.sender]
         except KeyError:

@@ -138,6 +138,34 @@ class MessageHandler(object):
         else:
             self._send_public_key(self.from_header.uri, self.to_header.uri, public_key)
 
+    def _handle_conversation_read(self):
+        from_account = f'{self.from_header.uri.user}@{self.from_header.uri.host}'
+        contact = f'{self.to_header.uri.user}@{self.to_header.uri.host}'
+        notification_center = NotificationCenter()
+
+        def mark_conversations_read(account):
+            if account is None:
+                return
+
+            content = sylkrtc.AccountMarkConversationReadEventData(contact=contact)
+
+            self.message_storage.mark_conversation_read(account.account, contact)
+            self.message_storage.add(account=account.account,
+                                     contact=contact,
+                                     direction='',
+                                     content=contact,
+                                     content_type='application/sylk-conversation-read',
+                                     timestamp=str(ISOTimestamp.now()),
+                                     disposition_notification='',
+                                     message_id=str(uuid.uuid4()))
+
+            event = sylkrtc.AccountSyncEvent(account=account.account, type='conversation', action='read', content=content)
+            self.outgoing_message(self.from_header.uri, json.dumps(content.__data__), 'application/sylk-coversation-read', str(self.from_header.uri))
+            notification_center.post_notification(name='SIPApplicationGotConversationReadMessage', sender=account.account, data=event)
+
+        account = defer.maybeDeferred(self.message_storage.get_account, from_account)
+        account.addCallback(lambda result: mark_conversations_read(result))
+
     def _handle_message_remove(self):
         account = f'{self.from_header.uri.user}@{self.from_header.uri.host}'
         contact = f'{self.to_header.uri.user}@{self.to_header.uri.host}'
@@ -344,6 +372,10 @@ class MessageHandler(object):
 
         if self.parsed_message.content_type == 'application/sylk-api-message-remove':
             self._handle_message_remove()
+            return
+
+        if self.parsed_message.content_type == 'application/sylk-api-conversation-read':
+            self._handle_conversation_read()
             return
 
         if self.from_sip is not Null:
