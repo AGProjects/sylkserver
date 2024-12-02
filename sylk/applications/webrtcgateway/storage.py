@@ -483,12 +483,12 @@ class FileMessageStorage(object):
         try:
             id_by_timestamp = self._load_id_by_timestamp(account)
         except (OSError, IOError):
-            return
+            return False
         else:
             try:
                 timestamp = id_by_timestamp[message_id]
             except KeyError:
-                return
+                return False
             else:
                 try:
                     messages = self._load_messages(account)
@@ -507,6 +507,8 @@ class FileMessageStorage(object):
                                 print(f"Removed {data.path}")
                         messages.remove(item[0])
                         self._save_messages(account, messages)
+                        return True
+                    return False
 
 
 class CassandraMessageStorage(object):
@@ -707,33 +709,46 @@ class CassandraMessageStorage(object):
                 if message.contact == contact:
                     message.delete()
 
-    @run_in_thread('cassandra')
     def removeMessage(self, account, message_id):
-        try:
-            timestamp = ChatMessageIdMapping.objects(ChatMessageIdMapping.message_id == message_id)[0]
-        except IndexError:
-            return
-        else:
+        deferred = defer.Deferred()
+
+        @run_in_thread('cassandra')
+        def remove(account, message_id):
             try:
-                messages = ChatMessage.objects(ChatMessage.account == account,
-                                               ChatMessage.created_at == timestamp.created_at,
-                                               # ChatMessage.message_id == message_id).if_exists().delete()
-                                               ChatMessage.message_id == message_id)
+                timestamp = ChatMessageIdMapping.objects(ChatMessageIdMapping.message_id == message_id)[0]
+            except IndexError:
+                deferred.callback(False)
+                return
+            else:
+                try:
+                    result = True
+                    messages = ChatMessage.objects(ChatMessage.account == account,
+                                                ChatMessage.created_at == timestamp.created_at,
+                                                # ChatMessage.message_id == message_id).if_exists().delete()
+                                                ChatMessage.message_id == message_id)
 
-                for message in messages:
-                    if message.content_type == 'application/sylk-file-transfer':
-                        data = FileTransferData('', '', '', message.message_id, message.account, message.contact)
-                        try:
-                            rmtree(data.path)
-                        except FileNotFoundError:
-                            pass
-                        else:
-                            print(f"Removed {data.path}")
+                    for message in messages:
+                        if message.content_type == 'application/sylk-file-transfer':
+                            data = FileTransferData('', '', '', message.message_id, message.account, message.contact)
+                            try:
+                                rmtree(data.path)
+                            except FileNotFoundError:
+                                pass
+                            else:
+                                print(f"Removed {data.path}")
+                    if not messages:
+                        result = False
+                        print('message not removed')
+                    else:
+                        print('message removed')
 
-                messages.if_exists().delete()
-            except LWTException:
-                pass
+                    messages.if_exists().delete()
+                    deferred.callback(result)
+                except LWTException:
+                    pass
 
+        remove(account, message_id)
+        return deferred
 
 class TokenStorage(object, metaclass=Singleton):
     def __new__(self):
