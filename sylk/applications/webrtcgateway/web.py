@@ -248,6 +248,7 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
         raise ApiTokenAuthError()
 
     def get_account_messages(self, request, account, msg_id=None):
+        log.info(f'Returning message history for {account}')
         account = account.lower()
         storage = MessageStorage()
         messages = storage[[account, msg_id]]
