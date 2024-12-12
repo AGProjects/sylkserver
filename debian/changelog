@@ -1,13 +1,8 @@
 sylkserver (6.4.0) unstable; urgency=medium
-
+  * [webrtcgateway] Refactored message delete from sip
   * [webrtcgateway] Handle conversation-read messasges from sip
-  * [webrtcgateway] Handle non base64 images in conference room
-  * [webrtcgateway] Use twisted reactor for Cassandra connection
-  * [webrtcgateway] Catch race condition/exception when sending a message on a disconnected socket
-  * [webrtcgateway] Added file transfers to unread messages push notification
-  * [webrtcgateway] Reject incoming session if no transfer streams
 
- -- Tijmen de Mes <support@ag-projects.com>  Wed, 11 Dec 2024 15:28:48 +0100
+ -- Tijmen de Mes <tijmen@ag-projects.com>  Thu, 12 Dec 2024 16:09:31 +0100
 
 sylkserver (6.3.0) unstable; urgency=medium
 
