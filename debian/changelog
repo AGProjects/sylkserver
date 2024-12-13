@@ -3,8 +3,9 @@ sylkserver (6.4.0) unstable; urgency=medium
   * [webrtcgateway] Reject empty messages
   * [webrtcgateway] Refactored message delete from sip
   * [webrtcgateway] Handle conversation-read messasges from sip
+  * [webrtcgateway] Attempt to parse zlib compressed messages
 
- -- Tijmen de Mes <tijmen@ag-projects.com>  Fri, 13 Dec 2024 10:54:12 +0100
+ -- Tijmen de Mes <tijmen@ag-projects.com>  Fri, 13 Dec 2024 11:13:23 +0100
 
 sylkserver (6.3.0) unstable; urgency=medium
 
