@@ -1091,7 +1091,7 @@ class ConnectionHandler(object):
             raise APIError('Unknown account specified: {request.account}'.format(request=request))
 
         contact = request.contact
-        event = sylkrtc.AccountMarkConversationReadEventData(contact=request.contact)
+        content = sylkrtc.AccountMarkConversationReadEventData(contact=request.contact)
 
         storage = MessageStorage()
         storage.mark_conversation_read(account_info.id, contact)
@@ -1104,7 +1104,7 @@ class ConnectionHandler(object):
                     disposition_notification='',
                     message_id=str(uuid.uuid4()))
 
-        event = sylkrtc.AccountSyncEvent(account=account_info.id, type='conversation', action='read', content=event)
+        event = sylkrtc.AccountSyncEvent(account=account_info.id, type='conversation', action='read', content=content)
         self._fork_event_to_online_accounts(account_info, event)
 
         self._send_simple_sip_message(contact, account_info.id, json.dumps(content.__data__), 'application/sylk-conversation-read')
