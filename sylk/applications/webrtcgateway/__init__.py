@@ -224,6 +224,11 @@ class WebRTCGatewayApplication(SylkApplication):
             message_request.answer(400)
             return
 
+        if not data.body:
+            log.warning('SIP message from %s to %s rejected: empty body' % (from_header.uri, '%s@%s' % (to_header.uri.user, to_header.uri.host)))
+            message_request.answer(400)
+            return
+
         if content_type == 'message/cpim':
             try:
                 cpim_message = CPIMPayload.decode(data.body)
