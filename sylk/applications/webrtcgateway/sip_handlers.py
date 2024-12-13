@@ -4,6 +4,7 @@ import random
 import os
 import secrets
 import uuid
+import zlib
 
 from application.notification import IObserver, NotificationCenter, NotificationData
 from application.python import Null
@@ -90,7 +91,21 @@ class MessageHandler(object):
             disposition = next(([item.strip() for item in header.value.split(',')] for header in cpim_message.additional_headers if header.name == 'Disposition-Notification'), None)
             message_id = next((header.value for header in cpim_message.additional_headers if header.name == 'Message-ID'), str(uuid.uuid4()))
         else:
-            body = self.body.decode('utf-8')
+            try:
+                body = self.body.decode('utf-8')
+            except UnicodeDecodeError as e:
+                if self.content_encoding == 'deflate':
+                    try:
+                        body = zlib.decompress(self.body)
+                    except zlib.error as b:
+                        log.error('error decompressing message %s' %b);
+                        return None
+                    else:
+                        body.decode('utf-8')
+                else:
+                    log.error('error decoding body %s' %e);
+                    return None
+
             sender = self.from_header
             disposition = None
             message_id = str(uuid.uuid4())
@@ -115,7 +130,7 @@ class MessageHandler(object):
                     body = json.dumps(sylkrtc.FileTransferMessage(**metadata.__data__).__data__)
                     content_type = 'application/sylk-file-transfer'
 
-        self.parsed_message = ParsedSIPMessage(body, content_type, sender=sender, disposition=disposition, message_id=message_id, timestamp=timestamp, destination=destination)
+        return  ParsedSIPMessage(body, content_type, sender=sender, disposition=disposition, message_id=message_id, timestamp=timestamp, destination=destination)
 
     def _send_public_key(self, from_header, to_header, public_key):
         if public_key:
@@ -359,8 +374,11 @@ class MessageHandler(object):
         self.to_header = data.headers.get('To', Null)
         self.body = data.body
         self.from_sip = data.headers.get('X-Sylk-From-Sip', Null)
+        self.content_encoding = data.headers.get('Content-Encoding', Null).body;
 
-        self._parse_message()
+        self.parsed_message = self._parse_message()
+        if not self.parsed_message:
+            return
 
         if self.parsed_message.content_type == 'application/sylk-api-token':
             self._handle_generate_token()
