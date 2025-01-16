@@ -622,7 +622,7 @@ def show(account):
 
             unread_messages = [message for message in messages if ((message['content_type'] == 'text/plain' or message['content_type'] == 'text/html')
                                                                    and message['direction'] == 'incoming' and message['contact'] != account
-                                                                   and 'display' in message.disposition)]
+                                                                   and 'display' in message['disposition'])]
             log.info(f'{"Unread text Messages:":>23s} {len(unread_messages)}\n')
 
         storage = MessageStorage()
