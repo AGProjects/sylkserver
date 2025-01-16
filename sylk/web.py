@@ -118,7 +118,7 @@ class WebServer(object, metaclass=Singleton):
             self.listener = reactor.listenTCP(port, self.site, backlog=511, interface=interface)
             scheme = 'http'
         port = self.listener.getHost().port
-        self.__dict__['url'] = '%s://%s:%d' % (scheme, WebServerConfig.hostname or interface.normalized, port)
+        self.__dict__['url'] = '%s://%s:%d' % (scheme, WebServerConfig.hostname or interface.normalized, WebServerConfig.public_port or port)
         log.info('Web server listening for requests on: %s' % self.url)
 
     def stop(self):
