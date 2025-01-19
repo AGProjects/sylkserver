@@ -1,14 +1,19 @@
+import random
 
 from application.notification import IObserver, NotificationCenter
 from application.python import Null
 from sipsimple.account.bonjour import BonjourPresenceState
+from sipsimple.core import SIPURI, Message, Request, RouteHeader, Route, Header, FromHeader, ToHeader
+from sipsimple.lookup import DNSLookup, DNSLookupError
+from sipsimple.streams.msrp.chat import CPIMPayload, CPIMParserError
+from sipsimple.threading.green import run_in_green_thread
+from sipsimple.configuration.settings import SIPSimpleSettings
 from twisted.internet import reactor
 from zope.interface import implementer
 
 from sylk.applications import SylkApplication, ApplicationLogger
 from sylk.bonjour import BonjourService
-from sylk.configuration import ServerConfig
-
+from sylk.configuration import ServerConfig, SIPConfig
 
 log = ApplicationLogger(__package__)
 
@@ -61,8 +66,36 @@ class EchoApplication(SylkApplication):
         request.reject(405)
 
     def incoming_message(self, request, data):
-        request.answer(405)
+        content_type = data.headers.get('Content-Type', Null).content_type
+        from_header = data.headers.get('From', Null)
+        to_header = data.headers.get('To', Null)
 
+        if Null in (content_type, from_header, to_header):
+            request.answer(400)
+            return
+
+        if not data.body:
+            log.warning('SIP message from %s to %s rejected: empty body' % (from_header.uri, '%s@%s' % (to_header.uri.user, to_header.uri.host)))
+            request.answer(400)
+            return
+
+        cpim_message = None
+        if content_type == 'message/cpim':
+            try:
+                cpim_message = CPIMPayload.decode(data.body)
+            except (CPIMParserError, UnicodeDecodeError):  # TODO: fix decoding in sipsimple
+                log.warning('SIP message from %s to %s rejected: CPIM parse error' % (from_header.uri, '%s@%s' % (to_header.uri.user, to_header.uri.host)))
+                request.answer(400)
+                return
+            else:
+                content_type = cpim_message.content_type
+
+        log.info('received SIP message (%s) from %s to %s' % (content_type, from_header.uri, '%s@%s' % (to_header.uri.user, to_header.uri.host)))
+
+        request.answer(200)
+
+        message_handler = MessageHandler()
+        message_handler.incoming_message(data, content_type=content_type, cpim_message=cpim_message)
 
 @implementer(IObserver)
 class EchoHandler(object):
@@ -192,4 +225,89 @@ class EchoHandler(object):
         message = notification.data.message
         stream.msrp_session.send_report(notification.data.chunk, 200, 'OK')
         stream.send_message(message.content, message.content_type)
+
+
+@implementer(IObserver)
+class MessageHandler(object):
+
+    def __init__(self):
+        self.resolver = DNSLookup()
+        self.from_header = None
+        self.to_header = None
+        self.content_type = None
+        self.body = None
+
+    def _lookup_sip_target_route(self, uri):
+        proxy = SIPConfig.outbound_proxy
+        if proxy is not None:
+            sip_uri = SIPURI(host=proxy.host, port=proxy.port, parameters={'transport': proxy.transport})
+        else:
+            sip_uri = SIPURI.parse('sip:%s' % uri)
+
+        settings = SIPSimpleSettings()
+        try:
+            routes = self.resolver.lookup_sip_proxy(sip_uri, settings.sip.transport_list).wait()
+        except DNSLookupError as e:
+            raise DNSLookupError('DNS lookup error: {exception!s}'.format(exception=e))
+        if not routes:
+            raise DNSLookupError('DNS lookup error: no results found')
+
+        route = random.choice([r for r in routes if r.transport == routes[0].transport])
+        log.info('DNS lookup for SIP message proxy for {} yielded {}'.format(uri, route))
+        return route
+
+    def incoming_message(self, data, content_type=None, cpim_message=None):
+        self.content_type = content_type if content_type is not None else data.headers.get('Content-Type', Null).content_type
+        self.from_header = data.headers.get('From', Null)
+        self.to_header = data.headers.get('To', Null)
+        if cpim_message:
+            self.body = cpim_message.content if isinstance(cpim_message.content, str) else cpim_message.content.decode()
+            self.content_type = cpim_message.content_type
+        else:
+            self.body = data.body
+            self.content_type = content_type if content_type is not None else data.headers.get('Content-Type', Null).content_type
+
+        log.info(f'Incoming message {self.content_type} from {self.from_header.uri} to {self.to_header.uri}')
+        self.outgoing_message(self.from_header, self.to_header, self.body, self.content_type)
+
+    @run_in_green_thread
+    def outgoing_message(self, to_header, from_header, content, content_type):
+        to_uri = to_header.uri
+        route = self._lookup_sip_target_route(to_uri)
+        if not route:
+            log.error("No route found for rcho message to %s" % to_header.uri)
+            return
+
+        log.info("Echo message to %s using proxy %s" % (to_header.uri, route))
+
+        from_uri = SIPURI.parse('%s' % from_header.uri)
+        to_uri = SIPURI.parse('%s' % to_header.uri)
+
+        headers = [Header('X-Sylk-To-Sip', 'yes')]
+        message_request = Message(FromHeader(from_uri),
+                                  ToHeader(to_uri),
+                                  RouteHeader(route.uri),
+                                  content_type,
+                                  content,
+                                  extra_headers=headers)
+
+        notification_center = NotificationCenter()
+        notification_center.add_observer(self, sender=message_request)
+        message_request.send()
+
+    def handle_notification(self, notification):
+        handler = getattr(self, '_NH_%s' % notification.name, Null)
+        handler(notification)
+
+    def _NH_SIPMessageDidSucceed(self, notification):
+        notification_center = NotificationCenter()
+        notification_center.remove_observer(self, sender=notification.sender)
+        log.info('Echo message was accepted by remote party')
+
+    def _NH_SIPMessageDidFail(self, notification):
+        notification_center = NotificationCenter()
+        notification_center.remove_observer(self, sender=notification.sender)
+        data = notification.data
+        reason = data.reason.decode() if isinstance(data.reason, bytes) else data.reason
+        log.warning('Could not deliver echo message %s (%s)' % (reason, data.code))
 
