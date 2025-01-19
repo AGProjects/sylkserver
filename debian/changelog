@@ -1,3 +1,13 @@
+sylkserver (6.5.0) unstable; urgency=medium
+
+  * Non-maintainer upload.
+  * Added SIP message echo to Echo application
+  * Fix response to messages in echo app
+  * Added public_port setting for the webserver
+  * Fixed traceback in sylk-db when file backend is used
+
+ -- Adrian Georgescu <support@ag-projects.com>  Sun, 19 Jan 2025 18:05:30 +0100
+
 sylkserver (6.4.0) unstable; urgency=medium
 
   * [webrtcgateway] Reject empty messages
