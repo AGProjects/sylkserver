@@ -267,8 +267,9 @@ class MessageHandler(object):
             self.body = data.body
             self.content_type = content_type if content_type is not None else data.headers.get('Content-Type', Null).content_type
 
-        log.info(f'Incoming message {self.content_type} from {self.from_header.uri} to {self.to_header.uri}')
-        self.outgoing_message(self.from_header, self.to_header, self.body, self.content_type)
+        log.info(f'Incoming {self.content_type} message from {self.from_header.uri} to {self.to_header.uri}')
+        if self.content_type in ('text/plain', 'text/html'):
+            self.outgoing_message(self.from_header, self.to_header, self.body, self.content_type)
 
     @run_in_green_thread
     def outgoing_message(self, to_header, from_header, content, content_type):
