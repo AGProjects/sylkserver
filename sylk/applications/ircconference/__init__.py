@@ -57,7 +57,7 @@ class IRCConferenceApplication(SylkApplication):
         request.reject(405)
 
     def incoming_message(self, request, data):
-        request.reject(405)
+        request.answer(405)
 
     def accept_session(self, session, streams):
         if session in self.pending_sessions:
