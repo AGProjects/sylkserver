@@ -61,7 +61,7 @@ class EchoApplication(SylkApplication):
         request.reject(405)
 
     def incoming_message(self, request, data):
-        request.reject(405)
+        request.answer(405)
 
 
 @implementer(IObserver)
