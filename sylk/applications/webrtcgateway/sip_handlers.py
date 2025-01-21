@@ -175,7 +175,7 @@ class MessageHandler(object):
                                      message_id=str(uuid.uuid4()))
 
             event = sylkrtc.AccountSyncEvent(account=account.account, type='conversation', action='read', content=content)
-            self.outgoing_message(self.from_header.uri, json.dumps(content.__data__), 'application/sylk-coversation-read', str(self.from_header.uri))
+            self.outgoing_message(self.from_header.uri, json.dumps(content.__data__), 'application/sylk-conversation-read', str(self.from_header.uri))
             notification_center.post_notification(name='SIPApplicationGotConversationReadMessage', sender=account.account, data=event)
 
         account = defer.maybeDeferred(self.message_storage.get_account, from_account)
