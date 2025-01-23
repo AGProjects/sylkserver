@@ -238,6 +238,10 @@ class MessageHandler(object):
         removed.addCallback(lambda result: update_other_endpoints(result))
 
     def _store_message_for_sender(self, account):
+        ignored_content_types = ("application/im-iscomposing+xml", 'text/pgp-public-key', IMDNDocument.content_type)
+        if self.parsed_message.content_type in ignored_content_types:
+            return
+
         if account is None:
             log.info('not storing %s message from non-existent account %s to %s' % (self.parsed_message.content_type, self.from_header.uri, '%s@%s' % (self.to_header.uri.user, self.to_header.uri.host)))
             return
@@ -245,9 +249,6 @@ class MessageHandler(object):
         log.debug(f"storage is enabled for originator {account.account}")
 
         message = None
-        ignored_content_types = ("application/im-iscomposing+xml", 'text/pgp-public-key', IMDNDocument.content_type)
-        if self.parsed_message.content_type in ignored_content_types:
-            return
 
         log.info('storing {content_type} message for account {originator} to {destination.uri}'.format(content_type=self.parsed_message.content_type, originator=account.account, destination=self.parsed_message.destination))
 
@@ -279,17 +280,18 @@ class MessageHandler(object):
         notification_center.post_notification(name='SIPApplicationGotOutgoingAccountMessage', sender=account.account, data=message)
 
     def _store_message_for_receiver(self, account):
+        ignored_content_types = ("application/im-iscomposing+xml", 'text/pgp-public-key')
+        if self.parsed_message.content_type in ignored_content_types:
+            return
+
         if account is None:
-            log.info('not storing %s message from %s to non-existent account %s' % (self.parsed_message.content_type, self.from_header.uri, '%s@%s' % (self.to_header.uri.user, self.to_header.uri.host)))
+            log.debug('not storing %s message from %s to non-existent account %s' % (self.parsed_message.content_type, self.from_header.uri, '%s@%s' % (self.to_header.uri.user, self.to_header.uri.host)))
             return
 
         log.debug(f'processing message from {self.from_header.uri} for account {account.account}')
 
         message = None
         notification_center = NotificationCenter()
-
-        if self.parsed_message.content_type == "application/im-iscomposing+xml":
-            return
 
         if self.parsed_message.content_type == IMDNDocument.content_type:
             document = IMDNDocument.parse(self.parsed_message.content)

@@ -224,7 +224,7 @@ class WebRTCGatewayApplication(SylkApplication):
             return
 
         if not data.body:
-            log.warning('SIP message from %s to %s rejected: empty body' % (from_header.uri, '%s@%s' % (to_header.uri.user, to_header.uri.host)))
+            log.warning('SIP message from %s to %s rejected: empty body' % (str(from_header.uri)[4:], '%s@%s' % (to_header.uri.user, to_header.uri.host)))
             message_request.answer(400)
             return
 
@@ -232,13 +232,13 @@ class WebRTCGatewayApplication(SylkApplication):
             try:
                 cpim_message = CPIMPayload.decode(data.body)
             except (CPIMParserError, UnicodeDecodeError):  # TODO: fix decoding in sipsimple
-                log.warning('SIP message from %s to %s rejected: CPIM parse error' % (from_header.uri, '%s@%s' % (to_header.uri.user, to_header.uri.host)))
+                log.warning('SIP message from %s to %s rejected: CPIM parse error' % (str(from_header.uri)[4:], '%s@%s' % (to_header.uri.user, to_header.uri.host)))
                 message_request.answer(400)
                 return
             else:
                 content_type = cpim_message.content_type
 
-        log.info('received SIP message (%s) from %s to %s' % (content_type, from_header.uri, '%s@%s' % (to_header.uri.user, to_header.uri.host)))
+        log.info('received SIP message (%s) from %s to %s' % (content_type, str(from_header.uri)[4:], '%s@%s' % (to_header.uri.user, to_header.uri.host)))
 
         message_request.answer(200)
 
