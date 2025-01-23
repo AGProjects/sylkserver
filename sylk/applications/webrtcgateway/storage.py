@@ -15,7 +15,7 @@ from types import SimpleNamespace
 
 from sylk.configuration import ServerConfig
 
-from .configuration import CassandraConfig
+from .configuration import CassandraConfig, FileStorageConfig
 from .datatypes import FileTransferData
 from .errors import StorageError
 from .logger import log
@@ -55,13 +55,13 @@ class FileTokenStorage(object):
 
     @run_in_thread('file-io')
     def _save(self):
-        with open(os.path.join(ServerConfig.spool_dir, 'webrtc_device_tokens'), 'wb+') as f:
+        with open(os.path.join(FileStorageConfig.storage_dir, 'webrtc_device_tokens'), 'wb+') as f:
             pickle.dump(self._tokens, f)
 
     @run_in_thread('file-io')
     def load(self):
         try:
-            tokens = pickle.load(open(os.path.join(ServerConfig.spool_dir, 'webrtc_device_tokens'), 'rb'))
+            tokens = pickle.load(open(os.path.join(FileStorageConfig.storage_dir, 'webrtc_device_tokens'), 'rb'))
         except Exception:
             pass
         else:
@@ -202,7 +202,7 @@ class FileMessageStorage(object):
     def __init__(self):
         self._public_keys = defaultdict()
         self._accounts = defaultdict()
-        self._storage_path = os.path.join(ServerConfig.spool_dir, 'conversations')
+        self._storage_path = os.path.join(FileStorageConfig.storage_dir, 'conversations')
 
     def _json_dateconverter(self, o):
         if isinstance(o, datetime.datetime):

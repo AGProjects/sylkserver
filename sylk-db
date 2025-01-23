@@ -173,7 +173,7 @@ def remove_account(account):
     if not ask("Would you like to continue?"):
         sys.exit()
 
-    from sylk.applications.webrtcgateway.configuration import CassandraConfig
+    from sylk.applications.webrtcgateway.configuration import CassandraConfig, FileStorageConfig
     from sylk.applications.webrtcgateway.models.storage.cassandra import PushTokens, ChatAccount, ChatMessage, ChatMessageIdMapping, PublicKey
 
     log.Formatter.prefix_format = parse_level
@@ -267,7 +267,7 @@ def remove_account(account):
         storage.remove_account(account)
         storage.remove_public_key(account)
 
-        storage_path = os.path.join(ServerConfig.spool_dir, 'conversations')
+        storage_path = os.path.join(FileStorageConfig.storage_dir, 'conversations')
         if os.path.exists(os.path.join(storage_path, account[0], f'{account}_messages.json')):
             os.remove(os.path.join(storage_path, account[0], f'{account}_messages.json'))
         ThreadManager().stop()
@@ -282,7 +282,7 @@ def remove_messages(account, contact):
     if not ask("Would you like to continue?"):
         sys.exit()
 
-    from sylk.applications.webrtcgateway.configuration import CassandraConfig
+    from sylk.applications.webrtcgateway.configuration import CassandraConfig, FileStorageConfig
     from sylk.applications.webrtcgateway.models.storage.cassandra import ChatMessage
     from sylk.applications.webrtcgateway.storage import MessageStorage
     from sipsimple.threading import ThreadManager
@@ -332,7 +332,7 @@ def remove_messages(account, contact):
                     message.delete()
                 log.info(f'Removed {size} messages from {account}')
     else:
-        storage_path = os.path.join(ServerConfig.spool_dir, 'conversations')
+        storage_path = os.path.join(FileStorageConfig.storage_dir, 'conversations')
         if os.path.exists(os.path.join(storage_path, account[0], f'{account}_messages.json')):
             os.remove(os.path.join(storage_path, account[0], f'{account}_messages.json'))
         log.info(f'Messages for {account} removed')

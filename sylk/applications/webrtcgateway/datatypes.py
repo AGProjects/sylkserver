@@ -6,7 +6,6 @@ from datetime import datetime, timedelta
 import urllib.parse
 
 from sipsimple.util import ISOTimestamp
-from sipsimple.configuration.settings import SIPSimpleSettings
 from sipsimple.payloads.rcsfthttp import FTHTTPDocument, FileInfo
 
 from sipsimple.streams.msrp.chat import CPIMPayload, ChatIdentity, CPIMHeader, CPIMNamespace
@@ -38,13 +37,11 @@ class FileTransferData(object):
         return base64.urlsafe_b64encode(hashlib.md5(uri.encode('utf-8')).digest()).rstrip(b'=\n').decode('utf-8')
 
     def _get_initial_path(self):
-        settings = SIPSimpleSettings()
-        return os.path.join(settings.file_transfer.directory.normalized, self.prefix, self.hashed_sender, self.hashed_receiver, self.transfer_id)
+        return os.path.join(GeneralConfig.file_transfer_dir.normalized, self.prefix, self.hashed_sender, self.hashed_receiver, self.transfer_id)
 
     def update_path_for_receiver(self):
-        settings = SIPSimpleSettings()
         self.prefix = self.hashed_receiver[:1]
-        self.path = os.path.join(settings.file_transfer.directory.normalized, self.prefix, self.hashed_receiver, self.hashed_sender, self.transfer_id)
+        self.path = os.path.join(GeneralConfig.file_transfer_dir.normalized, self.prefix, self.hashed_receiver, self.hashed_sender, self.transfer_id)
         self.url = self._set_url()
 
     def _set_until(self):
@@ -52,8 +49,7 @@ class FileTransferData(object):
         return str(ISOTimestamp(datetime.now() + timedelta(days=remove_after_days)))
 
     def _set_url(self):
-        settings = SIPSimpleSettings()
-        stripped_path = os.path.relpath(self.path, f'{settings.file_transfer.directory.normalized}/{self.prefix}')
+        stripped_path = os.path.relpath(self.path, f'{GeneralConfig.file_transfer_dir.normalized}/{self.prefix}')
         file_path = urllib.parse.quote(f'webrtcgateway/filetransfer/{stripped_path}/{self.filename}')
         return str(URL(f'{server.url}/{file_path}'))
 

@@ -47,8 +47,7 @@ class WebRTCGatewayApplication(SylkApplication):
 
     @run_in_thread('file-io')
     def clean_filetransfers(self):
-        settings = SIPSimpleSettings()
-        top = settings.file_transfer.directory.normalized
+        top = GeneralConfig.file_transfer_dir.normalized
         removed_dirs = removed_files = 0
         for root, dirs, files in os.walk(top, topdown=False):
             for name in files:

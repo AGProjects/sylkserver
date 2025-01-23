@@ -9,7 +9,6 @@ from sipsimple.streams.msrp.filetransfer import FileSelector
 
 from application.python.types import Singleton
 from autobahn.twisted.resource import WebSocketResource
-from sipsimple.configuration.settings import SIPSimpleSettings
 from twisted.internet import defer, reactor
 from twisted.python.failure import Failure
 from twisted.web.server import Site
@@ -137,8 +136,7 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
             d1.addCallback(lambda result: self._handle_lookup_result(result, transfer_data, sender_connection))
             return d1
         elif method == 'GET':
-            settings = SIPSimpleSettings()
-            folder = os.path.join(settings.file_transfer.directory.normalized, sender[:1], sender, receiver, transfer_id)
+            folder = os.path.join(GeneralConfig.file_transfer_dir.normalized, sender[:1], sender, receiver, transfer_id)
             path = f'{folder}/{filename}'
             log_path = os.path.join(sender, receiver, transfer_id, filename)
             if os.path.exists(path):

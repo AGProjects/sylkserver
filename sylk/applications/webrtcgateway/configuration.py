@@ -7,6 +7,7 @@ from application.configuration.datatypes import NetworkAddress, StringList, Host
 
 from sylk.configuration import ServerConfig
 from sylk.configuration.datatypes import Path, SIPProxyAddress, VideoBitrate, VideoCodec
+from sylk.resources import VarResources
 
 
 __all__ = 'GeneralConfig', 'JanusConfig', 'get_room_config', 'ExternalAuthConfig', 'get_auth_config', 'CassandraConfig'
@@ -115,6 +116,13 @@ class SIPAddressList(object):
 
 # Configuration objects
 
+class ApplicationConfig(ConfigSection):
+    __cfgfile__ = 'webrtcgateway.ini'
+    __section__ = 'General'
+
+    application_dir = ConfigSetting(type=Path, value=Path(VarResources.get('lib/sylkserver/webrtcgateway')))
+
+
 class GeneralConfig(ConfigSection):
     __cfgfile__ = 'webrtcgateway.ini'
     __section__ = 'General'
@@ -124,8 +132,10 @@ class GeneralConfig(ConfigSection):
     outbound_sip_proxy = ConfigSetting(type=SIPProxyAddress, value=None)
     trace_client = False
     websocket_ping_interval = 120
+    application_dir = ApplicationConfig.application_dir
     recording_dir = ConfigSetting(type=Path, value=Path(os.path.join(ServerConfig.spool_dir.normalized, 'videoconference', 'recordings')))
     filesharing_dir = ConfigSetting(type=Path, value=Path(os.path.join(ServerConfig.spool_dir.normalized, 'videoconference', 'files')))
+    file_transfer_dir = ConfigSetting(type=Path, value=Path(os.path.join(ApplicationConfig.application_dir.normalized, 'file_transfers')))
     http_management_interface = ConfigSetting(type=ManagementInterfaceAddress, value=ManagementInterfaceAddress('127.0.0.1'))
     http_management_auth_secret = ConfigSetting(type=str, value=None)
     sylk_push_url = ConfigSetting(type=str, value=None)
@@ -152,6 +162,13 @@ class CassandraConfig(ConfigSection):
     cluster_contact_points = ConfigSetting(type=HostnameList, value=None)
     keyspace = ConfigSetting(type=str, value='')
     push_tokens_table = ConfigSetting(type=str, value='')
+
+
+class FileStorageConfig(ConfigSection):
+    __cfgfile__ = 'webrtcgateway.ini'
+    __section__ = 'FileStorage'
+
+    storage_dir = ConfigSetting(type=Path, value=Path(os.path.join(GeneralConfig.application_dir.normalized, 'storage')))
 
 
 class RoomConfig(ConfigSection):
