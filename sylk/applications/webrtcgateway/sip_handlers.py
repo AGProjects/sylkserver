@@ -356,10 +356,17 @@ class MessageHandler(object):
                 def get_unread_messages(messages, originator):
                     unread = 1
                     for message in messages:
-                        if (message.content_type in ('text/plain', 'text/html', 'application/sylk-file-transfer')
-                                and message.direction == 'incoming' and message.contact != account.account
-                                and 'display' in message.disposition):
-                            unread += 1
+                        try:
+                            if (message.content_type in ('text/plain', 'text/html', 'application/sylk-file-transfer')
+                                    and message.direction == 'incoming' and message.contact != account.account
+                                    and 'display' in message.disposition):
+                                unread += 1
+                        except AttributeError:
+                            if (message['content_type'] in ('text/plain', 'text/html', 'application/sylk-file-transfer')
+                                    and message['direction'] == 'incoming' and message['contact'] != account.account
+                                    and 'display' in message['disposition']):
+                                unread += 1
+
                             # log.info(f'{message.disposition} {message.contact} {message.state}')
                     # log.info(f'there are {unread} messages')
                     push.message(originator=originator, destination=account.account, call_id=str(uuid.uuid4()), badge=unread)
