@@ -273,6 +273,12 @@ class FileMessageStorage(object):
                 try:
                     timestamp = id_by_timestamp[message_id]
                 except KeyError:
+                    try:
+                        messages = self._load_messages(account)
+                    except (OSError, IOError):
+                        deferred.callback(messages)
+                        return
+
                     deferred.callback(messages)
                     return
                 else:
