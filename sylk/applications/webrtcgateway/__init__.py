@@ -31,6 +31,7 @@ class WebRTCGatewayApplication(SylkApplication):
         self.admin_web_handler = AdminWebHandler()
 
     def start(self):
+        log.info(f'Using application directory {GeneralConfig.application_dir}')
         self.web_handler.start()
         self.admin_web_handler.start()
         # Load tokens from the storage
