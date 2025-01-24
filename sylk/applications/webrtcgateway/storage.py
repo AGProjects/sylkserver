@@ -761,6 +761,9 @@ class TokenStorage(object, metaclass=Singleton):
 class MessageStorage(object, metaclass=Singleton):
     def __new__(self):
         if CASSANDRA_MODULES_AVAILABLE and CassandraConfig.cluster_contact_points:
+            log.info(f"Using cassandra backend for message storage: {CassandraConfig.cluster_contact_points}")
             return CassandraMessageStorage()
         else:
+            storage_path = os.path.join(FileStorageConfig.storage_dir, 'conversations')
+            log.info(f"Using file backend for message storage: {storage_path}")
             return FileMessageStorage()
