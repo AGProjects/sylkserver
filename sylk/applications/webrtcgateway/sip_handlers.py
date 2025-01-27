@@ -328,7 +328,7 @@ class MessageHandler(object):
         notification_center.post_notification(name='SIPApplicationGotOutgoingAccountMessage', sender=account.account, data=message)
 
     def _store_message_for_receiver(self, account):
-        ignored_content_types = ("application/im-iscomposing+xml", 'text/pgp-public-key')
+        ignored_content_types = ("application/im-iscomposing+xml")
         if self.parsed_message.content_type in ignored_content_types:
             return
 
