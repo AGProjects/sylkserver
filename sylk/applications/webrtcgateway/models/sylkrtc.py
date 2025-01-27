@@ -192,6 +192,7 @@ class AccountMarkConversationReadEventData(JSONObject):
 
 class AccountConversationRemoveEventData(JSONObject):
     contact = StringProperty()
+    timestamp = StringProperty()
 
 
 class AccountDispositionNotificationEventData(JSONObject):

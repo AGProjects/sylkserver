@@ -1176,18 +1176,21 @@ class ConnectionHandler(object):
         storage = MessageStorage()
         storage.removeChat(account=account_info.id, contact=contact)
 
+        timestamp = str(ISOTimestamp.now())
         storage.add(account=account_info.id,
                     contact=contact,
                     direction='',
                     content=contact,
                     content_type='application/sylk-conversation-remove',
-                    timestamp=str(ISOTimestamp.now()),
+                    timestamp=timestamp,
                     disposition_notification='',
                     message_id=str(uuid.uuid4()))
 
-        content = sylkrtc.AccountConversationRemoveEventData(contact=contact)
+        content = sylkrtc.AccountConversationRemoveEventData(contact=contact, timestamp=timestamp)
         event = sylkrtc.AccountSyncEvent(account=account_info.id, type='conversation', action='remove', content=content)
         self._fork_event_to_online_accounts(account_info, event)
+
+        self._send_simple_sip_message(contact, account_info.id, json.dumps(content.__data__), 'application/sylk-conversation-remove')
 
     def _RH_session_create(self, request):
         if request.session in self.sip_sessions:
@@ -2101,6 +2104,15 @@ class ConnectionHandler(object):
         self.send(message)
 
     def _NH_SIPApplicationGotConversationReadMessage(self, notification):
+        try:
+            self.accounts_map[notification.sender]
+        except KeyError:
+            return
+
+        message = notification.data
+        self.send(message)
+
+    def _NH_SIPApplicationGotConversationRemoveMessage(self, notification):
         try:
             self.accounts_map[notification.sender]
         except KeyError:

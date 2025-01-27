@@ -181,6 +181,50 @@ class MessageHandler(object):
         account = defer.maybeDeferred(self.message_storage.get_account, from_account)
         account.addCallback(lambda result: mark_conversations_read(result))
 
+    def _handle_conversation_remove(self):
+        from_account = f'{self.from_header.uri.user}@{self.from_header.uri.host}'
+
+        try:
+            json_data = json.loads(self.parsed_message.content)
+        except Exception as e:
+            log.warning(f"Can't remove conversation, parsing error {e}")
+            return
+
+        try:
+            timestamp = json_data['timestamp']
+        except KeyError:
+            timestamp = str(ISOTimestamp.now())
+
+        try:
+            contact = json_data['contact']
+        except KeyError:
+            log.warning("Can't remove conversation, missing contact")
+            return
+
+        notification_center = NotificationCenter()
+
+        def remove_conversation(account):
+            if account is None:
+                return
+
+            content = sylkrtc.AccountConversationRemoveEventData(contact=contact, timestamp=timestamp)
+
+            self.message_storage.add(account=account.account,
+                                     contact=contact,
+                                     direction='',
+                                     content=contact,
+                                     content_type='application/sylk-conversation-remove',
+                                     timestamp=timestamp,
+                                     disposition_notification='',
+                                     message_id=str(uuid.uuid4()))
+
+            event = sylkrtc.AccountSyncEvent(account=account.account, type='conversation', action='remove', content=content)
+            self.outgoing_message(self.from_header.uri, json.dumps(content.__data__), 'application/sylk-conversation-remove', str(self.from_header.uri))
+            notification_center.post_notification(name='SIPApplicationGotConversationRemoveMessage', sender=account.account, data=event)
+
+        account = defer.maybeDeferred(self.message_storage.get_account, from_account)
+        account.addCallback(lambda result: remove_conversation(result))
+
     def _handle_message_remove(self):
         account = f'{self.from_header.uri.user}@{self.from_header.uri.host}'
         contact = f'{self.to_header.uri.user}@{self.to_header.uri.host}'
@@ -232,7 +276,6 @@ class MessageHandler(object):
                 messages.addCallback(lambda result: remove_message_from_receiver(msg_id=message_id, messages=result))
             else:
                 remove_message_from_receiver(msg_id=message_id, messages=messages)
-
 
         removed = defer.maybeDeferred(self.message_storage.removeMessage, account, message_id)
         removed.addCallback(lambda result: update_other_endpoints(result))
@@ -403,6 +446,10 @@ class MessageHandler(object):
 
         if self.parsed_message.content_type == 'application/sylk-api-conversation-read':
             self._handle_conversation_read()
+            return
+
+        if self.parsed_message.content_type == 'application/sylk-api-conversation-remove':
+            self._handle_conversation_remove()
             return
 
         if self.from_sip is not Null:
