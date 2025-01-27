@@ -155,8 +155,13 @@ class MessageHandler(object):
 
     def _handle_conversation_read(self):
         from_account = f'{self.from_header.uri.user}@{self.from_header.uri.host}'
-        contact = f'{self.to_header.uri.user}@{self.to_header.uri.host}'
         notification_center = NotificationCenter()
+
+        try:
+            contact = json.loads(self.parsed_message.content)['contact']
+        except Exception as e:
+            log.warning(f"Can't process conversation read, parsing error {e}")
+            return
 
         def mark_conversations_read(account):
             if account is None:
