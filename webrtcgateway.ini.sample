@@ -45,7 +45,7 @@
 
 ; Application directory. This set the path where the application stores non
 ; temporary files
-; application_directory = /var/lib/sylkserver/webrtcgateway
+; application_dir = /var/lib/sylkserver/webrtcgateway
 
 ; Remove big transfered files (> 50MB) after this amount of days. Smaller
 ; files (< 50MB) will be removed after 2 * filetransfer_expire_days
