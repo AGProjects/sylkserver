@@ -484,37 +484,45 @@ class FileMessageStorage(object):
 
             self._save_messages(account, messages)
 
-    @run_in_thread('file-io')
     def removeMessage(self, account, message_id):
-        try:
-            id_by_timestamp = self._load_id_by_timestamp(account)
-        except (OSError, IOError):
-            return False
-        else:
+        deferred = defer.Deferred()
+
+        @run_in_thread('file-io')
+        def remove():
             try:
-                timestamp = id_by_timestamp[message_id]
-            except KeyError:
-                return False
+                id_by_timestamp = self._load_id_by_timestamp(account)
+            except (OSError, IOError):
+                deferred.callback(False)
+                return
             else:
                 try:
-                    messages = self._load_messages(account)
-                except (OSError, IOError):
+                    timestamp = id_by_timestamp[message_id]
+                except KeyError:
+                    deferred.callback(False)
                     return
                 else:
-                    item = [n for n in messages if n['created_at'] == timestamp and n['message_id'] == message_id]
-                    if len(item) == 1:
-                        if item[0]['content_type'] == 'application/sylk-file-transfer':
-                            data = FileTransferData('', '', '', item[0]['message_id'], item[0]['account'], item[0]['contact'])
-                            try:
-                                rmtree(data.path)
-                            except FileNotFoundError:
-                                pass
-                            else:
-                                print(f"Removed {data.path}")
-                        messages.remove(item[0])
-                        self._save_messages(account, messages)
-                        return True
-                    return False
+                    try:
+                        messages = self._load_messages(account)
+                    except (OSError, IOError):
+                        return
+                    else:
+                        item = [n for n in messages if n['created_at'] == timestamp and n['message_id'] == message_id]
+                        if len(item) == 1:
+                            if item[0]['content_type'] == 'application/sylk-file-transfer':
+                                data = FileTransferData('', '', '', item[0]['message_id'], item[0]['account'], item[0]['contact'])
+                                try:
+                                    rmtree(data.path)
+                                except FileNotFoundError:
+                                    pass
+                                else:
+                                    print(f"Removed {data.path}")
+                            messages.remove(item[0])
+                            self._save_messages(account, messages)
+                            deferred.callback(True)
+                            return
+                        deferred.callback(False)
+        remove()
+        return deferred
 
 
 class CassandraMessageStorage(object):
