@@ -1,12 +1,16 @@
 sylkserver (6.5.0) unstable; urgency=medium
 
-  * Non-maintainer upload.
-  * Added SIP message echo to Echo application
-  * Fix response to messages in echo app
+  * Improved logging
   * Added public_port setting for the webserver
-  * Fixed traceback in sylk-db when file backend is used
+  * Updated CA list
+  * [echo] Added SIP message support
+  * [echo] Fix response to messages in echo app
+  * [webrtcgateway] Fixed traceback in sylk-db when file backend is used
+  * [webrtcgateway] Added support for conversation-remove API from sip
+  * [webrtcgateway] Improved file storage backends
+  * [webrtcgateway] Store file storage files in non volatile dir
 
- -- Adrian Georgescu <support@ag-projects.com>  Sun, 19 Jan 2025 18:05:30 +0100
+ -- Tijmen de Mes <tijmen@ag-projects.com>  Tue, 28 Jan 2025 09:11:09 +0100
 
 sylkserver (6.4.0) unstable; urgency=medium
 
