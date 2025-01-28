@@ -69,7 +69,7 @@ class WebServerConfig(ConfigSection):
 
     local_ip = ConfigSetting(type=IPAddress, value=IPAddress(host.default_ip))
     local_port = ConfigSetting(type=Port, value=10888)
-    public_port = None
+    public_port = ConfigSetting(type=Port, value=None)
     hostname = ''
     certificate = ConfigSetting(type=Path, value=None)
     certificate_chain = ConfigSetting(type=Path, value=None)
