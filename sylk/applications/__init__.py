@@ -1,6 +1,6 @@
 
 import abc
-import imp
+import importlib
 import logging
 import os
 import socket
@@ -81,7 +81,7 @@ class ApplicationRegistry(object, metaclass=Singleton):
                 log.warning('Not loading extra application {name!r} as it would overshadow a system package/module'.format(name=name))
                 continue
             try:
-                imp.load_module(name, *imp.find_module(name, [ServerConfig.extra_applications_dir.normalized]))
+                importlib.load_module(name, *importlib.machinery.PathFinder().find_spec(name, [ServerConfig.extra_applications_dir.normalized]))
             except ImportError as e:
                 log.error('Failed to load extra application {name!r}: {exception!s}'.format(name=name, exception=e))
 
