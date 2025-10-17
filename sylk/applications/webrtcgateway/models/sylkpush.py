@@ -24,17 +24,17 @@ class CallEventBase(SylkRTCEventBase):
     from_display_name = StringProperty(optional=True, default=None)
     media_type = LimitedChoiceProperty(['audio', 'video', 'sms'])
 
-
 # Events to use used in a SylkPushRequest
 
 class ConferenceInviteEvent(CallEventBase):
     event = FixedValueProperty('incoming_conference_request')
     to = StringProperty()
+    account = StringProperty()
 
     @property
     def __data__(self):
         data = super(ConferenceInviteEvent, self).__data__
-        for key in data:
+        for key in list(data.keys()):
             # Fixup keys
             data[key.replace('_', '-')] = data.pop(key)
         data['from'] = data.pop('originator')
@@ -49,7 +49,7 @@ class MessageEvent(CallEventBase):
     @property
     def __data__(self):
         data = super(MessageEvent, self).__data__
-        for key in list(data):
+        for key in list(data.keys()):
             # Fixup keys
             data[key.replace('_', '-')] = data.pop(key)
         data['from'] = data.pop('originator')

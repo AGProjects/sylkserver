@@ -57,7 +57,7 @@ def conference_invite(originator, destination, room, call_id, audio, video):
 
     request = sylkpush.ConferenceInviteEvent(token='dummy', app_id='dummy', platform='dummy', device_id='dummy',
                                              originator=originator.uri, from_display_name=originator.display_name, to=room, call_id=str(call_id),
-                                             media_type=media_type)
+                                             media_type=media_type, account=destination)
     user_tokens = tokens[destination]
     if isinstance(user_tokens, set):
         return
