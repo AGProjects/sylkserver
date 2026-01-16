@@ -1,20 +1,18 @@
 import mimetypes
+import os
 
+import twisted.web.server
 from application import log
 from application.python.types import Singleton
 from klein import Klein
 from twisted.internet import reactor
 from twisted.internet.ssl import DefaultOpenSSLContextFactory
-from twisted.web.resource import Resource, NoResource
+from twisted.web.resource import NoResource, Resource
 from twisted.web.server import Site
 from twisted.web.static import File
 
 from sylk import __version__
 from sylk.configuration import WebServerConfig
-
-import os
-import twisted.web.server
-
 
 __all__ = 'Klein', 'StaticFileResource', 'WebServer', 'server'
 

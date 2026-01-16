@@ -1,14 +1,13 @@
 
+import hashlib
 import json
 import os
-
-import hashlib
 from shutil import copyfileobj
-from application.system import makedirs
-from sipsimple.streams.msrp.filetransfer import FileSelector
 
 from application.python.types import Singleton
+from application.system import makedirs
 from autobahn.twisted.resource import WebSocketResource
+from sipsimple.streams.msrp.filetransfer import FileSelector
 from twisted.internet import defer, reactor
 from twisted.python.failure import Failure
 from twisted.web.server import Site
@@ -27,8 +26,7 @@ from .logger import log
 from .models import sylkrtc
 from .protocol import SYLK_WS_PROTOCOL
 from .sip_handlers import MessageHandler
-from .storage import TokenStorage, MessageStorage
-
+from .storage import MessageStorage, TokenStorage
 
 __all__ = 'WebHandler', 'AdminWebHandler'
 
