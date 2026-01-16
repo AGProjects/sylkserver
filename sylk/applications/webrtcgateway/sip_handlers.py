@@ -420,7 +420,8 @@ class MessageHandler(object):
 
                             # log.info(f'{message.disposition} {message.contact} {message.state}')
                     # log.info(f'there are {unread} messages')
-                    push.message(originator=originator, destination=account.account, call_id=str(uuid.uuid4()), badge=unread)
+                    push.message(originator=originator, destination=account.account, call_id=str(uuid.uuid4()),
+                                 badge=unread, message=self.parsed_message)
 
                 messages = self.message_storage[[account.account, '']]
                 if isinstance(messages, defer.Deferred):

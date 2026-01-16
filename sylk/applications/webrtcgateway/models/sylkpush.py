@@ -44,6 +44,8 @@ class MessageEvent(CallEventBase):
     event = FixedValueProperty('message')
     to = StringProperty()
     badge = IntegerProperty(default=1)
+    content_type = StringProperty()
+    content = StringProperty()
 
     @property
     def __data__(self):

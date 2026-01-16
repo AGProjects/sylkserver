@@ -12,7 +12,6 @@ from .logger import log
 from .models import sylkpush
 from .storage import TokenStorage
 
-
 __all__ = 'conference_invite', 'message'
 
 
@@ -48,6 +47,7 @@ def _construct_and_send(result, request, destination):
         request.device_id = push_parameters['device_id']
         _send_push_notification(request, destination, request.token)
 
+
 def conference_invite(originator, destination, room, call_id, audio, video):
     tokens = TokenStorage()
     if video:
@@ -67,13 +67,14 @@ def conference_invite(originator, destination, room, call_id, audio, video):
         else:
             _construct_and_send(user_tokens, request, destination)
 
-def message(originator, destination, call_id, badge):
+
+def message(originator, destination, call_id, badge, message):
     tokens = TokenStorage()
     media_type = 'sms'
 
     request = sylkpush.MessageEvent(token='dummy', app_id='dummy', platform='dummy', device_id='dummy',
                                     originator=originator.uri, from_display_name=originator.display_name, to=destination, call_id=str(call_id),
-                                    media_type=media_type, badge=badge)
+                                    media_type=media_type, badge=badge, content_type=message.content_type, content=message.content)
     user_tokens = tokens[destination]
     if isinstance(user_tokens, set):
         return
@@ -82,6 +83,7 @@ def message(originator, destination, call_id, badge):
             user_tokens.addCallback(lambda result: _construct_and_send(result, request, destination))
         else:
             _construct_and_send(user_tokens, request, destination)
+
 
 @defer.inlineCallbacks
 def _send_push_notification(payload, destination, token):
