@@ -16,7 +16,8 @@ from werkzeug.utils import secure_filename
 
 from sylk import __version__ as sylk_version
 from sylk.resources import Resources
-from sylk.web import File, Klein, StaticFileResource, server
+from sylk.web import (File, Klein, StaticFileResource,
+                      TrackedUploadHTTPChannel, server)
 
 from .configuration import GeneralConfig, JanusConfig
 from .datatypes import FileTransferData
@@ -150,6 +151,21 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
                 raise NotFound()
         else:
             return 'OK'
+
+    @app.route('/filetransfer/cancel/<string:transfer_id>', methods=['POST', 'GET'])
+    def cancel_upload(self, request, transfer_id):
+        log.info(f'Cancel upload {transfer_id}')
+        channel = TrackedUploadHTTPChannel.active_uploads.get(transfer_id)
+        if channel:
+            try:
+                channel.transport.abortConnection()
+            except AttributeError:
+                pass
+            TrackedUploadHTTPChannel.active_uploads.pop(transfer_id, None)
+            log.debug(f'Cancelled upload {transfer_id}')
+            return f"Cancelled upload {transfer_id}\n"
+        else:
+            return f"No active upload with transfer_id {transfer_id}\n"
 
     def _check_receiver(self, account):
         if account is None:

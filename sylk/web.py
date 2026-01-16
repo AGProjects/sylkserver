@@ -7,6 +7,7 @@ from application.python.types import Singleton
 from klein import Klein
 from twisted.internet import reactor
 from twisted.internet.ssl import DefaultOpenSSLContextFactory
+from twisted.web.http import HTTPChannel
 from twisted.web.resource import NoResource, Resource
 from twisted.web.server import Site
 from twisted.web.static import File
@@ -71,11 +72,50 @@ class RootResource(Resource):
         return b'Welcome to SylkServer!'
 
 
+class TrackedUploadHTTPChannel(HTTPChannel):
+    active_uploads = {}
+
+    def lineReceived(self, line):
+        if not self.requests:
+            try:
+                method, path, version = line.decode().split(" ", 2)
+            except ValueError:
+                return super().lineReceived(line)
+            if method.upper() == "POST":
+                match = re.match(r'/webrtcgateway/filetransfer/[^/]+/[^/]+/([^/]+)/', path)
+                if match:
+                    transfer_id = match.group(1)
+                    self.current_transfer_id = transfer_id
+                    TrackedUploadHTTPChannel.active_uploads[transfer_id] = self
+                    log.debug(f"Captured http transfer_id early: {transfer_id}")
+        super().lineReceived(line)
+
+    def requestDone(self, request):
+        if hasattr(self, "current_transfer_id"):
+            log.debug(f"HTTP request done, remove {self.current_transfer_id}")
+            transfer_id = self.current_transfer_id
+            TrackedUploadHTTPChannel.active_uploads.pop(transfer_id, None)
+            del self.current_transfer_id
+        super().requestDone(request)
+
+    def connectionLost(self, reason):
+        if hasattr(self, "current_transfer_id"):
+            log.debug(f"HTTP connection lost, removing {self.current_transfer_id}")
+            transfer_id = self.current_transfer_id
+            TrackedUploadHTTPChannel.active_uploads.pop(transfer_id, None)
+            del self.current_transfer_id
+        super().connectionLost(reason)
+
+
+class TrackedUploadSite(Site):
+    protocol = TrackedUploadHTTPChannel
+
+
 class WebServer(object, metaclass=Singleton):
     def __init__(self):
         self.base = Resource()
         self.base.putChild(b'', RootResource())
-        self.site = Site(self.base, logPath=None)
+        self.site = TrackedUploadSite(self.base, logPath=None)
         self.site.noisy = False
         self.listener = None
 
