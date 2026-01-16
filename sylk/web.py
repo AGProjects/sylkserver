@@ -77,7 +77,7 @@ class WebServer(object, metaclass=Singleton):
     def __init__(self):
         self.base = Resource()
         self.base.putChild(b'', RootResource())
-        self.site = Site(self.base, logPath=os.devnull)
+        self.site = Site(self.base, logPath=None)
         self.site.noisy = False
         self.listener = None
 
