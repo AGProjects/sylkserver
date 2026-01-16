@@ -1,17 +1,17 @@
 
 import datetime
 import json
-import pickle as pickle
 import os
+import pickle as pickle
+from collections import defaultdict
+from shutil import rmtree
+from types import SimpleNamespace
 
 from application.python.types import Singleton
 from application.system import makedirs
-from collections import defaultdict
 from sipsimple.threading import run_in_thread
 from sipsimple.util import ISOTimestamp
-from shutil import rmtree
 from twisted.internet import defer
-from types import SimpleNamespace
 
 from sylk.configuration import ServerConfig
 
@@ -39,12 +39,14 @@ else:
     else:
         CASSANDRA_MODULES_AVAILABLE = True
         from cassandra import InvalidRequest
+        from cassandra.cluster import NoHostAvailable
         from cassandra.cqlengine import CQLEngineException
         from cassandra.cqlengine.query import LWTException
-        from cassandra.cluster import NoHostAvailable
         from cassandra.policies import DCAwareRoundRobinPolicy
-        from .models.storage.cassandra import PushTokens
-        from .models.storage.cassandra import ChatAccount, ChatMessage, ChatMessageIdMapping, PublicKey
+
+        from .models.storage.cassandra import (ChatAccount, ChatMessage,
+                                               ChatMessageIdMapping, PublicKey,
+                                               PushTokens)
         if CassandraConfig.push_tokens_table:
             PushTokens.__table_name__ = CassandraConfig.push_tokens_table
 
