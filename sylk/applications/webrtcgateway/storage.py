@@ -77,7 +77,7 @@ class FileTokenStorage(object):
 
     def add(self, account, contact_params, user_agent):
         try:
-            (token, background_token) = contact_params['pn_tok'].split('-')
+            (token, background_token) = contact_params['pn_tok'].split('-', 1)
         except ValueError:
             token = contact_params['pn_tok']
             background_token = None
@@ -169,7 +169,7 @@ class CassandraTokenStorage(object):
         background_token = None
         if contact_params['pn_type'] == 'ios':
             try:
-                (token, background_token) = contact_params['pn_tok'].split('-')
+                (token, background_token) = contact_params['pn_tok'].split('-', 1)
             except ValueError:
                 pass
 
