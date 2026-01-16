@@ -1,6 +1,7 @@
 
 import hashlib
 import json
+import mimetypes
 import os
 from shutil import copyfileobj
 
@@ -12,7 +13,7 @@ from twisted.internet import defer, reactor
 from twisted.python.failure import Failure
 from twisted.web.server import Site
 from werkzeug.exceptions import Forbidden, NotFound
-from werkzeug.utils import secure_filename
+from werkzeug.utils import safe_join, secure_filename
 
 from sylk import __version__ as sylk_version
 from sylk.resources import Resources
@@ -99,7 +100,7 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
                         raise NotFound()
                     else:
                         videoroom.log.info('{session.account.id} is downloading {filename}'.format(session=session, filename=filename))
-                        request.setHeader('Content-Disposition', 'attachment;filename=%s' % filename)
+                        request.setHeader('Content-Disposition', 'attachment;filename="%s"' % filename)
                         return File(path)
                 else:
                     return 'OK'
@@ -112,6 +113,11 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
         method = request.method.upper().decode()
 
         if method == 'POST':
+            filename = secure_filename(filename)
+            transfer_id = secure_filename(transfer_id)
+            if not filename or not transfer_id:
+                raise Forbidden
+
             ip = request.getClientIP()
             connection_handlers = [connection.connection_handler for connection in self._ws_factory.connections if connection.peer.split(":")[1] == ip]
             sender_connection = next((connection_handler for connection_handler in connection_handlers if sender in connection_handler.accounts_map), False)
@@ -119,7 +125,7 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
                 raise Forbidden
 
             # TODO: Form support to support extra metadata?
-            filename = secure_filename(filename)
+
             filesize = int(request.getHeader('Content-Length'))
             filetype = request.getHeader('Content-Type') if request.getHeader('Content-Type') else 'application/octet-stream'
             transfer_data = FileTransferData(filename, filesize, filetype, transfer_id, sender, receiver, content=request.content)
@@ -135,20 +141,30 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
             d1.addCallback(lambda result: self._handle_lookup_result(result, transfer_data, sender_connection))
             return d1
         elif method == 'GET':
-            folder = os.path.join(GeneralConfig.file_transfer_dir.normalized, sender[:1], sender, receiver, transfer_id)
-            path = f'{folder}/{filename}'
+            folder = safe_join(GeneralConfig.file_transfer_dir.normalized, sender[:1], sender, receiver, transfer_id)
+            if not folder:
+                raise Forbidden
+
+            path = safe_join(folder, filename)
             log_path = os.path.join(sender, receiver, transfer_id, filename)
-            if os.path.exists(path):
-                file_size = os.path.getsize(path)
-                split_tup = os.path.splitext(path)
-                file_extension = split_tup[1]
-                render_type = 'inline' if file_extension and file_extension.lower() in ('.jpg', '.png', '.jpeg', '.gif') else 'attachment'
-                request.setHeader('Content-Disposition', '%s;filename=%s' % (render_type, filename))
-                log.info('Web %s file download %s (%s)' % (render_type, log_path, FileTransferData.format_file_size(file_size)))
-                return File(path)
-            else:
+
+            if not path or not os.path.exists(path):
                 log.warning('Download failed, file not found: %s' % (log_path))
                 raise NotFound()
+
+            _, file_extension = os.path.splitext(path)
+            render_type = 'inline' if file_extension.lower() in ('.jpg', '.png', '.jpeg', '.gif', '.mov', '.mp4', '.webm') else 'attachment'
+            if render_type == 'inline':
+                mime_type, encoding = mimetypes.guess_type(path)
+                if mime_type:
+                    request.setHeader("Content-Type", mime_type)
+                else:
+                    request.setHeader("Content-Type", "application/octet-stream")
+
+            request.setHeader('Content-Disposition', '%s;filename="%s"' % (render_type, filename))
+            file_size = os.path.getsize(path)
+            log.info('Web %s file download %s (%s)' % (render_type, log_path, FileTransferData.format_file_size(file_size)))
+            return File(path)
         else:
             return 'OK'
 
@@ -191,20 +207,20 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
 
     def _accept_upload(self, transfer_data, connection):
         makedirs(transfer_data.path)
-        with open(os.path.join(transfer_data.path, transfer_data.filename), 'wb') as output_file:
+        with open(transfer_data.full_path, 'wb') as output_file:
             copyfileobj(transfer_data.content, output_file)
 
         part_size = 64 * 1024
         sha1 = hashlib.sha1()
 
-        with open(os.path.join(transfer_data.path, transfer_data.filename), 'rb') as f:
+        with open(transfer_data.full_path, 'rb') as f:
             while True:
                 data = f.read(part_size)
                 if not data:
                     break
                 sha1.update(data)
 
-        file_selector = FileSelector.for_file(os.path.join(transfer_data.path, transfer_data.filename))
+        file_selector = FileSelector.for_file(transfer_data.full_path)
         file_selector.hash = sha1
 
         metadata = sylkrtc.TransferredFile(**transfer_data.__dict__, hash=file_selector.hash)
@@ -216,7 +232,6 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
                 output_file.write(json.dumps(metadata.__data__))
         except (OSError, IOError):
             log.warning('Could not save metadata %s' % meta_filepath)
-
 
         message_handler = MessageHandler()
         payload = transfer_data.cpim_message_payload(metadata)
@@ -231,7 +246,6 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
             message_handler.outgoing_message(f'sip:{metadata.receiver.uri}', transfer_data.message_payload, content_type='text/plain', identity=f'sip:{metadata.sender.uri}')
 
         return "OK"
-
 
     def verify_api_token(self, request, account, msg_id, token=None):
         # print(msg_id)
