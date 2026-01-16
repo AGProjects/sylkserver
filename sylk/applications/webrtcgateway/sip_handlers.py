@@ -1,24 +1,27 @@
 
 import json
-import random
 import os
+import random
 import secrets
 import uuid
 import zlib
 
-from application.notification import IObserver, NotificationCenter, NotificationData
+from application.notification import (IObserver, NotificationCenter,
+                                      NotificationData)
 from application.python import Null
 from application.system import unlink
 from sipsimple.configuration.settings import SIPSimpleSettings
-from sipsimple.core import SIPURI, FromHeader, ToHeader, Message, Request, RouteHeader, Route, Header
+from sipsimple.core import (SIPURI, FromHeader, Header, Message, Request,
+                            Route, RouteHeader, ToHeader)
 from sipsimple.lookup import DNSLookup, DNSLookupError
 from sipsimple.payloads.imdn import IMDNDocument
 from sipsimple.payloads.rcsfthttp import FTHTTPDocument
-from sipsimple.streams.msrp.chat import CPIMPayload, Message as SIPMessage
+from sipsimple.streams.msrp.chat import CPIMPayload
+from sipsimple.streams.msrp.chat import Message as SIPMessage
 from sipsimple.threading import run_in_twisted_thread
 from sipsimple.threading.green import run_in_green_thread
 from sipsimple.util import ISOTimestamp
-from twisted.internet import reactor, defer
+from twisted.internet import defer, reactor
 from zope.interface import implementer
 
 from sylk.configuration import SIPConfig
@@ -26,10 +29,10 @@ from sylk.web import server
 
 from . import push
 from .configuration import GeneralConfig
+from .datatypes import FileTransferData
 from .logger import log
 from .models import sylkrtc
 from .storage import MessageStorage
-from .datatypes import FileTransferData
 
 
 class ParsedSIPMessage(SIPMessage):

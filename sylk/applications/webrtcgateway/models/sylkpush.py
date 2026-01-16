@@ -1,7 +1,6 @@
 
-from .jsonobjects import IntegerProperty, StringProperty, FixedValueProperty, LimitedChoiceProperty
-from .jsonobjects import JSONObject
-
+from .jsonobjects import (FixedValueProperty, IntegerProperty, JSONObject,
+                          LimitedChoiceProperty, StringProperty)
 
 # Event base classes (abstract, should not be used directly)
 

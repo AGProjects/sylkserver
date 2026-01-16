@@ -3,8 +3,8 @@ import json
 
 from twisted.internet import defer, reactor
 from twisted.web.client import Agent, readBody
-from twisted.web.iweb import IBodyProducer
 from twisted.web.http_headers import Headers
+from twisted.web.iweb import IBodyProducer
 from zope.interface import implementer
 
 from .configuration import GeneralConfig
