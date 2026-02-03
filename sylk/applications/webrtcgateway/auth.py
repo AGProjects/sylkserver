@@ -55,6 +55,7 @@ class AuthHandler(object):
         success, proxy = ret
         if success:
             # callout to janus
+            self.account_info.auth_state = True
             self.account_info.janus_handle.register(self.account_info, proxy=proxy)
         else:
             if self.account_info.registration_state != 'failed':

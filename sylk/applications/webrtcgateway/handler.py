@@ -54,7 +54,7 @@ class AccountInfo(object):
         self.contact_params = {}
         self.incoming_header_prefixes = incoming_header_prefixes.__data__ if incoming_header_prefixes is not None else []
         self.auth_handle = None
-        self.auth_state = None
+        self.auth_state = False
 
     @property
     def uri(self):
@@ -1003,6 +1003,8 @@ class ConnectionHandler(object):
             raise APIError('Unknown account specified for token: {request.account}'.format(request=request))
         if request.token is not None:
             account_info = self.accounts_map[request.account]
+            if not account_info.auth_state:
+                raise APIError("Account not authenticated")
             account_info.contact_params = {
                 'pn_app': request.app,
                 'pn_tok': request.token,
@@ -1020,6 +1022,9 @@ class ConnectionHandler(object):
             account_info = self.accounts_map[request.account]
         except KeyError:
             raise APIError('Unknown account specified: {request.account}'.format(request=request))
+
+        if not account_info.auth_state:
+            raise APIError("Account not authenticated")
 
         uri = request.uri
         content_type = request.content_type
@@ -1050,6 +1055,9 @@ class ConnectionHandler(object):
         except KeyError:
             raise APIError('Unknown account specified: {request.account}'.format(request=request))
 
+        if not account_info.auth_state:
+            raise APIError("Account not authenticated")
+
         uri = request.uri
         message_id = request.message_id
         state = request.state
@@ -1074,6 +1082,9 @@ class ConnectionHandler(object):
         except KeyError:
             raise APIError('Unknown account specified: {request.account}'.format(request=request))
 
+        if not account_info.auth_state:
+            raise APIError("Account not authenticated")
+
         storage = MessageStorage()
         try:
             since = request.since
@@ -1089,6 +1100,9 @@ class ConnectionHandler(object):
             account_info = self.accounts_map[request.account]
         except KeyError:
             raise APIError('Unknown account specified: {request.account}'.format(request=request))
+
+        if not account_info.auth_state:
+            raise APIError("Account not authenticated")
 
         contact = request.contact
         content = sylkrtc.AccountMarkConversationReadEventData(contact=request.contact)
@@ -1114,6 +1128,9 @@ class ConnectionHandler(object):
             account_info = self.accounts_map[request.account]
         except KeyError:
             raise APIError('Unknown account specified: {request.account}'.format(request=request))
+
+        if not account_info.auth_state:
+            raise APIError("Account not authenticated")
 
         contact = request.contact
         message_id = request.message_id
@@ -1170,6 +1187,9 @@ class ConnectionHandler(object):
             account_info = self.accounts_map[request.account]
         except KeyError:
             raise APIError('Unknown account specified: {request.account}'.format(request=request))
+
+        if not account_info.auth_state:
+            raise APIError("Account not authenticated")
 
         contact = request.contact
 
@@ -2066,8 +2086,11 @@ class ConnectionHandler(object):
 
     def _NH_SIPApplicationGotAccountDispositionNotification(self, notification):
         try:
-            self.accounts_map[notification.sender]
+            account_info = self.accounts_map[notification.sender]
         except KeyError:
+            return
+
+        if not account_info.auth_state:
             return
 
         message = notification.data.message
@@ -2076,8 +2099,11 @@ class ConnectionHandler(object):
 
     def _NH_SIPApplicationGotAccountMessage(self, notification):
         try:
-            self.accounts_map[notification.sender]
+            account_info = self.accounts_map[notification.sender]
         except KeyError:
+            return
+
+        if not account_info.auth_state:
             return
 
         message = notification.data
@@ -2086,8 +2112,11 @@ class ConnectionHandler(object):
 
     def _NH_SIPApplicationGotOutgoingAccountMessage(self, notification):
         try:
-            self.accounts_map[notification.sender]
+            account_info = self.accounts_map[notification.sender]
         except KeyError:
+            return
+
+        if not account_info.auth_state:
             return
 
         message = notification.data
@@ -2096,8 +2125,11 @@ class ConnectionHandler(object):
 
     def _NH_SIPApplicationGotAccountRemoveMessage(self, notification):
         try:
-            self.accounts_map[notification.sender]
+            account_info = self.accounts_map[notification.sender]
         except KeyError:
+            return
+
+        if not account_info.auth_state:
             return
 
         message = notification.data
@@ -2105,8 +2137,11 @@ class ConnectionHandler(object):
 
     def _NH_SIPApplicationGotConversationReadMessage(self, notification):
         try:
-            self.accounts_map[notification.sender]
+            account_info = self.accounts_map[notification.sender]
         except KeyError:
+            return
+
+        if not account_info.auth_state:
             return
 
         message = notification.data
@@ -2114,8 +2149,11 @@ class ConnectionHandler(object):
 
     def _NH_SIPApplicationGotConversationRemoveMessage(self, notification):
         try:
-            self.accounts_map[notification.sender]
+            account_info = self.accounts_map[notification.sender]
         except KeyError:
+            return
+
+        if not account_info.auth_state:
             return
 
         message = notification.data
