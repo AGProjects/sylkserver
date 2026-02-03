@@ -2,11 +2,13 @@ import imaplib
 import socket
 import ssl
 from hashlib import md5
+
 from eventlib.twistedutil import deferToGreenThread
 
+from .configuration import ExternalAuthConfig, get_auth_config
 from .logger import log
 from .models import sylkrtc
-from .configuration import ExternalAuthConfig, get_auth_config
+
 
 class AuthHandler(object):
     def __init__(self, account_info, connection):
