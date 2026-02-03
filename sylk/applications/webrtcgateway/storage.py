@@ -11,7 +11,7 @@ from application.python.types import Singleton
 from application.system import makedirs
 from sipsimple.threading import run_in_thread
 from sipsimple.util import ISOTimestamp
-from twisted.internet import defer
+from twisted.internet import defer, reactor
 
 from sylk.configuration import ServerConfig
 
@@ -156,7 +156,7 @@ class CassandraTokenStorage(object):
                 tokens[f'{device.app_id}-{device.device_id}'] = {'device_id': device.device_id, 'token': device.device_token,
                                                                  'platform': device.platform, 'silent': device.silent,
                                                                  'app_id': device.app_id, 'background_token': device.background_token}
-            deferred.callback(tokens)
+            reactor.callFromThread(deferred.callback, tokens)
             return tokens
         query_tokens(key)
         return deferred
@@ -268,7 +268,7 @@ class FileMessageStorage(object):
             try:
                 id_by_timestamp = self._load_id_by_timestamp(account)
             except (OSError, IOError):
-                deferred.callback(messages)
+                reactor.callFromThread(deferred.callback, messages)
                 return
 
             if message_id is not None:
@@ -278,10 +278,10 @@ class FileMessageStorage(object):
                     try:
                         messages = self._load_messages(account)
                     except (OSError, IOError):
-                        deferred.callback(messages)
+                        reactor.callFromThread(deferred.callback, messages)
                         return
 
-                    deferred.callback(messages)
+                    reactor.callFromThread(deferred.callback, messages)
                     return
                 else:
                     timestamp = ISOTimestamp(timestamp)
@@ -292,14 +292,14 @@ class FileMessageStorage(object):
             try:
                 messages = self._load_messages(account)
             except (OSError, IOError):
-                deferred.callback(messages)
+                reactor.callFromThread(deferred.callback, messages)
                 return
             else:
                 if timestamp is not None:
                     messages = [message for message in messages if ISOTimestamp(message['created_at']) > timestamp]
-                    deferred.callback(messages)
+                    reactor.callFromThread(deferred.callback, messages)
                 else:
-                    deferred.callback(messages)
+                    reactor.callFromThread(deferred.callback, messages)
         try:
             since = key[2]
         except IndexError:
@@ -494,13 +494,13 @@ class FileMessageStorage(object):
             try:
                 id_by_timestamp = self._load_id_by_timestamp(account)
             except (OSError, IOError):
-                deferred.callback(False)
+                reactor.callFromThread(deferred.callback, False)
                 return
             else:
                 try:
                     timestamp = id_by_timestamp[message_id]
                 except KeyError:
-                    deferred.callback(False)
+                    reactor.callFromThread(deferred.callback, False)
                     return
                 else:
                     try:
@@ -520,9 +520,9 @@ class FileMessageStorage(object):
                                     print(f"Removed {data.path}")
                             messages.remove(item[0])
                             self._save_messages(account, messages)
-                            deferred.callback(True)
+                            reactor.callFromThread(deferred.callback, True)
                             return
-                        deferred.callback(False)
+                        reactor.callFromThread(deferred.callback, False)
         remove()
         return deferred
 
@@ -556,7 +556,7 @@ class CassandraMessageStorage(object):
                     continue
                 message.msg_timestamp = timestamp_utc
                 messages.append(message)
-            deferred.callback(messages)
+            reactor.callFromThread(deferred.callback, messages)
         try:
             since = key[2]
         except IndexError:
@@ -572,9 +572,9 @@ class CassandraMessageStorage(object):
             try:
                 chat_account = ChatAccount.objects(ChatAccount.account == account)[0]
             except (IndexError, InvalidRequest):
-                deferred.callback(None)
+                reactor.callFromThread(deferred.callback, None)
             else:
-                deferred.callback(chat_account)
+                reactor.callFromThread(deferred.callback, chat_account)
 
         query_tokens(account)
         return deferred
@@ -587,9 +587,9 @@ class CassandraMessageStorage(object):
             try:
                 chat_account = ChatAccount.objects(ChatAccount.account == account)[0]
             except (IndexError, InvalidRequest):
-                deferred.callback(None)
+                reactor.callFromThread(deferred.callback, None)
             else:
-                deferred.callback(chat_account.api_token)
+                reactor.callFromThread(deferred.callback, chat_account.api_token)
 
         query_tokens(account)
         return deferred
@@ -631,9 +631,9 @@ class CassandraMessageStorage(object):
             try:
                 public_key = PublicKey.objects(PublicKey.account == account)[0]
             except (IndexError, InvalidRequest):
-                deferred.callback(None)
+                reactor.callFromThread(deferred.callback, None)
             else:
-                deferred.callback(public_key.public_key)
+                reactor.callFromThread(deferred.callback, public_key.public_key)
 
         query_key(account)
         return deferred
@@ -733,7 +733,7 @@ class CassandraMessageStorage(object):
             try:
                 timestamp = ChatMessageIdMapping.objects(ChatMessageIdMapping.message_id == message_id)[0]
             except IndexError:
-                deferred.callback(False)
+                reactor.callFromThread(deferred.callback, False)
                 return
             else:
                 try:
@@ -759,7 +759,7 @@ class CassandraMessageStorage(object):
                         print('message removed')
 
                     messages.if_exists().delete()
-                    deferred.callback(result)
+                    reactor.callFromThread(deferred.callback, result)
                 except LWTException:
                     pass
 
