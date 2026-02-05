@@ -295,11 +295,17 @@ class SIPPluginHandle(JanusPluginHandle):
     def register(self, account, proxy=None):
         send_register = True if account.auth_handle.type == 'SIP' else False
         force_tcp = False
-        if 'transport=tcp' in proxy or 'sips' in proxy:
+        if proxy and 'transport=tcp' in proxy or 'sips' in proxy:
             force_tcp = True
         self.message(janus.SIPRegister(proxy=proxy, send_register=send_register, force_tcp=force_tcp,
                                        **account.user_data))
 
+    def register_helper(self, account, proxy=None, master_id=0):
+        force_tcp = False
+        if proxy and 'transport=tcp' in proxy or 'sips' in proxy:
+            force_tcp = True
+        self.message(janus.SIPRegisterHelper(proxy=proxy, master_id=master_id, force_tcp=force_tcp,
+                                             **account.user_data))
     def unregister(self):
         self.message(janus.SIPUnregister())
 

@@ -230,6 +230,9 @@ class SIPRegister(JSONObject):
     force_tcp = BooleanProperty(optional=True)
     incoming_header_prefixes = ArrayProperty(IncomingHeaderPrefixes, optional=True)
 
+class SIPRegisterHelper(SIPRegister):
+    type = FixedValueProperty('helper')
+    master_id = IntegerProperty()
 
 class SIPUnregister(JSONObject):
     request = FixedValueProperty('unregister')
@@ -432,6 +435,7 @@ class SIPResultRegistered(JSONObject):
     event = FixedValueProperty('registered')
     username = StringProperty()  # not used
     register_sent = BooleanProperty()
+    master_id = IntegerProperty()
 
 
 class SIPResultRegistrationFailed(JSONObject):

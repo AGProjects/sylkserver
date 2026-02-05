@@ -51,6 +51,7 @@ class AccountInfo(object):
         self.user_agent = user_agent
         self.registration_state = None
         self.janus_handle = None  # type: Optional[SIPPluginHandle]
+        self.janus_helpers = []  # type: List[SIPPluginHandle]
         self.contact_params = {}
         self.incoming_header_prefixes = incoming_header_prefixes.__data__ if incoming_header_prefixes is not None else []
         self.auth_handle = None
@@ -610,6 +611,11 @@ class ConnectionHandler(object):
             for account_info in list(self.accounts_map.values()):
                 if account_info.janus_handle is not None:
                     self.janus.set_event_handler(account_info.janus_handle.id, None)
+                    for helper in account_info.janus_helpers:
+                        helper.detach()
+                        self.account_handles_map.pop(helper.id, None)
+                    account_info.janus_helpers = []
+
                 notification_center = NotificationCenter()
                 notification_center.remove_observer(self, sender=account_info.id)
             for session in self.sip_sessions:
@@ -943,6 +949,10 @@ class ConnectionHandler(object):
         if account_info.janus_handle is not None:
             account_info.janus_handle.detach()
             self.account_handles_map.pop(account_info.janus_handle.id)
+            for helper in account_info.janus_helpers:
+                helper.detach()
+                self.account_handles_map.pop(helper.id, None)
+            account_info.janus_helpers = []
             notification_center = NotificationCenter()
             notification_center.remove_observer(self, sender=account_info.id)
         self.log.info('removed')
@@ -970,6 +980,10 @@ class ConnectionHandler(object):
             account_info.janus_handle.detach()
             self.account_handles_map.pop(account_info.janus_handle.id)
             account_info.janus_handle = None
+            for helper in account_info.janus_helpers:
+                helper.detach()
+                self.account_handles_map.pop(helper.id, None)
+            account_info.janus_helpers = []
 
         # Create a plugin handle
         account_info.janus_handle = SIPPluginHandle(self.janus_session, event_handler=self._handle_janus_sip_event)
@@ -991,6 +1005,10 @@ class ConnectionHandler(object):
             account_info.janus_handle.detach()
             self.account_handles_map.pop(account_info.janus_handle.id)
             account_info.janus_handle = None
+            for helper in account_info.janus_helpers:
+                helper.detach()
+                self.account_handles_map.pop(helper.id, None)
+            account_info.janus_helpers = []
 
         if 'pn_app' in account_info.contact_params:
             storage = TokenStorage()
@@ -1001,6 +1019,7 @@ class ConnectionHandler(object):
     def _RH_account_devicetoken(self, request):
         if request.account not in self.accounts_map:
             raise APIError('Unknown account specified for token: {request.account}'.format(request=request))
+
         if request.token is not None:
             account_info = self.accounts_map[request.account]
             if not account_info.auth_state:
@@ -1632,6 +1651,14 @@ class ConnectionHandler(object):
             return
         if account_info.registration_state != 'registered':
             account_info.registration_state = 'registered'
+            account_info.auth_state = True
+
+            helper = SIPPluginHandle(self.janus_session, event_handler=self._handle_janus_sip_event)
+            master_id = event.plugindata.data.master_id
+            helper.register_helper(account_info, proxy=None, master_id=master_id)
+            self.account_handles_map[helper.id] = account_info
+            account_info.janus_helpers.append(helper)
+
             self.send(sylkrtc.AccountRegisteredEvent(account=account_info.id))
             self.log.info('registered')
             storage = MessageStorage()
