@@ -1,17 +1,20 @@
 
 import json
 
-from application.notification import IObserver, NotificationCenter, NotificationData
+from application.notification import (IObserver, NotificationCenter,
+                                      NotificationData)
 from application.python import Null
 from application.python.types import Singleton
-from autobahn.twisted.websocket import connectWS, WebSocketClientFactory, WebSocketClientProtocol
+from autobahn.twisted.websocket import (WebSocketClientFactory,
+                                        WebSocketClientProtocol, connectWS)
 from eventlib.twistedutil import block_on
-from twisted.internet import reactor, defer
+from twisted.internet import defer, reactor
 from twisted.internet.protocol import ReconnectingClientFactory
 from twisted.python.failure import Failure
 from zope.interface import implementer
 
 from sylk import __version__
+
 from .configuration import JanusConfig
 from .logger import log
 from .models import janus

@@ -1,17 +1,19 @@
 
 import os
-
-from application.python import subclasses
-from application.python.descriptor import classproperty
 from binascii import b2a_hex as hex_encode
 from typing import Union
 
-from ..configuration import JanusConfig
-from .jsonobjects import AbstractProperty, BooleanProperty, IntegerProperty, StringProperty, ArrayProperty, ObjectProperty
-from .jsonobjects import FixedValueProperty, LimitedChoiceProperty, AbstractObjectProperty, JSONObject, JSONArray, StringArray
-from .sylkrtc import ICECandidates
-from .validators import URIValidator, UniqueItemsValidator
+from application.python import subclasses
+from application.python.descriptor import classproperty
 
+from ..configuration import JanusConfig
+from .jsonobjects import (AbstractObjectProperty, AbstractProperty,
+                          ArrayProperty, BooleanProperty, FixedValueProperty,
+                          IntegerProperty, JSONArray, JSONObject,
+                          LimitedChoiceProperty, ObjectProperty, StringArray,
+                          StringProperty)
+from .sylkrtc import ICECandidates
+from .validators import UniqueItemsValidator, URIValidator
 
 # Base models (these are abstract and should not be used directly)
 
