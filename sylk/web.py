@@ -1,5 +1,6 @@
 import mimetypes
 import os
+import re
 
 import twisted.web.server
 from application import log
@@ -162,5 +163,6 @@ class WebServer(object, metaclass=Singleton):
     def stop(self):
         if self.listener is not None:
             self.listener.stopListening()
+
 
 server = WebServer()
