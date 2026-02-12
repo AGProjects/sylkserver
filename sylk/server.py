@@ -102,12 +102,12 @@ class SylkServer(SIPApplication):
                        detect_sip_loops=False,
                        udp_port=settings.sip.udp_port if 'udp' in settings.sip.transport_list else None,
                        tcp_port=settings.sip.tcp_port if 'tcp' in settings.sip.transport_list else None,
-                       tls_port=settings.sip.tls_port if 'tls' in settings.sip.transport_list else None,
-                       # TLS
-                       tls_verify_server=settings.tls.verify_server,
-                       tls_ca_file=os.path.expanduser(settings.tls.ca_list) if settings.tls.ca_list else None,
-                       tls_cert_file=os.path.expanduser(settings.tls.certificate) if settings.tls.certificate else None,
-                       tls_privkey_file=os.path.expanduser(settings.tls.certificate) if settings.tls.certificate else None,
+                       tls_port=None,
+                       # TLS, this is set later....
+                       tls_verify_server=False,
+                       tls_ca_file=None,
+                       tls_cert_file=None,
+                       tls_privkey_file=None,
                        # rtp
                        rtp_port_range=(settings.rtp.port_range.start, settings.rtp.port_range.end),
                        # audio
