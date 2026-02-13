@@ -11,12 +11,15 @@
 ; Delay for answering sessions
 ; answer_delay = 1
 
+; Enable replies from Chuck Norris on SIP Message
+; enable_chuck_norris_reply = True
 
 ; [test@conference.example.com]
 ; file = test.wav
-; enable_video and answer_delay can be overridden here
+; enable_videom, answer_delay and enable_chuck_norris_reply can be overridden here
 
 [playback]
 file = moh/Cool_Grass_vbr.wav
 enable_video = True
 answer_delay = 2
+enable_chuck_norris_reply = True

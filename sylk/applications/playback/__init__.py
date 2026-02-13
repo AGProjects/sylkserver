@@ -1,21 +1,32 @@
 
+import json
 import os
+import random
 
-from application.python import Null
 from application.notification import IObserver, NotificationCenter
+from application.python import Null
 from eventlib import proc
 from sipsimple.account.bonjour import BonjourPresenceState
 from sipsimple.audio import WavePlayer, WavePlayerError
-from twisted.internet import reactor
+from sipsimple.streams.msrp.chat import CPIMParserError, CPIMPayload
+from sipsimple.threading.green import run_in_green_thread
+from twisted.internet import defer, reactor
+from twisted.web.client import Agent, readBody
+from twisted.web.http_headers import Headers
 from zope.interface import implementer
 
-from sylk.applications import SylkApplication, ApplicationLogger
+from sylk.applications import ApplicationLogger, SylkApplication
+from sylk.applications.echo import MessageHandler as EchoMessageHandler
 from sylk.applications.playback.configuration import get_config
 from sylk.bonjour import BonjourService
 from sylk.configuration import ServerConfig
 
-
 log = ApplicationLogger(__package__)
+
+
+agent = Agent(reactor)
+headers = Headers({'User-Agent': ['SylkServer'],
+                   'Content-Type': ['application/json']})
 
 
 class PlaybackApplication(SylkApplication):
@@ -67,7 +78,47 @@ class PlaybackApplication(SylkApplication):
         request.reject(405)
 
     def incoming_message(self, request, data):
-        request.answer(405)
+        content_type = data.headers.get('Content-Type', Null).content_type
+        from_header = data.headers.get('From', Null)
+        to_header = data.headers.get('To', Null)
+
+        if Null in (content_type, from_header, to_header):
+            request.answer(400)
+            return
+
+        if not data.body:
+            log.warning('SIP message from %s to %s rejected: empty body' % (from_header.uri, '%s@%s' % (to_header.uri.user, to_header.uri.host)))
+            request.answer(400)
+            return
+
+        cpim_message = None
+        if content_type == 'message/cpim':
+            try:
+                cpim_message = CPIMPayload.decode(data.body)
+            except (CPIMParserError, UnicodeDecodeError):  # TODO: fix decoding in sipsimple
+                log.warning('SIP message from %s to %s rejected: CPIM parse error' % (from_header.uri, '%s@%s' % (to_header.uri.user, to_header.uri.host)))
+                request.answer(400)
+                return
+            else:
+                content_type = cpim_message.content_type
+        request_uri = data.request_uri
+        config = get_config('%s@%s' % (request_uri.user, request_uri.host))
+        if config is None:
+            config = get_config('%s' % request_uri.user)
+            if config is None:
+                log.info('Message rejected: no configuration found for %s' % (request_uri))
+                request.answer(404)
+                return
+        if not config.enable_chuck_norris_reply:
+            log.info("Message rejected for %s: Chuck Norris reply is disabled. Even Chuck can't reply right now."  % (request_uri))
+            request.answer(404)
+
+        log.info('received SIP message (%s) from %s to %s' % (content_type, from_header.uri, '%s@%s' % (to_header.uri.user, to_header.uri.host)))
+
+        request.answer(200)
+
+        message_handler = ChuckNorrisMessageHandler(log)
+        message_handler.incoming_message(data, content_type=content_type, cpim_message=cpim_message)
 
 
 @implementer(IObserver)
@@ -166,4 +217,72 @@ class PlaybackHandler(object):
         session = notification.sender
         log.info('Session %s ended' % session.call_id)
         notification.center.remove_observer(self, sender=session)
+
+
+@implementer(IObserver)
+class ChuckNorrisMessageHandler(EchoMessageHandler):
+
+    def _get_fact_from_file(self):
+        filepath = os.path.join(os.path.dirname(__file__), "facts.txt")
+
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                facts = [line.strip() for line in f if line.strip()]
+                return random.choice(facts) if facts else "No facts available."
+        except Exception as e:
+            self.log.warning("Failed loading fallback facts file: %s", e)
+            return "Chuck Norris doesn't need backup facts."
+
+    @defer.inlineCallbacks
+    def fetch_chuck_fact(self):
+        categories = ['dev', 'music', 'travel', 'money', 'history', 'food', 'science', 'movie']
+        destination = f"https://api.chucknorris.io/jokes/random?category={random.choice(categories)}"
+        try:
+            resp = yield agent.request(b'GET', destination.encode('utf-8'), headers=headers)
+            if resp.code != 200:
+                body = yield readBody(resp)
+                self.log.warning("Non-200 response (%s) fetching chuck norris fact from %s: %r", resp.code, destination, body)
+                raise Exception("Bad status code")
+
+            body = yield readBody(resp)
+            payload = json.loads(body)
+            return payload['value']
+
+        except defer.CancelledError:
+            raise
+
+        except Exception as e:
+            self.log.warning("Error fetching chuck norris fact from %s: %s", destination, e)
+            fact = self._get_fact_from_file()
+            return fact
+
+    def handle_incoming_message(self):
+        if self.content_type in ('text/plain', 'text/html'):
+            self.imdn_message()
+            fetcher = defer.maybeDeferred(self.fetch_chuck_fact)
+            fetcher.addCallback(self.send_chuck_norris_fact_message)
+
+    @run_in_green_thread
+    def send_chuck_norris_fact_message(self, content):
+        to_uri = self.from_header.uri
+        route = self._lookup_sip_target_route(to_uri)
+        if not route:
+            self.log.error("No route found for reply message to %s" % to_uri)
+            return
+
+        self.log.info("Playack message to %s using proxy %s" % (to_uri, route))
+        self._send_message(self.from_header, self.to_header, content, 'text/plain', route)
+
+    def _NH_SIPMessageDidSucceed(self, notification):
+        notification_center = NotificationCenter()
+        notification_center.remove_observer(self, sender=notification.sender)
+        self.log.info('Message was accepted by remote party')
+
+    def _NH_SIPMessageDidFail(self, notification):
+        notification_center = NotificationCenter()
+        notification_center.remove_observer(self, sender=notification.sender)
+        data = notification.data
+        reason = data.reason.decode() if isinstance(data.reason, bytes) else data.reason
+        self.log.warning('Could not deliver message %s (%s)' % (reason, data.code))
+
 

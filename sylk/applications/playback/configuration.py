@@ -6,7 +6,6 @@ from application.configuration import ConfigFile, ConfigSection, ConfigSetting
 from sylk.configuration.datatypes import Path
 from sylk.resources import Resources
 
-
 __all__ = 'get_config',
 
 
@@ -17,6 +16,7 @@ class GeneralConfig(ConfigSection):
     files_dir = ConfigSetting(type=Path, value=Path(Resources.get('sounds')))
     enable_video = False
     answer_delay = 1
+    enable_chuck_norris_reply = True
 
 
 class PlaybackConfig(ConfigSection):
@@ -25,6 +25,7 @@ class PlaybackConfig(ConfigSection):
     file = ConfigSetting(type=Path, value=None)
     enable_video = GeneralConfig.enable_video
     answer_delay = GeneralConfig.answer_delay
+    enable_chuck_norris_reply = GeneralConfig.enable_chuck_norris_reply
 
 
 class Configuration(object):
