@@ -1022,8 +1022,6 @@ class ConnectionHandler(object):
 
         if request.token is not None:
             account_info = self.accounts_map[request.account]
-            if not account_info.auth_state:
-                raise APIError("Account not authenticated")
             account_info.contact_params = {
                 'pn_app': request.app,
                 'pn_tok': request.token,
@@ -1031,8 +1029,9 @@ class ConnectionHandler(object):
                 'pn_device': request.device,
                 'pn_silent': str(int(request.silent is True))  # janus expects a string
             }
-            storage = TokenStorage()
-            storage.add(request.account, account_info.contact_params, account_info.user_agent)
+            if account_info.auth_state:
+                storage = TokenStorage()
+                storage.add(request.account, account_info.contact_params, account_info.user_agent)
 
             self.log.info('added token on {request.platform} device {request.device})'.format(request=request))
 
@@ -1653,6 +1652,7 @@ class ConnectionHandler(object):
             account_info.registration_state = 'registered'
             account_info.auth_state = True
 
+
             helper = SIPPluginHandle(self.janus_session, event_handler=self._handle_janus_sip_event)
             master_id = event.plugindata.data.master_id
             helper.register_helper(account_info, proxy=None, master_id=master_id)
@@ -1663,6 +1663,9 @@ class ConnectionHandler(object):
             self.log.info('registered')
             storage = MessageStorage()
             storage.add_account(account=account_info.id)
+            if 'pn_app' in account_info.contact_params:
+                token_storage = TokenStorage()
+                token_storage.add(account_info.id, account_info.contact_params, account_info.user_agent)
 
     def _EH_janus_sip_event_registration_failed(self, event):
         try:
