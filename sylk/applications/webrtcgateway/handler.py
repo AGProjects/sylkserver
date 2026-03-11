@@ -33,6 +33,7 @@ from sylk.accounts import DefaultAccount
 from sylk.configuration import SIPConfig
 from sylk.session import Session
 from . import push
+from .addressbook import get_addressbook, update_addressbook
 from .configuration import GeneralConfig, get_room_config, ExternalAuthConfig, JanusConfig
 from .janus import JanusBackend, JanusError, JanusSession, SIPPluginHandle, VideoroomPluginHandle
 from .logger import ConnectionLogger, VideoroomLogger
@@ -1229,6 +1230,33 @@ class ConnectionHandler(object):
         self._fork_event_to_online_accounts(account_info, event)
 
         self._send_simple_sip_message(contact, account_info.id, json.dumps(content.__data__), 'application/sylk-conversation-remove')
+
+    def _RH_account_fetch_addressbook(self, request):
+        try:
+            account_info = self.accounts_map[request.account]
+        except KeyError:
+            raise APIError('Unknown account specified: {request.account}'.format(request=request))
+
+        if not account_info.auth_state:
+            raise APIError("Account not authenticated")
+
+        addressbook = defer.maybeDeferred(get_addressbook, account_info)
+        addressbook.addCallback(lambda result: self.send(sylkrtc.AccountAddressBookFetchedEvent(addressbook=result, account=account_info.id)))
+        return addressbook
+
+    def _RH_account_update_addressbook(self, request):
+        try:
+            account_info = self.accounts_map[request.account]
+        except KeyError:
+            raise APIError('Unknown account specified: {request.account}'.format(request=request))
+
+        if not account_info.auth_state:
+            raise APIError("Account not authenticated")
+        update = defer.maybeDeferred(update_addressbook, account_info, request)
+        update.addCallback(lambda result: self.send(sylkrtc.AccountAddressBookUpdatedEvent(data=result.data, type=request.type, account=account_info.id)))
+        update.addErrback(lambda failure: self.send(sylkrtc.AccountAddressBookUpdateFailed(error=str(failure.value), type=request.type, account=account_info.id)))
+
+        return update
 
     def _RH_session_create(self, request):
         if request.session in self.sip_sessions:

@@ -7,6 +7,8 @@ from .validators import AORValidator, DisplayNameValidator, LengthValidator, Uni
 
 from sipsimple.util import ISOTimestamp
 
+from .xcap import AddressBook, XCAPMapper
+
 # Base models (these are abstract and should not be used directly)
 
 class SylkRTCRequestBase(JSONObject):
@@ -298,6 +300,31 @@ class AccountRegistrationFailedEvent(AccountRegistrationStateEvent):
     reason = StringProperty(optional=True)
 
 
+class AccountAddressBookFetchedEvent(AccountEventBase):
+    event = FixedValueProperty('addressbook-fetched')
+    addressbook = ObjectProperty(AddressBook)
+
+
+class AccountAddressBookUpdatedEvent(AccountEventBase):
+    event = FixedValueProperty('addressbook-updated')
+    type = LimitedChoiceProperty(["contact", "group", "policy"])
+    contact = AbstractObjectProperty(optional=True)
+    group = AbstractObjectProperty(optional=True)
+    policy = AbstractObjectProperty(optional=True)
+
+    def __init__(self, **kwargs):
+        if kwargs['type'] in ('contact', 'group', 'policy') and kwargs['data'] is not None:
+            kwargs[kwargs['type']] = kwargs['data']
+        del kwargs['data']
+        super().__init__(**kwargs)
+
+
+class AccountAddressBookUpdateFailedEvent(AccountEventBase):
+    event = FixedValueProperty('addressbook-update-failed')
+    type = LimitedChoiceProperty(["contact", "group", "policy"])
+    error = StringProperty()
+
+
 # Session events
 
 class SessionProgressEvent(SessionStateEvent):
@@ -532,6 +559,20 @@ class AccountConversationRemoveRequest(AccountRequestBase):
     sylkrtc = FixedValueProperty('account-remove-conversation')
     contact = StringProperty(validator=AORValidator())
 
+
+class AccountFetchAddressbookRequest(AccountRequestBase):
+    sylkrtc = FixedValueProperty('account-fetch-addressbook')
+
+
+class AccountUpdateAddressBookRequest(AccountRequestBase):
+    sylkrtc = FixedValueProperty('account-update-addressbook')
+    action = LimitedChoiceProperty(["add", "update", "delete"])
+    type = LimitedChoiceProperty(["contact", "group", "policy"])
+    data = AbstractObjectProperty()
+
+    def __init__(self, **kwargs):
+        kwargs["data"] = XCAPMapper.from_payload(kwargs["data"], kwargs["type"])
+        super().__init__(**kwargs)
 
 # Session request models
 

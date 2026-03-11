@@ -10,7 +10,6 @@ from sylk.configuration.datatypes import (Path, SIPProxyAddress, VideoBitrate,
                                           VideoCodec)
 from sylk.resources import VarResources
 
-
 __all__ = 'GeneralConfig', 'JanusConfig', 'get_room_config', 'ExternalAuthConfig', 'get_auth_config', 'CassandraConfig'
 
 
@@ -140,6 +139,7 @@ class GeneralConfig(ConfigSection):
     http_management_interface = ConfigSetting(type=ManagementInterfaceAddress, value=ManagementInterfaceAddress('127.0.0.1'))
     http_management_auth_secret = ConfigSetting(type=str, value=None)
     sylk_push_url = ConfigSetting(type=str, value=None)
+    xcap_url = ConfigSetting(type=URL, value='')
     local_sip_messages = False
     filetransfer_expire_days = 15
 

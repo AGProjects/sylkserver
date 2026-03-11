@@ -200,6 +200,81 @@ class CassandraTokenStorage(object):
             pass
 
 
+class FileAddressBookStorage(object):
+    def __init__(self):
+        self._storage_path = os.path.join(FileStorageConfig.storage_dir, 'addressbooks')
+        makedirs(self._storage_path)
+
+    def _addressbook_path(self, account):
+        return os.path.join(self._storage_path, account.id + '.json')
+
+    @run_in_thread('file-io')
+    def _save(self, account, addressbook):
+        path = self._addressbook_path(account)
+        makedirs(os.path.dirname(path))
+        with open(path, 'w') as f:
+            json.dump(addressbook.to_payload(), f)
+
+    def _load_addressbook(self, account):
+        try:
+            with open(self._addressbook_path(account), 'r') as f:
+                data = json.load(f)
+                return data
+        except (OSError, IOError) as e:
+            raise e
+
+    def __getitem__(self, account):
+        deferred = defer.Deferred()
+
+        @run_in_thread('file-io')
+        def query(account):
+            data = {}
+
+            try:
+                data = self._load_addressbook(account)
+            except (OSError, IOError):
+                pass
+
+            reactor.callFromThread(deferred.callback, data)
+            return
+
+        query(account)
+        return deferred
+
+    @run_in_thread('file-io')
+    def update(self, account_id, item, item_type, action="update"):
+        try:
+            data = self._load_addressbook(account_id)
+        except (OSError, IOError):
+            data = xcap.AddressBook([], [], [])
+
+        list_map = {
+            "contact": data.contacts,
+            "group": data.groups,
+            "policy": data.policies
+        }
+
+        lst = list_map.get(item_type)
+        if lst is None:
+            raise ValueError(f"Unknown type: {item_type}")
+
+        if action == "delete":
+            for i, existing in enumerate(lst):
+                if existing.id == item.id:
+                    lst.pop(i)
+                    break
+        else:  # add or update
+            for i, existing in enumerate(lst):
+                if existing.id == item.id:
+                    lst[i] = item
+                    break
+            else:
+                if action == "add":
+                    lst.append(item)
+
+        self._save(account_id, data)
+
+
 class FileMessageStorage(object):
     def __init__(self):
         self._public_keys = defaultdict()
