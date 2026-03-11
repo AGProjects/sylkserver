@@ -1,3 +1,21 @@
+sylkserver (6.6.0) unstable; urgency=medium
+
+  * Added contacts management support and XCAP backend
+  * Store push token if user is authenticated
+  * Added janus helper to enable incoming calls on answered incoming calls
+  * Check authentication status before some operations
+  * Fixed deferred callbacks to be thread safe
+  * Added auto replies to playback application
+  * Refactored echo message handler to support text
+  * Fixed listening on TLS sockets
+  * Added message content_type and content to message push
+  * Refactored http filetransfer to prevent path injection and support streaming downloads
+  * Added possibility to cancel/abort file uploads
+  * Added Python 3.12 compatibility
+  * Overall bug fixes
+
+ -- Tijmen de Mes <tijmen@ag-projects.com>  Wed, 11 Mar 2026 08:10:07 +0100
+
 sylkserver (6.5.0) unstable; urgency=medium
 
   * Improved logging
