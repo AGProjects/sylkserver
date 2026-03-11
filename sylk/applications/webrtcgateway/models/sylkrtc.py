@@ -1,12 +1,14 @@
 
 from application.python import subclasses
-
-from .jsonobjects import BooleanProperty, IntegerProperty, StringProperty, ArrayProperty, ObjectProperty, FixedValueProperty, LimitedChoiceProperty, AbstractObjectProperty, AbstractProperty
-from .jsonobjects import JSONObject, JSONArray, StringArray, CompositeValidator
-from .validators import AORValidator, DisplayNameValidator, LengthValidator, UniqueItemsValidator
-
 from sipsimple.util import ISOTimestamp
 
+from .jsonobjects import (AbstractObjectProperty, AbstractProperty,
+                          ArrayProperty, BooleanProperty, CompositeValidator,
+                          FixedValueProperty, IntegerProperty, JSONArray,
+                          JSONObject, LimitedChoiceProperty, ObjectProperty,
+                          StringArray, StringProperty)
+from .validators import (AORValidator, DisplayNameValidator, LengthValidator,
+                         UniqueItemsValidator)
 from .xcap import AddressBook, XCAPMapper
 
 # Base models (these are abstract and should not be used directly)

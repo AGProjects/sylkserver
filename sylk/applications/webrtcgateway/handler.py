@@ -2,45 +2,53 @@
 import base64
 import hashlib
 import json
-import random
 import os
+import random
 import time
 import uuid
+from collections import deque
+from itertools import count
+from shutil import copyfileobj, rmtree
+from typing import (Container, Dict, Generic, Iterable, Optional, Set, Sized,
+                    TypeVar, Union)
 
-from application.notification import IObserver, NotificationCenter, NotificationData
+from application.notification import (IObserver, NotificationCenter,
+                                      NotificationData)
 from application.python import Null, limit
 from application.python.weakref import defaultweakobjectmap
 from application.system import makedirs, unlink
-from collections import deque
 from eventlib import coros, proc
-from itertools import count
 from sipsimple.configuration.settings import SIPSimpleSettings
-from sipsimple.core import SIPURI, FromHeader, ToHeader, Credentials, Message, RouteHeader, Route, Header
+from sipsimple.core import (SIPURI, Credentials, FromHeader, Header, Message,
+                            Route, RouteHeader, ToHeader)
 from sipsimple.lookup import DNSLookup, DNSLookupError
-from sipsimple.payloads.imdn import IMDNDocument, DeliveryNotification, DisplayNotification
+from sipsimple.payloads.imdn import (DeliveryNotification, DisplayNotification,
+                                     IMDNDocument)
 from sipsimple.streams import MediaStreamRegistry
-from sipsimple.streams.msrp.chat import CPIMPayload, CPIMParserError, ChatIdentity, CPIMHeader, CPIMNamespace
+from sipsimple.streams.msrp.chat import (ChatIdentity, CPIMHeader,
+                                         CPIMNamespace, CPIMParserError,
+                                         CPIMPayload)
 from sipsimple.threading import run_in_thread, run_in_twisted_thread
 from sipsimple.threading.green import call_in_green_thread, run_in_green_thread
 from sipsimple.util import ISOTimestamp
-from shutil import copyfileobj, rmtree
-from twisted.internet import reactor, defer
-from typing import Generic, Container, Iterable, Sized, TypeVar, Dict, Set, Optional, Union
+from twisted.internet import defer, reactor
 from werkzeug.exceptions import InternalServerError
 from zope.interface import implementer
 
 from sylk.accounts import DefaultAccount
 from sylk.configuration import SIPConfig
 from sylk.session import Session
+
 from . import push
 from .addressbook import get_addressbook, update_addressbook
-from .configuration import GeneralConfig, get_room_config, ExternalAuthConfig, JanusConfig
-from .janus import JanusBackend, JanusError, JanusSession, SIPPluginHandle, VideoroomPluginHandle
-from .logger import ConnectionLogger, VideoroomLogger
-from .models import sylkrtc, janus
-from .storage import TokenStorage, MessageStorage
 from .auth import AuthHandler
-
+from .configuration import (ExternalAuthConfig, GeneralConfig, JanusConfig,
+                            get_room_config)
+from .janus import (JanusBackend, JanusError, JanusSession, SIPPluginHandle,
+                    VideoroomPluginHandle)
+from .logger import ConnectionLogger, VideoroomLogger
+from .models import janus, sylkrtc
+from .storage import MessageStorage, TokenStorage
 
 
 class AccountInfo(object):

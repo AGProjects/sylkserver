@@ -10,7 +10,9 @@ from application.notification import NotificationCenter
 from application.python import Null
 from application.system import makedirs
 from eventlib import proc
-from sipsimple.account import Account, BonjourAccount, AccountManager
+from gnutls.crypto import X509Certificate, X509PrivateKey
+from gnutls.errors import GNUTLSError
+from sipsimple.account import Account, AccountManager, BonjourAccount
 from sipsimple.application import SIPApplication
 from sipsimple.audio import AudioDevice, RootAudioBridge
 from sipsimple.configuration.settings import SIPSimpleSettings
@@ -21,19 +23,20 @@ from sipsimple.threading import ThreadManager
 from sipsimple.threading.green import run_in_green_thread
 from sipsimple.video import VideoDevice
 from twisted.internet import reactor
-from gnutls.crypto import X509Certificate, X509PrivateKey
-from gnutls.errors import GNUTLSError
-
-# Load stream extensions needed for integration with SIP SIMPLE SDK
-import sylk.streams; del sylk.streams
 
 from sylk.accounts import DefaultAccount
 from sylk.applications import IncomingRequestHandler
 from sylk.configuration import ServerConfig, SIPConfig, ThorNodeConfig
-from sylk.configuration.settings import AccountExtension, BonjourAccountExtension, SylkServerSettingsExtension
+from sylk.configuration.settings import (AccountExtension,
+                                         BonjourAccountExtension,
+                                         SylkServerSettingsExtension)
 from sylk.log import TraceLogManager
 from sylk.session import SessionManager
 from sylk.web import WebServer
+
+# Load stream extensions needed for integration with SIP SIMPLE SDK
+import sylk.streams; del sylk.streams
+
 
 
 class SylkServer(SIPApplication):

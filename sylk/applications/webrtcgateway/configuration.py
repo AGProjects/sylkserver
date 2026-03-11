@@ -3,11 +3,12 @@ import os
 import re
 
 from application.configuration import ConfigFile, ConfigSection, ConfigSetting
-from application.configuration.datatypes import NetworkAddress, StringList, HostnameList
+from application.configuration.datatypes import (HostnameList, NetworkAddress,
+                                                 StringList)
 
 from sylk.configuration import ServerConfig
-from sylk.configuration.datatypes import (Path, SIPProxyAddress, VideoBitrate,
-                                          VideoCodec)
+from sylk.configuration.datatypes import (URL, Path, SIPProxyAddress,
+                                          VideoBitrate, VideoCodec)
 from sylk.resources import VarResources
 
 __all__ = 'GeneralConfig', 'JanusConfig', 'get_room_config', 'ExternalAuthConfig', 'get_auth_config', 'CassandraConfig'
