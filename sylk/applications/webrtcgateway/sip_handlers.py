@@ -133,7 +133,7 @@ class MessageHandler(object):
                     body = json.dumps(sylkrtc.FileTransferMessage(**metadata.__data__).__data__)
                     content_type = 'application/sylk-file-transfer'
 
-        return  ParsedSIPMessage(body, content_type, sender=sender, disposition=disposition, message_id=message_id, timestamp=timestamp, destination=destination)
+        return ParsedSIPMessage(body, content_type, sender=sender, disposition=disposition, message_id=message_id, timestamp=timestamp, destination=destination)
 
     def _send_public_key(self, from_header, to_header, public_key):
         if public_key:
