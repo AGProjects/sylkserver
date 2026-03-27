@@ -89,7 +89,7 @@ class FileTokenStorage(object):
             'app_id': contact_params['pn_app'],
             'user_agent': user_agent,
             'background_token': background_token,
-            'device_token': token
+            'token': token
         }
         key = f"{data['app_id']}-{data['device_id']}"
         if account in self._tokens:
@@ -841,6 +841,7 @@ class CassandraMessageStorage(object):
 
         remove(account, message_id)
         return deferred
+
 
 class TokenStorage(object, metaclass=Singleton):
     def __new__(self):
