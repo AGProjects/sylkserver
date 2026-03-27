@@ -300,14 +300,14 @@ class SIPPluginHandle(JanusPluginHandle):
         force_tcp = False
         if proxy and 'transport=tcp' in proxy or 'sips' in proxy:
             force_tcp = True
-        self.message(janus.SIPRegister(proxy=proxy, send_register=send_register, force_tcp=force_tcp,
+        self.message(janus.SIPRegister(proxy=proxy, outbound_proxy=proxy, send_register=send_register, force_tcp=force_tcp,
                                        **account.user_data))
 
     def register_helper(self, account, proxy=None, master_id=0):
         force_tcp = False
         if proxy and 'transport=tcp' in proxy or 'sips' in proxy:
             force_tcp = True
-        self.message(janus.SIPRegisterHelper(proxy=proxy, master_id=master_id, force_tcp=force_tcp,
+        self.message(janus.SIPRegisterHelper(proxy=proxy, outbound_proxy=proxy, master_id=master_id, force_tcp=force_tcp,
                                              **account.user_data))
     def unregister(self):
         self.message(janus.SIPUnregister())
@@ -315,8 +315,12 @@ class SIPPluginHandle(JanusPluginHandle):
     def call(self, account, uri, sdp, headers=None, proxy=None):
         headers = {'headers': headers} if headers is not None else {}
 
+        force_tcp = False
+        if proxy and 'transport=tcp' in proxy or 'sips' in proxy:
+            force_tcp = True
+
         # in order to make a call we need to register first. do so without actually registering, as we are already registered
-        self.message(janus.SIPRegister(proxy=proxy, send_register=False, **account.user_data))
+        self.message(janus.SIPRegister(proxy=proxy, outbound_proxy=proxy, send_register=False, force_tcp=force_tcp, **account.user_data))
         self.message(janus.SIPCall(uri=uri, srtp='sdes_optional', **headers), jsep=janus.SDPOffer(sdp=sdp))
 
     def accept(self, sdp, headers=None):
@@ -331,6 +335,7 @@ class SIPPluginHandle(JanusPluginHandle):
 
     def sendMessage(self, **message):
         self.message(janus.SIPMessage(**message))
+
 
 class VideoroomPluginHandle(JanusPluginHandle):
     plugin = 'janus.plugin.videoroom'

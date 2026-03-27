@@ -227,6 +227,7 @@ class SIPRegister(JSONObject):
     display_name = StringProperty(optional=True)
     user_agent = StringProperty(optional=True)
     proxy = StringProperty(optional=True)
+    outbound_proxy = StringProperty(optional=True)
     send_register = BooleanProperty(optional=True)
     contact_params = ObjectProperty(ContactParams)
     force_tcp = BooleanProperty(optional=True)
