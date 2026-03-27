@@ -516,7 +516,7 @@ class MessageHandler(object):
                 identity = f'sip:sylkserver@{SIPConfig.local_ip}'
 
             log.debug("sending message from '%s' to '%s' to self %s" % (identity, uri, route))
-            headers = [Header('X-Sylk-From-Sip', 'yes')] + extra_headers
+            headers = [Header('X-Sylk-From-Sip', 'yes'), Header('X-Sylk-App', 'webrtcgateway')] + extra_headers
             self._outgoing_message(uri, identity, content, content_type, headers=headers, route=route, subscribe=False)
 
     @run_in_green_thread
