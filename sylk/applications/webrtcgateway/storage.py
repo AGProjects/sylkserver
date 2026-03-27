@@ -19,6 +19,7 @@ from .configuration import CassandraConfig, FileStorageConfig
 from .datatypes import FileTransferData
 from .errors import StorageError
 from .logger import log
+from .models import xcap
 
 __all__ = 'TokenStorage',
 
