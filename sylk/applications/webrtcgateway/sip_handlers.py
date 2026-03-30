@@ -402,7 +402,6 @@ class MessageHandler(object):
                                                   message_id=self.parsed_message.message_id)
 
             notification_center.post_notification(name='SIPApplicationGotAccountMessage', sender=account.account, data=message)
-
             if self.parsed_message.content_type in ('text/plain', 'text/html', 'application/sylk-file-transfer'):
                 def get_unread_messages(messages, originator):
                     unread = 1
@@ -410,12 +409,12 @@ class MessageHandler(object):
                         try:
                             if (message.content_type in ('text/plain', 'text/html', 'application/sylk-file-transfer')
                                     and message.direction == 'incoming' and message.contact != account.account
-                                    and 'display' in message.disposition):
+                                    and message.disposition and 'display' in message.disposition):
                                 unread += 1
                         except AttributeError:
                             if (message['content_type'] in ('text/plain', 'text/html', 'application/sylk-file-transfer')
                                     and message['direction'] == 'incoming' and message['contact'] != account.account
-                                    and 'display' in message['disposition']):
+                                    and message.get('disposition') and 'display' in message['disposition']):
                                 unread += 1
 
                             # log.info(f'{message.disposition} {message.contact} {message.state}')
