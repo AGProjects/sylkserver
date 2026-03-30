@@ -1183,15 +1183,20 @@ class ConnectionHandler(object):
         # Delete from receiver
         def receiver_remove_message(msg_id, messages):
             for message in messages:
-                if message.message_id == msg_id and message.direction == 'incoming':
-                    account = message.account
-                    message_id = message.message_id
+                is_dict = isinstance(message, dict)
+
+                msg_id_val = message["message_id"] if is_dict else message.message_id
+                direction = message["direction"] if is_dict else message.direction
+                account = message["account"] if is_dict else message.account
+                contact = message["contact"] if is_dict else message.contact
+
+                if msg_id_val == msg_id and direction == 'incoming':
                     storage = MessageStorage()
                     storage.removeMessage(account=account, message_id=message_id)
 
                     content = sylkrtc.AccountMessageRemoveEventData(contact=message.contact, message_id=message_id, direction="incoming")
                     storage.add(account=account,
-                                contact=message.contact,
+                                contact=contact,
                                 direction='incoming',
                                 content=json.dumps(content.__data__),
                                 content_type='application/sylk-message-remove',
