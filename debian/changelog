@@ -12,6 +12,7 @@ sylkserver (6.6.0) unstable; urgency=medium
   * Refactored http filetransfer to prevent path injection and support streaming downloads
   * Added possibility to cancel/abort file uploads
   * Added Python 3.12 compatibility
+  * Fixed bugs when using file storage backend
   * Overall bug fixes
 
  -- Tijmen de Mes <tijmen@ag-projects.com>  Wed, 11 Mar 2026 08:10:07 +0100
