@@ -1732,7 +1732,18 @@ class ConnectionHandler(object):
         originator = sylkrtc.SIPIdentity(uri=data.username, display_name=data.displayname)
         headers = {'headers': data.headers} if data.headers else {}
         session = SIPSessionInfo(self._callid_to_uuid(call_id))
-        session.janus_handle = account_info.janus_handle
+
+        handle = None
+        if event.sender == account_info.janus_handle.id:
+            handle = account_info.janus_handle
+        else:
+            handle = next((helper for helper in account_info.janus_helpers if helper.id == event.sender),None)
+        if handle:
+            session.janus_handle = handle
+        else:
+            self.log.warning('could not find handle ID {event.sender} for incoming call event'.format(event=event))
+            return
+
         session.init_incoming(account_info, originator.uri, originator.display_name)
         self.sip_sessions.add(session)
         self.send(sylkrtc.AccountIncomingSessionEvent(account=account_info.id, session=session.id, originator=originator, sdp=event.jsep.sdp, call_id=call_id, **headers))
