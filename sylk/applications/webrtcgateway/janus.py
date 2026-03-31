@@ -298,17 +298,14 @@ class SIPPluginHandle(JanusPluginHandle):
     def register(self, account, proxy=None):
         send_register = True if account.auth_handle.type == 'SIP' else False
         force_tcp = False
-        if proxy and 'transport=tcp' in proxy or 'sips' in proxy:
+        if proxy and ('transport=tcp' in proxy or 'sips' in proxy):
             force_tcp = True
         self.message(janus.SIPRegister(proxy=proxy, outbound_proxy=proxy, send_register=send_register, force_tcp=force_tcp,
                                        **account.user_data))
 
-    def register_helper(self, account, proxy=None, master_id=0):
-        force_tcp = False
-        if proxy and 'transport=tcp' in proxy or 'sips' in proxy:
-            force_tcp = True
-        self.message(janus.SIPRegisterHelper(proxy=proxy, outbound_proxy=proxy, master_id=master_id, force_tcp=force_tcp,
-                                             **account.user_data))
+    def register_helper(self, account, master_id=0):
+        self.message(janus.SIPRegisterHelper(master_id=master_id, **account.user_data))
+
     def unregister(self):
         self.message(janus.SIPUnregister())
 
@@ -316,7 +313,7 @@ class SIPPluginHandle(JanusPluginHandle):
         headers = {'headers': headers} if headers is not None else {}
 
         force_tcp = False
-        if proxy and 'transport=tcp' in proxy or 'sips' in proxy:
+        if proxy and ('transport=tcp' in proxy or 'sips' in proxy):
             force_tcp = True
 
         # in order to make a call we need to register first. do so without actually registering, as we are already registered
