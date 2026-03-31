@@ -621,7 +621,7 @@ class ConnectionHandler(object):
                 if account_info.janus_handle is not None:
                     self.janus.set_event_handler(account_info.janus_handle.id, None)
                     for helper in account_info.janus_helpers:
-                        helper.detach()
+                        # helper.detach()
                         self.account_handles_map.pop(helper.id, None)
                     account_info.janus_helpers = []
 
