@@ -4,7 +4,9 @@ from application.configuration.datatypes import NetworkRangeList, StringList
 from application.system import host
 from sipsimple.configuration.datatypes import NonNegativeInteger, SampleRate
 
-from sylk.configuration.datatypes import AudioCodecs, IPAddress, Path, Port, PortRange, SIPProxyAddress, SRTPEncryption, LogLevel
+from sylk.configuration.datatypes import (AudioCodecs, IPAddress, LogLevel,
+                                          Path, Port, PortRange,
+                                          SIPProxyAddress, SRTPEncryption)
 from sylk.resources import Resources, VarResources
 from sylk.tls import Certificate, PrivateKey
 
@@ -56,7 +58,7 @@ class RTPConfig(ConfigSection):
     __cfgfile__ = 'config.ini'
     __section__ = 'RTP'
 
-    audio_codecs = ConfigSetting(type=AudioCodecs, value=['opus', 'G722', 'speex', 'PCMA', 'PCMU'])
+    audio_codecs = ConfigSetting(type=AudioCodecs, value=['opus', 'G722', 'PCMA', 'PCMU'])
     port_range = ConfigSetting(type=PortRange, value=PortRange('50000:50500'))
     srtp_encryption = ConfigSetting(type=SRTPEncryption, value='opportunistic')
     timeout = ConfigSetting(type=NonNegativeInteger, value=30)
