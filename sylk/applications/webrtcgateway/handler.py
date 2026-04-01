@@ -1696,7 +1696,7 @@ class ConnectionHandler(object):
 
             helper = SIPPluginHandle(self.janus_session, event_handler=self._handle_janus_sip_event)
             master_id = event.plugindata.data.result.master_id
-            helper.register_helper(account_info, proxy=None, master_id=master_id)
+            helper.register_helper(account_info, master_id=master_id)
             self.account_handles_map[helper.id] = account_info
             account_info.janus_helpers.append(helper)
 
