@@ -77,11 +77,13 @@ class FileTokenStorage(object):
             return {}
 
     def add(self, account, contact_params, user_agent):
-        try:
-            (token, background_token) = contact_params['pn_tok'].split('-', 1)
-        except ValueError:
-            token = contact_params['pn_tok']
-            background_token = None
+        token = contact_params['pn_tok']
+        background_token = None
+        if contact_params['pn_type'] == 'ios':
+            try:
+                (token, background_token) = contact_params['pn_tok'].split('-', 1)
+            except ValueError:
+                pass
         data = {
             'device_id': contact_params['pn_device'],
             'platform': contact_params['pn_type'],
