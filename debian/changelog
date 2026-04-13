@@ -1,3 +1,9 @@
+sylkserver (6.6.1) unstable; urgency=medium
+
+  * Fixed push token split in file backend
+
+ -- Tijmen de Mes <tijmen@ag-projects.com>  Mon, 13 Apr 2026 15:08:30 +0200
+
 sylkserver (6.6.0) unstable; urgency=medium
 
   * Added contacts management support and XCAP backend
