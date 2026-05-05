@@ -29,6 +29,7 @@ class XCAPRoutes:
                 "contact": "/api/v1/users/{user}/addressbook/contacts/{contact_id}"},
         "PUT": {"contact": "/api/v1/users/{user}/addressbook/contacts/{contact_id}"},
         "POST": {"contact": "/api/v1/users/{user}/addressbook/contacts"},
+        "DELETE": {"contact": "/api/v1/users/{user}/addressbook/contacts/{contact_id}"}
     }
 
     ACTION_MAP = {'add': 'POST',
@@ -143,7 +144,9 @@ def _send_update_addressbook(account, request, destination):
 def _fetch_addressbook(account):
     storage = FileAddressBookStorage()
     payload = yield storage[account.id]
-    return xcap.XCAPMapper.from_payload(payload)
+    if payload:
+        return xcap.XCAPMapper.from_payload(payload)
+    return xcap.AddressBook(contacts=[], groups=[], policies=[])
 
 
 @defer.inlineCallbacks
