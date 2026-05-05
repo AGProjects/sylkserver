@@ -208,40 +208,40 @@ class FileAddressBookStorage(object):
         self._storage_path = os.path.join(FileStorageConfig.storage_dir, 'addressbooks')
         makedirs(self._storage_path)
 
-    def _addressbook_path(self, account):
-        return os.path.join(self._storage_path, account.id + '.json')
+    def _addressbook_path(self, account_id):
+        return os.path.join(self._storage_path, account_id + '.json')
 
     @run_in_thread('file-io')
-    def _save(self, account, addressbook):
-        path = self._addressbook_path(account)
+    def _save(self, account_id, addressbook):
+        path = self._addressbook_path(account_id)
         makedirs(os.path.dirname(path))
         with open(path, 'w') as f:
-            json.dump(addressbook.to_payload(), f)
+            json.dump(addressbook, f)
 
-    def _load_addressbook(self, account):
+    def _load_addressbook(self, account_id):
         try:
-            with open(self._addressbook_path(account), 'r') as f:
+            with open(self._addressbook_path(account_id), 'r') as f:
                 data = json.load(f)
                 return data
         except (OSError, IOError) as e:
             raise e
 
-    def __getitem__(self, account):
+    def __getitem__(self, account_id):
         deferred = defer.Deferred()
 
         @run_in_thread('file-io')
-        def query(account):
+        def query(account_id):
             data = {}
 
             try:
-                data = self._load_addressbook(account)
+                data = self._load_addressbook(account_id)
             except (OSError, IOError):
                 pass
 
             reactor.callFromThread(deferred.callback, data)
             return
 
-        query(account)
+        query(account_id)
         return deferred
 
     @run_in_thread('file-io')
@@ -249,12 +249,12 @@ class FileAddressBookStorage(object):
         try:
             data = self._load_addressbook(account_id)
         except (OSError, IOError):
-            data = xcap.AddressBook([], [], [])
+            data = {'contacts': [], 'groups': [], 'policies': []}
 
         list_map = {
-            "contact": data.contacts,
-            "group": data.groups,
-            "policy": data.policies
+            "contact": data['contacts'],
+            "group": data['groups'],
+            "policy": data['policies']
         }
 
         lst = list_map.get(item_type)
@@ -263,17 +263,17 @@ class FileAddressBookStorage(object):
 
         if action == "delete":
             for i, existing in enumerate(lst):
-                if existing.id == item.id:
+                if existing['id'] == item.id:
                     lst.pop(i)
                     break
         else:  # add or update
             for i, existing in enumerate(lst):
-                if existing.id == item.id:
-                    lst[i] = item
+                if existing['id'] == item.id:
+                    lst[i] = item.__data__
                     break
             else:
                 if action == "add":
-                    lst.append(item)
+                    lst.append(item.__data__)
 
         self._save(account_id, data)
 
