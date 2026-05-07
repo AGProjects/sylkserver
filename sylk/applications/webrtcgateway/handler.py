@@ -858,25 +858,25 @@ class ConnectionHandler(object):
         identity = str(session.account.uri)
         if session.account.display_name:
             identity = '"%s" <%s>' % (session.account.display_name, identity)
-            self.log.info("sending in dialag message from '%s' to '%s' " % (identity, session.remote_identity.uri))
+        self.log.info("sending in dialag message from '%s' to '%s' " % (identity, session.remote_identity.uri))
 
-            from_uri = SIPURI.parse(session.account.uri)
-            sip_uri = SIPURI.parse('sip:%s' % session.remote_identity.uri)
-            content = content if isinstance(content, bytes) else content.encode()
-            if add_disposition:
-                ns = CPIMNamespace('urn:ietf:params:imdn', 'imdn')
-                additional_headers = [CPIMHeader('Message-ID', ns, message_id)]
-            payload = CPIMPayload(content,
-                                  content_type,
-                                  charset='utf-8',
-                                  sender=ChatIdentity(from_uri, session.account.display_name),
-                                  recipients=[ChatIdentity(sip_uri, None)],
-                                  timestamp=timestamp if timestamp is not None else str(ISOTimestamp.now()),
-                                  additional_headers=additional_headers)
-            payload, content_type = payload.encode()
+        from_uri = SIPURI.parse(session.account.uri)
+        sip_uri = SIPURI.parse('sip:%s' % session.remote_identity.uri)
+        content = content if isinstance(content, bytes) else content.encode()
+        if add_disposition:
+            ns = CPIMNamespace('urn:ietf:params:imdn', 'imdn')
+            additional_headers = [CPIMHeader('Message-ID', ns, message_id)]
+        payload = CPIMPayload(content,
+                              content_type,
+                              charset='utf-8',
+                              sender=ChatIdentity(from_uri, session.account.display_name),
+                              recipients=[ChatIdentity(sip_uri, None)],
+                              timestamp=timestamp if timestamp is not None else str(ISOTimestamp.now()),
+                              additional_headers=additional_headers)
+        payload, content_type = payload.encode()
 
-            session.janus_handle.sendMessage(content_type=content_type, content=payload)
-            session._message_queue.append((message_id, payload, content_type))
+        session.janus_handle.sendMessage(content_type=content_type, content=payload)
+        session._message_queue.append((message_id, payload, content_type))
 
     def _handle_janus_sip_event(self, event):
         operation = Operation(type='event', name='janus-sip', data=event)
