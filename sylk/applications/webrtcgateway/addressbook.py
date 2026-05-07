@@ -159,7 +159,7 @@ def _send_fetch_addressbook(account, destination):
         raise
     except Exception as e:
         log.warning("Error fetching addressbook from %s: %s", destination, e)
-        return xcap.AddressBook([], [], [])
+        return xcap.AddressBook(contacts=[], groups=[], policies=[])
 
     if resp.code != 200:
         body = yield readBody(resp)
@@ -172,6 +172,6 @@ def _send_fetch_addressbook(account, destination):
         return xcap.XCAPMapper.from_payload(payload)
     except (ValueError, TypeError) as e:
         log.warning("Invalid JSON from %s: %s", destination, e)
-        return xcap.AddressBook([], [], [])
+        return xcap.AddressBook(contacts=[], groups=[], policies=[])
 
 
