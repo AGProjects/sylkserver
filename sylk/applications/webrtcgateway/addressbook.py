@@ -103,7 +103,7 @@ def update_addressbook(account, request):
 def _update_addressbook(account, request):
     storage = FileAddressBookStorage()
     if request.type == 'contact':
-        storage.update_contact(account.id, request.data, request.type, action=request.action)
+        storage.update(account.id, request.data, request.type, action=request.action)
 
 
 @defer.inlineCallbacks
