@@ -854,17 +854,18 @@ class ConnectionHandler(object):
             else:
                 connection_handler.send(event)
 
-    def _send_in_dialog_sip_message(self, session, message_id, content, content_type='text/plain', timestamp=None):
-            identity = str(session.account.uri)
-            if session.account.display_name:
-                identity = '"%s" <%s>' % (session.account.display_name, identity)
+    def _send_in_dialog_sip_message(self, session, message_id, content, content_type='text/plain', timestamp=None, add_disposition=True):
+        identity = str(session.account.uri)
+        if session.account.display_name:
+            identity = '"%s" <%s>' % (session.account.display_name, identity)
             self.log.info("sending in dialag message from '%s' to '%s' " % (identity, session.remote_identity.uri))
 
             from_uri = SIPURI.parse(session.account.uri)
             sip_uri = SIPURI.parse('sip:%s' % session.remote_identity.uri)
             content = content if isinstance(content, bytes) else content.encode()
-            ns = CPIMNamespace('urn:ietf:params:imdn', 'imdn')
-            additional_headers = [CPIMHeader('Message-ID', ns, message_id)]
+            if add_disposition:
+                ns = CPIMNamespace('urn:ietf:params:imdn', 'imdn')
+                additional_headers = [CPIMHeader('Message-ID', ns, message_id)]
             payload = CPIMPayload(content,
                                   content_type,
                                   charset='utf-8',
