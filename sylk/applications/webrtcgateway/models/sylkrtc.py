@@ -310,6 +310,7 @@ class AccountAddressBookFetchedEvent(AccountEventBase):
 class AccountAddressBookUpdatedEvent(AccountEventBase):
     event = FixedValueProperty('addressbook-updated')
     type = LimitedChoiceProperty(["contact", "group", "policy"])
+    action = StringProperty()
     contact = AbstractObjectProperty(optional=True)
     group = AbstractObjectProperty(optional=True)
     policy = AbstractObjectProperty(optional=True)
@@ -324,7 +325,9 @@ class AccountAddressBookUpdatedEvent(AccountEventBase):
 class AccountAddressBookUpdateFailedEvent(AccountEventBase):
     event = FixedValueProperty('addressbook-update-failed')
     type = LimitedChoiceProperty(["contact", "group", "policy"])
+    action = StringProperty()
     error = StringProperty()
+    id = StringProperty()
 
 
 # Session events

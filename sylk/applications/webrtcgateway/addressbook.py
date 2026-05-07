@@ -128,8 +128,15 @@ def _send_update_addressbook(account, request, destination):
 
     if resp.code not in (200, 204):
         body = yield readBody(resp)
-        log.warning("Non-200 response (%s) updating addressbook to %s: %r", resp.code, destination, body)
-        raise Exception(f"Non-200 response: {resp.code}, {body}")
+        body_text = body.decode('utf-8')
+        log.warning("Non-200 response (%s) updating addressbook to %s: %r", resp.code, destination, body_text)
+        try:
+            detail = json.loads(body_text).get('detail', body_text)
+            if isinstance(detail, list):
+                detail = ', '.join(e.get('msg', str(e)) for e in detail)
+        except (ValueError, TypeError):
+            detail = body_text
+        raise Exception(f"Non-200 response: {resp.code}, {detail}")
 
     if resp.code == 204 and routes.method == 'DELETE':
         return xcap.XCAPMapper.from_payload(request.data.__data__, request.type)
@@ -166,7 +173,8 @@ def _send_fetch_addressbook(account, destination):
 
     if resp.code != 200:
         body = yield readBody(resp)
-        log.warning("Non-200 response (%s) fetching addressbook from %s: %r", resp.code, destination, body)
+        body_text = body.decode('utf-8')
+        log.warning("Non-200 response (%s) fetching addressbook from %s: %r", resp.code, destination, body_text)
         return xcap.AddressBook(contacts=[], groups=[], policies=[])
 
     try:

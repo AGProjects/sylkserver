@@ -1266,9 +1266,22 @@ class ConnectionHandler(object):
 
         if not account_info.auth_state:
             raise APIError("Account not authenticated")
+
+        def addressbook_updated(result):
+            event = sylkrtc.AccountAddressBookUpdatedEvent(data=result.data,
+                                                           action=request.action,
+                                                           type=request.type,
+                                                           account=account_info.id)
+            self.send(event)
+            self._fork_event_to_online_accounts(account_info, event)
+
         update = defer.maybeDeferred(update_addressbook, account_info, request)
-        update.addCallback(lambda result: self.send(sylkrtc.AccountAddressBookUpdatedEvent(data=result.data, type=request.type, account=account_info.id)))
-        update.addErrback(lambda failure: self.send(sylkrtc.AccountAddressBookUpdateFailed(error=str(failure.value), type=request.type, account=account_info.id)))
+        update.addCallback(addressbook_updated)
+        update.addErrback(lambda failure: self.send(sylkrtc.AccountAddressBookUpdateFailedEvent(error=str(failure.value),
+                                                                                                type=request.type,
+                                                                                                action=request.action,
+                                                                                                account=account_info.id,
+                                                                                                id=request.data.id)))
 
         return update
 
