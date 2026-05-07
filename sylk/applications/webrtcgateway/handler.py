@@ -1344,7 +1344,7 @@ class ConnectionHandler(object):
         self.log.info('{session.direction} session {session.id} will terminate'.format(session=session_info))
 
     def _RH_session_message(self, request):
-        self.log.info("Sending janus in dailaog message")
+        self.log.info("Sending janus in dialog message")
         try:
             session_info = self.sip_sessions[request.session]
         except KeyError:
@@ -1904,7 +1904,7 @@ class ConnectionHandler(object):
                                                                          code=200,
                                                                          reason=''))
         else:
-            self.log.info('received n dialog message ({content_type}) from: {originator.uri}'.format(content_type=content_type, originator=sender))
+            self.log.info('received in dialog message ({content_type}) from: {originator.uri}'.format(content_type=content_type, originator=sender))
 
             self.send(sylkrtc.SessionMessageEvent(session=session_info.id,
                                                   sender=sender,
