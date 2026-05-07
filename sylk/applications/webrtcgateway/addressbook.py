@@ -131,6 +131,9 @@ def _send_update_addressbook(account, request, destination):
         log.warning("Non-200 response (%s) updating addressbook to %s: %r", resp.code, destination, body)
         raise Exception(f"Non-200 response: {resp.code}, {body}")
 
+    if resp.code == 204 and routes.method == 'DELETE':
+        return xcap.XCAPMapper.from_payload(request.data.__data__, request.type)
+
     try:
         body = yield readBody(resp)
         payload = json.loads(body)
