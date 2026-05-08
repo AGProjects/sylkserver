@@ -1364,7 +1364,7 @@ class ConnectionHandler(object):
             raise APIError('Unknown session {request.session}'.format(request=request))
 
         if session_info.state not in ('established'):
-            raise APIError('Invalid state session {session.id}: {session.state}i for sending messages'.format(session=session_info))
+            raise APIError('Invalid state session {session.id}: {session.state} for sending messages'.format(session=session_info))
 
         self._send_in_dialog_sip_message(session_info, message_id=request.message_id, content=request.content, content_type=request.content_type, timestamp=request.timestamp)
 
