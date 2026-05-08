@@ -1368,6 +1368,25 @@ class ConnectionHandler(object):
 
         self._send_in_dialog_sip_message(session_info, message_id=request.message_id, content=request.content, content_type=request.content_type, timestamp=request.timestamp)
 
+    def _RH_session_dtmf_info(self, request):
+        try:
+            session_info = self.sip_sessions[request.session]
+        except KeyError:
+            raise APIError('Unknown session {request.session}'.format(request=request))
+
+        if session_info.state not in ('established', 'accepted', 'early_media'):
+            raise APIError(
+                'Invalid state session {session.id}: {session.state} for DTMF info'.format(
+                    session=session_info))
+
+        session_info.janus_handle.sendDtmfInfo(
+            digit=request.digit,
+            duration=request.duration if request.duration else None,
+        )
+        self.log.debug(
+            'session {session.id} DTMF INFO digit={digit} duration={duration}'.format(
+                session=session_info, digit=request.digit, duration=request.duration))
+
     def _RH_videoroom_join(self, request):
         if request.session in self.videoroom_sessions:
             raise APIError('Session ID {request.session} already in use'.format(request=request))

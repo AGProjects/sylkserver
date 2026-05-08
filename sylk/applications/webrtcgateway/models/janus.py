@@ -282,6 +282,12 @@ class SIPMessage(JSONObject):
     content = StringProperty()
 
 
+class SIPDtmfInfo(JSONObject):
+    request = FixedValueProperty('dtmf_info')
+    digit = StringProperty()
+    duration = IntegerProperty(optional=True)
+
+
 # Videoroom plugin messages (to be used as body for MessageRequest for videoroom plugin messages)
 
 class VideoroomCreate(JSONObject):

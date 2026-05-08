@@ -333,6 +333,12 @@ class SIPPluginHandle(JanusPluginHandle):
     def sendMessage(self, **message):
         self.message(janus.SIPMessage(**message))
 
+    def sendDtmfInfo(self, digit, duration=None):
+        kwargs = {'digit': digit}
+        if duration is not None:
+            kwargs['duration'] = duration
+        self.message(janus.SIPDtmfInfo(**kwargs))
+
 
 class VideoroomPluginHandle(JanusPluginHandle):
     plugin = 'janus.plugin.videoroom'
