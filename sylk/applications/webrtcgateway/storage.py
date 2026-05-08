@@ -693,7 +693,7 @@ class CassandraMessageStorage(object):
 
     @run_in_thread('cassandra')
     def mark_conversation_read(self, account, contact):
-        for message in ChatMessage.objects(ChatMessage.account == account):
+        for message in ChatMessage.objects(ChatMessage.account == account).limit(None):
             if message.contact == contact:
                 if message.content_type == 'application/sylk-conversation-read':
                     message.delete()
@@ -795,7 +795,7 @@ class CassandraMessageStorage(object):
     @run_in_thread('cassandra')
     def removeChat(self, account, contact):
         try:
-            messages = ChatMessage.objects(ChatMessage.account == account)
+            messages = ChatMessage.objects(ChatMessage.account == account).limit(None)
         except LWTException:
             pass
         else:
