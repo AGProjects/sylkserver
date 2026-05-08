@@ -875,7 +875,7 @@ class ConnectionHandler(object):
                               additional_headers=additional_headers)
         payload, content_type = payload.encode()
 
-        session.janus_handle.sendMessage(content_type=content_type, content=payload)
+        session.janus_handle.send_message(content_type=content_type, content=payload)
         session._message_queue.append((message_id, payload, content_type))
 
     def _handle_janus_sip_event(self, event):
@@ -1379,13 +1379,9 @@ class ConnectionHandler(object):
                 'Invalid state session {session.id}: {session.state} for DTMF info'.format(
                     session=session_info))
 
-        session_info.janus_handle.sendDtmfInfo(
-            digit=request.digit,
-            duration=request.duration if request.duration else None,
-        )
-        self.log.debug(
-            'session {session.id} DTMF INFO digit={digit} duration={duration}'.format(
-                session=session_info, digit=request.digit, duration=request.duration))
+        duration = request.duration if request.duration else None
+        session_info.janus_handle.send_dtmf_info(digit=request.digit, duration=duration)
+        self.log.debug('{session.direction} session {session.id} send DTMF INFO {digit} {duration}'.format(session=session_info, digit=request.digit, duration=duration))
 
     def _RH_videoroom_join(self, request):
         if request.session in self.videoroom_sessions:
@@ -1974,6 +1970,9 @@ class ConnectionHandler(object):
                                                                      message_id=message_id,
                                                                      message_timestamp=str(timestamp),
                                                                      timestamp=str(ISOTimestamp.now())))
+
+    def _EH_janus_sip_event_dtmfsent(self, event):
+        pass
 
     def _EH_janus_videoroom(self, event):
         if isinstance(event, janus.PluginEvent):

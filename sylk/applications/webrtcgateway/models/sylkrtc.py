@@ -613,15 +613,6 @@ class SessionMessageRequest(SessionRequestBase):
 
 
 class SessionDtmfInfoRequest(SessionRequestBase):
-    # SIP-INFO DTMF transmission. Forwarded to the Janus SIP
-    # plugin's built-in `dtmf_info` API, which emits an in-dialog
-    # SIP INFO toward the peer. Bypasses the RTP DTMF path —
-    # signalling-only — so it's robust against Asterisk + PSTN
-    # gateways that don't trust RTP-band DTMF.
-    #
-    # Sent by sylk-mobile when the user has picked "SIP INFO" as
-    # their DTMF mode in Preferences. The handler is in
-    # webrtcgateway/handler.py: `_RH_session_dtmf_info`.
     sylkrtc = FixedValueProperty('session-dtmf-info')
     digit = StringProperty()
     duration = IntegerProperty(optional=True)

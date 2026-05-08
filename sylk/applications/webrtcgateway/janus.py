@@ -330,14 +330,14 @@ class SIPPluginHandle(JanusPluginHandle):
     def hangup(self):
         self.message(janus.SIPHangup())
 
-    def sendMessage(self, **message):
+    def send_message(self, **message):
         self.message(janus.SIPMessage(**message))
 
-    def sendDtmfInfo(self, digit, duration=None):
-        kwargs = {'digit': digit}
+    def send_dtmf_info(self, digit, duration=None):
+        parameters = {'digit': digit}
         if duration is not None:
-            kwargs['duration'] = duration
-        self.message(janus.SIPDtmfInfo(**kwargs))
+            parameters['duration'] = duration
+        self.message(janus.SIPDtmfInfo(**parameters))
 
 
 class VideoroomPluginHandle(JanusPluginHandle):
