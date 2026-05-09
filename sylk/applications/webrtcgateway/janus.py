@@ -1,5 +1,6 @@
 
 import json
+import re
 
 from application.notification import (IObserver, NotificationCenter,
                                       NotificationData)
@@ -25,6 +26,13 @@ class JanusError(Exception):
         super(JanusError, self).__init__(reason)
         self.code = code
         self.reason = reason
+
+
+_pstn_uri_re = re.compile(r'^(?:sips?:)?(?:\+|00)\d+@')
+
+
+def _is_pstn_uri(uri):
+    return bool(_pstn_uri_re.match(uri))
 
 
 class JanusClientProtocol(WebSocketClientProtocol):
@@ -316,9 +324,12 @@ class SIPPluginHandle(JanusPluginHandle):
         if proxy and ('transport=tcp' in proxy or 'sips' in proxy):
             force_tcp = True
 
-        # in order to make a call we need to register first. do so without actually registering, as we are already registered
+        call_kwargs = dict(uri=uri, **headers)
+        if not _is_pstn_uri(uri):
+            call_kwargs['srtp'] = 'sdes_optional'
+
         self.message(janus.SIPRegister(proxy=proxy, outbound_proxy=proxy, send_register=False, force_tcp=force_tcp, **account.user_data))
-        self.message(janus.SIPCall(uri=uri, srtp='sdes_optional', **headers), jsep=janus.SDPOffer(sdp=sdp))
+        self.message(janus.SIPCall(**call_kwargs), jsep=janus.SDPOffer(sdp=sdp))
 
     def accept(self, sdp, headers=None):
         headers = {'headers': headers} if headers is not None else {}
