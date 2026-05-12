@@ -359,8 +359,11 @@ class FileMessageStorage(object):
                         reactor.callFromThread(deferred.callback, messages)
                         return
 
-                    reactor.callFromThread(deferred.callback, messages)
-                    return
+                    if since:
+                        timestamp = ISOTimestamp(since)
+                    else:
+                        reactor.callFromThread(deferred.callback, messages)
+                        return
                 else:
                     timestamp = ISOTimestamp(timestamp)
 
@@ -619,14 +622,17 @@ class CassandraMessageStorage(object):
             try:
                 timestamp = ChatMessageIdMapping.objects(ChatMessageIdMapping.message_id == message_id)[0]
             except (IndexError, InvalidRequest):
-                timestamp = datetime.datetime.now() - datetime.timedelta(days=3)
+                if since:
+                    timestamp = ISOTimestamp(since)
+                else:
+                    timestamp = datetime.datetime.now() - datetime.timedelta(days=3)
             else:
                 timestamp = timestamp.created_at
 
             if since and not message_id:
                 timestamp = ISOTimestamp(since)
 
-            for message in ChatMessage.objects(ChatMessage.account == key, ChatMessage.created_at > timestamp):
+            for message in ChatMessage.objects(ChatMessage.account == key, ChatMessage.created_at > timestamp).limit(5000):
                 timestamp_naive = message.msg_timestamp
                 try:
                     timestamp_utc = timestamp_naive.replace(tzinfo=datetime.timezone.utc)
