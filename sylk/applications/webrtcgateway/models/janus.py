@@ -260,11 +260,13 @@ class SIPCall(JSONObject):
     uri = StringProperty(validator=URIValidator())  # this comes from the client request.uri which was validated as an AOR and we need a URI
     srtp = LimitedChoiceProperty(['sdes_optional', 'sdes_mandatory'], optional=True)
     headers = ArrayProperty(Headers, optional=True)
+    autoaccept_reinvites = BooleanProperty(default=False, optional=True)
 
 
 class SIPAccept(JSONObject):
     request = FixedValueProperty('accept')
     headers = ArrayProperty(Headers, optional=True)
+    autoaccept_reinvites = BooleanProperty(default=False, optional=True)
 
 
 class SIPDecline(JSONObject):
