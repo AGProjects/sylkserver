@@ -1347,7 +1347,7 @@ class ConnectionHandler(object):
         except KeyError:
             raise APIError('Unknown session {request.session}'.format(request=request))
 
-        if session_info.state not in ('connecting', 'progress', 'early_media', 'accepted', 'established', 'ringing'):
+        if session_info.state not in ('connecting', 'progress', 'early_media', 'accepted', 'established', 'ringing', 'local-updating', 'remote-updating'):
             raise APIError('Invalid state for terminating session {session.id}: {session.state}'.format(session=session_info))
 
         if session_info.direction == 'incoming' and session_info.state == 'connecting':
@@ -1355,6 +1355,33 @@ class ConnectionHandler(object):
         else:
             session_info.janus_handle.hangup()
         self.log.info('{session.direction} session {session.id} will terminate'.format(session=session_info))
+
+    def _RH_session_update(self, request):
+        try:
+            session_info = self.sip_sessions[request.session]
+        except KeyError:
+            raise APIError('Unknown session {request.session}'.format(request=request))
+
+        if session_info.state == 'established':
+            jsep_type = 'offer'
+            session_info.state = 'local-updating'
+        elif session_info.state == 'remote-updating':
+            jsep_type = 'answer'
+        else:
+            raise APIError(
+                'Invalid state for updating session {session.id}: {session.state}'.format(
+                    session=session_info))
+
+        headers = {'headers': request.headers.__data__} if request.headers is not None else {}
+        try:
+            session_info.janus_handle.update(sdp=request.sdp, jsep_type=jsep_type, **headers)
+        except Exception:
+            if jsep_type == 'offer':
+                session_info.state = 'established'
+            raise
+
+        self.log.info('{direction} session {id} sent {jsep} update'.format(
+            direction=session_info.direction, id=session_info.id, jsep=jsep_type))
 
     def _RH_session_message(self, request):
         self.log.info("Sending janus in dialog message")
@@ -1374,7 +1401,7 @@ class ConnectionHandler(object):
         except KeyError:
             raise APIError('Unknown session {request.session}'.format(request=request))
 
-        if session_info.state not in ('established', 'accepted', 'early_media'):
+        if session_info.state not in ('established', 'accepted', 'early_media', 'local-updating', 'remote-updating'):
             raise APIError(
                 'Invalid state session {session.id}: {session.state} for DTMF info'.format(
                     session=session_info))
@@ -1750,6 +1777,21 @@ class ConnectionHandler(object):
             self.log.info('registration failed: {reason}'.format(reason=reason))
 
     def _EH_janus_sip_event_incomingcall(self, event):
+        # Janus re-emits 'incomingcall' for in-dialog re-INVITEs in
+        # some builds (instead of using a separate 'updatingcall'
+        # event). Detect that case by checking whether event.sender
+        # corresponds to an already-known session handle — if so,
+        # this is a mid-call renegotiation and we route through the
+        # same logic as the explicit 'updatingcall' event handler.
+        # Without this guard, an in-dialog re-INVITE would land here,
+        # fall through the account_handles_map lookup with a warning,
+        # and the client (callee) would never get a SessionUpdateEvent
+        # — symptom on the wire: A's session-update gets accepted, B's
+        # PeerConnection is never told to expect new media, A's video
+        # frames arrive but B has no receiver wired to render them.
+        if event.sender in self.sip_sessions:
+            self.log.info('incomingcall on existing session — routing as re-INVITE')
+            return self._EH_janus_sip_event_updatingcall(event)
         try:
             account_info = self.account_handles_map[event.sender]
         except KeyError:
@@ -1806,6 +1848,18 @@ class ConnectionHandler(object):
             self.log.warning('could not find SIP session with handle ID {event.sender} for accepted event'.format(event=event))
             return
 
+        if session_info.state in ('local-updating', 'remote-updating'):
+            previous_state = session_info.state
+            session_info.state = 'established'
+            if event.jsep is not None:
+                self.send(sylkrtc.SessionUpdateEvent(session=session_info.id, state='accepted', sdp=event.jsep.sdp))
+                self.log.info('{session.direction} session {session.id} update accepted ({prev}→established)'.format(
+                    session=session_info, prev=previous_state))
+            else:
+                self.log.info('{session.direction} session {session.id} update completed without JSEP (was {prev})'.format(
+                    session=session_info, prev=previous_state))
+            return
+
         if session_info.state == 'established' or session_info.state == 'early_media':  # We had early media
             session_info.state = 'accepted'
             self.send(sylkrtc.SessionAcceptedEvent(session=session_info.id))
@@ -1821,6 +1875,40 @@ class ConnectionHandler(object):
         else:
             self.send(sylkrtc.SessionAcceptedEvent(session=session_info.id))
         self.log.debug('{session.direction} session {session.id} state: {session.state}'.format(session=session_info))
+
+    def _EH_janus_sip_event_updating(self, event):
+        try:
+            session_info = self.sip_sessions[event.sender]
+        except KeyError:
+            return
+        self.log.debug('{session.direction} session {session.id} update in progress'.format(session=session_info))
+
+    def _EH_janus_sip_event_updatingcall(self, event):
+        try:
+            session_info = self.sip_sessions[event.sender]
+        except KeyError:
+            self.log.warning('could not find SIP session with handle ID {event.sender} for updatingcall event'.format(event=event))
+            return
+        if event.jsep is None:
+            self.log.warning('updatingcall event without JSEP for session {session.id}'.format(session=session_info))
+            return
+        session_info.state = 'remote-updating'
+        self.send(sylkrtc.SessionUpdateEvent(session=session_info.id, state='received', sdp=event.jsep.sdp))
+        self.log.info('{session.direction} session {session.id} got remote re-INVITE'.format(session=session_info))
+
+    def _EH_janus_sip_event_updated(self, event):
+        try:
+            session_info = self.sip_sessions[event.sender]
+        except KeyError:
+            self.log.warning('could not find SIP session with handle ID {event.sender} for updated event'.format(event=event))
+            return
+        previous_state = session_info.state
+        session_info.state = 'established'
+        if event.jsep is not None:
+            self.send(sylkrtc.SessionUpdateEvent(session=session_info.id, state='accepted', sdp=event.jsep.sdp))
+            self.log.info('{session.direction} session {session.id} update accepted'.format(session=session_info))
+        else:
+            self.log.info('{session.direction} session {session.id} update completed (was {state})'.format(session=session_info, state=previous_state))
 
     def _EH_janus_sip_event_hangup(self, event):
         try:

@@ -269,6 +269,11 @@ class SIPAccept(JSONObject):
     autoaccept_reinvites = BooleanProperty(default=False, optional=True)
 
 
+class SIPUpdate(JSONObject):
+    request = FixedValueProperty('update')
+    headers = ArrayProperty(Headers, optional=True)
+
+
 class SIPDecline(JSONObject):
     request = FixedValueProperty('decline')
     code = IntegerProperty()
@@ -497,6 +502,21 @@ class SIPResultAccepted(JSONObject):
     headers = AbstractProperty(optional=True)
 
 
+class SIPResultUpdating(JSONObject):
+    event = FixedValueProperty('updating')
+
+
+class SIPResultUpdated(JSONObject):
+    event = FixedValueProperty('updated')
+
+
+class SIPResultUpdatingCall(JSONObject):
+    event = FixedValueProperty('updatingcall')
+    username = StringProperty(optional=True)
+    displayname = StringProperty(optional=True)
+    headers = AbstractProperty(optional=True)
+
+
 class SIPResultHolding(JSONObject):
     event = FixedValueProperty('holding')
 
@@ -631,6 +651,24 @@ class SIPAcceptedEvent(SIPPluginData):
     sip = FixedValueProperty('event')
     result = ObjectProperty(SIPResultAccepted)            # type: SIPResultAccepted
     call_id = StringProperty()
+
+
+class SIPUpdatingEvent(SIPPluginData):
+    sip = FixedValueProperty('event')
+    result = ObjectProperty(SIPResultUpdating)
+    call_id = StringProperty(optional=True)
+
+
+class SIPUpdatedEvent(SIPPluginData):
+    sip = FixedValueProperty('event')
+    result = ObjectProperty(SIPResultUpdated)
+    call_id = StringProperty(optional=True)
+
+
+class SIPUpdatingCallEvent(SIPPluginData):
+    sip = FixedValueProperty('event')
+    result = ObjectProperty(SIPResultUpdatingCall)
+    call_id = StringProperty(optional=True)
 
 
 class SIPHoldingEvent(SIPPluginData):

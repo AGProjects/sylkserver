@@ -367,6 +367,13 @@ class SessionTerminatedEvent(SessionStateEvent):
     reason = StringProperty(optional=True)
 
 
+class SessionUpdateEvent(SessionEventBase):
+    event = FixedValueProperty('update')
+    state = LimitedChoiceProperty(['received', 'accepted', 'failed'])
+    sdp = StringProperty(optional=True)
+    reason = StringProperty(optional=True)
+
+
 class SessionMessageEvent(SessionEventBase):
     event = FixedValueProperty('message')
     sender = ObjectProperty(SIPIdentity)  # type: SIPIdentity
@@ -602,6 +609,12 @@ class SessionTrickleRequest(SessionRequestBase):
 
 class SessionTerminateRequest(SessionRequestBase):
     sylkrtc = FixedValueProperty('session-terminate')
+
+
+class SessionUpdateRequest(SessionRequestBase):
+    sylkrtc = FixedValueProperty('session-update')
+    sdp = StringProperty()
+    headers = ArrayProperty(Headers, optional=True)
 
 
 class SessionMessageRequest(SessionRequestBase):

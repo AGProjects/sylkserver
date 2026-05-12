@@ -335,6 +335,16 @@ class SIPPluginHandle(JanusPluginHandle):
         headers = {'headers': headers} if headers is not None else {}
         self.message(janus.SIPAccept(**headers), jsep=janus.SDPAnswer(sdp=sdp))
 
+    def update(self, sdp, jsep_type='offer', headers=None):
+        kwargs = {'headers': headers} if headers is not None else {}
+        if jsep_type == 'offer':
+            jsep = janus.SDPOffer(sdp=sdp)
+        elif jsep_type == 'answer':
+            jsep = janus.SDPAnswer(sdp=sdp)
+        else:
+            raise ValueError('jsep_type must be "offer" or "answer", got %r' % jsep_type)
+        self.message(janus.SIPUpdate(**kwargs), jsep=jsep)
+
     def decline(self, code=486):
         self.message(janus.SIPDecline(code=code))
 
