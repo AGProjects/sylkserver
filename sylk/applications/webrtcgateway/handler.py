@@ -62,7 +62,16 @@ class AccountInfo(object):
         self.janus_handle = None  # type: Optional[SIPPluginHandle]
         self.janus_helpers = []  # type: List[SIPPluginHandle]
         self.contact_params = {}
-        self.incoming_header_prefixes = incoming_header_prefixes.__data__ if incoming_header_prefixes is not None else []
+        # Default to forwarding ALL X-* headers from incoming INVITEs into
+        # the webrtcgateway incoming-session WebSocket event so any custom
+        # capability advertisement (X-Sylk-ZRTP, X-Sylk-App, future X-
+        # vendor headers) reaches the client by default. Clients can still
+        # narrow or override the prefix list explicitly via the
+        # 'incoming_header_prefixes' field on account-add.
+        if incoming_header_prefixes is None:
+            self.incoming_header_prefixes = ['X-']
+        else:
+            self.incoming_header_prefixes = incoming_header_prefixes.__data__
         self.auth_handle = None
         self.auth_state = False
 
