@@ -199,6 +199,50 @@ class VideoroomSessionInfo(object):
         return '<{0.__class__.__name__}: type={0.type!r} id={0.id!r} janus_handle={0.janus_handle!r}>'.format(self)
 
 
+class ExternalPublisherAccount(object):
+    """Minimal account stand-in for publishers that don't belong to sylkserver.
+
+    Just enough surface (`.id`, `.display_name`) for the few log lines that
+    read those fields when we're subscribed to a publisher that connected
+    directly to Janus (e.g. through an external SIP↔Janus bridge).
+    """
+
+    __slots__ = ('id', 'display_name')
+
+    def __init__(self, id, display_name=''):
+        self.id = id
+        self.display_name = display_name
+
+
+class ExternalPublisherSession(object):
+    """Stand-in for a publisher that lives outside of sylkserver.
+
+    Some publishers connect directly to Janus (e.g. via an external
+    SIP↔Janus bridge) and only surface to webrtcgateway through Janus's
+    publishers list. They have no signaling session in sylkserver and so
+    aren't tracked in :class:`Videoroom`, but the feed-attach bookkeeping
+    (:class:`PublisherFeedContainer`,
+    :meth:`VideoroomSessionInfo.init_subscriber`) still needs a publisher
+    object it can hold a reference to and index by id / publisher_id.
+
+    Unlike ``types.SimpleNamespace``, instances are hashable by identity
+    (the default ``object`` hash), which is required so that
+    :class:`PublisherFeedContainer` can store them in its internal set.
+    """
+
+    __slots__ = ('id', 'publisher_id', 'room', 'account')
+    type = 'publisher'
+
+    def __init__(self, id, publisher_id, room):
+        self.id = id
+        self.publisher_id = publisher_id
+        self.room = room
+        self.account = ExternalPublisherAccount('janus:{}'.format(id))
+
+    def __repr__(self):
+        return '<{0.__class__.__name__}: id={0.id!r} publisher_id={0.publisher_id!r}>'.format(self)
+
+
 class PublisherFeedContainer(object):
     """A container for the other participant's publisher sessions that we have subscribed to"""
 
@@ -1522,17 +1566,16 @@ class ConnectionHandler(object):
             # bridge (e.g. sip-janus-bridge) connected directly to Janus
             # and surfaced via the unknown-publisher relay in the publishers
             # list. Build a lightweight stub so we can still subscribe to
-            # them via the Janus videoroom plugin directly.
-            from types import SimpleNamespace
+            # them via the Janus videoroom plugin directly. The stub must be
+            # hashable (PublisherFeedContainer stores it in a set), which
+            # rules out types.SimpleNamespace — see ExternalPublisherSession.
             try:
                 janus_publisher_id = int(request.publisher)
             except (TypeError, ValueError):
                 raise APIError('Unknown publisher room session to attach to: {request.publisher}'.format(request=request))
-            publisher_session = SimpleNamespace(
-                type='publisher',
+            publisher_session = ExternalPublisherSession(
                 id=request.publisher,
                 publisher_id=janus_publisher_id,
-                account=SimpleNamespace(id='janus:{}'.format(request.publisher), display_name=''),
                 room=base_session.room,
             )
             self.log.info('attaching to external publisher {publisher.id} (janus_id={publisher.publisher_id})'.format(publisher=publisher_session))
@@ -1583,7 +1626,12 @@ class ConnectionHandler(object):
         videoroom_session.janus_handle.feed_detach()
         # safety net in case we do not get any answer for the feed_detach request
         # todo: to be adjusted later after pseudo-synchronous communication with janus is implemented
-        self.log.debug('unsubscribe from {account} in room {session.room.uri}'.format(account=videoroom_session.room[videoroom_session.publisher_id].account.id, session=videoroom_session))
+        try:
+            publisher_account = videoroom_session.room[videoroom_session.publisher_id].account.id
+        except KeyError:
+            # External publisher not tracked in sylkserver's room session map.
+            publisher_account = 'janus:{}'.format(videoroom_session.publisher_id)
+        self.log.debug('unsubscribe from {account} in room {session.room.uri}'.format(account=publisher_account, session=videoroom_session))
         reactor.callLater(2, call_in_green_thread, self._cleanup_videoroom_session, videoroom_session)
 
     def _RH_videoroom_invite(self, request):
@@ -1636,7 +1684,12 @@ class ConnectionHandler(object):
                 if not has_video:
                     media = 'audio only'
 
-            self.log.info('switched to {media} media to {account} in room {session.room.uri}'.format(account=videoroom_session.room[videoroom_session.publisher_id].account.id, session=videoroom_session, media=media))
+            try:
+                publisher_account = videoroom_session.room[videoroom_session.publisher_id].account.id
+            except KeyError:
+                # External publisher not tracked in sylkserver's room session map.
+                publisher_account = 'janus:{}'.format(videoroom_session.publisher_id)
+            self.log.info('switched to {media} media to {account} in room {session.room.uri}'.format(account=publisher_account, session=videoroom_session, media=media))
 
     def _RH_videoroom_message(self, request):
         try:
