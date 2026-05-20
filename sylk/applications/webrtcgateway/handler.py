@@ -1518,7 +1518,24 @@ class ConnectionHandler(object):
         try:
             publisher_session = base_session.room[request.publisher]  # the publisher's session (the one we want to subscribe to)
         except KeyError:
-            raise APIError('Unknown publisher room session to attach to: {request.publisher}'.format(request=request))
+            # Publisher not in sylkserver's session map — likely an external
+            # bridge (e.g. sip-janus-bridge) connected directly to Janus
+            # and surfaced via the unknown-publisher relay in the publishers
+            # list. Build a lightweight stub so we can still subscribe to
+            # them via the Janus videoroom plugin directly.
+            from types import SimpleNamespace
+            try:
+                janus_publisher_id = int(request.publisher)
+            except (TypeError, ValueError):
+                raise APIError('Unknown publisher room session to attach to: {request.publisher}'.format(request=request))
+            publisher_session = SimpleNamespace(
+                type='publisher',
+                id=request.publisher,
+                publisher_id=janus_publisher_id,
+                account=SimpleNamespace(id='janus:{}'.format(request.publisher), display_name=''),
+                room=base_session.room,
+            )
+            self.log.info('attaching to external publisher {publisher.id} (janus_id={publisher.publisher_id})'.format(publisher=publisher_session))
         if publisher_session.publisher_id is None:
             raise APIError('Video room session {session.id} does not have a publisher ID'.format(session=publisher_session))
 
@@ -2261,9 +2278,16 @@ class ConnectionHandler(object):
             return
         try:
             publisher_session = base_session.feeds.pop(publisher_id)
+            departed_id = publisher_session.id
         except KeyError:
-            return
-        self.send(sylkrtc.VideoroomPublishersLeftEvent(session=base_session.id, publishers=[publisher_session.id]))
+            # The leaving publisher wasn't in our feeds — either we never
+            # subscribed (e.g. an external bridge whose audio we don't
+            # consume) or the publisher is unknown. Either way the client
+            # may still have it in its participants list (we relayed the
+            # publishers event earlier), so notify with the raw Janus id
+            # so the UI removes the entry.
+            departed_id = str(publisher_id)
+        self.send(sylkrtc.VideoroomPublishersLeftEvent(session=base_session.id, publishers=[departed_id]))
 
     def _EH_janus_videoroom_event_left(self, event):
         # this is a subscriber
