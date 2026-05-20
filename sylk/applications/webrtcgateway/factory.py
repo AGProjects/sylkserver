@@ -1,9 +1,10 @@
 
-from application.notification import IObserver, NotificationCenter
+from application.notification import IObserver, NotificationCenter, NotificationData
 from application.python import Null
 from autobahn.twisted.websocket import WebSocketServerFactory
 from zope.interface import implementer
 
+from .logger import log
 from .protocol import SylkWebSocketServerProtocol
 
 
@@ -12,9 +13,23 @@ class VideoroomContainer(object):
         self._rooms = set()
         self._id_map = {}  # map videoroom.id -> videoroom and videoroom.uri -> videoroom
 
+    @staticmethod
+    def _post(name, room):
+        """Post a NotificationCenter event whenever a room is added/removed
+        so consumers (e.g. AdminWebHandler's /rooms/events SSE stream
+        consumed by sip-janus-bridge) can react in real time."""
+        try:
+            NotificationCenter().post_notification(
+                name, sender=None,
+                data=NotificationData(uri=room.uri, janus_room_id=room.id),
+            )
+        except Exception:
+            log.exception('failed to post %s notification', name)
+
     def add(self, room):
         self._rooms.add(room)
         self._id_map[room.id] = self._id_map[room.uri] = room
+        self._post('VideoroomCreated', room)
 
     def discard(self, item):  # item can be any of room, room.id or room.uri
         room = self._id_map[item] if item in self._id_map else item if item in self._rooms else None
@@ -22,21 +37,26 @@ class VideoroomContainer(object):
             self._rooms.discard(room)
             self._id_map.pop(room.id, None)
             self._id_map.pop(room.uri, None)
+            self._post('VideoroomDestroyed', room)
 
     def remove(self, item):  # item can be any of room, room.id or room.uri
         room = self._id_map[item] if item in self._id_map else item
         self._rooms.remove(room)
         self._id_map.pop(room.id)
         self._id_map.pop(room.uri)
+        self._post('VideoroomDestroyed', room)
 
     def pop(self, item):  # item can be any of room, room.id or room.uri
         room = self._id_map[item] if item in self._id_map else item
         self._rooms.remove(room)
         self._id_map.pop(room.id)
         self._id_map.pop(room.uri)
+        self._post('VideoroomDestroyed', room)
         return room
 
     def clear(self):
+        for room in list(self._rooms):
+            self._post('VideoroomDestroyed', room)
         self._rooms.clear()
         self._id_map.clear()
 

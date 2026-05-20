@@ -5,13 +5,15 @@ import mimetypes
 import os
 from shutil import copyfileobj
 
+from application.notification import IObserver, NotificationCenter
 from application.python.types import Singleton
 from application.system import makedirs
 from autobahn.twisted.resource import WebSocketResource
 from sipsimple.streams.msrp.filetransfer import FileSelector
 from twisted.internet import defer, reactor
 from twisted.python.failure import Failure
-from twisted.web.server import Site
+from twisted.web.server import Site, NOT_DONE_YET
+from zope.interface import implementer
 from werkzeug.exceptions import Forbidden, NotFound
 from werkzeug.utils import safe_join, secure_filename
 
@@ -347,11 +349,38 @@ class WebHandler(object):
 class AuthError(Exception): pass
 
 
+@implementer(IObserver)
 class AdminWebHandler(object, metaclass=Singleton):
     app = Klein()
 
     def __init__(self):
         self.listener = None
+        # Active /rooms/events SSE clients (Twisted Request objects).
+        self._event_subscribers = set()
+        # Subscribe to videoroom lifecycle notifications fired by
+        # VideoroomContainer.add / .remove / .clear in factory.py.
+        nc = NotificationCenter()
+        nc.add_observer(self, name='VideoroomCreated')
+        nc.add_observer(self, name='VideoroomDestroyed')
+
+    def handle_notification(self, notification):
+        kind = {
+            'VideoroomCreated': 'room-created',
+            'VideoroomDestroyed': 'room-destroyed',
+        }.get(notification.name)
+        if kind is None:
+            return
+        payload = {
+            'type': kind,
+            'uri': notification.data.uri,
+            'janus_room_id': notification.data.janus_room_id,
+        }
+        line = ('data: ' + json.dumps(payload) + '\n\n').encode('utf-8')
+        for req in list(self._event_subscribers):
+            try:
+                req.write(line)
+            except Exception:
+                self._event_subscribers.discard(req)
 
     def start(self):
         host, port = GeneralConfig.http_management_interface
@@ -463,3 +492,62 @@ class AdminWebHandler(object, metaclass=Singleton):
             'janus_room_id': room.id,
             'sessions': sessions,
         })
+
+    @app.route('/rooms/events', methods=['GET'])
+    def rooms_events(self, request):
+        """
+        Server-Sent Events stream of videoroom lifecycle events.
+        Each event is a `data: {...}\\n\\n` JSON payload with at least:
+            type:  "room-created" | "room-destroyed"
+            uri:   the room's SIP URI
+            janus_room_id: numeric Janus room id
+
+        Klein keeps the response open as long as the Deferred we return
+        below stays unfired. It fires only when the client disconnects.
+        """
+        self._check_auth(request)
+        request.setHeader('Content-Type', 'text/event-stream')
+        request.setHeader('Cache-Control', 'no-cache')
+        request.setHeader('Connection', 'keep-alive')
+        request.setHeader('Access-Control-Allow-Origin', '*')
+
+        request.write(b': connected\n\n')
+
+        # Seed with current set of live rooms so the client doesn't need
+        # a separate /rooms call to bootstrap.
+        for room in SylkWebSocketServerFactory.videorooms:
+            payload = json.dumps({
+                'type': 'room-created',
+                'uri': room.uri,
+                'janus_room_id': room.id,
+            })
+            request.write(('data: ' + payload + '\n\n').encode('utf-8'))
+
+        self._event_subscribers.add(request)
+
+        # Send a comment every 25 s so the connection survives any
+        # idle-timeout in proxies / HAProxy / load balancers.
+        keepalive_call = reactor.callLater(25, self._sse_keepalive, request)
+
+        # Return a Deferred that fires only when the peer disconnects —
+        # this is what tells Klein to keep the HTTP response open.
+        done = defer.Deferred()
+
+        def _on_finish(_):
+            self._event_subscribers.discard(request)
+            if keepalive_call.active():
+                keepalive_call.cancel()
+            if not done.called:
+                done.callback(None)
+        request.notifyFinish().addBoth(_on_finish)
+        return done
+
+    def _sse_keepalive(self, request):
+        try:
+            request.write(b': keepalive\n\n')
+        except Exception:
+            self._event_subscribers.discard(request)
+            return
+        # Re-arm
+        if request in self._event_subscribers:
+            reactor.callLater(25, self._sse_keepalive, request)

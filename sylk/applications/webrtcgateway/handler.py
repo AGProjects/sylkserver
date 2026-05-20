@@ -2,6 +2,7 @@
 import base64
 import hashlib
 import json
+import re
 import os
 import random
 import time
@@ -49,6 +50,39 @@ from .janus import (JanusBackend, JanusError, JanusSession, SIPPluginHandle,
 from .logger import ConnectionLogger, VideoroomLogger
 from .models import janus, sylkrtc
 from .storage import MessageStorage, TokenStorage
+
+
+_SIP_URI_RE = re.compile(r'^sips?:[^\s@]+@[^\s@]+$')
+
+
+def _parse_external_publisher_display(display, janus_id):
+    """
+    Parse the Janus 'display' field of an external publisher (e.g.
+    sip-janus-bridge).  The bridge encodes it as "<name>\\t<sip_uri>" so
+    we can surface both pieces to WebRTC clients.
+
+    Returns (display_name, sip_uri).  If parsing fails (display is empty
+    or the URI half is not a valid SIP URI), falls back to a synthetic
+    URI under the reserved 'janus.invalid' TLD so the sylkrtc
+    AORValidator still accepts the entry.
+    """
+    placeholder_uri = 'sip:bridge-{0}@janus.invalid'.format(janus_id)
+    placeholder_name = 'bridge-{0}'.format(janus_id)
+    if not display:
+        return placeholder_name, placeholder_uri
+    if '\t' in display:
+        name, _, uri = display.partition('\t')
+        name = name.strip()
+        uri = uri.strip()
+        if uri and _SIP_URI_RE.match(uri):
+            return (name or placeholder_name), uri
+        # URI half malformed — fall through to other heuristics.
+    # Display is itself a valid SIP URI (older bridges, or sip:user@host
+    # as the literal display field).
+    if _SIP_URI_RE.match(display.strip()):
+        return placeholder_name, display.strip()
+    # Plain display name, no URI piece.
+    return display, placeholder_uri
 
 
 class AccountInfo(object):
@@ -1593,6 +1627,18 @@ class ConnectionHandler(object):
         videoroom_session = VideoroomSessionInfo(request.feed, owner=self, janus_handle=videoroom_handle)
         videoroom_session.init_subscriber(publisher_session, parent_session=base_session)
         self.videoroom_sessions.add(videoroom_session)
+        # Discard a previous feed entry for the same publisher (id or
+        # janus publisher_id) so a re-subscribe doesn't trip the assert
+        # in PublisherFeedContainer.add. Happens when a client re-attaches
+        # to the same publisher after a transient client-side event.
+        try:
+            base_session.feeds.discard(publisher_session.id)
+        except Exception:
+            pass
+        try:
+            base_session.feeds.discard(publisher_session.publisher_id)
+        except Exception:
+            pass
         base_session.feeds.add(publisher_session)
         self.log.debug('subscribe to {account} in room {session.room.uri} {feeds}'.format(account=publisher_session.account.id, session=videoroom_session, feeds=len(base_session.feeds)))
 
@@ -2242,16 +2288,19 @@ class ConnectionHandler(object):
             try:
                 publisher_session = room[publisher.id]
             except KeyError:
-                # Publisher exists in the Janus room but not in sylkserver's
-                # session registry — likely an external bridge talking to
-                # Janus directly (e.g. sip-janus-bridge). Forward it through
-                # so the WebRTC clients can see it instead of silently
-                # dropping it.
+                # External publisher (e.g. sip-janus-bridge connected
+                # directly to Janus). The bridge packs its display name
+                # and SIP URI into the Janus 'display' field with a TAB
+                # separator; split them back out so clients see a real
+                # user@domain entity with its own name.
                 self.log.info('relaying external publisher {publisher.id} (display={publisher.display!r}) to clients'.format(publisher=publisher))
+                ext_name, ext_uri = _parse_external_publisher_display(
+                    publisher.display, publisher.id,
+                )
                 publishers.append(dict(
                     id=str(publisher.id),
-                    uri=publisher.display or 'janus:{}'.format(publisher.id),
-                    display_name=publisher.display or '',
+                    uri=ext_uri,
+                    display_name=ext_name,
                 ))
             else:
                 publishers.append(dict(id=publisher_session.id, uri=publisher_session.account.id, display_name=publisher.display or ''))
@@ -2302,14 +2351,18 @@ class ConnectionHandler(object):
                 publisher_session = room[publisher.id]
             except KeyError:
                 # External publisher (e.g. sip-janus-bridge connected
-                # directly to Janus). Forward it through to the WebRTC
-                # clients with the Janus-side display name and id,
-                # synthesizing a URI from the display field.
+                # directly to Janus). The bridge packs its display name
+                # and SIP URI into the Janus 'display' field with the
+                # form "<name>|<uri>"; split them back out so clients
+                # see a real user@domain entity with its own name.
                 self.log.info('relaying external publisher {publisher.id} (display={publisher.display!r}) to clients'.format(publisher=publisher))
+                ext_name, ext_uri = _parse_external_publisher_display(
+                    publisher.display, publisher.id,
+                )
                 publishers.append(dict(
                     id=str(publisher.id),
-                    uri=publisher.display or 'janus:{}'.format(publisher.id),
-                    display_name=publisher.display or '',
+                    uri=ext_uri,
+                    display_name=ext_name,
                 ))
                 continue
             publishers.append(dict(id=publisher_session.id, uri=publisher_session.account.id, display_name=publisher.display or ''))
@@ -2358,6 +2411,15 @@ class ConnectionHandler(object):
         pass
 
     def _EH_janus_videoroom_event_unpublished(self, event):
+        pass
+
+    def _EH_janus_videoroom_event_display(self, event):
+        # No-op: sylkrtc has no native "publisher-updated" event, and
+        # re-emitting publishers-joined caused Android clients to add
+        # the publisher a second time. Left+joined would force a full
+        # WebRTC re-subscription — also unacceptable. So we just drop
+        # display updates on the floor until the client/protocol grows
+        # proper support.
         pass
 
     # Notification handlers
