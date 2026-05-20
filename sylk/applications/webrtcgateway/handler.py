@@ -2484,6 +2484,10 @@ class VideoroomChatHandler(object):
         self._started = False
         self._ended = False
         self._message_queue = deque()
+        # Tracks the current SIP-side conference roster (RFC 4575) so we can
+        # log participant join/leave events as successive NOTIFY snapshots
+        # arrive on the conference event subscription.
+        self._conference_participants = set()  # type: Set[str]
 
     @property
     def account(self):
@@ -2540,6 +2544,7 @@ class VideoroomChatHandler(object):
             self.sip_session.end()
             self.sip_session = None
             self.chat_stream = None
+            self._conference_participants = set()
             self.room.log.debug('chat session for {} ended'.format(self.account.id))
             notification_center.post_notification('ChatSessionDidEnd', sender=self)
         while self._message_queue:
@@ -2604,6 +2609,30 @@ class VideoroomChatHandler(object):
         # sylkserver's SIP Session class doesn't implement the transfer API
         # self.sip_session.reject_transfer(403)
         pass
+
+    def _NH_SIPSessionGotConferenceInfo(self, notification):
+        # Posted by sylk.session.ConferenceHandler whenever a NOTIFY for the
+        # 'conference' event package arrives on the subscription it created
+        # when the remote party advertised isfocus. The body is an RFC 4575
+        # conference-info+xml document; ConferenceDocument.parse turns it
+        # into structured users/endpoints. Each NOTIFY is treated as a full
+        # snapshot of the room so we can derive join/leave by diffing the
+        # entity set against what we saw on the previous notify.
+        conference_info = notification.data.conference_info
+        current = {}
+        for user in conference_info.users:
+            display = user.display_text.value if user.display_text else None
+            current[user.entity] = display
+        current_set = set(current)
+        previous_set = self._conference_participants
+        room_uri = self.room.uri
+        for entity in current_set - previous_set:
+            display = current[entity]
+            label = '{} <{}>'.format(display, entity) if display else entity
+            self.room.log.info('SIP conference {}: participant joined: {}'.format(room_uri, label))
+        for entity in previous_set - current_set:
+            self.room.log.info('SIP conference {}: participant left: {}'.format(room_uri, entity))
+        self._conference_participants = current_set
 
     def _NH_ChatStreamGotMessage(self, notification):
         self.chat_stream.msrp_session.send_report(notification.data.chunk, 200, 'OK')
