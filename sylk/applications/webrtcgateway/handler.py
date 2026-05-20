@@ -340,6 +340,10 @@ class Videoroom(object):
         self._id_map = {}       # type: Dict[Union[str, int], VideoroomSessionInfo]  # map session.id -> session and session.publisher_id -> session
         self._shared_files = []
         self._raised_hands = []
+        # SIP-side participant roster (uri -> display_text), populated
+        # from SIPSessionGotConferenceInfo notifications on any chat
+        # session attached to this room.
+        self._sip_roster = {}  # type: Dict[str, str]
         if self.config.record:
             makedirs(self.config.recording_dir, 0o755)
             self.log.info('created (recording on)')
@@ -349,6 +353,42 @@ class Videoroom(object):
             self.video = False
         if self.config.persistent:
             self.read_files_from_disk()
+
+    def update_sip_roster(self, conference_info):
+        """
+        Apply a conference-info+xml snapshot from sipsimple to this
+        videoroom's cached SIP roster. Logs each join / leave once
+        (state diff is idempotent — every chat session in this room
+        receives the same NOTIFY and calls this method; duplicates
+        produce no extra log lines).
+        """
+        try:
+            users = conference_info.users
+        except AttributeError:
+            return
+        new_roster = {}
+        for u in users:
+            entity = str(getattr(u, 'entity', '') or '')
+            display = ''
+            try:
+                if u.display_text and u.display_text.value:
+                    display = u.display_text.value
+            except AttributeError:
+                pass
+            if entity:
+                new_roster[entity] = display
+        # Diff against previous.
+        added = set(new_roster) - set(self._sip_roster)
+        removed = set(self._sip_roster) - set(new_roster)
+        for uri in sorted(added):
+            display = new_roster[uri]
+            label = '{} ({})'.format(display, uri) if display else uri
+            self.log.info('{} has joined'.format(label))
+        for uri in sorted(removed):
+            display = self._sip_roster[uri]
+            label = '{} ({})'.format(display, uri) if display else uri
+            self.log.info('{} has left'.format(label))
+        self._sip_roster = new_roster
 
     @property
     def active_participants(self):
@@ -2694,9 +2734,55 @@ class VideoroomChatHandler(object):
         handler(notification)
 
     def _NH_SIPSessionDidStart(self, notification):
-        self.room.log.debug('chat session for {} started'.format(self.account.id))
+        sess = self.sip_session
+        remote_focus = getattr(sess, 'remote_focus', False)
+        remote_identity = getattr(sess, 'remote_identity', None)
+        self.room.log.info(
+            'chat session connected: account=%s remote=%s isfocus=%s '
+            '(conference event subscription %s)',
+            self.account.id,
+            getattr(remote_identity, 'uri', '?') if remote_identity else '?',
+            remote_focus,
+            'will run automatically' if remote_focus else 'WILL NOT run (remote is not a focus)',
+        )
         notification.center.post_notification('ChatSessionDidStart', sender=self)
         self._send_queued_messages()
+
+    def _NH_SIPConferenceDidAddParticipant(self, notification):
+        """
+        Fires when we ourselves successfully add a participant to the
+        conference via session.conference.add(uri). NOT triggered for
+        other participants joining on their own — that comes through
+        SIPSessionGotConferenceInfo. Logged here for completeness so
+        every conference-related notification leaves a trace.
+        """
+        self.room.log.info(
+            'SIPConferenceDidAddParticipant participant=%r',
+            notification.data.participant,
+        )
+
+    def _NH_SIPConferenceDidRemoveParticipant(self, notification):
+        """Fires when we ourselves remove a participant."""
+        self.room.log.info(
+            'SIPConferenceDidRemoveParticipant participant=%r',
+            notification.data.participant,
+        )
+
+    def _NH_SIPConferenceDidNotAddParticipant(self, notification):
+        self.room.log.warning(
+            'SIPConferenceDidNotAddParticipant participant=%r code=%r reason=%r',
+            notification.data.participant,
+            getattr(notification.data, 'code', None),
+            getattr(notification.data, 'reason', None),
+        )
+
+    def _NH_SIPConferenceDidNotRemoveParticipant(self, notification):
+        self.room.log.warning(
+            'SIPConferenceDidNotRemoveParticipant participant=%r code=%r reason=%r',
+            notification.data.participant,
+            getattr(notification.data, 'code', None),
+            getattr(notification.data, 'reason', None),
+        )
 
     def _NH_SIPSessionDidEnd(self, notification):
         notification.center.remove_observer(self, sender=self.sip_session)
