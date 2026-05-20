@@ -397,3 +397,69 @@ class AdminWebHandler(object, metaclass=Singleton):
         if request.method == 'DELETE':
             storage.remove(account, device_token)
         return json.dumps({'success': True})
+
+    # ------------------------------------------------------------------
+    # Videoroom lookup — used by sip-janus-bridge and similar tooling to
+    # translate the SIP-side room URI (e.g. 299472434@videoconference...)
+    # into the random numeric Janus room id sylkserver assigned at
+    # create time. Authenticated via http_management_auth_secret.
+    # ------------------------------------------------------------------
+
+    @app.route('/rooms', methods=['GET'])
+    def list_rooms(self, request):
+        self._check_auth(request)
+        request.setHeader('Content-Type', 'application/json')
+        rooms = []
+        for room in SylkWebSocketServerFactory.videorooms:
+            try:
+                sessions = len(room._sessions)
+            except AttributeError:
+                sessions = 0
+            rooms.append({
+                'uri': room.uri,
+                'janus_room_id': room.id,
+                'sessions': sessions,
+            })
+        return json.dumps({'rooms': rooms})
+
+    @app.route('/rooms/<string:uri>', methods=['GET'])
+    def get_room_by_uri(self, request, uri):
+        self._check_auth(request)
+        request.setHeader('Content-Type', 'application/json')
+        # Klein passes the path segment URL-decoded already; videoroom keys
+        # are stored as-is (lower-cased at create time by sylkserver).
+        key = uri.lower()
+        if key not in SylkWebSocketServerFactory.videorooms:
+            request.setResponseCode(404)
+            return json.dumps({'error': 'no such room', 'uri': uri})
+        room = SylkWebSocketServerFactory.videorooms[key]
+        try:
+            sessions = len(room._sessions)
+        except AttributeError:
+            sessions = 0
+        return json.dumps({
+            'uri': room.uri,
+            'janus_room_id': room.id,
+            'sessions': sessions,
+        })
+
+    @app.route('/rooms/by-id/<int:janus_room_id>', methods=['GET'])
+    def get_room_by_id(self, request, janus_room_id):
+        self._check_auth(request)
+        request.setHeader('Content-Type', 'application/json')
+        if janus_room_id not in SylkWebSocketServerFactory.videorooms:
+            request.setResponseCode(404)
+            return json.dumps({
+                'error': 'no such room',
+                'janus_room_id': janus_room_id,
+            })
+        room = SylkWebSocketServerFactory.videorooms[janus_room_id]
+        try:
+            sessions = len(room._sessions)
+        except AttributeError:
+            sessions = 0
+        return json.dumps({
+            'uri': room.uri,
+            'janus_room_id': room.id,
+            'sessions': sessions,
+        })
