@@ -2172,7 +2172,17 @@ class ConnectionHandler(object):
             try:
                 publisher_session = room[publisher.id]
             except KeyError:
-                self.log.warning('could not find matching session for publisher {publisher.id} during joined event'.format(publisher=publisher))
+                # Publisher exists in the Janus room but not in sylkserver's
+                # session registry — likely an external bridge talking to
+                # Janus directly (e.g. sip-janus-bridge). Forward it through
+                # so the WebRTC clients can see it instead of silently
+                # dropping it.
+                self.log.info('relaying external publisher {publisher.id} (display={publisher.display!r}) to clients'.format(publisher=publisher))
+                publishers.append(dict(
+                    id=str(publisher.id),
+                    uri=publisher.display or 'janus:{}'.format(publisher.id),
+                    display_name=publisher.display or '',
+                ))
             else:
                 publishers.append(dict(id=publisher_session.id, uri=publisher_session.account.id, display_name=publisher.display or ''))
         self.send(sylkrtc.VideoroomInitialPublishersEvent(session=videoroom_session.id, publishers=publishers))
@@ -2221,7 +2231,16 @@ class ConnectionHandler(object):
             try:
                 publisher_session = room[publisher.id]
             except KeyError:
-                self.log.warning('could not find matching session for publisher {publisher.id} during publishers event'.format(publisher=publisher))
+                # External publisher (e.g. sip-janus-bridge connected
+                # directly to Janus). Forward it through to the WebRTC
+                # clients with the Janus-side display name and id,
+                # synthesizing a URI from the display field.
+                self.log.info('relaying external publisher {publisher.id} (display={publisher.display!r}) to clients'.format(publisher=publisher))
+                publishers.append(dict(
+                    id=str(publisher.id),
+                    uri=publisher.display or 'janus:{}'.format(publisher.id),
+                    display_name=publisher.display or '',
+                ))
                 continue
             publishers.append(dict(id=publisher_session.id, uri=publisher_session.account.id, display_name=publisher.display or ''))
         self.send(sylkrtc.VideoroomPublishersJoinedEvent(session=videoroom_session.id, publishers=publishers))
