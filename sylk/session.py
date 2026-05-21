@@ -207,13 +207,35 @@ class ConferenceHandler(object):
                         contact_uri = account.contact[route]
                     except KeyError:
                         continue
+                    # Prefer per-session credentials (set by sylk Session
+                    # in connect(credentials=...)) over the account's own
+                    # credentials, so server-side apps that pass per-call
+                    # creds for the INVITE get the same auth on the
+                    # auto-SUBSCRIBE for the conference event package.
+                    # Falls back to account.credentials for normal use.
+                    session_credentials = getattr(self.session, 'credentials', None)
+                    if session_credentials is None:
+                        session_credentials = account.credentials
+                        _src = 'account.credentials'
+                    else:
+                        _src = 'session.credentials'
+                    # Diagnostic — confirms patched sylk/session.py
+                    # ConferenceHandler is the version actually loaded.
+                    try:
+                        with open('/tmp/sylk-conference-trace.log', 'a') as _f:
+                            _f.write('SUBSCRIBE using {} (username={!r})\n'.format(
+                                _src,
+                                session_credentials and getattr(session_credentials, 'username', '?'),
+                            ))
+                    except Exception:
+                        pass
                     subscription = Subscription(target_uri,
                                                 FromHeader(SIPURI.new(self.session.local_identity.uri)),
                                                 ToHeader(target_uri),
                                                 ContactHeader(contact_uri),
                                                 b'conference',
                                                 RouteHeader(route.uri),
-                                                credentials=account.credentials,
+                                                credentials=session_credentials,
                                                 refresh=refresh_interval)
                     notification_center.add_observer(self, sender=subscription)
                     try:
@@ -443,6 +465,18 @@ class Session(object):
         self._invitation = Invitation()
         self._local_identity = from_header
         self._remote_identity = to_header
+        # Expose the per-call credentials on the session so sipsimple's
+        # ConferenceHandler can reuse them for the auto-SUBSCRIBE it
+        # initiates when the remote contact is an isfocus. Otherwise the
+        # SUBSCRIBE picks up account.credentials (DefaultAccount = "default"
+        # username) and is rejected by any real proxy with 407.
+        self.credentials = credentials
+        # Diagnostic marker: confirms this patched sylk/session.py is the
+        # version actually loaded. Remove once the credential plumbing is
+        # verified working in production.
+        print('[sylk.session] connect() called, stored session.credentials = {!r}'.format(
+            credentials and getattr(credentials, 'username', '?')
+        ), flush=True)
         self.conference = ConferenceHandler(self)
         notification_center.add_observer(self, sender=self._invitation)
         notification_center.post_notification('SIPSessionNewOutgoing', self, NotificationData(streams=streams[:]))
