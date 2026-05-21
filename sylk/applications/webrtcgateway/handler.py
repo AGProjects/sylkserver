@@ -20,8 +20,10 @@ from application.python.weakref import defaultweakobjectmap
 from application.system import makedirs, unlink
 from eventlib import coros, proc
 from sipsimple.configuration.settings import SIPSimpleSettings
-from sipsimple.core import (SIPURI, Credentials, FromHeader, Header, Message,
-                            Route, RouteHeader, ToHeader)
+from sipsimple.core import (SIPURI, ContactHeader, Credentials, Engine,
+                            FromHeader, Header, Message, Referral,
+                            ReferToHeader, Route, RouteHeader, SIPCoreError,
+                            ToHeader, sipfrag_re)
 from sipsimple.lookup import DNSLookup, DNSLookupError
 from sipsimple.payloads.imdn import (DeliveryNotification, DisplayNotification,
                                      IMDNDocument)
@@ -234,13 +236,6 @@ class VideoroomSessionInfo(object):
 
 
 class ExternalPublisherAccount(object):
-    """Minimal account stand-in for publishers that don't belong to sylkserver.
-
-    Just enough surface (`.id`, `.display_name`) for the few log lines that
-    read those fields when we're subscribed to a publisher that connected
-    directly to Janus (e.g. through an external SIP↔Janus bridge).
-    """
-
     __slots__ = ('id', 'display_name')
 
     def __init__(self, id, display_name=''):
@@ -249,21 +244,6 @@ class ExternalPublisherAccount(object):
 
 
 class ExternalPublisherSession(object):
-    """Stand-in for a publisher that lives outside of sylkserver.
-
-    Some publishers connect directly to Janus (e.g. via an external
-    SIP↔Janus bridge) and only surface to webrtcgateway through Janus's
-    publishers list. They have no signaling session in sylkserver and so
-    aren't tracked in :class:`Videoroom`, but the feed-attach bookkeeping
-    (:class:`PublisherFeedContainer`,
-    :meth:`VideoroomSessionInfo.init_subscriber`) still needs a publisher
-    object it can hold a reference to and index by id / publisher_id.
-
-    Unlike ``types.SimpleNamespace``, instances are hashable by identity
-    (the default ``object`` hash), which is required so that
-    :class:`PublisherFeedContainer` can store them in its internal set.
-    """
-
     __slots__ = ('id', 'publisher_id', 'room', 'account')
     type = 'publisher'
 
@@ -683,6 +663,204 @@ class GreenEvent(object):
 
     def wait(self):
         return self._event.wait()
+
+
+class _SipFocusReferralFailed(Exception):
+    def __init__(self, data):
+        self.data = data
+
+
+@implementer(IObserver)
+class SipFocusReferralHandler(object):
+    def __init__(self, focus_uri, participant_uri, account, log, status_callback=None):
+        self.focus_uri = focus_uri
+        self.participant_uri = participant_uri
+        self.account = account
+        self.log = log
+        self.status_callback = status_callback
+        self._channel = coros.queue()
+        self._referral = None
+
+    def _emit_status(self, state, code=None, reason=None):
+        if self.status_callback is None:
+            return
+        try:
+            self.status_callback(str(self.participant_uri), state, code, reason)
+        except Exception as e:
+            self.log.warning('REFER status callback failed: {}'.format(e))
+
+    def start(self):
+        self.log.info('[conference] SipFocusReferralHandler.start() for {} -> {}'.format(
+            self.participant_uri, self.focus_uri))
+        proc.spawn(self._safe_run)
+
+    def _safe_run(self):
+        try:
+            self._run()
+        except Exception as e:
+            self.log.exception('[conference] SipFocusReferralHandler crashed for {}: {}'.format(
+                self.participant_uri, e))
+            try:
+                self._emit_status('failed', 0, 'internal error: {}'.format(e))
+            except Exception:
+                pass
+
+    def _run(self):
+        self.log.info('[conference] _run entered for {} (focus={})'.format(
+            self.participant_uri, self.focus_uri))
+        notification_center = NotificationCenter()
+        settings = SIPSimpleSettings()
+        try:
+            sip_account = DefaultAccount()
+            if sip_account.sip.outbound_proxy is not None and sip_account.sip.outbound_proxy.transport in settings.sip.transport_list:
+                lookup_uri = SIPURI(host=sip_account.sip.outbound_proxy.host,
+                                    port=sip_account.sip.outbound_proxy.port,
+                                    parameters={'transport': sip_account.sip.outbound_proxy.transport})
+            else:
+                lookup_uri = self.focus_uri
+            self.log.info('[conference] DNS lookup for {} (transports={})'.format(
+                lookup_uri, settings.sip.transport_list))
+            try:
+                routes = DNSLookup().lookup_sip_proxy(lookup_uri, settings.sip.transport_list).wait()
+            except DNSLookupError as e:
+                self.log.warning('[conference] REFER to focus {} for {}: DNS lookup failed: {}'.format(self.focus_uri, self.participant_uri, e))
+                self._emit_status('failed', 0, 'DNS lookup failed')
+                return
+            self.log.info('[conference] DNS lookup returned {} route(s) for {}'.format(len(routes), self.participant_uri))
+            try:
+                from_uri = SIPURI.parse(self.account.uri)
+            except SIPCoreError:
+                self.log.warning('[conference] REFER to focus {} for {}: invalid account URI'.format(self.focus_uri, self.participant_uri))
+                self._emit_status('failed', 0, 'Invalid account URI')
+                return
+            credentials = Credentials(username=from_uri.user,
+                                      password=self.account.password.encode('utf-8'),
+                                      digest=True)
+            deadline = time.time() + 30
+            for route in routes:
+                remaining = deadline - time.time()
+                if remaining <= 0:
+                    break
+                transport = route.transport
+                parameters = {} if transport == 'udp' else {'transport': transport}
+                contact_uri = SIPURI(user=sip_account.contact.username,
+                                     host=SIPConfig.local_ip.normalized,
+                                     port=getattr(Engine(), '{}_port'.format(transport)),
+                                     parameters=parameters)
+                refer_to_header = ReferToHeader(str(self.participant_uri))
+                refer_to_header.parameters['method'] = 'INVITE'
+                self.log.info('[conference] sending REFER for {} via route {}:{}/{}'.format(
+                    self.participant_uri, route.address, route.port, transport))
+                referral = Referral(self.focus_uri,
+                                    FromHeader(from_uri, self.account.display_name),
+                                    ToHeader(self.focus_uri),
+                                    refer_to_header,
+                                    ContactHeader(contact_uri),
+                                    RouteHeader(route.uri),
+                                    credentials)
+                notification_center.add_observer(self, sender=referral)
+                try:
+                    referral.send_refer(timeout=limit(remaining, min=1, max=5))
+                except SIPCoreError as e:
+                    notification_center.remove_observer(self, sender=referral)
+                    self.log.warning('[conference] REFER to focus {} for {}: send failed: {}'.format(self.focus_uri, self.participant_uri, e))
+                    continue
+                self._referral = referral
+                self.log.info('[conference] REFER sent for {} — entering notification drain'.format(self.participant_uri))
+                break
+            else:
+                self.log.warning('[conference] REFER to focus {} for {}: no usable routes'.format(self.focus_uri, self.participant_uri))
+                self._emit_status('failed', 0, 'No usable routes')
+                return
+            final_code = None
+            final_reason = None
+            saw_start = False
+            try:
+                while True:
+                    notification = self._channel.wait()
+                    self.log.info('[conference] drain got notification {} for {}'.format(notification.name, self.participant_uri))
+                    if notification.name == 'SIPReferralDidStart':
+                        saw_start = True
+                        continue
+                    if notification.name == 'SIPReferralGotNotify':
+                        body = getattr(notification.data, 'body', None)
+                        event_name = getattr(notification.data, 'event', None)
+                        self.log.info('[conference] NOTIFY from focus {} for {}: event={!r} body={!r}'.format(
+                            self.focus_uri, self.participant_uri, event_name, body))
+                        if body:
+                            if isinstance(body, bytes):
+                                try:
+                                    body_str = body.decode('utf-8', errors='replace')
+                                except Exception:
+                                    body_str = ''
+                            else:
+                                body_str = body
+                            match = None
+                            try:
+                                match = sipfrag_re.match(body_str)
+                            except Exception as e:
+                                self.log.warning('[conference] sipfrag_re match raised on {!r}: {}'.format(body_str, e))
+                            if match is None:
+                                self.log.info('[conference] NOTIFY body did not match sipfrag pattern: {!r}'.format(body_str))
+                            else:
+                                try:
+                                    code = int(match.group('code'))
+                                except (ValueError, IndexError):
+                                    code = None
+                                reason = None
+                                try:
+                                    reason = match.group('reason')
+                                except IndexError:
+                                    pass
+                                if code is not None:
+                                    final_code = code
+                                    final_reason = reason
+                                    if code >= 200:
+                                        state = 'failed' if code >= 300 else 'success'
+                                    else:
+                                        state = 'progress'
+                                    self.log.info('[conference] REFER for {} -> {} {} (state={})'.format(
+                                        self.participant_uri, code, reason, state))
+                                    self._emit_status(state, code, reason)
+                    elif notification.name == 'SIPReferralDidEnd':
+                        self.log.info('[conference] REFER subscription ended for {} (final {} {}, saw_start={})'.format(
+                            self.participant_uri, final_code, final_reason, saw_start))
+                        break
+            except _SipFocusReferralFailed as e:
+                self.log.warning('[conference] REFER to focus {} for {}: {} {}'.format(
+                    self.focus_uri, self.participant_uri, e.data.code, e.data.reason))
+                self._emit_status('failed', e.data.code, e.data.reason)
+            else:
+                if final_code is not None and final_code >= 300:
+                    self.log.warning('[conference] REFER to SIP focus {} to invite {} failed: {} {}'.format(
+                        self.focus_uri, self.participant_uri, final_code, final_reason))
+                else:
+                    self.log.info('[conference] REFER to SIP focus {} to invite {} completed (final {} {})'.format(
+                        self.focus_uri, self.participant_uri, final_code, final_reason))
+                    if final_code is None:
+                        self._emit_status('success', 200, 'OK')
+            finally:
+                if self._referral is not None:
+                    notification_center.remove_observer(self, sender=self._referral)
+        finally:
+            self._referral = None
+
+    @run_in_twisted_thread
+    def handle_notification(self, notification):
+        handler = getattr(self, '_NH_%s' % notification.name, Null)
+        handler(notification)
+
+    def _NH_SIPReferralDidStart(self, notification):
+        self._channel.send(notification)
+
+    def _NH_SIPReferralDidEnd(self, notification):
+        self._channel.send(notification)
+
+    def _NH_SIPReferralDidFail(self, notification):
+        self._channel.send_exception(_SipFocusReferralFailed(notification.data))
+
+    def _NH_SIPReferralGotNotify(self, notification):
+        self._channel.send(notification)
 
 
 # noinspection PyPep8Naming
@@ -1634,15 +1812,8 @@ class ConnectionHandler(object):
             raise APIError('Unknown room session: {request.session}'.format(request=request))
 
         try:
-            publisher_session = base_session.room[request.publisher]  # the publisher's session (the one we want to subscribe to)
+            publisher_session = base_session.room[request.publisher]
         except KeyError:
-            # Publisher not in sylkserver's session map — likely an external
-            # bridge (e.g. sip-janus-bridge) connected directly to Janus
-            # and surfaced via the unknown-publisher relay in the publishers
-            # list. Build a lightweight stub so we can still subscribe to
-            # them via the Janus videoroom plugin directly. The stub must be
-            # hashable (PublisherFeedContainer stores it in a set), which
-            # rules out types.SimpleNamespace — see ExternalPublisherSession.
             try:
                 janus_publisher_id = int(request.publisher)
             except (TypeError, ValueError):
@@ -1715,7 +1886,6 @@ class ConnectionHandler(object):
         try:
             publisher_account = videoroom_session.room[videoroom_session.publisher_id].account.id
         except KeyError:
-            # External publisher not tracked in sylkserver's room session map.
             publisher_account = 'janus:{}'.format(videoroom_session.publisher_id)
         self.log.debug('unsubscribe from {account} in room {session.room.uri}'.format(account=publisher_account, session=videoroom_session))
         reactor.callLater(2, call_in_green_thread, self._cleanup_videoroom_session, videoroom_session)
@@ -1741,6 +1911,43 @@ class ConnectionHandler(object):
         for participant in participants.difference([base_session.account.id]):
             if not any(session.account.id == participant for session in base_session.room):
                 push.conference_invite(originator=originator, destination=participant, room=room.uri, call_id=session_id, audio=room.audio, video=room.video)
+
+        chat_handler = base_session.chat_handler
+        if chat_handler is None or chat_handler.sip_session is None:
+            room.log.debug('skipping SIP REFER for invitees: chat session not yet established')
+        elif not chat_handler.sip_session.remote_focus:
+            room.log.debug('skipping SIP REFER for invitees: remote party is not a SIP focus')
+        else:
+            try:
+                focus_uri = SIPURI.new(chat_handler.sip_session.remote_identity.uri)
+            except SIPCoreError as e:
+                room.log.warning('skipping SIP REFER for invitees: focus URI unresolved: {}'.format(e))
+                focus_uri = None
+            if focus_uri is not None:
+                base_session_id = base_session.id
+                base_session_owner = base_session.owner
+                for participant in participants.difference([base_session.account.id]):
+                    participant_str = participant if participant.startswith(('sip:', 'sips:')) else 'sip:{}'.format(participant)
+                    try:
+                        participant_uri = SIPURI.parse(participant_str)
+                    except SIPCoreError:
+                        room.log.warning('skipping SIP REFER for invitee {}: invalid URI'.format(participant))
+                        continue
+                    room.log.info('referring {} to SIP focus {} for room {}'.format(participant_uri, focus_uri, room.uri))
+
+                    def _status_cb(p_uri, state, code, reason, _sid=base_session_id, _owner=base_session_owner, _room=room):
+                        try:
+                            _owner.send(sylkrtc.VideoroomInviteStatusEvent(
+                                session=_sid,
+                                participant=p_uri,
+                                state=state,
+                                code=code if code is not None else 0,
+                                reason=reason or '',
+                            ))
+                        except Exception as e:
+                            _room.log.warning('failed to forward invite-status event for {}: {}'.format(p_uri, e))
+
+                    SipFocusReferralHandler(focus_uri, participant_uri, base_session.account, room.log, status_callback=_status_cb).start()
 
     def _RH_videoroom_session_trickle(self, request):
         try:
@@ -1773,7 +1980,6 @@ class ConnectionHandler(object):
             try:
                 publisher_account = videoroom_session.room[videoroom_session.publisher_id].account.id
             except KeyError:
-                # External publisher not tracked in sylkserver's room session map.
                 publisher_account = 'janus:{}'.format(videoroom_session.publisher_id)
             self.log.info('switched to {media} media to {account} in room {session.room.uri}'.format(account=publisher_account, session=videoroom_session, media=media))
 
@@ -2333,7 +2539,6 @@ class ConnectionHandler(object):
                 # and SIP URI into the Janus 'display' field with a TAB
                 # separator; split them back out so clients see a real
                 # user@domain entity with its own name.
-                self.log.info('relaying external publisher {publisher.id} (display={publisher.display!r}) to clients'.format(publisher=publisher))
                 ext_name, ext_uri = _parse_external_publisher_display(
                     publisher.display, publisher.id,
                 )
@@ -2395,7 +2600,6 @@ class ConnectionHandler(object):
                 # and SIP URI into the Janus 'display' field with the
                 # form "<name>|<uri>"; split them back out so clients
                 # see a real user@domain entity with its own name.
-                self.log.info('relaying external publisher {publisher.id} (display={publisher.display!r}) to clients'.format(publisher=publisher))
                 ext_name, ext_uri = _parse_external_publisher_display(
                     publisher.display, publisher.id,
                 )
@@ -2639,10 +2843,8 @@ class VideoroomChatHandler(object):
         self._started = False
         self._ended = False
         self._message_queue = deque()
-        # Tracks the current SIP-side conference roster (RFC 4575) so we can
-        # log participant join/leave events as successive NOTIFY snapshots
-        # arrive on the conference event subscription.
         self._conference_participants = set()  # type: Set[str]
+        self._last_emitted_participants = set()  # type: Set[str]
 
     @property
     def account(self):
@@ -2700,6 +2902,7 @@ class VideoroomChatHandler(object):
             self.sip_session = None
             self.chat_stream = None
             self._conference_participants = set()
+            self._last_emitted_participants = set()
             self.room.log.debug('chat session for {} ended'.format(self.account.id))
             notification_center.post_notification('ChatSessionDidEnd', sender=self)
         while self._message_queue:
@@ -2812,28 +3015,102 @@ class VideoroomChatHandler(object):
         pass
 
     def _NH_SIPSessionGotConferenceInfo(self, notification):
-        # Posted by sylk.session.ConferenceHandler whenever a NOTIFY for the
-        # 'conference' event package arrives on the subscription it created
-        # when the remote party advertised isfocus. The body is an RFC 4575
-        # conference-info+xml document; ConferenceDocument.parse turns it
-        # into structured users/endpoints. Each NOTIFY is treated as a full
-        # snapshot of the room so we can derive join/leave by diffing the
-        # entity set against what we saw on the previous notify.
         conference_info = notification.data.conference_info
-        current = {}
+        current_display = {}
         for user in conference_info.users:
             display = user.display_text.value if user.display_text else None
-            current[user.entity] = display
-        current_set = set(current)
-        previous_set = self._conference_participants
-        room_uri = self.room.uri
-        for entity in current_set - previous_set:
-            display = current[entity]
-            label = '{} <{}>'.format(display, entity) if display else entity
-            self.room.log.info('SIP conference {}: participant joined: {}'.format(room_uri, label))
-        for entity in previous_set - current_set:
-            self.room.log.info('SIP conference {}: participant left: {}'.format(room_uri, entity))
-        self._conference_participants = current_set
+            current_display[user.entity] = display
+        def _aor(uri):
+            if uri.startswith('sip:'):
+                uri = uri[4:]
+            elif uri.startswith('sips:'):
+                uri = uri[5:]
+            return uri.split(';', 1)[0]
+
+        def _is_bridge(uri):
+            return 'app=sylk-janus-bridge' in (uri or '').lower()
+
+        webrtc_publishers = {}
+        for session in self.room:
+            if session.type != 'publisher' or session.account is None:
+                continue
+            webrtc_publishers[session.account.id] = session
+
+        sip_set = set(current_display)
+        previous_sip_set = self._conference_participants
+        for entity in sip_set - previous_sip_set:
+            if _aor(entity) in webrtc_publishers:
+                continue
+            display = current_display[entity]
+            label = '{} <{}>'.format(display, _aor(entity)) if display else _aor(entity)
+            self.room.log.info('SIP participant joined: {}'.format(label))
+        for entity in previous_sip_set - sip_set:
+            if _aor(entity) in webrtc_publishers:
+                continue
+            self.room.log.info('SIP participant left: {}'.format(_aor(entity)))
+        self._conference_participants = sip_set
+
+        sip_aor_map = {_aor(entity): entity for entity in sip_set}
+        combined_set = set(sip_aor_map) | set(webrtc_publishers)
+        if combined_set == self._last_emitted_participants:
+            return
+        self._last_emitted_participants = combined_set
+
+        payload_participants = []
+        for user in conference_info.users:
+            endpoints = []
+            for endpoint in user:
+                media_items = []
+                for media in endpoint:
+                    media_type = getattr(media, 'media_type', None) or getattr(media, 'type', None)
+                    media_status = getattr(media, 'status', None)
+                    if media_status is not None and hasattr(media_status, 'value'):
+                        media_status = media_status.value
+                    media_items.append(sylkrtc.VideoroomConferenceMedia(
+                        type=str(media_type) if media_type is not None else None,
+                        status=str(media_status) if media_status is not None else None,
+                    ))
+                endpoint_status = getattr(endpoint, 'status', None)
+                if endpoint_status is not None and hasattr(endpoint_status, 'value'):
+                    endpoint_status = endpoint_status.value
+                endpoint_display = getattr(endpoint, 'display_text', None)
+                if endpoint_display is not None and hasattr(endpoint_display, 'value'):
+                    endpoint_display = endpoint_display.value
+                endpoints.append(sylkrtc.VideoroomConferenceEndpoint(
+                    uri=str(endpoint.entity) if getattr(endpoint, 'entity', None) else None,
+                    display_name=endpoint_display,
+                    status=str(endpoint_status) if endpoint_status is not None else None,
+                    media=media_items,
+                ))
+            participant_aor = _aor(user.entity)
+            if participant_aor in webrtc_publishers:
+                ptype = 'webrtc'
+            elif _is_bridge(user.entity) or any(_is_bridge(getattr(e, 'uri', None)) for e in endpoints):
+                ptype = 'bridge'
+            else:
+                ptype = 'sip'
+            payload_participants.append(sylkrtc.VideoroomConferenceParticipant(
+                type=ptype,
+                uri=user.entity,
+                display_name=current_display[user.entity],
+                endpoints=endpoints,
+            ))
+        for account_id, session in webrtc_publishers.items():
+            if account_id in sip_aor_map:
+                continue
+            payload_participants.append(sylkrtc.VideoroomConferenceParticipant(
+                type='webrtc',
+                uri='sip:{}'.format(account_id),
+                display_name=session.account.display_name,
+                endpoints=[],
+            ))
+        try:
+            self.sylk_session.owner.send(sylkrtc.VideoroomConferenceParticipantsEvent(
+                session=self.sylk_session.id,
+                participants=payload_participants,
+            ))
+        except Exception as e:
+            self.room.log.warning('failed to forward SIP conference participants event: {}'.format(e))
 
     def _NH_ChatStreamGotMessage(self, notification):
         self.chat_stream.msrp_session.send_report(notification.data.chunk, 200, 'OK')

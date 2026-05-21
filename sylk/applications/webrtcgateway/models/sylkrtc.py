@@ -488,6 +488,50 @@ class VideoroomRaisedHandsEvent(VideoroomEventBase):
     raised_hands = ArrayProperty(VideoroomRaisedHands)
 
 
+class VideoroomConferenceMedia(JSONObject):
+    type = StringProperty(optional=True)
+    status = StringProperty(optional=True)
+
+
+class VideoroomConferenceMediaList(JSONArray):
+    item_type = VideoroomConferenceMedia
+
+
+class VideoroomConferenceEndpoint(JSONObject):
+    uri = StringProperty(optional=True)
+    display_name = StringProperty(optional=True)
+    status = StringProperty(optional=True)
+    media = ArrayProperty(VideoroomConferenceMediaList, optional=True)
+
+
+class VideoroomConferenceEndpoints(JSONArray):
+    item_type = VideoroomConferenceEndpoint
+
+
+class VideoroomConferenceParticipant(JSONObject):
+    type = StringProperty(optional=True)
+    uri = StringProperty()
+    display_name = StringProperty(optional=True)
+    endpoints = ArrayProperty(VideoroomConferenceEndpoints, optional=True)
+
+
+class VideoroomConferenceParticipants(JSONArray):
+    item_type = VideoroomConferenceParticipant
+
+
+class VideoroomConferenceParticipantsEvent(VideoroomEventBase):
+    event = FixedValueProperty('conference-participants')
+    participants = ArrayProperty(VideoroomConferenceParticipants)
+
+
+class VideoroomInviteStatusEvent(VideoroomEventBase):
+    event = FixedValueProperty('invite-status')
+    participant = StringProperty()
+    state = StringProperty()
+    code = IntegerProperty(optional=True)
+    reason = StringProperty(optional=True)
+
+
 # Ping request model, can be used to check connectivity from client
 
 class PingRequest(SylkRTCRequestBase):
