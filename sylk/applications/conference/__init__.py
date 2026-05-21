@@ -783,8 +783,7 @@ class IncomingReferralHandler(object):
         extra_headers = []
         if ThorNodeConfig.enabled:
             extra_headers.append(Header('Thor-Scope', 'conference-invitation'))
-        # TODO: if this header is longer than 15 characters somehow the SIP packet gets corrupted -adi
-        extra_headers.append(Header('X-Orig-From', str(original_from_header.uri)))
+        extra_headers.append(Header('X-Originator-From', str(original_from_header.uri)))
         extra_headers.append(SubjectHeader('Join conference request from %s' % original_identity))
         if self._refer_headers.get('Referred-By', None) is not None:
             extra_headers.append(Header.new(self._refer_headers.get('Referred-By')))
