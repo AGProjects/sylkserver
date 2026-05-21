@@ -106,6 +106,23 @@ class ConferenceConfig(ConfigSection):
 
     zrtp_auto_verify = True
 
+    # IVR for the conference selector. When a call comes in to
+    # <default_conference_selector>@<domain>, the application plays a prompt
+    # and collects DTMF, then routes the same session into <digits>@<domain>
+    # as if the caller had dialed that conference directly. Override the
+    # default user name in conference.ini if needed, for example:
+    #     [Conference]
+    #     default_conference_selector = conference
+    default_conference_selector = 'conference'
+    asterisk_sounds_dir = ConfigSetting(type=Path, value=Path('/usr/share/asterisk/sounds/en'))
+    select_conference_prompt = 'conf-getconfno.wav'
+    select_conference_invalid_prompt = 'conf-invalid.wav'
+    select_conference_goodbye_prompt = 'vm-goodbye.wav'
+    select_conference_max_digits = 32
+    select_conference_initial_timeout = 10  # seconds to wait for first digit
+    select_conference_interdigit_timeout = 5  # seconds of silence before finalizing
+    select_conference_overall_timeout = 60  # absolute upper bound
+
 
 class RoomConfig(ConfigSection):
     __cfgfile__ = 'conference.ini'
