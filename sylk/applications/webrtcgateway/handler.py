@@ -1268,7 +1268,7 @@ class ConnectionHandler(object):
             raise APIError("Account not authenticated")
 
         def addressbook_updated(result):
-            event = sylkrtc.AccountAddressBookUpdatedEvent(data=result.data,
+            event = sylkrtc.AccountAddressBookUpdatedEvent(data=result,
                                                            action=request.action,
                                                            type=request.type,
                                                            account=account_info.id)
