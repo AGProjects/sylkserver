@@ -20,6 +20,7 @@ from zope.interface import implementer
 
 from sylk.accounts import DefaultAccount
 from sylk.applications import SylkApplication
+from sylk.applications.conference.admin_web import AdminWebHandler
 from sylk.applications.conference.configuration import get_room_config, ConferenceConfig
 from sylk.applications.conference.logger import log
 from sylk.applications.conference.room import Room
@@ -76,10 +77,18 @@ class ConferenceApplication(SylkApplication):
         self.bonjour_focus_service = Null
         self.bonjour_room_service = Null
         self.web = Null
+        self.admin_web = Null
 
     def start(self):
         self.web = ConferenceWeb(self)
         web_server.register_resource(b'conference', self.web.resource)
+
+        # Administrative HTTP API — separate listener bound to the host:port
+        # configured in ConferenceConfig.http_management_interface. Provides
+        # per-room audio level publishing and accepts mute/kick commands.
+        # If http_management_interface is empty the handler will no-op.
+        self.admin_web = AdminWebHandler(self)
+        self.admin_web.start()
 
         # We listen to SIPSessionNewIncoming directly so we can capture the
         # original INVITE headers on the session. The application loader only
@@ -109,6 +118,12 @@ class ConferenceApplication(SylkApplication):
             NotificationCenter().remove_observer(self, name='SIPSessionNewIncoming')
         except KeyError:
             pass
+        if self.admin_web is not Null:
+            try:
+                self.admin_web.stop()
+            except Exception:
+                log.exception('Conference admin API failed to stop cleanly')
+            self.admin_web = Null
         self.bonjour_focus_service.stop()
         self.bonjour_room_service.stop()
 

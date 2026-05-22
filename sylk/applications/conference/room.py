@@ -10,7 +10,7 @@ from collections import Counter, deque
 from glob import glob
 from itertools import chain, count, cycle
 
-from application.notification import IObserver, NotificationCenter
+from application.notification import IObserver, NotificationCenter, NotificationData
 from application.python import Null
 from application.system import makedirs
 from eventlib import api, coros, proc
@@ -29,6 +29,7 @@ from sipsimple.threading import run_in_thread, run_in_twisted_thread
 from sipsimple.threading.green import run_in_green_thread
 from sipsimple.util import ISOTimestamp
 from twisted.internet import reactor
+from twisted.internet.task import LoopingCall
 from zope.interface import implementer
 
 from sylk.accounts import DefaultAccount
@@ -147,6 +148,12 @@ class Room(object):
         self.last_nicknames_map = {}
         self.participants_counter = Counter()
         self.history = deque(maxlen=ConferenceConfig.history_size)
+        # Audio-level sampling state (populated by _sample_audio_levels) and
+        # the set of audio streams currently force-muted by the admin API.
+        # Keys/elements are id(audio_stream).
+        self.audio_levels = {}
+        self.muted_streams = set()
+        self._level_sampler = None
 
     @property
     def empty(self):
@@ -224,11 +231,25 @@ class Room(object):
         self.moh_player.start()
         self.state = 'started'
         log.info('Room %s - music on hold is %s' % (self.uri, 'disabled' if self.config.disable_music_on_hold else 'enabled'))
+        # Start periodic audio-level sampling. Sampling is cheap (a single
+        # pjmedia call per audio stream) and ungated by subscribers — the
+        # snapshot endpoint always returns the latest value too. When the
+        # configured sample period is zero, sampling is disabled.
+        period_ms = int(getattr(ConferenceConfig, 'audio_level_sample_period', 0) or 0)
+        if period_ms > 0:
+            self._level_sampler = LoopingCall(self._sample_audio_levels)
+            self._level_sampler.start(period_ms / 1000.0, now=False)
 
     def stop(self):
         if not self.started:
             return
         self.state = 'stopping'
+        if self._level_sampler is not None:
+            if self._level_sampler.running:
+                self._level_sampler.stop()
+            self._level_sampler = None
+        self.audio_levels.clear()
+        self.muted_streams.clear()
         self.bonjour_services.stop()
         self.bonjour_services = None
         self.incoming_message_queue.send_exception(api.GreenletExit)
@@ -259,6 +280,164 @@ class Room(object):
             shutil.rmtree(path)
         except EnvironmentError:
             pass
+
+    # ------------------------------------------------------------------
+    # Audio mixer introspection (admin API)
+    # ------------------------------------------------------------------
+
+    def _sample_audio_levels(self):
+        """Sample TX/RX signal levels for every audio stream in the mixer.
+
+        Stores the result in self.audio_levels keyed by id(audio_stream),
+        and emits a ConferenceRoomAudioLevels notification so subscribers
+        (the admin SSE stream) can push out updates. Best-effort: errors
+        from individual streams are swallowed.
+        """
+        if self.audio_conference is None:
+            return
+        try:
+            mixer = self.audio_conference.bridge.mixer
+        except AttributeError:
+            return
+        levels = {}
+        for stream in list(self.audio_conference.streams):
+            transport = getattr(stream, '_transport', None)
+            slot = getattr(transport, 'slot', None) if transport is not None else None
+            if slot is None:
+                continue
+            try:
+                # Prefer the high-level helper added in python3-sipsimple
+                # (AudioStream.signal_level) — falls back to calling the
+                # mixer directly if running against an older sipsimple.
+                tx_rx = getattr(stream, 'signal_level', None)
+                if tx_rx is None or tx_rx == (0, 0):
+                    tx_rx = mixer.get_signal_level(slot)
+            except Exception:
+                continue
+            levels[id(stream)] = {'tx': int(tx_rx[0]), 'rx': int(tx_rx[1])}
+        self.audio_levels = levels
+        try:
+            NotificationCenter().post_notification(
+                'ConferenceRoomAudioLevels',
+                sender=self,
+                data=NotificationData(uri=self.uri, levels=levels),
+            )
+        except Exception:
+            pass
+
+    def _find_audio_session(self, identifier):
+        """Resolve a participant identifier to (session, audio_stream).
+
+        `identifier` may be either:
+          * an int — id(audio_stream) as published in audio_levels and
+            in the conference info payload's media id field;
+          * a string — either the AoR (user@host, case-insensitive) or
+            a full SIP URI (with scheme); both are matched against the
+            session's remote_identity.uri.
+        Returns (None, None) if no match is found.
+        """
+        def _aor(uri):
+            try:
+                user = (uri.user or b'').decode() if isinstance(uri.user, bytes) else (uri.user or '')
+                host = (uri.host or b'').decode() if isinstance(uri.host, bytes) else (uri.host or '')
+            except Exception:
+                return None
+            if not user or not host:
+                return None
+            return '{}@{}'.format(user, host).lower()
+
+        wanted_id = None
+        wanted_aor = None
+        wanted_uri = None
+        if isinstance(identifier, int):
+            wanted_id = identifier
+        elif isinstance(identifier, str):
+            value = identifier.strip()
+            if value.lower().startswith(('sip:', 'sips:')):
+                wanted_uri = value.lower()
+                wanted_aor = value.split(':', 1)[1].lower()
+            else:
+                wanted_aor = value.lower()
+        else:
+            return (None, None)
+
+        for session in self.sessions:
+            try:
+                audio_stream = next(s for s in session.streams if s.type == 'audio')
+            except StopIteration:
+                continue
+            if wanted_id is not None and id(audio_stream) == wanted_id:
+                return (session, audio_stream)
+            if wanted_aor is not None and _aor(session.remote_identity.uri) == wanted_aor:
+                return (session, audio_stream)
+            if wanted_uri is not None and str(session.remote_identity.uri).lower() == wanted_uri:
+                return (session, audio_stream)
+        return (None, None)
+
+    def get_participants(self):
+        """Snapshot of the room as a list of plain dicts (JSON-friendly).
+
+        Each entry carries the participant URI, stream id (matching the
+        keys of audio_levels), the most recent levels, current muted /
+        on-hold state, and active stream types.
+        """
+        out = []
+        for session in self.sessions:
+            try:
+                audio_stream = next(s for s in session.streams if s.type == 'audio')
+            except StopIteration:
+                audio_stream = None
+            stream_id = id(audio_stream) if audio_stream is not None else None
+            holdable = [s for s in session.streams if getattr(s, 'hold_supported', False)]
+            on_hold = bool(holdable) and all(getattr(s, 'on_hold_by_remote', False) for s in holdable)
+            entry = {
+                'uri': str(session.remote_identity.uri),
+                'display_name': session.remote_identity.display_name or '',
+                'stream_id': stream_id,
+                'muted': bool(audio_stream is not None and getattr(audio_stream, 'muted', False)),
+                'on_hold': on_hold,
+                'media': sorted({s.type for s in session.streams}),
+                'levels': self.audio_levels.get(stream_id, {'tx': 0, 'rx': 0}),
+                'call_id': getattr(session, 'call_id', None),
+            }
+            out.append(entry)
+        return out
+
+    def set_participant_muted(self, identifier, muted):
+        """Force the input mute state of a participant's audio stream.
+
+        Returns True on success, False if no matching audio stream was
+        found in the room. When muted=True the participant's voice stops
+        reaching the mix; they continue hearing the conference normally.
+        Idempotent — calling with the current state is a no-op (besides
+        re-issuing the conference info update).
+        """
+        session, audio_stream = self._find_audio_session(identifier)
+        if audio_stream is None:
+            return False
+        target = bool(muted)
+        current = bool(getattr(audio_stream, 'muted', False))
+        if current != target:
+            audio_stream.muted = target
+            log.info('Room %s - participant %s %smuted by admin API' %
+                     (self.uri, session.remote_identity.uri, '' if target else 'un'))
+            try:
+                self.dispatch_server_message(
+                    '%s has been %smuted by the moderator' %
+                    (format_identity(session.remote_identity), '' if target else 'un'))
+            except Exception:
+                pass
+        if target:
+            self.muted_streams.add(id(audio_stream))
+        else:
+            self.muted_streams.discard(id(audio_stream))
+        # Republish conference info so SIP subscribers (and the admin API
+        # listing) see the change immediately.
+        try:
+            self.dispatch_conference_info()
+        except Exception:
+            pass
+        return True
 
     def _message_dispatcher(self):
         """Read from self.incoming_message_queue and dispatch the messages to other participants"""

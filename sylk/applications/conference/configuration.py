@@ -3,13 +3,17 @@ import os
 import re
 
 from application.configuration import ConfigFile, ConfigSection, ConfigSetting
-from application.configuration.datatypes import StringList
+from application.configuration.datatypes import NetworkAddress, StringList
 
 from sylk.configuration import ServerConfig
 from sylk.configuration.datatypes import Path, URL
 
 
 __all__ = 'ConferenceConfig', 'get_room_config'
+
+
+class ManagementInterfaceAddress(NetworkAddress):
+    default_port = 10889
 
 
 # Datatypes
@@ -139,6 +143,25 @@ class ConferenceConfig(ConfigSection):
     select_conference_initial_timeout = 10  # seconds to wait for first digit
     select_conference_interdigit_timeout = 5  # seconds of silence before finalizing
     select_conference_overall_timeout = 60  # absolute upper bound
+
+    # Administrative HTTP API for the conference application.
+    #
+    # When http_management_interface is set, an HTTP listener is started on
+    # the given host:port that exposes per-room information (participants,
+    # audio levels) and accepts commands (mute, kick) authenticated with
+    # http_management_auth_secret as a bearer-style Authorization header.
+    #
+    # Set http_management_interface to '' (empty) to disable the admin
+    # interface entirely.
+    http_management_interface = ConfigSetting(type=ManagementInterfaceAddress,
+                                              value=ManagementInterfaceAddress('127.0.0.1:10889'))
+    http_management_auth_secret = ConfigSetting(type=str, value=None)
+
+    # How often the audio levels of each participant are sampled, in
+    # milliseconds. The result is published to subscribers of the admin
+    # API's SSE stream and made available as a snapshot via the snapshot
+    # endpoint. Set to 0 to disable the periodic sampling entirely.
+    audio_level_sample_period = 100
 
 
 class RoomConfig(ConfigSection):
