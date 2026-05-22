@@ -859,17 +859,30 @@ class IncomingReferralHandler(object):
     def _NH_DNSLookupDidFail(self, notification):
         notification.center.remove_observer(self, sender=notification.sender)
 
-    def _NH_SIPSessionGotRingIndication(self, notification):
-        if self._refer_request is not None:
-            self._refer_request.send_notify(180)
-
     def _NH_SIPSessionGotProvisionalResponse(self, notification):
+        # Single handler for all 1xx (including 180 Ringing). Previously a
+        # parallel _NH_SIPSessionGotRingIndication handler was firing for
+        # 180 as well, which caused two identical NOTIFYs to be emitted on
+        # the REFER subscription. The duplicates were harmless but noisy;
+        # downstream PJSIP at the referrer occasionally got confused by
+        # the back-to-back fragments — keep the path single-shot.
         if self._refer_request is not None:
             self._refer_request.send_notify(notification.data.code, notification.data.reason)
 
     def _NH_SIPSessionDidStart(self, notification):
         notification.center.remove_observer(self, sender=notification.sender)
+        # Deliver the final sipfrag via an "active" NOTIFY first, then
+        # terminate the subscription. Splitting the final code from the
+        # subscription teardown avoids losing the result when the
+        # referrer's PJSIP layer drops the terminating NOTIFY (e.g. when
+        # several seconds elapsed since the last active NOTIFY and the
+        # implicit subscription on the far end was torn down — the
+        # terminated NOTIFY then comes back 481).
         if self._refer_request is not None:
+            try:
+                self._refer_request.send_notify(200, 'OK')
+            except Exception:
+                pass
             self._refer_request.end(200)
         conference_application = ConferenceApplication()
         conference_application.add_participant(self.session, self.room_uri)
@@ -881,7 +894,17 @@ class IncomingReferralHandler(object):
         log.info('Room %s - failed to add %s: %s' % (self.room_uri_str, self.refer_to_uri, notification.data.reason))
         notification.center.remove_observer(self, sender=notification.sender)
         if self._refer_request is not None:
-            self._refer_request.end(notification.data.code or 500, notification.data.reason or  notification.data.code)
+            code = notification.data.code or 500
+            reason = notification.data.reason or str(notification.data.code)
+            # See comment in _NH_SIPSessionDidStart: send the final
+            # sipfrag while the subscription is still "active" so the
+            # referrer's application layer reliably sees the failure
+            # code; only then collapse the subscription.
+            try:
+                self._refer_request.send_notify(code, reason)
+            except Exception:
+                pass
+            self._refer_request.end(code, reason)
         self.session = None
         self.streams = []
 
@@ -890,6 +913,10 @@ class IncomingReferralHandler(object):
         log.info('Room %s - failed to add %s' % (self.room_uri_str, self.refer_to_uri))
         notification.center.remove_observer(self, sender=notification.sender)
         if self._refer_request is not None:
+            try:
+                self._refer_request.send_notify(200, 'OK')
+            except Exception:
+                pass
             self._refer_request.end(200)
         self.session = None
         self.streams = []
