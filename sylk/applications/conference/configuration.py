@@ -106,6 +106,15 @@ class ConferenceConfig(ConfigSection):
 
     zrtp_auto_verify = True
 
+    # Music on hold. Global default for rooms; overridable per room via the
+    # same `disable_music_on_hold` setting in RoomConfig. If `moh_disable_header`
+    # is set to a header name, every incoming INVITE is inspected — if that
+    # header is present with value 'Yes' (case-insensitive) the room's MoH is
+    # disabled for the rest of the room's lifetime. When `moh_disable_header`
+    # is empty (the default) no header check is performed.
+    disable_music_on_hold = False
+    moh_disable_header = ''
+
     # IVR for the conference selector. When a call comes in to
     # <default_conference_selector>@<domain>, the application plays a prompt
     # and collects DTMF, then routes the same session into <digits>@<domain>
@@ -135,7 +144,7 @@ class RoomConfig(ConfigSection):
     advertise_xmpp_support = ConferenceConfig.advertise_xmpp_support
     webrtc_gateway_url = ConferenceConfig.webrtc_gateway_url
 
-    disable_music_on_hold = False
+    disable_music_on_hold = ConferenceConfig.disable_music_on_hold
     zrtp_auto_verify = ConferenceConfig.zrtp_auto_verify
 
 

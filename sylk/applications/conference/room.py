@@ -223,6 +223,7 @@ class Room(object):
         self.moh_player = MoHPlayer(self.audio_conference)
         self.moh_player.start()
         self.state = 'started'
+        log.info('Room %s - music on hold is %s' % (self.uri, 'disabled' if self.config.disable_music_on_hold else 'enabled'))
 
     def stop(self):
         if not self.started:

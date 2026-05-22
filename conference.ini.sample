@@ -43,8 +43,32 @@ screensharing_images_dir = /var/spool/sylkserver/conference/screensharing
 ; allow = all
 ; deny = none
 ;
-; Disable music on hold, Default Policy
+; Disable music on hold globally. When set to True it forces MoH off for
+; every conference room and overrides any per-room disable_music_on_hold
+; setting (which is otherwise honored). Default: False.
 ; disable_music_on_hold = False
+
+; If set, every incoming INVITE is inspected for this header; when present
+; with body 'Yes' (case-insensitive), MoH is disabled for the room the caller
+; joins, for the rest of that room's lifetime. Leave empty to skip the check.
+; Default: empty (no header check).
+; moh_disable_header = X-Disable-Moh
+
+; Conference selector (IVR). Calls to <default_conference_selector>@<domain>
+; trigger a voice prompt that collects a conference number via DTMF; the same
+; session then continues into <digits>@<domain> as if the caller had dialed
+; that conference directly. The prompts are loaded from asterisk_sounds_dir,
+; which should point at an asterisk-core-sounds-en-wav installation.
+; Default: 'conference' / '/usr/share/asterisk/sounds/en'.
+; default_conference_selector = conference
+; asterisk_sounds_dir = /usr/share/asterisk/sounds/en
+; select_conference_prompt = conf-getconfno.wav
+; select_conference_invalid_prompt = conf-invalid.wav
+; select_conference_goodbye_prompt = vm-goodbye.wav
+; select_conference_max_digits = 32
+; select_conference_initial_timeout = 10
+; select_conference_interdigit_timeout = 5
+; select_conference_overall_timeout = 60
 
 ; Access Lists can be applied per room overriding the Default Policy
 ;

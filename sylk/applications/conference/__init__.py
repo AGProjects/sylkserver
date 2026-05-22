@@ -81,6 +81,13 @@ class ConferenceApplication(SylkApplication):
         self.web = ConferenceWeb(self)
         web_server.register_resource(b'conference', self.web.resource)
 
+        # We listen to SIPSessionNewIncoming directly so we can capture the
+        # original INVITE headers on the session. The application loader only
+        # passes us the Session object via incoming_session(session), which
+        # doesn't expose arbitrary headers. Registering here, before the
+        # loader installs its own observer, means our handler runs first.
+        NotificationCenter().add_observer(self, name='SIPSessionNewIncoming')
+
         # cleanup old files
         for path in (ConferenceConfig.file_transfer_dir, ConferenceConfig.screensharing_images_dir):
             try:
@@ -98,8 +105,21 @@ class ConferenceApplication(SylkApplication):
             log.info("Bonjour publication started for service 'sipuri'")
 
     def stop(self):
+        try:
+            NotificationCenter().remove_observer(self, name='SIPSessionNewIncoming')
+        except KeyError:
+            pass
         self.bonjour_focus_service.stop()
         self.bonjour_room_service.stop()
+
+    def _NH_SIPSessionNewIncoming(self, notification):
+        # Stash the INVITE headers on the session so incoming_session() can
+        # inspect them. The application loader fires our incoming_session
+        # synchronously in this notification fan-out, but its handler is
+        # decorated @run_in_twisted_thread (so deferred), while ours is sync —
+        # we therefore run first within the notification post and the session
+        # has the attribute set by the time incoming_session is invoked.
+        notification.sender._sylk_invite_headers = notification.data.headers
 
     def get_room(self, uri, create=False):
         room_uri = '%s@%s' % (uri.user, uri.host)
@@ -166,10 +186,45 @@ class ConferenceApplication(SylkApplication):
             if cfg.deny.match(from_uri) and not cfg.allow.match(from_uri):
                 raise ACLValidationError
 
+    @staticmethod
+    def _should_disable_moh(session):
+        """Decide whether the INVITE asks for MoH to be off in its room.
+
+        Only checks ConferenceConfig.moh_disable_header — when set, an INVITE
+        carrying that header with body 'Yes' (case-insensitive) disables MoH
+        for the room the caller joins. The global / per-room
+        `disable_music_on_hold` setting is already honored by the room config
+        itself; this helper only deals with the per-INVITE header override.
+        """
+        header_name = ConferenceConfig.moh_disable_header
+        if not header_name:
+            return False
+        headers = getattr(session, '_sylk_invite_headers', None) or {}
+        h = headers.get(header_name)
+        if h is None:
+            return False
+        body = getattr(h, 'body', h)
+        if isinstance(body, bytes):
+            try:
+                body = body.decode()
+            except Exception:
+                return False
+        return str(body).strip().lower() == 'yes'
+
     def incoming_session(self, session):
         peer = '%s:%s' % (session.transport, session.peer_address)
         log.info('Session %s from %s: %s -> %s' % (session.call_id, peer, session.remote_identity.uri, session.local_identity.uri))
         settings = SIPSimpleSettings()
+
+        # Decide MoH disable up front while we still have easy access to the
+        # invite headers. The flag is carried on the session and consumed when
+        # the room is created in _NH_SIPSessionDidStart / IVR handoff. The
+        # global default (ConferenceConfig.disable_music_on_hold) and any
+        # per-room override come from RoomConfig and apply automatically.
+        if self._should_disable_moh(session):
+            session._sylk_disable_moh = True
+            log.info('Session %s: music-on-hold disabled by %r header' %
+                     (session.call_id, ConferenceConfig.moh_disable_header))
 
         audio_streams = [stream for stream in session.proposed_streams if stream.type=='audio']
         chat_streams = [stream for stream in session.proposed_streams if stream.type=='chat']
@@ -339,6 +394,11 @@ class ConferenceApplication(SylkApplication):
         session = notification.sender
         room_uri = getattr(session, '_sylk_conference_target_uri', None) or session.request_uri
         room = self.get_room(room_uri, True)
+        # The global ConferenceConfig.disable_music_on_hold overrides any
+        # per-room setting; an INVITE carrying the configured MoH-disable
+        # header also forces MoH off for the room's lifetime.
+        if ConferenceConfig.disable_music_on_hold or getattr(session, '_sylk_disable_moh', False):
+            room.config.disable_music_on_hold = True
         room.start()
         room.add_session(session)
 
@@ -596,6 +656,10 @@ class SelectConferenceHandler(object):
         # Mirror what _NH_SIPSessionDidStart does for a normal incoming session.
         notification_center.add_observer(self.application, sender=session)
         room = self.application.get_room(target_uri, create=True)
+        # Honor the same global override + per-INVITE header as the direct-dial
+        # path (see ConferenceApplication._NH_SIPSessionDidStart).
+        if ConferenceConfig.disable_music_on_hold or getattr(session, '_sylk_disable_moh', False):
+            room.config.disable_music_on_hold = True
         room.start()
         room.add_session(session)
 
