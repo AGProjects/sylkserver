@@ -385,6 +385,16 @@ class VideoroomPluginHandle(JanusPluginHandle):
     def update_publisher(self, options):
         self.message(janus.VideoroomUpdatePublisher(**options))
 
+    def kick_publisher(self, room, publisher_id):
+        # Moderation-level kick: any publisher's plugin handle in a
+        # room without a secret can ask Janus to remove another
+        # publisher from the same room. Used by the gateway's
+        # videoroom-remove handler when the target is a WebRTC
+        # participant (vs the SIP REFER ;method=BYE path that's used
+        # for SIP-side participants). Fire-and-forget — Janus will
+        # emit a "kicked" event on the kicked publisher's handle.
+        self.message(janus.VideoroomKick(room=room, id=publisher_id))
+
     def feed_attach(self, room, feed, offer_audio, offer_video):
         self.message(janus.VideoroomFeedAttach(room=room, feed=feed, offer_audio=offer_audio, offer_video=offer_video))
 

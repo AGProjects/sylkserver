@@ -718,6 +718,17 @@ class VideoroomInviteRequest(VideoroomRequestBase):
     participants = ArrayProperty(AORList)              # type: AORList
 
 
+class VideoroomRemoveRequest(VideoroomRequestBase):
+    # Request the conference focus to remove the named participants
+    # from the room via SIP REFER ;method=BYE (RFC 4579). The gateway
+    # spawns one SipFocusReferralHandler(method='BYE') per URI; the
+    # focus BYEs the participant's existing call leg in the room. Used
+    # both for explicit client-driven kicks and for the server-side
+    # cleanup when the last WebRTC publisher leaves the room.
+    sylkrtc = FixedValueProperty('videoroom-remove')
+    participants = ArrayProperty(AORList)              # type: AORList
+
+
 class VideoroomSessionTrickleRequest(VideoroomRequestBase):
     sylkrtc = FixedValueProperty('videoroom-session-trickle')
     candidates = ArrayProperty(ICECandidates)          # type: ICECandidates

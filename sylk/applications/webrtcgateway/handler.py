@@ -18,7 +18,7 @@ from application.notification import (IObserver, NotificationCenter,
 from application.python import Null, limit
 from application.python.weakref import defaultweakobjectmap
 from application.system import makedirs, unlink
-from eventlib import coros, proc
+from eventlib import api, coros, proc
 from sipsimple.configuration.settings import SIPSimpleSettings
 from sipsimple.core import (SIPURI, ContactHeader, Credentials, Engine,
                             FromHeader, Header, Message, Referral,
@@ -672,14 +672,26 @@ class _SipFocusReferralFailed(Exception):
 
 @implementer(IObserver)
 class SipFocusReferralHandler(object):
-    def __init__(self, focus_uri, participant_uri, account, log, status_callback=None):
+    def __init__(self, focus_uri, participant_uri, account, log, status_callback=None, method='INVITE'):
         self.focus_uri = focus_uri
         self.participant_uri = participant_uri
         self.account = account
         self.log = log
         self.status_callback = status_callback
+        # Refer-To method parameter (RFC 4488). 'INVITE' = invite the
+        # named URI into the conference; 'BYE' = ask the focus to BYE
+        # the named URI out of the conference (RFC 4579). Anything
+        # else is rejected upstream by the focus (488). Default 'INVITE'
+        # preserves the original behaviour of every existing caller.
+        self.method = (method or 'INVITE').upper()
         self._channel = coros.queue()
         self._referral = None
+        # Set by _safe_run when the handler completes (success or
+        # failure). Callers that need to serialise on REFER completion
+        # — e.g. the last-publisher auto-kick path in
+        # _cleanup_videoroom_session, which must hold the chat session
+        # open until every REFER has been dispatched — wait() on this.
+        self._done_event = GreenEvent()
 
     def _emit_status(self, state, code=None, reason=None):
         if self.status_callback is None:
@@ -690,8 +702,8 @@ class SipFocusReferralHandler(object):
             self.log.warning('REFER status callback failed: {}'.format(e))
 
     def start(self):
-        self.log.info('[conference] SipFocusReferralHandler.start() for {} -> {}'.format(
-            self.participant_uri, self.focus_uri))
+        self.log.info('[conference] SipFocusReferralHandler.start() method={} for {} -> {}'.format(
+            self.method, self.participant_uri, self.focus_uri))
         proc.spawn(self._safe_run)
 
     def _safe_run(self):
@@ -704,6 +716,32 @@ class SipFocusReferralHandler(object):
                 self._emit_status('failed', 0, 'internal error: {}'.format(e))
             except Exception:
                 pass
+        finally:
+            # Always signal completion so waiters don't hang. Both
+            # success and crash paths land here.
+            try:
+                self._done_event.set()
+            except Exception:
+                pass
+
+    def wait(self, timeout=None):
+        """
+        Block the calling green thread until this REFER has finished
+        (the underlying _safe_run greenlet exited). Optional timeout
+        in seconds; without one the wait is unbounded but bounded in
+        practice by the REFER send-timeout (30 s) plus the drain loop.
+        Used by the last-WebRTC-publisher auto-kick path so the chat
+        session stays alive until every kick REFER is dispatched.
+        """
+        if timeout is None:
+            self._done_event.wait()
+            return True
+        try:
+            with api.timeout(timeout):
+                self._done_event.wait()
+            return True
+        except api.TimeoutError:
+            return False
 
     def _run(self):
         self.log.info('[conference] _run entered for {} (focus={})'.format(
@@ -748,7 +786,7 @@ class SipFocusReferralHandler(object):
                                      port=getattr(Engine(), '{}_port'.format(transport)),
                                      parameters=parameters)
                 refer_to_header = ReferToHeader(str(self.participant_uri))
-                refer_to_header.parameters['method'] = 'INVITE'
+                refer_to_header.parameters['method'] = self.method
                 self.log.info('[conference] sending REFER for {} via route {}:{}/{}'.format(
                     self.participant_uri, route.address, route.port, transport))
                 referral = Referral(self.focus_uri,
@@ -1010,11 +1048,93 @@ class ConnectionHandler(object):
                 session.room.discard(session)
                 session.feeds.clear()
                 session.janus_handle.detach()
+                # Last-publisher auto-kick of SIP participants. When the
+                # WebRTC side of the room empties out, every SIP-side
+                # participant (PSTN-dialled invitees, bridge, etc.) is
+                # left orphaned in the conference focus — nothing's
+                # listening to them on the WebRTC end. Send
+                # REFER ;method=BYE for each of them through the still-
+                # alive chat session BEFORE we tear that session down,
+                # so the chat dialog (the SUBSCRIBE/NOTIFY anchor the
+                # focus uses to validate REFERs from us) is still
+                # present when the focus processes each REFER. The
+                # cleanup greenlet blocks on the REFERs completing
+                # (or timing out, capped) — then runs chat_handler.end()
+                # to finally close our own SIP leg.
+                last_publisher = len(session.room) == 0
+                if last_publisher and session.chat_handler is not None and session.chat_handler.sip_session is not None:
+                    try:
+                        self._kick_all_sip_participants_blocking(session)
+                    except Exception as e:
+                        session.room.log.warning('auto-kick failed: {}'.format(e))
                 session.chat_handler.end()
                 self._maybe_destroy_videoroom(session.room)
             else:
                 session.parent_session.feeds.discard(session.publisher_id)
                 session.janus_handle.detach()
+
+    def _kick_all_sip_participants_blocking(self, session):
+        """
+        Walk the room's SIP roster and send REFER ;method=BYE for each
+        entry except the gateway's own chat-session URI. Blocks until
+        every REFER completes (per-handler timeout) so the caller can
+        rely on the auto-kick being done before tearing the chat
+        session down. No-op if the chat session never reached a SIP
+        focus.
+        """
+        room = session.room
+        chat_handler = session.chat_handler
+        if chat_handler is None or chat_handler.sip_session is None:
+            return
+        if not chat_handler.sip_session.remote_focus:
+            return
+        try:
+            focus_uri = SIPURI.new(chat_handler.sip_session.remote_identity.uri)
+        except SIPCoreError as e:
+            room.log.warning('auto-kick: focus URI unresolved: {}'.format(e))
+            return
+
+        # Exclude the gateway's own SIP chat session URI — that leg is
+        # about to be BYE'd by chat_handler.end() in the caller. Compare
+        # by AoR (sip:user@host with params stripped) since the entity
+        # URI in the roster may carry differing display name / params
+        # from the local_identity.uri.
+        def _aor(u):
+            s = str(u)
+            if s.startswith('sip:'):
+                s = s[4:]
+            elif s.startswith('sips:'):
+                s = s[5:]
+            return s.split(';', 1)[0].lower()
+        self_aor = _aor(chat_handler.sip_session.local_identity.uri)
+
+        handlers = []
+        for participant_uri in list(room._sip_roster):
+            if _aor(participant_uri) == self_aor:
+                continue
+            try:
+                participant_sip_uri = SIPURI.parse(participant_uri)
+            except SIPCoreError:
+                room.log.warning('auto-kick: skipping {} (invalid URI)'.format(participant_uri))
+                continue
+            room.log.info('auto-kick: REFER ;method=BYE for {}'.format(participant_uri))
+            handler = SipFocusReferralHandler(
+                focus_uri, participant_sip_uri, session.account, room.log, method='BYE')
+            handler.start()
+            handlers.append(handler)
+
+        if not handlers:
+            return
+        room.log.info('auto-kick: waiting for {} REFER(s) to complete'.format(len(handlers)))
+        # Bound each wait so a stuck focus can't hold the chat session
+        # open indefinitely. 15 s is generous — a healthy REFER usually
+        # completes in well under a second.
+        for handler in handlers:
+            try:
+                handler.wait(timeout=15)
+            except Exception as e:
+                room.log.warning('auto-kick: wait raised for {}: {}'.format(handler.participant_uri, e))
+        room.log.info('auto-kick: all REFERs done; closing chat session')
 
     def _maybe_destroy_videoroom(self, videoroom):
         # should only be called from a green thread.
@@ -1949,6 +2069,152 @@ class ConnectionHandler(object):
 
                     SipFocusReferralHandler(focus_uri, participant_uri, base_session.account, room.log, status_callback=_status_cb).start()
 
+    def _RH_videoroom_remove(self, request):
+        # Per-URI routing: send REFER ;method=BYE (RFC 4579) for SIP
+        # participants — the conference focus BYEs them out of the
+        # room — and a Janus videoroom kick request for WebRTC
+        # participants (no SIP signalling for them; the kick goes
+        # plugin-to-plugin). The client sends a single
+        # videoroom-remove regardless of participant type; the gateway
+        # picks the right primitive per URI by looking the URI up in
+        #   - room publishers      → WebRTC, Janus kick
+        #   - everything else      → SIP, REFER ;method=BYE
+        # Used for client-driven kicks (per-tile hangup button); the
+        # last-WebRTC-publisher cleanup in _kick_all_sip_participants_blocking
+        # is a separate SIP-only path that doesn't need this routing.
+        try:
+            base_session = self.videoroom_sessions[request.session]
+        except KeyError:
+            raise APIError('Unknown room session: {request.session}'.format(request=request))
+        room = base_session.room
+        participants = set(request.participants)
+
+        # Build the WebRTC publisher lookup table once. Keys are the
+        # AoR-stripped lower-cased account.id (so URIs sent by the
+        # client with sip:/sips: prefix or ;params still match).
+        def _aor(u):
+            s = str(u)
+            if s.startswith('sip:'):
+                s = s[4:]
+            elif s.startswith('sips:'):
+                s = s[5:]
+            return s.split(';', 1)[0].lower()
+        webrtc_publishers = {}
+        for session in room:
+            if session.type != 'publisher' or session.account is None:
+                continue
+            webrtc_publishers[_aor(session.account.id)] = session
+
+        base_session_id = base_session.id
+        base_session_owner = base_session.owner
+
+        def _status_cb_factory(p_uri):
+            def _status_cb(p_uri_inner, state, code, reason, _sid=base_session_id, _owner=base_session_owner, _room=room):
+                try:
+                    _owner.send(sylkrtc.VideoroomInviteStatusEvent(
+                        session=_sid,
+                        participant=p_uri_inner,
+                        state=state,
+                        code=code if code is not None else 0,
+                        reason=reason or '',
+                    ))
+                except Exception as e:
+                    _room.log.warning('failed to forward remove-status event for {}: {}'.format(p_uri_inner, e))
+            return _status_cb
+
+        for participant in participants.difference([base_session.account.id]):
+            participant_aor = _aor(participant)
+
+            # WebRTC branch — Janus kick. The base_session's janus_handle
+            # is in the same room as the kick target, so a kick request
+            # on it removes the named publisher.
+            if participant_aor in webrtc_publishers:
+                target = webrtc_publishers[participant_aor]
+                publisher_id = getattr(target, 'publisher_id', None)
+                if publisher_id is None:
+                    room.log.warning('skipping Janus kick for {}: no publisher_id'.format(participant))
+                    continue
+                room.log.info('kicking WebRTC publisher {} (pid={}) from room {}'.format(participant, publisher_id, room.uri))
+                try:
+                    base_session.janus_handle.kick_publisher(room.id, publisher_id)
+                except Exception as e:
+                    room.log.warning('Janus kick threw for {}: {}'.format(participant, e))
+                    continue
+
+                # Janus only sends the 'kicked' event back to US (the
+                # moderator) as an ack — it does NOT notify the kicked
+                # publisher on their own handle. So Janus stops their
+                # media but their gateway-side videoroom session AND
+                # the client-side Conference object stay alive,
+                # leaving the kicked user's phone silently connected.
+                # Drive the teardown from this side: send the
+                # terminated event to the target's WebSocket client
+                # and clean up the target's gateway state. The room
+                # iteration above gave us the target's session object,
+                # whose `.owner` is the target's ConnectionHandler.
+                target_owner = getattr(target, 'owner', None)
+                if target_owner is not None:
+                    try:
+                        target_owner.send(sylkrtc.VideoroomSessionTerminatedEvent(
+                            session=target.id, reason='kicked'))
+                    except Exception as e:
+                        room.log.warning('failed to forward kicked event to {}: {}'.format(participant, e))
+                    try:
+                        target_owner._cleanup_videoroom_session(target)
+                    except Exception as e:
+                        room.log.warning('cross-connection cleanup of kicked session for {} failed: {}'.format(participant, e))
+
+                # Update the moderator's own roster. Janus sends the
+                # 'kicked' event as an ack to the moderator INSTEAD of
+                # the 'leaving' event other publishers receive when a
+                # peer drops, so the normal _EH_janus_videoroom_event_leaving
+                # path that emits VideoroomPublishersLeftEvent doesn't
+                # fire on this side. Walk our own feeds (subscriptions
+                # to the kicked publisher) to clean them up, then send
+                # the publishers-left event so the moderator's client
+                # removes the tile from its grid.
+                try:
+                    departed_subscriber = base_session.feeds.pop(publisher_id)
+                    departed_id = departed_subscriber.id
+                except KeyError:
+                    departed_id = str(publisher_id)
+                try:
+                    self.send(sylkrtc.VideoroomPublishersLeftEvent(
+                        session=base_session.id, publishers=[departed_id]))
+                except Exception as e:
+                    room.log.warning('failed to push publishers-left to moderator for {}: {}'.format(participant, e))
+
+                # Surface "200 OK" on the issuer's UI so the tile
+                # reconciles to "removed" right away.
+                try:
+                    _status_cb_factory(participant)(participant, 'success', 200, 'OK')
+                except Exception:
+                    pass
+                continue
+
+            # SIP branch — REFER ;method=BYE.
+            chat_handler = base_session.chat_handler
+            if chat_handler is None or chat_handler.sip_session is None:
+                room.log.debug('skipping SIP REFER ;method=BYE for {}: chat session not yet established'.format(participant))
+                continue
+            if not chat_handler.sip_session.remote_focus:
+                room.log.debug('skipping SIP REFER ;method=BYE for {}: remote party is not a SIP focus'.format(participant))
+                continue
+            try:
+                focus_uri = SIPURI.new(chat_handler.sip_session.remote_identity.uri)
+            except SIPCoreError as e:
+                room.log.warning('skipping SIP REFER ;method=BYE for {}: focus URI unresolved: {}'.format(participant, e))
+                continue
+            participant_str = participant if participant.startswith(('sip:', 'sips:')) else 'sip:{}'.format(participant)
+            try:
+                participant_uri = SIPURI.parse(participant_str)
+            except SIPCoreError:
+                room.log.warning('skipping SIP REFER ;method=BYE for {}: invalid URI'.format(participant))
+                continue
+            room.log.info('removing SIP participant {} via REFER ;method=BYE from focus {} for room {}'.format(participant_uri, focus_uri, room.uri))
+            SipFocusReferralHandler(focus_uri, participant_uri, base_session.account, room.log,
+                                    status_callback=_status_cb_factory(participant), method='BYE').start()
+
     def _RH_videoroom_session_trickle(self, request):
         try:
             videoroom_session = self.videoroom_sessions[request.session]
@@ -2656,6 +2922,50 @@ class ConnectionHandler(object):
 
     def _EH_janus_videoroom_event_unpublished(self, event):
         pass
+
+    def _EH_janus_videoroom_event_kicked(self, event):
+        # Janus videoroom plugin sends the "kicked" event in two
+        # situations:
+        #   (a) on the KICKED publisher's handle, telling them they
+        #       were removed from the room — this is the one we have
+        #       to act on (terminate the client's session so their
+        #       phone drops the conference instead of sitting silently
+        #       connected),
+        #   (b) on the MODERATOR's handle as the synchronous ack of
+        #       the kick request they just issued — same event shape
+        #       but it just means "your kick worked".
+        # We tell the two apart by checking the `kicked` field
+        # (the kicked publisher's id) against our own publisher id:
+        # equal → (a), we were kicked; not equal → (b), ignore.
+        try:
+            base_session = self.videoroom_sessions[event.sender]
+        except KeyError:
+            self.log.warning('kicked event for unknown handle {event.sender}'.format(event=event))
+            return
+        kicked_pid = getattr(event.plugindata.data, 'kicked', None)
+        my_pid = getattr(base_session, 'publisher_id', None)
+        if kicked_pid is not None and my_pid is not None and kicked_pid != my_pid:
+            # Moderator ack — the kick succeeded but we weren't the
+            # one removed from the room. Nothing to do on this side.
+            self.log.debug('kicked ack: pid {} removed from room {} (we are pid {})'.format(
+                kicked_pid, base_session.room.uri, my_pid))
+            return
+        self.log.info('kicked from room {session.room.uri} by moderation request'.format(session=base_session))
+        # Tell the client the session was terminated so its Call /
+        # Conference state-machine moves to 'terminated', closes the
+        # PeerConnection and unmounts the conference UI.
+        try:
+            self.send(sylkrtc.VideoroomSessionTerminatedEvent(
+                session=base_session.id, reason='kicked'))
+        except Exception as e:
+            self.log.warning('failed to forward kicked event to client: {}'.format(e))
+        # Then clean up the gateway-side state — same path the normal
+        # "publisher leaving" flow takes when our own publisher leaves
+        # ("ok" branch of _EH_janus_videoroom_event_leaving).
+        try:
+            self._cleanup_videoroom_session(base_session)
+        except Exception as e:
+            self.log.warning('cleanup after kicked event failed: {}'.format(e))
 
     def _EH_janus_videoroom_event_display(self, event):
         # No-op: sylkrtc has no native "publisher-updated" event, and

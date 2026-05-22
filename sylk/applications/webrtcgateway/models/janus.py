@@ -328,6 +328,19 @@ class VideoroomLeave(JSONObject):
     request = FixedValueProperty('leave')
 
 
+class VideoroomKick(JSONObject):
+    # Forcibly remove a publisher from a videoroom (Janus videoroom
+    # plugin moderation request). The sender of the request must be
+    # authorised — either via the room's `secret` (when set) or by
+    # being in the same room. Rooms created without a `secret` accept
+    # kick requests from any participant in the same room, which is
+    # what the gateway-driven kick flow relies on.
+    request = FixedValueProperty('kick')
+    room = IntegerProperty()
+    id = IntegerProperty()  # numeric publisher id of the participant to kick
+    secret = StringProperty(optional=True)
+
+
 class VideoroomUpdatePublisher(JSONObject):
     request = FixedValueProperty('configure')
     audio = BooleanProperty(optional=True)
@@ -740,6 +753,15 @@ class VideoroomCreated(VideoroomPluginData):
     videoroom = FixedValueProperty('created')
     room = IntegerProperty()
     # permanent = BooleanProperty()  # this is not available in older janus versions. not used.
+
+
+class VideoroomSuccess(VideoroomPluginData):
+    # Janus videoroom plugin acknowledgement for moderation requests
+    # (kick, mute, etc.). Comes back as a synchronous reply with just
+    # {"videoroom": "success"} — no room/participant data. Registered
+    # here so the plugin-data decoder doesn't emit
+    # "unknown videoroom plugin data" warnings.
+    videoroom = FixedValueProperty('success')
 
 
 class VideoroomEdited(VideoroomPluginData):
