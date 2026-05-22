@@ -472,8 +472,36 @@ class Room(object):
     def terminate_sessions(self, uri):
         if not self.started:
             return
-        for session in (session for session in self.sessions if session.remote_identity.uri == uri):
-            session.end()
+        # Match by AoR (user@host, lower-cased) rather than by full
+        # SIPURI equality. SIPURI's __eq__ compares all attributes —
+        # parameters, port, scheme — so a Refer-To URI built from the
+        # REFER request never compared equal to the session's stored
+        # remote_identity.uri (which always carries the tag/params
+        # from the INVITE). The loop matched nothing and the kicked
+        # participant kept their leg alive even though the gateway
+        # had logged "removed from conference". Comparing AoRs gives
+        # the BYE a chance to actually fire.
+        def _aor(u):
+            try:
+                user = (u.user or b'').decode() if isinstance(u.user, bytes) else (u.user or '')
+                host = (u.host or b'').decode() if isinstance(u.host, bytes) else (u.host or '')
+            except Exception:
+                return None
+            if not user or not host:
+                return None
+            return '{}@{}'.format(user, host).lower()
+        target_aor = _aor(uri)
+        if target_aor is None:
+            log.warning('Room %s - terminate_sessions: cannot derive AoR from %r' % (self.uri, uri))
+            return
+        terminated = 0
+        for session in list(self.sessions):
+            if _aor(session.remote_identity.uri) == target_aor:
+                log.info('Room %s - terminate_sessions: ending session of %s' % (self.uri, target_aor))
+                session.end()
+                terminated += 1
+        if terminated == 0:
+            log.info('Room %s - terminate_sessions: no session matched %s' % (self.uri, target_aor))
 
     def handle_incoming_subscription(self, subscribe_request, data):
         log.info('Room %s - subscription from %s' % (self.uri, data.headers['From'].uri))
