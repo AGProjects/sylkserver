@@ -115,6 +115,14 @@ class ConferenceConfig(ConfigSection):
     disable_music_on_hold = False
     moh_disable_header = ''
 
+    # Marker that lets a SIP-to-Janus audio bridge identify itself on its
+    # INVITE. When the incoming Request-URI carries a parameter
+    # `;app=<this value>`, the conference application:
+    #   * answers immediately (skips the 4-second human ringback delay)
+    #   * forces music-on-hold off for the joining room
+    # Set to '' to disable the detection entirely.
+    audio_bridge_app_param = 'sylk-janus-audio-bridge'
+
     # IVR for the conference selector. When a call comes in to
     # <default_conference_selector>@<domain>, the application plays a prompt
     # and collects DTMF, then routes the same session into <digits>@<domain>

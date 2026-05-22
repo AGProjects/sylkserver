@@ -3338,7 +3338,7 @@ class VideoroomChatHandler(object):
             return uri.split(';', 1)[0]
 
         def _is_bridge(uri):
-            return 'app=sylk-janus-bridge' in (uri or '').lower()
+            return 'app=sylk-janus-audio-bridge' in (uri or '').lower()
 
         webrtc_publishers = {}
         for session in self.room:

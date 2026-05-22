@@ -54,6 +54,14 @@ screensharing_images_dir = /var/spool/sylkserver/conference/screensharing
 ; Default: empty (no header check).
 ; moh_disable_header = X-Disable-Moh
 
+; A SIP-to-Janus audio bridge identifies itself by adding
+;   ;app=<audio_bridge_app_param>
+; to its INVITE Request-URI. When the conference application sees that
+; parameter it answers immediately (no 4-second human ringback delay)
+; and disables music-on-hold for the joining room. Set to an empty
+; string to disable the detection entirely. Default: sylk-janus-audio-bridge.
+; audio_bridge_app_param = sylk-janus-audio-bridge
+
 ; Conference selector (IVR). Calls to <default_conference_selector>@<domain>
 ; trigger a voice prompt that collects a conference number via DTMF; the same
 ; session then continues into <digits>@<domain> as if the caller had dialed
