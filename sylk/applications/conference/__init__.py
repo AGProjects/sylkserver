@@ -213,26 +213,30 @@ class ConferenceApplication(SylkApplication):
 
     @staticmethod
     def _is_audio_bridge_session(session):
-        """Return True if the INVITE's Request-URI carries the configured
+        """Return True if the INVITE's Contact URI carries the configured
         `;app=<ConferenceConfig.audio_bridge_app_param>` marker.
 
-        Bridge calls don't need the human-pleasing 4-second ringback and they
-        certainly don't need music on hold — both would just be played into a
-        Janus videoroom for no good reason. This helper inspects the URI
-        parameters on the Request-URI (where the bridge places its marker)
-        and tolerates both bytes and str values, since sipsimple's URIs use
-        bytes for keys/values on Python 3. When
-        `ConferenceConfig.audio_bridge_app_param` is empty, the detection is
+        The bridge places the marker on its Contact URI. URI parameter
+        keys/values may be either str or bytes (sipsimple's SIPURI uses
+        bytes on Python 3); both forms are handled. When
+        `ConferenceConfig.audio_bridge_app_param` is empty, detection is
         disabled entirely and this returns False for every session.
         """
         expected = ConferenceConfig.audio_bridge_app_param
         if not expected:
             return False
         expected = str(expected).strip().lower()
-        request_uri = getattr(session, 'request_uri', None)
-        if request_uri is None:
+
+        inv = getattr(session, '_invitation', None)
+        if inv is None:
             return False
-        params = getattr(request_uri, 'parameters', None) or {}
+        contact_hdr = getattr(inv, 'remote_contact_header', None)
+        if contact_hdr is None:
+            return False
+        contact_uri = getattr(contact_hdr, 'uri', None)
+        if contact_uri is None:
+            return False
+        params = getattr(contact_uri, 'parameters', None) or {}
         for k, v in params.items():
             try:
                 key = k.decode() if isinstance(k, bytes) else k
@@ -260,16 +264,14 @@ class ConferenceApplication(SylkApplication):
                      (session.call_id, ConferenceConfig.moh_disable_header))
 
         # An incoming SIP-Janus audio bridge identifies itself by adding
-        # `;app=<ConferenceConfig.audio_bridge_app_param>` to the Request-URI.
-        # For these calls we (a) skip the 4-second human-ringback delay
-        # before 200 OK and (b) force MoH off — the bridge is just shoveling
-        # RTP between Janus and a SIP UA, not a human who wants pleasantries.
+        # `;app=<ConferenceConfig.audio_bridge_app_param>` to its Contact
+        # URI. For these calls we (a) skip the 4-second human-ringback
+        # delay (and the 180 Ringing entirely) before 200 OK and (b) force
+        # MoH off — the bridge is just shoveling RTP between Janus and a
+        # SIP UA, not a human who wants pleasantries.
         if self._is_audio_bridge_session(session):
             session._sylk_audio_bridge = True
             session._sylk_disable_moh = True
-            log.info('Session %s: identified as audio bridge (app=%r) — '
-                     'skipping ringback delay and disabling music-on-hold' %
-                     (session.call_id, ConferenceConfig.audio_bridge_app_param))
 
         audio_streams = [stream for stream in session.proposed_streams if stream.type=='audio']
         chat_streams = [stream for stream in session.proposed_streams if stream.type=='chat']
@@ -329,17 +331,20 @@ class ConferenceApplication(SylkApplication):
                 transfer_stream.handler.save_directory = os.path.join(settings.file_transfer.directory.normalized, room.uri)
 
         NotificationCenter().add_observer(self, sender=session)
-        if audio_stream:
+        is_bridge = getattr(session, '_sylk_audio_bridge', False)
+        # Skip the 180 Ringing for bridge calls — there's no human on the
+        # other end to comfort with ringback. The trace collapses to
+        # 100 Trying → 200 OK. Human callers still get 180 Ringing so they
+        # hear at least one ring tone before being thrown into the mix.
+        if audio_stream and not is_bridge:
             session.send_ring_indication()
         streams = [stream for stream in (audio_stream, chat_stream, transfer_stream) if stream]
-        # Bridge calls answer immediately; human callers get a 4-second ringback
-        # so they hear at least one ring tone before being thrown into the mix.
-        if getattr(session, '_sylk_audio_bridge', False):
+        # Bridge calls answer immediately; human callers get a 4-second hold
+        # to let the ringback they just heard actually play out.
+        if is_bridge or audio_stream is None:
             answer_delay = 0
-        elif audio_stream is not None:
-            answer_delay = 4
         else:
-            answer_delay = 0
+            answer_delay = 4
         reactor.callLater(answer_delay, self.accept_session, session, streams)
 
     def incoming_subscription(self, subscribe_request, data):
