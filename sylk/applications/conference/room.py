@@ -238,6 +238,17 @@ class Room(object):
                 if stream.type == 'file-transfer':
                     continue
                 endpoint.add(conference.Media(id(stream), media_type=self.format_conference_stream_type(stream)))
+            # Always publish the SylkServer-assigned participant id so the
+            # bridge can target this exact device (multiple devices behind
+            # the same AoR get distinct ids). Set on every endpoint —
+            # including the bridge — so any subscriber can identify
+            # itself in the payload it receives.
+            participant_id = getattr(session, '_sylk_participant_id', None)
+            if participant_id is not None:
+                try:
+                    endpoint.participant_id = participant_id
+                except Exception:
+                    pass
             # Publish the per-endpoint server-side mute state, but skip the
             # audio bridge itself — it's the one driving the mute commands
             # and its own audio path through the conference is uninteresting
@@ -334,10 +345,11 @@ class Room(object):
     def _sample_audio_levels(self):
         """Sample TX/RX signal levels for every audio stream in the mixer.
 
-        Stores the result in self.audio_levels keyed by id(audio_stream),
-        and emits a ConferenceRoomAudioLevels notification so subscribers
-        (the admin SSE stream) can push out updates. Best-effort: errors
-        from individual streams are swallowed.
+        Stores the result in self.audio_levels keyed by participant_id
+        (the same stable per-session token that's published in the
+        conference-info payload). Emits a ConferenceRoomAudioLevels
+        notification so subscribers (the admin SSE stream) can push out
+        updates. Best-effort: errors from individual streams are swallowed.
         """
         if self.audio_conference is None:
             return
@@ -347,6 +359,10 @@ class Room(object):
             return
         levels = {}
         for stream in list(self.audio_conference.streams):
+            session = getattr(stream, 'session', None)
+            pid = getattr(session, '_sylk_participant_id', None) if session is not None else None
+            if pid is None:
+                continue
             transport = getattr(stream, '_transport', None)
             slot = getattr(transport, 'slot', None) if transport is not None else None
             if slot is None:
@@ -360,7 +376,7 @@ class Room(object):
                     tx_rx = mixer.get_signal_level(slot)
             except Exception:
                 continue
-            levels[id(stream)] = {'tx': int(tx_rx[0]), 'rx': int(tx_rx[1])}
+            levels[pid] = {'tx': int(tx_rx[0]), 'rx': int(tx_rx[1])}
         self.audio_levels = levels
         try:
             NotificationCenter().post_notification(
@@ -374,12 +390,20 @@ class Room(object):
     def _find_audio_session(self, identifier):
         """Resolve a participant identifier to (session, audio_stream).
 
-        `identifier` may be either:
-          * an int — id(audio_stream) as published in audio_levels and
-            in the conference info payload's media id field;
-          * a string — either the AoR (user@host, case-insensitive) or
-            a full SIP URI (with scheme); both are matched against the
-            session's remote_identity.uri.
+        Accepted forms, tried in this order:
+
+        1. The participant_id token (string) — the canonical, stable
+           per-session id published as <agp-conf:participant_id> in the
+           conference-info NOTIFY payload. Disambiguates multiple devices
+           sharing the same AoR. This is what tooling should use.
+        2. The session's Contact URI as a string — also unique per device
+           (it's the standard Endpoint `entity` attribute).
+        3. A SIP URI (with sip:/sips: prefix) or AoR (user@host),
+           case-insensitive. When multiple sessions share the same AoR
+           the first match wins — use the participant_id instead to be
+           deterministic.
+        4. An integer — `id(audio_stream)`, internal-only.
+
         Returns (None, None) if no match is found.
         """
         def _aor(uri):
@@ -392,6 +416,8 @@ class Room(object):
                 return None
             return '{}@{}'.format(user, host).lower()
 
+        wanted_pid = None
+        wanted_contact = None
         wanted_id = None
         wanted_aor = None
         wanted_uri = None
@@ -401,9 +427,13 @@ class Room(object):
             value = identifier.strip()
             if value.lower().startswith(('sip:', 'sips:')):
                 wanted_uri = value.lower()
-                wanted_aor = value.split(':', 1)[1].lower()
-            else:
+                wanted_aor = value.split(':', 1)[1].split(';', 1)[0].split('?', 1)[0].lower()
+                wanted_contact = value
+            elif '@' in value:
                 wanted_aor = value.lower()
+            else:
+                # No scheme, no '@' — treat as opaque participant id.
+                wanted_pid = value
         else:
             return (None, None)
 
@@ -412,20 +442,36 @@ class Room(object):
                 audio_stream = next(s for s in session.streams if s.type == 'audio')
             except StopIteration:
                 continue
-            if wanted_id is not None and id(audio_stream) == wanted_id:
+            # 1. Participant id (preferred).
+            if wanted_pid is not None and getattr(session, '_sylk_participant_id', None) == wanted_pid:
                 return (session, audio_stream)
+            # 2. Contact URI.
+            if wanted_contact is not None:
+                try:
+                    contact = str(session._invitation.remote_contact_header.uri)
+                except Exception:
+                    contact = ''
+                if contact == wanted_contact:
+                    return (session, audio_stream)
+            # 3. AoR / SIP URI on the remote identity.
             if wanted_aor is not None and _aor(session.remote_identity.uri) == wanted_aor:
                 return (session, audio_stream)
             if wanted_uri is not None and str(session.remote_identity.uri).lower() == wanted_uri:
+                return (session, audio_stream)
+            # 4. Internal stream id.
+            if wanted_id is not None and id(audio_stream) == wanted_id:
                 return (session, audio_stream)
         return (None, None)
 
     def get_participants(self):
         """Snapshot of the room as a list of plain dicts (JSON-friendly).
 
-        Each entry carries the participant URI, stream id (matching the
-        keys of audio_levels), the most recent levels, current muted /
-        on-hold state, and active stream types.
+        Each entry carries:
+          - participant_id (canonical id, matches keys of audio_levels and
+            the <agp-conf:participant_id> tag in the conference NOTIFY)
+          - the SIP AoR plus the per-device Contact URI
+          - is_audio_bridge flag (True for the sylk-janus-audio-bridge leg)
+          - mute / hold state, active media, latest signal levels.
         """
         out = []
         for session in self.sessions:
@@ -434,16 +480,24 @@ class Room(object):
             except StopIteration:
                 audio_stream = None
             stream_id = id(audio_stream) if audio_stream is not None else None
+            pid = getattr(session, '_sylk_participant_id', None)
             holdable = [s for s in session.streams if getattr(s, 'hold_supported', False)]
             on_hold = bool(holdable) and all(getattr(s, 'on_hold_by_remote', False) for s in holdable)
+            try:
+                contact_uri = str(session._invitation.remote_contact_header.uri)
+            except Exception:
+                contact_uri = None
             entry = {
+                'participant_id': pid,
                 'uri': str(session.remote_identity.uri),
+                'contact_uri': contact_uri,
                 'display_name': session.remote_identity.display_name or '',
                 'stream_id': stream_id,
+                'is_audio_bridge': bool(getattr(session, '_sylk_audio_bridge', False)),
                 'muted': bool(audio_stream is not None and getattr(audio_stream, 'muted', False)),
                 'on_hold': on_hold,
                 'media': sorted({s.type for s in session.streams}),
-                'levels': self.audio_levels.get(stream_id, {'tx': 0, 'rx': 0}),
+                'levels': self.audio_levels.get(pid, {'tx': 0, 'rx': 0}),
                 'call_id': getattr(session, 'call_id', None),
             }
             out.append(entry)
@@ -588,6 +642,13 @@ class Room(object):
         self.sessions.append(session)
         remote_uri = str(session.remote_identity.uri)
         self.participants_counter[remote_uri] += 1
+        # Assign a stable short opaque identifier for this session. Used by
+        # the conference admin API and published in the conference-info
+        # NOTIFY payload as <agp-conf:participant_id>. Disambiguates
+        # multiple devices that share the same AoR. Stable for the
+        # lifetime of this one SIP session, never recycled.
+        if not getattr(session, '_sylk_participant_id', None):
+            session._sylk_participant_id = secrets.token_urlsafe(8)
         try:
             chat_stream = next(stream for stream in session.streams if stream.type == 'chat')
         except StopIteration:
