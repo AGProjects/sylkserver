@@ -23,6 +23,7 @@ from sylk.applications import SylkApplication
 from sylk.applications.conference.admin_web import AdminWebHandler
 from sylk.applications.conference.configuration import get_room_config, ConferenceConfig
 from sylk.applications.conference.logger import log
+from sylk.applications.conference import payloads as _payloads  # noqa: F401 -- registers conference-info+xml extensions on import
 from sylk.applications.conference.room import Room
 from sylk.applications.conference.web import ConferenceWeb
 from sylk.bonjour import BonjourService
