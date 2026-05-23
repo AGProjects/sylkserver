@@ -79,6 +79,27 @@ class ConferenceApplication(SylkApplication):
         self.web = Null
         self.admin_web = Null
 
+    @property
+    def admin_url(self):
+        """Base URL of the conference admin web API, e.g. http://192.168.1.10:10889.
+
+        Computed from ConferenceConfig.http_management_interface. Returns
+        None when the admin API is disabled (interface unset) or the
+        handler has not been started.
+        """
+        if self.admin_web is Null or self.admin_web is None:
+            return None
+        addr = ConferenceConfig.http_management_interface
+        if not addr:
+            return None
+        host, port = addr
+        # 0.0.0.0 / :: aren't a useful base for an externally-published URL.
+        # Best-effort upgrade to a routable private IP.
+        if host in ('0.0.0.0', '::', ''):
+            from sylk.applications.conference.configuration import pick_default_admin_ip
+            host = pick_default_admin_ip()
+        return 'http://%s:%d' % (host, port)
+
     def start(self):
         self.web = ConferenceWeb(self)
         web_server.register_resource(b'conference', self.web.resource)
@@ -262,6 +283,71 @@ class ConferenceApplication(SylkApplication):
                str(val).strip().lower() == expected:
                 return True
         return False
+
+    @staticmethod
+    def _bridge_supported_media(session):
+        """If `session` is the sylk-janus-audio-bridge and its Contact URI
+        carries a `;media=<csv>` parameter (e.g. ;media=audio,chat), return
+        the lower-cased set of media types it advertises support for. The
+        synonyms `msrp` and `text` are normalised to `chat` because that's
+        the sipsimple stream registry name. Returns None when the bridge
+        did not advertise any specific media set, in which case callers
+        should fall back to the existing default behaviour (all active
+        media in the room).
+        """
+        if not getattr(session, '_sylk_audio_bridge', False):
+            return None
+        inv = getattr(session, '_invitation', None)
+        if inv is None:
+            return None
+        contact_hdr = getattr(inv, 'remote_contact_header', None)
+        if contact_hdr is None:
+            return None
+        contact_uri = getattr(contact_hdr, 'uri', None)
+        if contact_uri is None:
+            return None
+        params = getattr(contact_uri, 'parameters', None) or {}
+        for k, v in params.items():
+            try:
+                key = k.decode() if isinstance(k, bytes) else k
+                val = v.decode() if isinstance(v, bytes) else v
+            except Exception:
+                continue
+            if str(key).strip().lower() != 'media':
+                continue
+            items = set()
+            for token in str(val).split(','):
+                token = token.strip().lower()
+                if not token:
+                    continue
+                if token in ('msrp', 'text'):
+                    token = 'chat'
+                items.add(token)
+            return items or None
+        return None
+
+    @staticmethod
+    def _find_session_by_uri(room, uri):
+        """Return the first session in `room` whose remote AoR matches
+        `uri` (case-insensitive, user@host comparison). Returns None when
+        no session in the room matches.
+        """
+        def _aor(u):
+            try:
+                user = (u.user or b'').decode() if isinstance(u.user, bytes) else (u.user or '')
+                host = (u.host or b'').decode() if isinstance(u.host, bytes) else (u.host or '')
+            except Exception:
+                return None
+            if not user or not host:
+                return None
+            return '{}@{}'.format(user, host).lower()
+        target = _aor(uri)
+        if target is None:
+            return None
+        for session in room.sessions:
+            if _aor(session.remote_identity.uri) == target:
+                return session
+        return None
 
     def incoming_session(self, session):
         peer = '%s:%s' % (session.transport, session.peer_address)
@@ -902,6 +988,24 @@ class IncomingReferralHandler(object):
             self._refer_request.end(500)
             return
         active_media = set(room.active_media).intersection(('audio', 'chat'))
+        # If the REFER came from a sylk-janus-audio-bridge that advertised
+        # a `;media=<csv>` list on its Contact URI, honour it: we may
+        # only offer the new participant streams the bridge said it can
+        # carry. Without this we'd happily INVITE the callee with both
+        # audio and MSRP even when the bridge is audio-only, and the
+        # MSRP leg would dead-end inside the bridge.
+        referrer_from = self._refer_headers.get('From', Null)
+        referrer_uri = referrer_from.uri if referrer_from is not Null else None
+        if referrer_uri is not None:
+            referrer_session = conference_application._find_session_by_uri(room, referrer_uri)
+            if referrer_session is not None:
+                allowed = conference_application._bridge_supported_media(referrer_session)
+                if allowed:
+                    filtered = active_media & allowed
+                    if filtered != active_media:
+                        log.info('Room %s - REFER from audio bridge restricts new participant media to %s (was %s)' %
+                                 (self.room_uri_str, sorted(filtered), sorted(active_media)))
+                    active_media = filtered
         if not active_media:
             log.info('Room %s - failed to add %s' % (self.room_uri_str, self.refer_to_uri))
             self._refer_request.end(500)

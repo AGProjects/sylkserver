@@ -1,6 +1,7 @@
 
 import os
 import random
+import secrets
 import shutil
 import string
 import weakref
@@ -154,6 +155,12 @@ class Room(object):
         self.audio_levels = {}
         self.muted_streams = set()
         self._level_sampler = None
+        # Per-room random token. Published in the conference-info payload
+        # to the sylk-janus-audio-bridge participant and accepted by the
+        # admin HTTP API as an alternative to the global auth secret —
+        # restricted to endpoints scoped to *this* room. Generated once,
+        # stable for the room's lifetime.
+        self.auth_token = secrets.token_urlsafe(32)
 
     @property
     def empty(self):
@@ -188,6 +195,14 @@ class Room(object):
         self.conference_info_payload.version = next(self.conference_info_version)
         user_count = len(self.participants_counter)
         self.conference_info_payload.conference_state = conference.ConferenceState(user_count=user_count, active=True)
+        # Resolve the admin base URL once per build; cheap (just config lookup).
+        # Imported lazily to avoid a circular dependency at module load time.
+        from sylk.applications.conference import ConferenceApplication
+        try:
+            admin_url = ConferenceApplication().admin_url
+        except Exception:
+            admin_url = None
+
         users = conference.Users()
         for session in (session for session in self.sessions if not (len(session.streams) == 1 and session.streams[0].type == 'file-transfer')):
             try:
@@ -199,6 +214,19 @@ class Room(object):
                 screen_image = self.screen_images.get(user_uri, None)
                 if screen_image is not None and screen_image.active:
                     user.screen_image_url = screen_image.url
+                # Publish the admin endpoint URL + the per-room auth token,
+                # but only to the sylk-janus-audio-bridge participant — it's
+                # the one expected to drive the admin API to mute participants
+                # and read audio levels. Other endpoints don't get the token,
+                # so they can't impersonate the bridge.
+                if admin_url and getattr(session, '_sylk_audio_bridge', False):
+                    try:
+                        user.admin_endpoint_url = admin_url
+                        user.admin_endpoint_token = self.auth_token
+                    except Exception:
+                        # Older sipsimple without the User extensions — skip
+                        # silently rather than break the whole NOTIFY payload.
+                        pass
                 users.add(user)
             joining_info = conference.JoiningInfo(when=session.start_time)
             holdable_streams = [stream for stream in session.streams if stream.hold_supported]
@@ -210,6 +238,24 @@ class Room(object):
                 if stream.type == 'file-transfer':
                     continue
                 endpoint.add(conference.Media(id(stream), media_type=self.format_conference_stream_type(stream)))
+            # Publish the per-endpoint server-side mute state, but skip the
+            # audio bridge itself — it's the one driving the mute commands
+            # and its own audio path through the conference is uninteresting
+            # to publish back to it. For all other participants we always
+            # set the flag (True or False) so subscribers see a definitive
+            # answer instead of having to infer absence as "not muted".
+            if not getattr(session, '_sylk_audio_bridge', False):
+                try:
+                    audio_stream = next(s for s in session.streams if s.type == 'audio')
+                except StopIteration:
+                    audio_stream = None
+                if audio_stream is not None:
+                    try:
+                        endpoint.muted = bool(getattr(audio_stream, 'muted', False))
+                    except Exception:
+                        # Older sipsimple without the Endpoint extension —
+                        # don't break the rest of the NOTIFY payload.
+                        pass
             user.add(endpoint)
         self.conference_info_payload.users = users
         if self.files:
