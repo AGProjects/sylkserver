@@ -168,6 +168,13 @@ class Room(object):
         # restricted to endpoints scoped to *this* room. Generated once,
         # stable for the room's lifetime.
         self.auth_token = secrets.token_urlsafe(32)
+        # Wallclock timestamp the conference room was created. Rooms are
+        # lazily created on the first INVITE that lands in their URI, so
+        # this is effectively the conference's true start time. Surfaced
+        # to subscribers as <agp-conf:start_time> on the conference-info
+        # NOTIFY and relayed by the webrtcgateway to WebRTC clients, so
+        # late joiners know how long the conference has been running.
+        self.start_time = ISOTimestamp.utcnow()
 
     @property
     def empty(self):
@@ -199,6 +206,23 @@ class Room(object):
                 conference_description.conf_uris.add(conference.ConfUrisEntry('tel:%s' % number, purpose='participation'))
             host_info = conference.HostInfo(web_page=conference.WebPage('http://sylkserver.com'))
             self.conference_info_payload = conference.Conference(self.identity.uri, conference_description=conference_description, host_info=host_info, users=conference.Users())
+        # Refresh the conference duration (seconds since room creation)
+        # on every NOTIFY build. Authoritative and computed server-side,
+        # so the client doesn't have to deal with timezone or clock-skew.
+        # Late joiners read it once from their initial NOTIFY and run a
+        # local counter from there. The Duration extension (registered
+        # in sylk.applications.conference.payloads on application load)
+        # wraps the int through its XML descriptor automatically.
+        try:
+            elapsed = int((ISOTimestamp.utcnow() - self.start_time).total_seconds())
+            if elapsed < 0:
+                elapsed = 0
+            self.conference_info_payload.conference_description.duration = Duration(elapsed)
+        except (AttributeError, Exception):
+            # sylk.applications.conference.payloads not imported yet —
+            # the descriptor on conference_description.duration doesn't
+            # exist. Skip silently rather than break the whole payload.
+            pass
         self.conference_info_payload.version = next(self.conference_info_version)
         user_count = len(self.participants_counter)
         self.conference_info_payload.conference_state = conference.ConferenceState(user_count=user_count, active=True)
@@ -328,6 +352,7 @@ class Room(object):
         else:
             log.info('Room %s - admin endpoint disabled (no http_management_interface) token=%s' %
                      (self.uri, self.auth_token))
+        log.info('Room %s - conference started at %s' % (self.uri, self.start_time))
 
     def stop(self):
         if not self.started:
@@ -386,7 +411,9 @@ class Room(object):
         (the same stable per-session token that's published in the
         conference-info payload). Emits a ConferenceRoomAudioLevels
         notification so subscribers (the admin SSE stream) can push out
-        updates. Best-effort: errors from individual streams are swallowed.
+        updates. Errors are swallowed per stream so a single bad slot
+        doesn't kill the whole sample, but the first occurrence of each
+        failure mode is logged so silent breakage is visible.
         """
         if self.audio_conference is None:
             return
