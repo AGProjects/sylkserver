@@ -502,6 +502,11 @@ class VideoroomConferenceEndpoint(JSONObject):
     display_name = StringProperty(optional=True)
     status = StringProperty(optional=True)
     media = ArrayProperty(VideoroomConferenceMediaList, optional=True)
+    # Sylk-specific extensions surfaced from the conference-info NOTIFY:
+    # the stable participant_id token published per endpoint, and the
+    # server-side input mute flag set on every endpoint except the bridge.
+    participant_id = StringProperty(optional=True)
+    muted = BooleanProperty(optional=True)
 
 
 class VideoroomConferenceEndpoints(JSONArray):
@@ -513,6 +518,13 @@ class VideoroomConferenceParticipant(JSONObject):
     uri = StringProperty()
     display_name = StringProperty(optional=True)
     endpoints = ArrayProperty(VideoroomConferenceEndpoints, optional=True)
+    # Bridge-only fields. When the participant is the sylk-janus-audio-bridge
+    # the conference focus advertises the per-room admin API endpoint URL
+    # and the matching auth token; relayed verbatim so the WebRTC client
+    # can drive the same admin API to mute participants and watch audio
+    # levels. Both empty/absent for non-bridge participants.
+    admin_endpoint_url = StringProperty(optional=True)
+    admin_endpoint_token = StringProperty(optional=True)
 
 
 class VideoroomConferenceParticipants(JSONArray):

@@ -324,6 +324,10 @@ class Videoroom(object):
         # from SIPSessionGotConferenceInfo notifications on any chat
         # session attached to this room.
         self._sip_roster = {}  # type: Dict[str, str]
+        # Last admin endpoint seen on the conference-info NOTIFY, keyed by
+        # the user entity (the bridge's URI). Used to log the admin URL
+        # only when it appears or changes, instead of on every NOTIFY.
+        self._admin_endpoints = {}  # type: Dict[str, Tuple[str, str]]
         if self.config.record:
             makedirs(self.config.recording_dir, 0o755)
             self.log.info('created (recording on)')
@@ -347,6 +351,7 @@ class Videoroom(object):
         except AttributeError:
             return
         new_roster = {}
+        new_admin_endpoints = {}
         for u in users:
             entity = str(getattr(u, 'entity', '') or '')
             display = ''
@@ -357,6 +362,13 @@ class Videoroom(object):
                 pass
             if entity:
                 new_roster[entity] = display
+            # The sylk-janus-audio-bridge participant carries the conference
+            # admin endpoint URL + per-room token as agp-conf extensions on
+            # its User element. Extract them whenever they are present.
+            admin_url = self._extension_value(getattr(u, 'admin_endpoint_url', None))
+            admin_token = self._extension_value(getattr(u, 'admin_endpoint_token', None))
+            if entity and admin_url:
+                new_admin_endpoints[entity] = (admin_url, admin_token or '')
         # Diff against previous.
         added = set(new_roster) - set(self._sip_roster)
         removed = set(self._sip_roster) - set(new_roster)
@@ -369,6 +381,43 @@ class Videoroom(object):
             label = '{} ({})'.format(display, uri) if display else uri
             self.log.info('{} has left'.format(label))
         self._sip_roster = new_roster
+        # Log every change to an admin endpoint advertised by a bridge
+        # participant. We log on first appearance and again any time the
+        # URL or token value changes (token rotation, server restart with
+        # a new room token, IP change, etc.). When the bridge disappears
+        # the endpoint vanishes from the payload — log that too.
+        for entity, (url, token) in new_admin_endpoints.items():
+            if self._admin_endpoints.get(entity) == (url, token):
+                continue
+            # Token is a secret — only print a short prefix so it doesn't
+            # end up in shared log archives in full.
+            token_preview = (token[:6] + '…') if token else '(no token)'
+            self.log.info('bridge admin endpoint advertised by {entity}: {url} token={token}'.format(
+                entity=entity, url=url, token=token_preview))
+        for entity in set(self._admin_endpoints) - set(new_admin_endpoints):
+            self.log.info('bridge admin endpoint withdrawn by {entity}'.format(entity=entity))
+        self._admin_endpoints = new_admin_endpoints
+
+    @staticmethod
+    def _extension_value(element):
+        """Unwrap a sipsimple XML extension element to its plain Python value.
+
+        The agp-conf extensions (admin_endpoint_url, admin_endpoint_token)
+        are XMLStringElement instances — calling `.value` (or str()) yields
+        the underlying text. We accept either form and return None when
+        the element is missing or empty.
+        """
+        if element is None:
+            return None
+        for attr in ('value',):
+            v = getattr(element, attr, None)
+            if v is not None and v != '':
+                return v
+        try:
+            text = str(element).strip()
+            return text or None
+        except Exception:
+            return None
 
     @property
     def active_participants(self):
@@ -3386,11 +3435,25 @@ class VideoroomChatHandler(object):
                 endpoint_display = getattr(endpoint, 'display_text', None)
                 if endpoint_display is not None and hasattr(endpoint_display, 'value'):
                     endpoint_display = endpoint_display.value
+                # Sylk-specific extensions on the Endpoint: participant_id
+                # (the stable per-session token) and muted (server-side
+                # input mute flag, set on every non-bridge endpoint).
+                participant_id = Videoroom._extension_value(getattr(endpoint, 'participant_id', None))
+                muted_elem = getattr(endpoint, 'muted', None)
+                muted_value = None
+                if muted_elem is not None:
+                    raw = getattr(muted_elem, 'value', muted_elem)
+                    if isinstance(raw, bool):
+                        muted_value = raw
+                    elif isinstance(raw, str):
+                        muted_value = raw.strip().lower() in ('true', '1', 'yes')
                 endpoints.append(sylkrtc.VideoroomConferenceEndpoint(
                     uri=str(endpoint.entity) if getattr(endpoint, 'entity', None) else None,
                     display_name=endpoint_display,
                     status=str(endpoint_status) if endpoint_status is not None else None,
                     media=media_items,
+                    participant_id=participant_id,
+                    muted=muted_value,
                 ))
             participant_aor = _aor(user.entity)
             if participant_aor in webrtc_publishers:
@@ -3399,11 +3462,21 @@ class VideoroomChatHandler(object):
                 ptype = 'bridge'
             else:
                 ptype = 'sip'
+            # Surface the admin endpoint URL + per-room token only on the
+            # bridge participant — that's the only User in the NOTIFY that
+            # carries the agp-conf:admin_endpoint_* extensions.
+            admin_url = None
+            admin_token = None
+            if ptype == 'bridge':
+                admin_url = Videoroom._extension_value(getattr(user, 'admin_endpoint_url', None))
+                admin_token = Videoroom._extension_value(getattr(user, 'admin_endpoint_token', None))
             payload_participants.append(sylkrtc.VideoroomConferenceParticipant(
                 type=ptype,
                 uri=user.entity,
                 display_name=current_display[user.entity],
                 endpoints=endpoints,
+                admin_endpoint_url=admin_url,
+                admin_endpoint_token=admin_token,
             ))
         for account_id, session in webrtc_publishers.items():
             if account_id in sip_aor_map:
