@@ -315,6 +315,14 @@ class Videoroom(object):
         self.video = video
         self.config = get_room_config(uri)
         self.log = VideoroomLogger(self)
+        # Webrtc-side conference timer. Anchored to videoroom creation
+        # (the moment the first WebRTC client opens this room here) and
+        # used to compute the duration sent to clients in the
+        # conference-participants event. Intentionally independent of
+        # whatever start time the SIP focus may report — the webrtc
+        # gateway runs its own clock so late joiners see consistent
+        # "started N minutes ago" numbers regardless of upstream skew.
+        self.start_time = time.time()
         self._active_participants = []
         self._sessions = set()  # type: Set[VideoroomSessionInfo]
         self._id_map = {}       # type: Dict[Union[str, int], VideoroomSessionInfo]  # map session.id -> session and session.publisher_id -> session
@@ -337,6 +345,15 @@ class Videoroom(object):
             self.video = False
         if self.config.persistent:
             self.read_files_from_disk()
+
+    @property
+    def duration(self):
+        """Seconds elapsed since this videoroom was created on the
+        webrtcgateway. Computed locally — independent of any duration
+        reported by the SIP focus on the other side of the bridge.
+        """
+        elapsed = int(time.time() - self.start_time)
+        return elapsed if elapsed >= 0 else 0
 
     def update_sip_roster(self, conference_info):
         """
@@ -2850,7 +2867,7 @@ class ConnectionHandler(object):
         videoroom_session.publisher_id = data.id
         room = videoroom_session.room
         assert event.jsep is not None
-        self.send(sylkrtc.VideoroomSessionAcceptedEvent(session=videoroom_session.id, sdp=event.jsep.sdp, audio=room.audio, video=room.video))
+        self.send(sylkrtc.VideoroomSessionAcceptedEvent(session=videoroom_session.id, sdp=event.jsep.sdp, audio=room.audio, video=room.video, duration=room.duration))
         # send information about existing publishers
         publishers = []
         for publisher in data.publishers:  # type: janus.VideoroomPublisher
@@ -3495,10 +3512,19 @@ class VideoroomChatHandler(object):
                 display_name=session.account.display_name,
                 endpoints=[],
             ))
+        # Conference duration is computed locally from the videoroom's
+        # own start_time anchor. Intentionally NOT taken from the SIP
+        # focus's `agp-conf:duration` field — the webrtcgateway runs an
+        # independent timer so the duration shown to WebRTC clients is
+        # consistent even if the SIP bridge restarts, the focus reports
+        # a different value, or the SIP side of the conference came up
+        # earlier than the webrtc side.
+        duration = self.room.duration
         try:
             self.sylk_session.owner.send(sylkrtc.VideoroomConferenceParticipantsEvent(
                 session=self.sylk_session.id,
                 participants=payload_participants,
+                duration=duration,
             ))
         except Exception as e:
             self.room.log.warning('failed to forward SIP conference participants event: {}'.format(e))

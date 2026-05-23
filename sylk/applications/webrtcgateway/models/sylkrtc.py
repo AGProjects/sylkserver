@@ -411,6 +411,11 @@ class VideoroomSessionAcceptedEvent(VideoroomSessionStateEvent):
     sdp = StringProperty()
     video = BooleanProperty(optional=True, default=True)
     audio = BooleanProperty(optional=True, default=True)
+    # Seconds since the videoroom was created on the webrtcgateway.
+    # Late joiners read this once and add their own local elapsed time
+    # to maintain a running counter. Computed locally by the gateway
+    # so the number is independent of any clock on the SIP focus side.
+    duration = IntegerProperty(optional=True)
 
 
 class VideoroomSessionEstablishedEvent(VideoroomSessionStateEvent):
@@ -534,6 +539,11 @@ class VideoroomConferenceParticipants(JSONArray):
 class VideoroomConferenceParticipantsEvent(VideoroomEventBase):
     event = FixedValueProperty('conference-participants')
     participants = ArrayProperty(VideoroomConferenceParticipants)
+    # Seconds elapsed since the conference room was created on the
+    # focus, computed server-side at event generation. Late joiners
+    # read it once and add their own local elapsed time to maintain a
+    # running counter — no timezone, no clock-skew correction needed.
+    duration = IntegerProperty(optional=True)
 
 
 class VideoroomInviteStatusEvent(VideoroomEventBase):

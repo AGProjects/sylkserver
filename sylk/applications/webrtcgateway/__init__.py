@@ -14,6 +14,7 @@ from twisted.internet import defer, reactor
 from zope.interface import implementer
 
 from sylk.applications import SylkApplication
+from sylk.applications.conference import payloads as _conference_payloads  # noqa: F401 -- registers conference-info+xml extensions on import so this app can parse them even if the conference application is not loaded
 from sylk.session import IllegalStateError
 
 from .configuration import GeneralConfig
