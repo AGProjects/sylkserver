@@ -310,6 +310,23 @@ class Room(object):
         if log_period_s > 0:
             self._level_logger = LoopingCall(self._log_audio_levels)
             self._level_logger.start(log_period_s, now=False)
+        # Log the admin endpoint + per-room token now that the room is
+        # live. Useful for operators that watch syslog: gives them the
+        # exact URL/token to drive the admin API for this room, without
+        # having to wait for an audio-bridge participant to join and
+        # publish them in the conference NOTIFY. Lazy-import the
+        # application to avoid a circular dependency at module load.
+        try:
+            from sylk.applications.conference import ConferenceApplication
+            admin_url = ConferenceApplication().admin_url
+        except Exception:
+            admin_url = None
+        if admin_url:
+            log.info('Room %s - admin endpoint %s token=%s' %
+                     (self.uri, admin_url, self.auth_token))
+        else:
+            log.info('Room %s - admin endpoint disabled (no http_management_interface) token=%s' %
+                     (self.uri, self.auth_token))
 
     def stop(self):
         if not self.started:
