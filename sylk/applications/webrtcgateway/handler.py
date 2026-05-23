@@ -836,6 +836,14 @@ class SipFocusReferralHandler(object):
                                      parameters=parameters)
                 refer_to_header = ReferToHeader(str(self.participant_uri))
                 refer_to_header.parameters['method'] = self.method
+                # Tell the conference focus to invite this participant
+                # for audio only. The conference's IncomingReferralHandler
+                # reads the `media=<csv>` parameter off the Refer-To
+                # header and restricts the outgoing INVITE accordingly,
+                # so the chat (MSRP) stream is not offered. This is
+                # per-REFER — every other invite the focus generates
+                # (e.g. from another participant's REFER) is unaffected.
+                refer_to_header.parameters['media'] = 'audio'
                 self.log.info('[conference] sending REFER for {} via route {}:{}/{}'.format(
                     self.participant_uri, route.address, route.port, transport))
                 referral = Referral(self.focus_uri,

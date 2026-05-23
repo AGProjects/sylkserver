@@ -38,6 +38,31 @@ def _uri_field(value):
     return value
 
 
+def _parse_media_csv(value):
+    """Parse a `media=<csv>` parameter value into a normalised set of
+    sipsimple stream type names. `msrp` and `text` are mapped to `chat`
+    (the sipsimple stream registry name). Empty result is returned as
+    None so callers can distinguish "no restriction" from "no valid
+    items". Accepts either str or bytes input.
+    """
+    if value is None:
+        return None
+    if isinstance(value, bytes):
+        try:
+            value = value.decode()
+        except Exception:
+            return None
+    items = set()
+    for token in str(value).split(','):
+        token = token.strip().lower()
+        if not token:
+            continue
+        if token in ('msrp', 'text'):
+            token = 'chat'
+        items.add(token)
+    return items or None
+
+
 class _RoomTargetURI(object):
     """Minimal user@host carrier with .user/.host as plain strings.
 
@@ -283,71 +308,6 @@ class ConferenceApplication(SylkApplication):
                str(val).strip().lower() == expected:
                 return True
         return False
-
-    @staticmethod
-    def _bridge_supported_media(session):
-        """If `session` is the sylk-janus-audio-bridge and its Contact URI
-        carries a `;media=<csv>` parameter (e.g. ;media=audio,chat), return
-        the lower-cased set of media types it advertises support for. The
-        synonyms `msrp` and `text` are normalised to `chat` because that's
-        the sipsimple stream registry name. Returns None when the bridge
-        did not advertise any specific media set, in which case callers
-        should fall back to the existing default behaviour (all active
-        media in the room).
-        """
-        if not getattr(session, '_sylk_audio_bridge', False):
-            return None
-        inv = getattr(session, '_invitation', None)
-        if inv is None:
-            return None
-        contact_hdr = getattr(inv, 'remote_contact_header', None)
-        if contact_hdr is None:
-            return None
-        contact_uri = getattr(contact_hdr, 'uri', None)
-        if contact_uri is None:
-            return None
-        params = getattr(contact_uri, 'parameters', None) or {}
-        for k, v in params.items():
-            try:
-                key = k.decode() if isinstance(k, bytes) else k
-                val = v.decode() if isinstance(v, bytes) else v
-            except Exception:
-                continue
-            if str(key).strip().lower() != 'media':
-                continue
-            items = set()
-            for token in str(val).split(','):
-                token = token.strip().lower()
-                if not token:
-                    continue
-                if token in ('msrp', 'text'):
-                    token = 'chat'
-                items.add(token)
-            return items or None
-        return None
-
-    @staticmethod
-    def _find_session_by_uri(room, uri):
-        """Return the first session in `room` whose remote AoR matches
-        `uri` (case-insensitive, user@host comparison). Returns None when
-        no session in the room matches.
-        """
-        def _aor(u):
-            try:
-                user = (u.user or b'').decode() if isinstance(u.user, bytes) else (u.user or '')
-                host = (u.host or b'').decode() if isinstance(u.host, bytes) else (u.host or '')
-            except Exception:
-                return None
-            if not user or not host:
-                return None
-            return '{}@{}'.format(user, host).lower()
-        target = _aor(uri)
-        if target is None:
-            return None
-        for session in room.sessions:
-            if _aor(session.remote_identity.uri) == target:
-                return session
-        return None
 
     def incoming_session(self, session):
         peer = '%s:%s' % (session.transport, session.peer_address)
@@ -935,7 +895,23 @@ class IncomingReferralHandler(object):
         self.room_uri = data.request_uri
         self.room_uri_str = '%s@%s' % (self.room_uri.user, self.room_uri.host)
         self.refer_to_uri = re.sub('<|>', '', data.headers.get('Refer-To').uri)
-        self.method = data.headers.get('Refer-To').parameters.get('method', 'INVITE').upper()
+        refer_params = data.headers.get('Refer-To').parameters
+        self.method = refer_params.get('method', 'INVITE').upper()
+        # Optional per-REFER media restriction. A referrer can attach a
+        # `;media=<csv>` parameter to the Refer-To header (e.g.
+        # `Refer-To: <sip:alice@host>;method=INVITE;media=audio`), and
+        # the conference will only offer the new participant the listed
+        # media types regardless of what is otherwise active in the room.
+        # Strictly more flexible than the Contact-level `;media=`
+        # mechanism — that one applies to every REFER from a session;
+        # this one is per-REFER. Both are still honoured; per-REFER wins.
+        media_param = refer_params.get('media', None)
+        if isinstance(media_param, bytes):
+            try:
+                media_param = media_param.decode()
+            except Exception:
+                media_param = None
+        self.refer_media = _parse_media_csv(media_param) if media_param else None
         self.session = None
         self.streams = []
 
@@ -988,24 +964,16 @@ class IncomingReferralHandler(object):
             self._refer_request.end(500)
             return
         active_media = set(room.active_media).intersection(('audio', 'chat'))
-        # If the REFER came from a sylk-janus-audio-bridge that advertised
-        # a `;media=<csv>` list on its Contact URI, honour it: we may
-        # only offer the new participant streams the bridge said it can
-        # carry. Without this we'd happily INVITE the callee with both
-        # audio and MSRP even when the bridge is audio-only, and the
-        # MSRP leg would dead-end inside the bridge.
-        referrer_from = self._refer_headers.get('From', Null)
-        referrer_uri = referrer_from.uri if referrer_from is not Null else None
-        if referrer_uri is not None:
-            referrer_session = conference_application._find_session_by_uri(room, referrer_uri)
-            if referrer_session is not None:
-                allowed = conference_application._bridge_supported_media(referrer_session)
-                if allowed:
-                    filtered = active_media & allowed
-                    if filtered != active_media:
-                        log.info('Room %s - REFER from audio bridge restricts new participant media to %s (was %s)' %
-                                 (self.room_uri_str, sorted(filtered), sorted(active_media)))
-                    active_media = filtered
+        # If the REFER carries a `;media=<csv>` parameter on its
+        # Refer-To header (e.g. `;media=audio` to invite the new
+        # participant for audio only), only offer the listed media.
+        # Otherwise every active media in the room is offered.
+        if self.refer_media:
+            filtered = active_media & set(self.refer_media)
+            if filtered != active_media:
+                log.info('Room %s - Refer-To media= restricts new participant media to %s (was %s)' %
+                         (self.room_uri_str, sorted(filtered), sorted(active_media)))
+            active_media = filtered
         if not active_media:
             log.info('Room %s - failed to add %s' % (self.room_uri_str, self.refer_to_uri))
             self._refer_request.end(500)
