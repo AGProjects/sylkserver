@@ -272,6 +272,13 @@ class ConferenceConfig(ConfigSection):
     # endpoint. Set to 0 to disable the periodic sampling entirely.
     audio_level_sample_period = 100
 
+    # How often (seconds) the server emits a summary log line per room
+    # listing each participant's average tx/rx level over the window.
+    # The average is computed from every sample taken in the window
+    # (cadence controlled by audio_level_sample_period). Set to 0 to
+    # disable the periodic log entirely.
+    audio_level_log_period = 5
+
 
 class RoomConfig(ConfigSection):
     __cfgfile__ = 'conference.ini'

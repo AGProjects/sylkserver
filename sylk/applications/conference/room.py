@@ -155,6 +155,12 @@ class Room(object):
         self.audio_levels = {}
         self.muted_streams = set()
         self._level_sampler = None
+        # Rolling accumulator used by the periodic per-room audio level
+        # logger. Keys are participant_id; values are {'tx_sum', 'rx_sum',
+        # 'count'} integers. Reset each time the logger emits a line so
+        # the next line averages only over the next window.
+        self._level_accumulator = {}
+        self._level_logger = None
         # Per-room random token. Published in the conference-info payload
         # to the sylk-janus-audio-bridge participant and accepted by the
         # admin HTTP API as an alternative to the global auth secret —
@@ -296,6 +302,14 @@ class Room(object):
         if period_ms > 0:
             self._level_sampler = LoopingCall(self._sample_audio_levels)
             self._level_sampler.start(period_ms / 1000.0, now=False)
+        # Separate (slower) loop emits one summary log line per room every
+        # audio_level_log_period seconds, averaging every sample taken in
+        # the window. Driven independently from the sampler so the log
+        # cadence is decoupled from the publishing cadence.
+        log_period_s = float(getattr(ConferenceConfig, 'audio_level_log_period', 0) or 0)
+        if log_period_s > 0:
+            self._level_logger = LoopingCall(self._log_audio_levels)
+            self._level_logger.start(log_period_s, now=False)
 
     def stop(self):
         if not self.started:
@@ -305,7 +319,12 @@ class Room(object):
             if self._level_sampler.running:
                 self._level_sampler.stop()
             self._level_sampler = None
+        if self._level_logger is not None:
+            if self._level_logger.running:
+                self._level_logger.stop()
+            self._level_logger = None
         self.audio_levels.clear()
+        self._level_accumulator.clear()
         self.muted_streams.clear()
         self.bonjour_services.stop()
         self.bonjour_services = None
@@ -376,7 +395,16 @@ class Room(object):
                     tx_rx = mixer.get_signal_level(slot)
             except Exception:
                 continue
-            levels[pid] = {'tx': int(tx_rx[0]), 'rx': int(tx_rx[1])}
+            tx, rx = int(tx_rx[0]), int(tx_rx[1])
+            levels[pid] = {'tx': tx, 'rx': rx}
+            # Feed the rolling accumulator that backs the periodic log.
+            acc = self._level_accumulator.get(pid)
+            if acc is None:
+                acc = {'tx_sum': 0, 'rx_sum': 0, 'count': 0}
+                self._level_accumulator[pid] = acc
+            acc['tx_sum'] += tx
+            acc['rx_sum'] += rx
+            acc['count'] += 1
         self.audio_levels = levels
         try:
             NotificationCenter().post_notification(
@@ -386,6 +414,62 @@ class Room(object):
             )
         except Exception:
             pass
+
+    def _log_audio_levels(self):
+        """Emit one summary log line for the room with the mean tx/rx of
+        each participant over the current audio_level_log_period window.
+
+        The mean is computed from every sample taken since the previous
+        log tick (so it self-adjusts when the sample period changes or
+        when participants join/leave mid-window). The accumulator is
+        reset on every call. Rooms with no audio streams produce no log
+        output — silence is silence.
+        """
+        # Snapshot + reset the accumulator atomically (single-threaded
+        # reactor — no lock needed).
+        accumulator, self._level_accumulator = self._level_accumulator, {}
+        if not accumulator:
+            return
+
+        # Build a label per participant id from the current session list.
+        # The accumulator may reference participants who have just left;
+        # we still log their average for the partial window using '?' as
+        # the label so the log stays informative.
+        label_by_pid = {}
+        for session in self.sessions:
+            pid = getattr(session, '_sylk_participant_id', None)
+            if pid is None:
+                continue
+            try:
+                uri = session.remote_identity.uri
+                user = uri.user.decode() if isinstance(uri.user, bytes) else (uri.user or '')
+                host = uri.host.decode() if isinstance(uri.host, bytes) else (uri.host or '')
+                aor = '%s@%s' % (user, host)
+            except Exception:
+                aor = '?'
+            is_bridge = bool(getattr(session, '_sylk_audio_bridge', False))
+            label_by_pid[pid] = (aor, is_bridge)
+
+        parts = []
+        for pid, acc in accumulator.items():
+            count = acc['count']
+            if count <= 0:
+                continue
+            avg_tx = acc['tx_sum'] // count
+            avg_rx = acc['rx_sum'] // count
+            aor, is_bridge = label_by_pid.get(pid, ('?', False))
+            # Mark the audio bridge endpoint with '*' so log readers can
+            # tell at a glance which leg is the SIP-Janus side.
+            marker = '*' if is_bridge else ''
+            parts.append('%s%s[%s] tx=%d rx=%d' % (marker, aor, pid, avg_tx, avg_rx))
+
+        if not parts:
+            return
+        log.info('Room %s - audio levels (avg over %ss, n=%d): %s' %
+                 (self.uri,
+                  ConferenceConfig.audio_level_log_period,
+                  len(parts),
+                  ', '.join(parts)))
 
     def _find_audio_session(self, identifier):
         """Resolve a participant identifier to (session, audio_stream).
