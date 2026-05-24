@@ -78,6 +78,68 @@ screensharing_images_dir = /var/spool/sylkserver/conference/screensharing
 ; select_conference_interdigit_timeout = 5
 ; select_conference_overall_timeout = 60
 
+; ----------------------------------------------------------------------
+; Administrative HTTP API
+; ----------------------------------------------------------------------
+;
+; Per-room admin API exposing participants, audio levels and mute/kick
+; commands. host:port; bearer-token auth via http_management_auth_secret
+; or the per-room token published in conference-info NOTIFY for the
+; audio-bridge participant.
+;
+; Default host is auto-picked at startup: the first private IPv4 of a
+; non-virtual interface (Docker/k8s/VPN tunnels skipped); falls back to
+; 127.0.0.1 when nothing routable is found. Override with a specific
+; bind address here if needed. Set to empty to disable the API entirely.
+;
+; http_management_interface = 0.0.0.0:10889
+; http_management_auth_secret =
+
+; ----------------------------------------------------------------------
+; Real-time audio-level publishing
+; ----------------------------------------------------------------------
+;
+; Sampling cadence (ms). Cheap (one pjmedia call per audio stream per
+; tick); drives the 4Hz notify push and the 5s log line. Set to 0 to
+; disable the periodic sampling entirely.
+; audio_level_sample_period = 100
+;
+; How often (seconds) a per-room summary log line is emitted with
+; mean/peak tx/rx per participant. Set to 0 to disable the log.
+; audio_level_log_period = 5
+;
+; How often (ms) the ConferenceRoomAudioLevels notification fires.
+; Consumed by the admin SSE stream and by the UDP server.
+; audio_level_notify_period = 250
+;
+; ---- audio-level UDP server (subscribe-pull) -------------------------
+;
+; UDP server endpoint for cross-host real-time audio-level streaming.
+; The conference focus runs the server here; webrtcgateways on OTHER
+; hosts discover the endpoint via the agp-conf:audio_levels_udp_endpoint
+; extension published in conference-info NOTIFY and subscribe via UDP.
+;
+; Default: 0.0.0.0:11000 (bind on every interface). Set to a specific
+; address (e.g. 10.208.117.121:11000) when the host is multi-homed
+; and you want replies sourced from a known IP — avoids the asymmetric-
+; routing failure mode where the gateway sees the subscribe go out
+; via one NIC but the audio-levels datagrams come back via another.
+; Set to empty to disable the UDP server entirely.
+; audio_level_udp_listen = 0.0.0.0:11000
+;
+; Externally-reachable host:port string PUBLISHED in conference-info
+; NOTIFY (as <agp-conf:audio_levels_udp_endpoint>). Set this when
+; audio_level_udp_listen binds to 0.0.0.0 / an internal interface and
+; the routable address from a remote webrtcgateway's point of view is
+; different (NAT, dual-homed host, container hostname etc). Leave
+; empty to advertise the picker's choice — same private-IPv4 picker
+; that http_management_interface uses by default.
+; audio_level_udp_advertised_endpoint =
+;
+; Shared secret required on every inbound UDP subscribe/unsubscribe
+; datagram. Defaults to http_management_auth_secret when unset.
+; audio_level_udp_token =
+
 ; Access Lists can be applied per room overriding the Default Policy
 ;
 ; [test@domain.com]

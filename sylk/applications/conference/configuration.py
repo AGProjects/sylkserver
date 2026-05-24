@@ -279,6 +279,44 @@ class ConferenceConfig(ConfigSection):
     # disable the periodic log entirely.
     audio_level_log_period = 5
 
+    # How often (milliseconds) the server publishes a ConferenceRoomAudioLevels
+    # notification. The notification is consumed by the admin SSE stream
+    # and by the webrtcgateway, which pushes a real-time
+    # conference-audio-levels event to every connected WebRTC client in
+    # the matching videoroom. Decoupled from audio_level_sample_period:
+    # we sample at the faster rate and roll up to mean + peak at this
+    # rate. Default 250ms = 4 Hz, fine for VU-meter use without flooding
+    # the WebSocket. Set to 0 to disable notifications entirely (the
+    # log still works, since it has its own accumulator).
+    audio_level_notify_period = 250
+
+    # UDP server endpoint for real-time audio-level updates. The
+    # conference focus binds here and accepts `subscribe` / `unsubscribe`
+    # datagrams; for each live subscription it streams a JSON `audio-levels`
+    # datagram on every notify tick. Used when the webrtcgateway runs on a
+    # different host than the conference focus (in-process NotificationCenter
+    # doesn't bridge processes).
+    #
+    # Set to empty to disable the UDP server entirely (the local
+    # NotificationCenter path and the admin SSE endpoint are unaffected).
+    audio_level_udp_listen = ConfigSetting(
+        type=ManagementInterfaceAddress,
+        value=ManagementInterfaceAddress('0.0.0.0:11000'))
+
+    # Externally-reachable host:port string published in the conference-info
+    # NOTIFY (as <agp-conf:audio_levels_udp_endpoint> on the audio-bridge
+    # participant's User element). Set this when audio_level_udp_listen
+    # binds to 0.0.0.0 / an internal interface and the reachable address
+    # is different (NAT, dual-homed host, container hostname). Leave
+    # empty to advertise the actual bound host:port from listenUDP.
+    audio_level_udp_advertised_endpoint = ConfigSetting(type=str, value=None)
+
+    # Shared secret required on every inbound subscribe/unsubscribe
+    # datagram. Subscribers (the webrtcgateway) supply it via
+    # audio_level_udp_token on their side. Defaults to
+    # http_management_auth_secret when unset.
+    audio_level_udp_token = ConfigSetting(type=str, value=None)
+
 
 class RoomConfig(ConfigSection):
     __cfgfile__ = 'conference.ini'

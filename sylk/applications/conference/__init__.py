@@ -21,6 +21,7 @@ from zope.interface import implementer
 from sylk.accounts import DefaultAccount
 from sylk.applications import SylkApplication
 from sylk.applications.conference.admin_web import AdminWebHandler
+from sylk.applications.conference.audio_level_udp import LevelUDPServer
 from sylk.applications.conference.configuration import get_room_config, ConferenceConfig
 from sylk.applications.conference.logger import log
 from sylk.applications.conference import payloads as _payloads  # noqa: F401 -- registers conference-info+xml extensions on import
@@ -137,6 +138,12 @@ class ConferenceApplication(SylkApplication):
         self.admin_web = AdminWebHandler(self)
         self.admin_web.start()
 
+        # UDP server for cross-host real-time audio-level streaming. Its
+        # listen address is published in every conference-info NOTIFY
+        # (on the bridge participant's User element); webrtcgateways
+        # running on other hosts subscribe by datagram.
+        LevelUDPServer().start()
+
         # We listen to SIPSessionNewIncoming directly so we can capture the
         # original INVITE headers on the session. The application loader only
         # passes us the Session object via incoming_session(session), which
@@ -171,6 +178,10 @@ class ConferenceApplication(SylkApplication):
             except Exception:
                 log.exception('Conference admin API failed to stop cleanly')
             self.admin_web = Null
+        try:
+            LevelUDPServer().stop()
+        except Exception:
+            log.exception('Audio-level UDP server failed to stop cleanly')
         self.bonjour_focus_service.stop()
         self.bonjour_room_service.stop()
 

@@ -34,6 +34,7 @@ from twisted.internet.task import LoopingCall
 from zope.interface import implementer
 
 from sylk.accounts import DefaultAccount
+from sylk.applications.conference.audio_level_udp import LevelUDPServer
 from sylk.applications.conference.configuration import get_room_config, ConferenceConfig
 from sylk.applications.conference.logger import log
 from sylk.applications.conference.payloads import Duration
@@ -156,12 +157,30 @@ class Room(object):
         self.audio_levels = {}
         self.muted_streams = set()
         self._level_sampler = None
-        # Rolling accumulator used by the periodic per-room audio level
-        # logger. Keys are participant_id; values are {'tx_sum', 'rx_sum',
-        # 'count'} integers. Reset each time the logger emits a line so
-        # the next line averages only over the next window.
-        self._level_accumulator = {}
+        # Two independent rolling accumulators fed by the same sampler.
+        # Keys are participant_id; values are {'tx_sum', 'rx_sum',
+        # 'tx_peak', 'rx_peak', 'count'} integers. Each consumer flushes
+        # (resets) its own accumulator on its own cadence.
+        #   * _level_log_accumulator    — flushed every audio_level_log_period
+        #                                 seconds by _log_audio_levels
+        #   * _level_notify_accumulator — flushed every audio_level_notify_period
+        #                                 ms by _emit_level_notification
+        # Both track per-window peak alongside the sum, because pjmedia's
+        # signal level is a per-frame µ-law-averaged absolute value — the
+        # mean of mean-of-µ-law's washes out useful peaks, the per-window
+        # max is the meaningful "did this participant speak" signal.
+        self._level_log_accumulator = {}
+        self._level_notify_accumulator = {}
         self._level_logger = None
+        self._level_notifier = None
+        # One-shot diagnostic flags used to explain (exactly once per
+        # room) why no audio level lines are being emitted. Without
+        # these the sample loop swallows every error and the operator
+        # has no visibility into what went wrong.
+        self._level_diag_logged_no_method = False
+        self._level_diag_logged_no_streams = False
+        self._level_diag_logged_sample_error = False
+        self._level_diag_logged_empty_window = False
         # Per-room random token. Published in the conference-info payload
         # to the sylk-janus-audio-bridge participant and accepted by the
         # admin HTTP API as an alternative to the global auth secret —
@@ -258,6 +277,20 @@ class Room(object):
                         # Older sipsimple without the User extensions — skip
                         # silently rather than break the whole NOTIFY payload.
                         pass
+                    # Publish the audio-levels UDP server endpoint too,
+                    # so the webrtcgateway can subscribe for real-time
+                    # level streaming. None when the UDP server isn't
+                    # running on this focus (audio_level_udp_listen unset).
+                    try:
+                        from sylk.applications.conference.audio_level_udp import LevelUDPServer
+                        udp_endpoint = LevelUDPServer().endpoint
+                    except Exception:
+                        udp_endpoint = None
+                    if udp_endpoint:
+                        try:
+                            user.audio_levels_udp_endpoint = udp_endpoint
+                        except Exception:
+                            pass
                 users.add(user)
             joining_info = conference.JoiningInfo(when=session.start_time)
             holdable_streams = [stream for stream in session.streams if stream.hold_supported]
@@ -335,6 +368,16 @@ class Room(object):
         if log_period_s > 0:
             self._level_logger = LoopingCall(self._log_audio_levels)
             self._level_logger.start(log_period_s, now=False)
+        # Real-time notification publisher. Runs faster than the logger
+        # (default 4 Hz / 250ms) and dispatches a ConferenceRoomAudioLevels
+        # NotificationCenter event each tick carrying mean + peak per
+        # participant. The webrtcgateway listens for this and forwards
+        # to every connected WebRTC client in the videoroom; the admin
+        # API's SSE stream listens for the same notification.
+        notify_period_ms = int(getattr(ConferenceConfig, 'audio_level_notify_period', 0) or 0)
+        if notify_period_ms > 0:
+            self._level_notifier = LoopingCall(self._emit_level_notification)
+            self._level_notifier.start(notify_period_ms / 1000.0, now=False)
         # Log the admin endpoint + per-room token now that the room is
         # live. Useful for operators that watch syslog: gives them the
         # exact URL/token to drive the admin API for this room, without
@@ -366,8 +409,13 @@ class Room(object):
             if self._level_logger.running:
                 self._level_logger.stop()
             self._level_logger = None
+        if self._level_notifier is not None:
+            if self._level_notifier.running:
+                self._level_notifier.stop()
+            self._level_notifier = None
         self.audio_levels.clear()
-        self._level_accumulator.clear()
+        self._level_log_accumulator.clear()
+        self._level_notify_accumulator.clear()
         self.muted_streams.clear()
         self.bonjour_services.stop()
         self.bonjour_services = None
@@ -409,11 +457,13 @@ class Room(object):
 
         Stores the result in self.audio_levels keyed by participant_id
         (the same stable per-session token that's published in the
-        conference-info payload). Emits a ConferenceRoomAudioLevels
-        notification so subscribers (the admin SSE stream) can push out
-        updates. Errors are swallowed per stream so a single bad slot
-        doesn't kill the whole sample, but the first occurrence of each
-        failure mode is logged so silent breakage is visible.
+        conference-info payload), and feeds the per-window accumulators
+        used by the periodic logger and the real-time notifier. No
+        notifications are fired from here — that's _emit_level_notification's
+        job on its own cadence. Errors are swallowed per stream so a
+        single bad slot doesn't kill the whole sample, but the first
+        occurrence of each failure mode is logged so silent breakage
+        is visible.
         """
         if self.audio_conference is None:
             return
@@ -421,8 +471,23 @@ class Room(object):
             mixer = self.audio_conference.bridge.mixer
         except AttributeError:
             return
+        # Probe once whether the rebuilt sipsimple core actually exposes
+        # get_signal_level(). Without it every sample below would raise
+        # AttributeError and the accumulator would never fill.
+        if not hasattr(mixer, 'get_signal_level'):
+            if not self._level_diag_logged_no_method:
+                self._level_diag_logged_no_method = True
+                log.warning('Room %s - audio level sampling disabled: '
+                            'AudioMixer.get_signal_level is missing — the '
+                            'python3-sipsimple core has not been rebuilt '
+                            'with the level helper patch' % self.uri)
+            return
+        streams_seen = 0
+        streams_sampled = 0
+        last_sample_error = None
         levels = {}
         for stream in list(self.audio_conference.streams):
+            streams_seen += 1
             session = getattr(stream, 'session', None)
             pid = getattr(session, '_sylk_participant_id', None) if session is not None else None
             if pid is None:
@@ -438,24 +503,90 @@ class Room(object):
                 tx_rx = getattr(stream, 'signal_level', None)
                 if tx_rx is None or tx_rx == (0, 0):
                     tx_rx = mixer.get_signal_level(slot)
-            except Exception:
+            except Exception as e:
+                last_sample_error = e
                 continue
             tx, rx = int(tx_rx[0]), int(tx_rx[1])
             levels[pid] = {'tx': tx, 'rx': rx}
-            # Feed the rolling accumulator that backs the periodic log.
-            acc = self._level_accumulator.get(pid)
-            if acc is None:
-                acc = {'tx_sum': 0, 'rx_sum': 0, 'count': 0}
-                self._level_accumulator[pid] = acc
-            acc['tx_sum'] += tx
-            acc['rx_sum'] += rx
-            acc['count'] += 1
+            streams_sampled += 1
+            # Feed both rolling accumulators. They're flushed by
+            # different consumers on different cadences but both want
+            # the same statistics: sum (for mean) and per-window peak.
+            for accumulator in (self._level_log_accumulator, self._level_notify_accumulator):
+                acc = accumulator.get(pid)
+                if acc is None:
+                    acc = {'tx_sum': 0, 'rx_sum': 0, 'tx_peak': 0, 'rx_peak': 0, 'count': 0}
+                    accumulator[pid] = acc
+                acc['tx_sum'] += tx
+                acc['rx_sum'] += rx
+                if tx > acc['tx_peak']:
+                    acc['tx_peak'] = tx
+                if rx > acc['rx_peak']:
+                    acc['rx_peak'] = rx
+                acc['count'] += 1
         self.audio_levels = levels
+        # Diagnostics — fire at most once per room each.
+        if streams_seen == 0 and not self._level_diag_logged_no_streams:
+            self._level_diag_logged_no_streams = True
+            log.info('Room %s - audio level sampling: no audio streams '
+                     'are attached to the conference mixer yet' % self.uri)
+        elif streams_seen > 0 and streams_sampled == 0 and last_sample_error is not None \
+                and not self._level_diag_logged_sample_error:
+            self._level_diag_logged_sample_error = True
+            log.warning('Room %s - audio level sampling: %d stream(s) '
+                        'present but all reads failed (first error: %s: %s)' %
+                        (self.uri, streams_seen,
+                         type(last_sample_error).__name__, last_sample_error))
+
+    def _emit_level_notification(self):
+        """Flush the real-time accumulator and fire a single
+        ConferenceRoomAudioLevels notification.
+
+        Carries per-participant mean (`tx`, `rx`) and per-window peak
+        (`tx_peak`, `rx_peak`) since the last notification. The peak is
+        the meaningful "is this slot speaking right now" signal — the
+        mean is washed out by pjmedia's µ-law-averaging-per-frame
+        (speech is bursty, and µ-law compresses dynamic range).
+        Consumed by the admin SSE stream and by the webrtcgateway,
+        which forwards a conference-audio-levels event to every
+        WebRTC client in the matching videoroom.
+        """
+        accumulator, self._level_notify_accumulator = self._level_notify_accumulator, {}
+        if not accumulator:
+            return
+        levels = {}
+        for pid, acc in accumulator.items():
+            count = acc['count']
+            if count <= 0:
+                continue
+            levels[pid] = {
+                'tx': acc['tx_sum'] // count,
+                'rx': acc['rx_sum'] // count,
+                'tx_peak': acc['tx_peak'],
+                'rx_peak': acc['rx_peak'],
+            }
+        if not levels:
+            return
         try:
             NotificationCenter().post_notification(
                 'ConferenceRoomAudioLevels',
                 sender=self,
                 data=NotificationData(uri=self.uri, levels=levels),
+            )
+        except Exception:
+            pass
+        # Cross-host fanout. The UDP server hosts a subscribe/unsubscribe
+        # protocol and streams datagrams to every live subscription for
+        # this room URI. Webrtcgateways running on different hosts find
+        # the endpoint via the agp-conf:audio_levels_udp_endpoint
+        # extension we publish in the conference-info NOTIFY (on the
+        # audio-bridge participant's User element). No-op when there are
+        # no subscribers — the common case for rooms no one is bridging.
+        try:
+            LevelUDPServer().send_levels(
+                self.uri,
+                levels,
+                ts=int(ISOTimestamp.utcnow().timestamp() * 1000),
             )
         except Exception:
             pass
@@ -468,53 +599,86 @@ class Room(object):
         log tick (so it self-adjusts when the sample period changes or
         when participants join/leave mid-window). The accumulator is
         reset on every call. Rooms with no audio streams produce no log
-        output — silence is silence.
+        output — but we log once when the window is empty despite the
+        room having audio streams, so silent breakage stays visible.
         """
         # Snapshot + reset the accumulator atomically (single-threaded
         # reactor — no lock needed).
-        accumulator, self._level_accumulator = self._level_accumulator, {}
+        accumulator, self._level_log_accumulator = self._level_log_accumulator, {}
         if not accumulator:
+            # Empty window. If there are audio streams in the room then
+            # the sampler is failing — say so once so the operator has
+            # somewhere to start looking. Don't repeat on every tick.
+            if (self.audio_conference is not None
+                    and len(self.audio_conference.streams) > 0
+                    and not self._level_diag_logged_empty_window):
+                self._level_diag_logged_empty_window = True
+                log.warning('Room %s - audio level log window was empty '
+                            'despite %d active audio stream(s); the '
+                            'periodic sampler is not producing data' %
+                            (self.uri, len(self.audio_conference.streams)))
             return
+        # Resetting the empty-window flag once we do have data means we
+        # will warn again if the pipeline breaks later.
+        self._level_diag_logged_empty_window = False
 
         # Build a label per participant id from the current session list.
-        # The accumulator may reference participants who have just left;
-        # we still log their average for the partial window using '?' as
-        # the label so the log stays informative.
+        # Also note which pid belongs to the audio-bridge so we can drop
+        # it from the log — the bridge's pjmedia in/out is just gateway
+        # plumbing, not a user-visible participant. "who" is the short
+        # human-readable identifier — display name if SIP carried one,
+        # otherwise the user part of the AoR (e.g. "ag" from
+        # sip:ag@sip2sip.info).
         label_by_pid = {}
+        bridge_pids = set()
         for session in self.sessions:
             pid = getattr(session, '_sylk_participant_id', None)
             if pid is None:
                 continue
+            if getattr(session, '_sylk_audio_bridge', False):
+                bridge_pids.add(pid)
+                continue
             try:
-                uri = session.remote_identity.uri
+                identity = session.remote_identity
+                uri = identity.uri
                 user = uri.user.decode() if isinstance(uri.user, bytes) else (uri.user or '')
-                host = uri.host.decode() if isinstance(uri.host, bytes) else (uri.host or '')
-                aor = '%s@%s' % (user, host)
+                display = identity.display_name or ''
+                if isinstance(display, bytes):
+                    display = display.decode()
+                who = display or user or '?'
             except Exception:
-                aor = '?'
-            is_bridge = bool(getattr(session, '_sylk_audio_bridge', False))
-            label_by_pid[pid] = (aor, is_bridge)
+                who = '?'
+            label_by_pid[pid] = who
 
-        parts = []
+        # One log line per participant — short, greppable, and consistent
+        # across the three audio-level emitters (focus, webrtcgateway,
+        # audio-bridge). The username column is padded/truncated to a
+        # fixed 10-char width so columns line up across log lines.
+        # We use the full Room URI prefix here ("Room <user>@<host>")
+        # to match every other room.py log line so an operator can grep
+        # by full room URI without surprises.
+        # Format:
+        #   Room <uri> audio level: "<who:10>" "<pid>" <N>s mean/peak, n=<samples>, tx=A/B rx=C/D
+        # pjmedia's tx/rx are per-frame µ-law-averaged absolute amplitudes;
+        # peak tracks perceived speech bursts (bursty speech reads high
+        # on peak but low on mean).
+        period = ConferenceConfig.audio_level_log_period
         for pid, acc in accumulator.items():
+            if pid in bridge_pids:
+                continue  # audio-bridge plumbing — not user-facing
             count = acc['count']
             if count <= 0:
                 continue
             avg_tx = acc['tx_sum'] // count
             avg_rx = acc['rx_sum'] // count
-            aor, is_bridge = label_by_pid.get(pid, ('?', False))
-            # Mark the audio bridge endpoint with '*' so log readers can
-            # tell at a glance which leg is the SIP-Janus side.
-            marker = '*' if is_bridge else ''
-            parts.append('%s%s[%s] tx=%d rx=%d' % (marker, aor, pid, avg_tx, avg_rx))
-
-        if not parts:
-            return
-        log.info('Room %s - audio levels (avg over %ss, n=%d): %s' %
-                 (self.uri,
-                  ConferenceConfig.audio_level_log_period,
-                  len(parts),
-                  ', '.join(parts)))
+            peak_tx = acc['tx_peak']
+            peak_rx = acc['rx_peak']
+            who = label_by_pid.get(pid, '?')
+            log.info(
+                'Room %s audio level: "%-10.10s" "%s" %ss mean/peak, n=%d, tx=%d/%d rx=%d/%d' %
+                (self.uri, who, pid, period, count,
+                 avg_tx, peak_tx, avg_rx, peak_rx)
+            )
 
     def _find_audio_session(self, identifier):
         """Resolve a participant identifier to (session, audio_stream).

@@ -72,6 +72,25 @@ class AdminEndpointToken(XMLStringElement, UserExtension):
 User.register_extension('admin_endpoint_token', AdminEndpointToken)
 
 
+class AudioLevelsUdpEndpoint(XMLStringElement, UserExtension):
+    """host:port of the conference focus's audio-level UDP server.
+
+    Published on the audio bridge participant so a webrtcgateway running
+    on a different host can discover where to subscribe for real-time
+    level updates. The webrtcgateway opens a UDP socket, sends a
+    `subscribe` datagram (using `admin_endpoint_token` as the shared
+    secret), and the focus then streams `audio-levels` datagrams back
+    every audio_level_notify_period milliseconds. See
+    sylk.applications.conference.audio_level_udp for the wire protocol.
+    """
+    _xml_tag = 'audio_levels_udp_endpoint'
+    _xml_namespace = agp_conf_namespace
+    _xml_document = ConferenceDocument
+
+
+User.register_extension('audio_levels_udp_endpoint', AudioLevelsUdpEndpoint)
+
+
 # --- Endpoint extensions -------------------------------------------------
 
 class MutedFlag(XMLBooleanElement, EndpointExtension):
