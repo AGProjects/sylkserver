@@ -347,6 +347,11 @@ class Videoroom(object):
         # stays the canonical place where mute is implemented.
         self.admin_endpoint_url = None    # type: Optional[str]
         self.admin_endpoint_token = None  # type: Optional[str]
+        # Last-seen audio-level UDP endpoint advertised by the bridge
+        # for this room. Cached so the destroy path can drop the
+        # subscription immediately and stop the focus from continuing
+        # to stream levels at us for the TTL.
+        self.audio_levels_udp_endpoint = None  # type: Optional[str]
         # participant_id -> human label ("display <aor>" or just aor),
         # populated from every conference-info NOTIFY. Used by the
         # audio-level periodic log to translate the opaque per-session
@@ -1192,17 +1197,35 @@ class ConnectionHandler(object):
                 # left orphaned in the conference focus — nothing's
                 # listening to them on the WebRTC end. Send
                 # REFER ;method=BYE for each of them through the still-
-                # alive chat session BEFORE we tear that session down,
+                # alive chat session BEFORE we tear that session down
                 # so the chat dialog (the SUBSCRIBE/NOTIFY anchor the
                 # focus uses to validate REFERs from us) is still
-                # present when the focus processes each REFER. The
-                # cleanup greenlet blocks on the REFERs completing
-                # (or timing out, capped) — then runs chat_handler.end()
-                # to finally close our own SIP leg.
+                # present when the focus processes each REFER.
+                #
+                # Fire-and-forget: we spawn the REFER greenlets without
+                # waiting on completion. Tearing down the chat session
+                # next isn't synchronous with REFER transmission either
+                # — the focus has more than enough time to read the
+                # REFERs off the wire before our BYE for the chat
+                # session lands. This avoids holding the destroy path
+                # behind a 15 s/REFER timeout when the focus is slow.
                 last_publisher = len(session.room) == 0
+                # Log the gate state so it's never invisible WHY the
+                # auto-kick did or didn't fire — multiple things can
+                # silently disable it (no chat handler yet, no SIP
+                # session, focus not detected) and "nobody got kicked"
+                # is exactly the failure mode we want to diagnose.
+                session.room.log.info(
+                    'auto-kick gate: last_publisher={} chat_handler={} sip_session={} roster_size={}'.format(
+                        last_publisher,
+                        session.chat_handler is not None,
+                        session.chat_handler is not None and session.chat_handler.sip_session is not None,
+                        len(getattr(session.room, '_sip_roster', {})),
+                    )
+                )
                 if last_publisher and session.chat_handler is not None and session.chat_handler.sip_session is not None:
                     try:
-                        self._kick_all_sip_participants_blocking(session)
+                        self._kick_all_sip_participants_fire_and_forget(session)
                     except Exception as e:
                         session.room.log.warning('auto-kick failed: {}'.format(e))
                 session.chat_handler.end()
@@ -1210,6 +1233,20 @@ class ConnectionHandler(object):
             else:
                 session.parent_session.feeds.discard(session.publisher_id)
                 session.janus_handle.detach()
+
+    def _kick_all_sip_participants_fire_and_forget(self, session):
+        """
+        Walk the room's SIP roster and spawn REFER ;method=BYE for each
+        entry except the gateway's own chat-session URI. Does NOT wait
+        on completion — REFER greenlets run independently of the
+        caller's teardown path. Used on videoroom destroy where we
+        don't want to hold the destroy behind a stuck focus's REFER
+        response. No-op if the chat session never reached a SIP focus.
+        """
+        spawned = self._spawn_kick_refers(session)
+        if spawned:
+            room = session.room
+            room.log.info('auto-kick: spawned {} REFER ;method=BYE (fire-and-forget)'.format(spawned))
 
     def _kick_all_sip_participants_blocking(self, session):
         """
@@ -1220,17 +1257,44 @@ class ConnectionHandler(object):
         session down. No-op if the chat session never reached a SIP
         focus.
         """
+        handlers = self._spawn_kick_refers(session, return_handlers=True)
+        if not handlers:
+            return
+        room = session.room
+        room.log.info('auto-kick: waiting for {} REFER(s) to complete'.format(len(handlers)))
+        # Bound each wait so a stuck focus can't hold the chat session
+        # open indefinitely. 15 s is generous — a healthy REFER usually
+        # completes in well under a second.
+        for handler in handlers:
+            try:
+                handler.wait(timeout=15)
+            except Exception as e:
+                room.log.warning('auto-kick: wait raised for {}: {}'.format(handler.participant_uri, e))
+        room.log.info('auto-kick: all REFERs done; closing chat session')
+
+    def _spawn_kick_refers(self, session, return_handlers=False):
+        """Spawn REFER ;method=BYE for every SIP-side roster entry except
+        the gateway's own chat-session URI. Returns the number of handlers
+        spawned (or the list when ``return_handlers`` is True, used by
+        the blocking variant which waits on each). Pure greenlet
+        spawn — does not block.
+        """
         room = session.room
         chat_handler = session.chat_handler
         if chat_handler is None or chat_handler.sip_session is None:
-            return
+            room.log.info('auto-kick: skipped (chat_handler={} sip_session={})'.format(
+                chat_handler is not None,
+                chat_handler is not None and chat_handler.sip_session is not None,
+            ))
+            return [] if return_handlers else 0
         if not chat_handler.sip_session.remote_focus:
-            return
+            room.log.info('auto-kick: skipped (remote_focus=False on chat session — focus didn\'t advertise isfocus parameter)')
+            return [] if return_handlers else 0
         try:
             focus_uri = SIPURI.new(chat_handler.sip_session.remote_identity.uri)
         except SIPCoreError as e:
             room.log.warning('auto-kick: focus URI unresolved: {}'.format(e))
-            return
+            return [] if return_handlers else 0
 
         # Exclude the gateway's own SIP chat session URI — that leg is
         # about to be BYE'd by chat_handler.end() in the caller. Compare
@@ -1247,8 +1311,20 @@ class ConnectionHandler(object):
         self_aor = _aor(chat_handler.sip_session.local_identity.uri)
 
         handlers = []
-        for participant_uri in list(room._sip_roster):
+        roster = list(room._sip_roster)
+        room.log.info('auto-kick: walking roster of {} entries (self_aor={})'.format(
+            len(roster), self_aor))
+        for participant_uri in roster:
             if _aor(participant_uri) == self_aor:
+                room.log.info('auto-kick: skipping {} (self)'.format(participant_uri))
+                continue
+            # The audio-bridge participant terminates itself when the
+            # videoroom on the gateway side empties out (it watches the
+            # publisher count via the bridge's own conference-info
+            # subscription). REFER ;method=BYE'ing it would race with
+            # the bridge's own shutdown and is not needed.
+            if 'app=sylk-janus-audio-bridge' in participant_uri.lower():
+                room.log.info('auto-kick: skipping {} (audio-bridge — self-terminates)'.format(participant_uri))
                 continue
             try:
                 participant_sip_uri = SIPURI.parse(participant_uri)
@@ -1260,19 +1336,9 @@ class ConnectionHandler(object):
                 focus_uri, participant_sip_uri, session.account, room.log, method='BYE')
             handler.start()
             handlers.append(handler)
-
         if not handlers:
-            return
-        room.log.info('auto-kick: waiting for {} REFER(s) to complete'.format(len(handlers)))
-        # Bound each wait so a stuck focus can't hold the chat session
-        # open indefinitely. 15 s is generous — a healthy REFER usually
-        # completes in well under a second.
-        for handler in handlers:
-            try:
-                handler.wait(timeout=15)
-            except Exception as e:
-                room.log.warning('auto-kick: wait raised for {}: {}'.format(handler.participant_uri, e))
-        room.log.info('auto-kick: all REFERs done; closing chat session')
+            room.log.info('auto-kick: no eligible participants to kick after walking roster')
+        return handlers if return_handlers else len(handlers)
 
     def _maybe_destroy_videoroom(self, videoroom):
         # should only be called from a green thread.
@@ -1281,6 +1347,31 @@ class ConnectionHandler(object):
             return
 
         if videoroom in self.protocol.factory.videorooms and not videoroom:
+            # Drop the audio-level UDP subscription for this room first.
+            # Otherwise the focus keeps streaming levels at us for the
+            # full TTL after the last publisher leaves, and the periodic
+            # log printer prints "?" entries for participant_ids the
+            # gateway can no longer resolve (the Videoroom is gone, so
+            # the participant_labels map is unreachable). Unsubscribing
+            # also lets the focus drop its end of the registration
+            # immediately instead of waiting for the TTL to expire.
+            try:
+                from sylk.applications.webrtcgateway.audio_level_udp import AudioLevelUDPClient
+                udp_endpoint = getattr(videoroom, 'audio_levels_udp_endpoint', None)
+                if udp_endpoint:
+                    conf_uri = videoroom.uri.replace('videoconference', 'conference', 1)
+                    AudioLevelUDPClient().drop_subscription(udp_endpoint, conf_uri)
+                # Drop any stale accumulator entries keyed by this room
+                # so the next 5 s log tick doesn't print "?" lines for
+                # already-orphaned datagrams in flight.
+                try:
+                    AudioLevelUDPClient()._log_accumulator.pop(
+                        videoroom.uri.replace('videoconference', 'conference', 1).lower(), None)
+                except Exception:
+                    pass
+            except Exception as e:
+                videoroom.log.debug('audio-level UDP cleanup on destroy failed: {}'.format(e))
+
             self.protocol.factory.videorooms.remove(videoroom)
             videoroom.cleanup()
 
@@ -3556,6 +3647,13 @@ class VideoroomChatHandler(object):
                 break
 
         sip_set = set(current_display)
+        # Mirror the SIP-side roster onto the Videoroom so the
+        # auto-kick path (which fires when the last WebRTC publisher
+        # leaves) has an accurate, up-to-date list of SIP participants
+        # to REFER ;method=BYE. The room outlives any single chat
+        # handler, so this is the only place all handlers converge on
+        # a shared view of who's currently in the conference focus.
+        self.room._sip_roster = dict(current_display)
         previous_sip_set = self._conference_participants
         for entity in sip_set - previous_sip_set:
             if _aor(entity) in webrtc_publishers:
@@ -3670,6 +3768,12 @@ class VideoroomChatHandler(object):
                     self.room.admin_endpoint_url = admin_url
                 if admin_token:
                     self.room.admin_endpoint_token = admin_token
+                if udp_endpoint:
+                    # Cache so the destroy path can drop_subscription()
+                    # immediately instead of waiting for the focus's
+                    # TTL to expire and "?" audio-level lines to leak
+                    # past the destroyed videoroom.
+                    self.room.audio_levels_udp_endpoint = udp_endpoint
                 # Cache the bridge's participant_id so the audio-level
                 # periodic log can skip the bridge entry — the bridge's
                 # pjmedia in/out is plumbing, not a user-facing source.
