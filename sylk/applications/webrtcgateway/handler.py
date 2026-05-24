@@ -805,6 +805,50 @@ class _SipFocusReferralFailed(Exception):
         self.data = data
 
 
+# Process-wide cache for SipFocusReferralHandler DNS lookups.
+#
+# Every REFER (invite or BYE) does a NAPTR/SRV lookup for the focus or
+# outbound-proxy host, which can add 100–300 ms per kick on a slow
+# resolver — and the kick path fires N REFERs in parallel when a
+# WebRTC user leaves, so the lookups stack. The hostname / SRV records
+# we resolve here don't change during a conference's lifetime, so a
+# short-lived in-memory cache is safe and shaves the latency to ~0
+# after the first lookup.
+#
+# Key: (lookup_uri_string, transport_list_tuple).
+# Value: (routes_list, expiry_unix_ts).
+# TTL: 5 minutes — long enough to cover the lifetime of any single
+# conference, short enough that a real SRV change is picked up on the
+# next conference.
+_SIP_PROXY_LOOKUP_CACHE = {}
+_SIP_PROXY_LOOKUP_TTL = 300  # seconds
+
+
+def _cached_lookup_sip_proxy(lookup_uri, transport_list, log):
+    """Look up SIP proxy routes for ``lookup_uri`` over ``transport_list``,
+    returning a cached result when available and fresh. On a miss the
+    DNS lookup is performed inline (same thread, same blocking semantics
+    as the underlying ``DNSLookup().lookup_sip_proxy().wait()`` call),
+    then cached. Raises ``DNSLookupError`` like the wrapped call.
+    """
+    key = (str(lookup_uri), tuple(transport_list))
+    now = time.time()
+    entry = _SIP_PROXY_LOOKUP_CACHE.get(key)
+    if entry is not None:
+        routes, expiry = entry
+        if expiry > now:
+            log.info('[conference] DNS lookup for {} (transports={}) — cache hit ({} route(s), {}s left)'.format(
+                lookup_uri, list(transport_list), len(routes), int(expiry - now)))
+            return routes
+        # Stale; drop so a fresh miss is logged below.
+        _SIP_PROXY_LOOKUP_CACHE.pop(key, None)
+    log.info('[conference] DNS lookup for {} (transports={})'.format(
+        lookup_uri, list(transport_list)))
+    routes = DNSLookup().lookup_sip_proxy(lookup_uri, list(transport_list)).wait()
+    _SIP_PROXY_LOOKUP_CACHE[key] = (routes, now + _SIP_PROXY_LOOKUP_TTL)
+    return routes
+
+
 @implementer(IObserver)
 class SipFocusReferralHandler(object):
     def __init__(self, focus_uri, participant_uri, account, log, status_callback=None, method='INVITE'):
@@ -891,10 +935,13 @@ class SipFocusReferralHandler(object):
                                     parameters={'transport': sip_account.sip.outbound_proxy.transport})
             else:
                 lookup_uri = self.focus_uri
-            self.log.info('[conference] DNS lookup for {} (transports={})'.format(
-                lookup_uri, settings.sip.transport_list))
+            # _cached_lookup_sip_proxy logs the lookup itself, including
+            # whether it was a cache hit. Don't duplicate the log line
+            # here. On a hit the underlying DNSLookup() is not invoked,
+            # so reuses of the same proxy/focus for follow-up REFERs
+            # (auto-kick batch, repeat invites) skip the resolver hop.
             try:
-                routes = DNSLookup().lookup_sip_proxy(lookup_uri, settings.sip.transport_list).wait()
+                routes = _cached_lookup_sip_proxy(lookup_uri, settings.sip.transport_list, self.log)
             except DNSLookupError as e:
                 self.log.warning('[conference] REFER to focus {} for {}: DNS lookup failed: {}'.format(self.focus_uri, self.participant_uri, e))
                 self._emit_status('failed', 0, 'DNS lookup failed')
@@ -3464,9 +3511,16 @@ class VideoroomChatHandler(object):
             uri = SIPURI(host=sip_account.sip.outbound_proxy.host, port=sip_account.sip.outbound_proxy.port, parameters={'transport': sip_account.sip.outbound_proxy.transport})
         else:
             uri = to_uri
-        lookup = DNSLookup()
+        # Route the chat-session DNS lookup through the shared cache so
+        # every REFER (invite / BYE) the gateway later sends to the same
+        # focus reuses this result instead of doing its own resolver
+        # round-trip. The cache key is (uri, transport_list); the REFER
+        # path composes the exact same key (outbound_proxy if set, else
+        # the focus URI), so the chat handler's miss populates the entry
+        # the REFER then hits.
         try:
-            route = lookup.lookup_sip_proxy(uri, sip_settings.sip.transport_list).wait()[0]
+            routes = _cached_lookup_sip_proxy(uri, sip_settings.sip.transport_list, self.room.log)
+            route = routes[0]
         except (DNSLookupError, IndexError):
             self.end()
             self.room.log.error('DNS lookup for SIP proxy for {} failed'.format(uri))
