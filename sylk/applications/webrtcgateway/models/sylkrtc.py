@@ -530,6 +530,12 @@ class VideoroomConferenceParticipant(JSONObject):
     # levels. Both empty/absent for non-bridge participants.
     admin_endpoint_url = StringProperty(optional=True)
     admin_endpoint_token = StringProperty(optional=True)
+    # 'host:port' of the conference focus's audio-level UDP server. The
+    # webrtcgateway subscribes to it and forwards level updates over
+    # this same WebSocket. Clients receive the WS event regardless of
+    # whether they care about this field; surfaced here for transparency
+    # and so an out-of-band tool could subscribe directly if desired.
+    audio_levels_udp_endpoint = StringProperty(optional=True)
 
 
 class VideoroomConferenceParticipants(JSONArray):
@@ -544,6 +550,38 @@ class VideoroomConferenceParticipantsEvent(VideoroomEventBase):
     # read it once and add their own local elapsed time to maintain a
     # running counter — no timezone, no clock-skew correction needed.
     duration = IntegerProperty(optional=True)
+
+
+class VideoroomConferenceAudioLevel(JSONObject):
+    # Stable per-session token from the conference focus. Matches the
+    # `participant_id` field already published per endpoint in
+    # VideoroomConferenceParticipantsEvent, so JS tiles can join the
+    # two streams cleanly.
+    participant_id = StringProperty()
+    # PJMedia signal levels, 0–255 (µ-law-companded). `tx` / `rx` are
+    # the per-window mean; `tx_peak` / `rx_peak` are the per-window
+    # max — use the peak for VU-meter style display since speech is
+    # bursty and the mean undersells perceived loudness. `rx` is the
+    # level INTO the conference bridge from this participant (speech
+    # going INTO the mix); `tx` is the level FROM the bridge to this
+    # participant (what the participant is hearing).
+    tx = IntegerProperty(optional=True)
+    rx = IntegerProperty(optional=True)
+    tx_peak = IntegerProperty(optional=True)
+    rx_peak = IntegerProperty(optional=True)
+
+
+class VideoroomConferenceAudioLevels(JSONArray):
+    item_type = VideoroomConferenceAudioLevel
+
+
+class VideoroomConferenceAudioLevelsEvent(VideoroomEventBase):
+    event = FixedValueProperty('conference-audio-levels')
+    levels = ArrayProperty(VideoroomConferenceAudioLevels)
+    # Wall-clock timestamp (UTC ms since epoch) at which the server
+    # rolled up this window. Useful for clients that want to detect
+    # stale data after a network glitch.
+    ts = IntegerProperty(optional=True)
 
 
 class VideoroomInviteStatusEvent(VideoroomEventBase):
@@ -766,6 +804,18 @@ class VideoroomMessageRequest(VideoroomRequestBase):
     message_id = StringProperty()
     content = StringProperty()
     content_type = StringProperty()
+
+
+class VideoroomMuteParticipantRequest(VideoroomRequestBase):
+    # Asks the webrtcgateway to mute/unmute a participant in the SIP
+    # conference. The gateway forwards the request to the conference
+    # focus's admin HTTP API (POST /rooms/<uri>/participants/<pid>/mute
+    # with the cached per-room bearer token), so the conference's own
+    # web handler remains the canonical implementation. participant_id
+    # is the stable per-session token published in conference-participants.
+    sylkrtc = FixedValueProperty('videoroom-mute-participant')
+    participant_id = StringProperty()
+    muted = BooleanProperty()
 
 
 class VideoroomComposingIndicationRequest(VideoroomRequestBase):

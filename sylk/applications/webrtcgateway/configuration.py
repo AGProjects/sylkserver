@@ -139,6 +139,23 @@ class GeneralConfig(ConfigSection):
     file_transfer_dir = ConfigSetting(type=Path, value=Path(os.path.join(ApplicationConfig.application_dir.normalized, 'file_transfers')))
     http_management_interface = ConfigSetting(type=ManagementInterfaceAddress, value=ManagementInterfaceAddress('127.0.0.1'))
     http_management_auth_secret = ConfigSetting(type=str, value=None)
+    # UDP listener for real-time audio-level updates pushed by a remote
+    # conference focus (see sylk.applications.conference.audio_level_udp).
+    # host:port; set to empty to disable. Pairs with the conference's
+    # audio_level_udp_targets setting. Server-to-server only.
+    audio_level_udp_listen = ConfigSetting(type=ManagementInterfaceAddress,
+                                           value=ManagementInterfaceAddress('0.0.0.0:11000'))
+    # Shared secret expected on inbound UDP datagrams. Defaults to
+    # http_management_auth_secret. Datagrams that don't carry a matching
+    # token are dropped silently (UDP, anyone could spoof — packets must
+    # be authenticated even on a "trusted" network).
+    audio_level_udp_token = ConfigSetting(type=str, value=None)
+    # How often (seconds) the gateway emits a per-room summary log line
+    # mirroring the conference focus's audio-levels log. Aggregates the
+    # 4Hz UDP stream into one log line per room per period (avg/peak
+    # per participant). Set to 0 to disable. Default 5s — same cadence
+    # the conference uses for its own audio_level_log_period.
+    audio_level_log_period = 5
     sylk_push_url = ConfigSetting(type=str, value=None)
     xcap_url = ConfigSetting(type=URL, value='')
     local_sip_messages = False

@@ -17,6 +17,7 @@ from sylk.applications import SylkApplication
 from sylk.applications.conference import payloads as _conference_payloads  # noqa: F401 -- registers conference-info+xml extensions on import so this app can parse them even if the conference application is not loaded
 from sylk.session import IllegalStateError
 
+from .audio_level_udp import AudioLevelUDPClient
 from .configuration import GeneralConfig
 from .datatypes import FileTransferData
 from .sip_handlers import FileTransferHandler, MessageHandler
@@ -30,11 +31,17 @@ class WebRTCGatewayApplication(SylkApplication):
     def __init__(self):
         self.web_handler = WebHandler()
         self.admin_web_handler = AdminWebHandler()
+        self.audio_level_client = AudioLevelUDPClient()
 
     def start(self):
         log.info(f'Using application directory {GeneralConfig.application_dir}')
         self.web_handler.start()
         self.admin_web_handler.start()
+        # Real-time audio-level UDP client. Subscribes to the conference
+        # focus's UDP server when a chat session's NOTIFY reveals its
+        # audio_levels_udp_endpoint; dispatches incoming levels to
+        # local WebSocket sessions in the matching videoroom.
+        self.audio_level_client.start()
         # Load tokens from the storage
         token_storage = TokenStorage()
         token_storage.load()
@@ -46,6 +53,7 @@ class WebRTCGatewayApplication(SylkApplication):
     def stop(self):
         self.web_handler.stop()
         self.admin_web_handler.stop()
+        self.audio_level_client.stop()
 
     @run_in_thread('file-io')
     def clean_filetransfers(self):

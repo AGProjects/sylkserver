@@ -2,6 +2,7 @@
 import base64
 import hashlib
 import json
+import urllib.parse
 import re
 import os
 import random
@@ -35,6 +36,9 @@ from sipsimple.threading import run_in_thread, run_in_twisted_thread
 from sipsimple.threading.green import call_in_green_thread, run_in_green_thread
 from sipsimple.util import ISOTimestamp
 from twisted.internet import defer, reactor
+from twisted.web.client import Agent
+from twisted.web.http_headers import Headers
+from twisted.web.iweb import IBodyProducer
 from werkzeug.exceptions import InternalServerError
 from zope.interface import implementer
 
@@ -336,6 +340,25 @@ class Videoroom(object):
         # the user entity (the bridge's URI). Used to log the admin URL
         # only when it appears or changes, instead of on every NOTIFY.
         self._admin_endpoints = {}  # type: Dict[str, Tuple[str, str]]
+        # Bridge-published conference admin URL and per-room token, cached
+        # the first time we see them on a NOTIFY. Used to POST mute
+        # commands to the conference focus's admin HTTP API on behalf
+        # of the WebRTC client, so the conference's own web handler
+        # stays the canonical place where mute is implemented.
+        self.admin_endpoint_url = None    # type: Optional[str]
+        self.admin_endpoint_token = None  # type: Optional[str]
+        # participant_id -> human label ("display <aor>" or just aor),
+        # populated from every conference-info NOTIFY. Used by the
+        # audio-level periodic log to translate the opaque per-session
+        # token published over UDP back into a meaningful identity.
+        # Trimmed in sync with the NOTIFY roster (entries for users no
+        # longer present are removed below).
+        self.participant_labels = {}  # type: Dict[str, str]
+        # participant_id of the audio-bridge (the user element carrying
+        # the agp-conf:audio_levels_udp_endpoint extension). Used to
+        # filter the bridge out of the per-participant audio-level log
+        # since its in/out is just plumbing, not a user-facing source.
+        self.bridge_participant_id = None  # type: Optional[str]
         if self.config.record:
             makedirs(self.config.recording_dir, 0o755)
             self.log.info('created (recording on)')
@@ -369,6 +392,9 @@ class Videoroom(object):
             return
         new_roster = {}
         new_admin_endpoints = {}
+        bridge_admin_url = None
+        bridge_admin_token = None
+        bridge_udp_endpoint = None
         for u in users:
             entity = str(getattr(u, 'entity', '') or '')
             display = ''
@@ -381,11 +407,17 @@ class Videoroom(object):
                 new_roster[entity] = display
             # The sylk-janus-audio-bridge participant carries the conference
             # admin endpoint URL + per-room token as agp-conf extensions on
-            # its User element. Extract them whenever they are present.
+            # its User element. Extract them whenever they are present, and
+            # remember the most recent triple so we can log it whenever a
+            # new participant joins.
             admin_url = self._extension_value(getattr(u, 'admin_endpoint_url', None))
             admin_token = self._extension_value(getattr(u, 'admin_endpoint_token', None))
+            udp_endpoint = self._extension_value(getattr(u, 'audio_levels_udp_endpoint', None))
             if entity and admin_url:
                 new_admin_endpoints[entity] = (admin_url, admin_token or '')
+                bridge_admin_url = admin_url
+                bridge_admin_token = admin_token or ''
+                bridge_udp_endpoint = udp_endpoint or ''
         # Diff against previous.
         added = set(new_roster) - set(self._sip_roster)
         removed = set(self._sip_roster) - set(new_roster)
@@ -393,6 +425,15 @@ class Videoroom(object):
             display = new_roster[uri]
             label = '{} ({})'.format(display, uri) if display else uri
             self.log.info('{} has joined'.format(label))
+            # Show the bridge-advertised endpoints alongside every new
+            # arrival so the operator can correlate which admin/UDP
+            # endpoint that participant should be addressed through.
+            # Token is a secret — print only a short prefix.
+            if bridge_admin_url:
+                token_preview = (bridge_admin_token[:6] + '…') if bridge_admin_token else '(no token)'
+                udp_text = bridge_udp_endpoint or '(no UDP)'
+                self.log.info('  bridge admin: {url} token={token} udp={udp}'.format(
+                    url=bridge_admin_url, token=token_preview, udp=udp_text))
         for uri in sorted(removed):
             display = self._sip_roster[uri]
             label = '{} ({})'.format(display, uri) if display else uri
@@ -711,6 +752,29 @@ class APIError(Exception):
     pass
 
 
+@implementer(IBodyProducer)
+class _BytesProducer(object):
+    """Minimal IBodyProducer wrapping a fixed bytes payload, for use with
+    twisted.web.client.Agent.request when you need to ship a JSON body
+    along with a POST. Single-shot — consumer writes the whole buffer
+    once and the deferred fires.
+    """
+
+    def __init__(self, body):
+        self.body = body
+        self.length = len(body)
+
+    def startProducing(self, consumer):
+        consumer.write(self.body)
+        return defer.succeed(None)
+
+    def pauseProducing(self):
+        pass
+
+    def stopProducing(self):
+        pass
+
+
 class GreenEvent(object):
     def __init__(self):
         self._event = coros.event()
@@ -890,7 +954,7 @@ class SipFocusReferralHandler(object):
             try:
                 while True:
                     notification = self._channel.wait()
-                    self.log.info('[conference] drain got notification {} for {}'.format(notification.name, self.participant_uri))
+                    self.log.debug('[conference] drain got notification {} for {}'.format(notification.name, self.participant_uri))
                     if notification.name == 'SIPReferralDidStart':
                         saw_start = True
                         continue
@@ -2289,6 +2353,61 @@ class ConnectionHandler(object):
             SipFocusReferralHandler(focus_uri, participant_uri, base_session.account, room.log,
                                     status_callback=_status_cb_factory(participant), method='BYE').start()
 
+    def _RH_videoroom_mute_participant(self, request):
+        """Proxy a mute request from the WebRTC client to the conference
+        focus's admin HTTP API.
+
+        Looks up the cached admin URL + token on the Videoroom (populated
+        by _NH_SIPSessionGotConferenceInfo when the bridge participant
+        appears in the NOTIFY), then POSTs to
+            {admin_url}/rooms/{room_uri}/participants/{pid}/mute
+        with Authorization: Bearer <token> and JSON body {"muted": bool}.
+        The conference's own admin handler is the single source of truth
+        for mute — we just forward the WS request to it. participant_id
+        is the stable per-session token from the conference-info payload,
+        which the JS client already has.
+        """
+        try:
+            base_session = self.videoroom_sessions[request.session]
+        except KeyError:
+            raise APIError('Unknown room session: {request.session}'.format(request=request))
+        room = base_session.room
+        admin_url = getattr(room, 'admin_endpoint_url', None)
+        admin_token = getattr(room, 'admin_endpoint_token', None)
+        if not admin_url or not admin_token:
+            raise APIError('Conference admin endpoint not advertised yet')
+        # Translate the local videoroom URI back to its SIP-side conference
+        # URI so it matches the focus's /rooms/<uri>/... path. Inverse of
+        # the substitution VideoroomChatHandler.start does outbound.
+        conf_uri = room.uri.replace('videoconference', 'conference', 1)
+        target = '{admin_url}/rooms/{room}/participants/{pid}/mute'.format(
+            admin_url=admin_url.rstrip('/'),
+            room=urllib.parse.quote(conf_uri, safe=''),
+            pid=urllib.parse.quote(str(request.participant_id), safe=''),
+        )
+        body = json.dumps({'muted': bool(request.muted)}).encode('utf-8')
+        agent = Agent(reactor)
+        headers = Headers({
+            b'Authorization': [b'Bearer ' + admin_token.encode('utf-8')],
+            b'Content-Type': [b'application/json'],
+            b'Accept': [b'application/json'],
+        })
+        d = agent.request(b'POST', target.encode('utf-8'), headers, _BytesProducer(body))
+
+        def _ok(response):
+            if 200 <= response.code < 300:
+                room.log.info('mute proxy: {} muted={} (HTTP {})'.format(
+                    request.participant_id, bool(request.muted), response.code))
+            else:
+                room.log.warning('mute proxy: {} muted={} returned HTTP {}'.format(
+                    request.participant_id, bool(request.muted), response.code))
+
+        def _err(failure):
+            room.log.warning('mute proxy: {} muted={} failed: {}'.format(
+                request.participant_id, bool(request.muted), failure.getErrorMessage()))
+
+        d.addCallbacks(_ok, _err)
+
     def _RH_videoroom_session_trickle(self, request):
         try:
             videoroom_session = self.videoroom_sessions[request.session]
@@ -3420,6 +3539,22 @@ class VideoroomChatHandler(object):
                 continue
             webrtc_publishers[session.account.id] = session
 
+        # Find the bridge participant up front so we can log its admin
+        # + UDP endpoints on every fresh arrival below. The bridge is
+        # the only User in the NOTIFY that carries the agp-conf:admin*
+        # extensions; scanning the list once here is cheap and avoids
+        # threading state down through the per-user loop further below
+        # just for logging.
+        bridge_admin_url = None
+        bridge_admin_token = None
+        bridge_udp_endpoint = None
+        for u in conference_info.users:
+            if _is_bridge(getattr(u, 'entity', None)):
+                bridge_admin_url = Videoroom._extension_value(getattr(u, 'admin_endpoint_url', None))
+                bridge_admin_token = Videoroom._extension_value(getattr(u, 'admin_endpoint_token', None))
+                bridge_udp_endpoint = Videoroom._extension_value(getattr(u, 'audio_levels_udp_endpoint', None))
+                break
+
         sip_set = set(current_display)
         previous_sip_set = self._conference_participants
         for entity in sip_set - previous_sip_set:
@@ -3428,6 +3563,15 @@ class VideoroomChatHandler(object):
             display = current_display[entity]
             label = '{} <{}>'.format(display, _aor(entity)) if display else _aor(entity)
             self.room.log.info('SIP participant joined: {}'.format(label))
+            # Show the bridge-advertised endpoints alongside every new
+            # arrival so the operator can correlate which admin / UDP
+            # endpoint that participant should be addressed through.
+            # Token is a secret — print only a short prefix.
+            if bridge_admin_url:
+                token_preview = (bridge_admin_token[:6] + '…') if bridge_admin_token else '(no token)'
+                udp_text = bridge_udp_endpoint or '(no UDP)'
+                self.room.log.info('  bridge admin: {url} token={token} udp={udp}'.format(
+                    url=bridge_admin_url, token=token_preview, udp=udp_text))
         for entity in previous_sip_set - sip_set:
             if _aor(entity) in webrtc_publishers:
                 continue
@@ -3440,8 +3584,27 @@ class VideoroomChatHandler(object):
             return
         self._last_emitted_participants = combined_set
 
+        # Rebuild the participant_id → label cache for this room from
+        # the current NOTIFY. Audio-level UDP datagrams arrive keyed by
+        # participant_id (an opaque token); the periodic log resolves
+        # back to "display <aor>" via this map.
+        new_labels = {}
         payload_participants = []
         for user in conference_info.users:
+            user_aor = _aor(getattr(user, 'entity', '') or '')
+            user_display = ''
+            try:
+                if user.display_text and user.display_text.value:
+                    user_display = user.display_text.value
+            except AttributeError:
+                pass
+            # Short human-readable identifier used in the per-participant
+            # audio-level log line: display name if SIP carried one,
+            # otherwise the user part of the AoR (e.g. "ag" from
+            # sip:ag@sip2sip.info). Falls back to the full AoR when even
+            # the user part is empty, so the log never shows just "".
+            user_local = user_aor.split('@', 1)[0] if '@' in user_aor else user_aor
+            user_label = user_display or user_local or user_aor
             endpoints = []
             for endpoint in user:
                 media_items = []
@@ -3464,6 +3627,8 @@ class VideoroomChatHandler(object):
                 # (the stable per-session token) and muted (server-side
                 # input mute flag, set on every non-bridge endpoint).
                 participant_id = Videoroom._extension_value(getattr(endpoint, 'participant_id', None))
+                if participant_id:
+                    new_labels[participant_id] = user_label
                 muted_elem = getattr(endpoint, 'muted', None)
                 muted_value = None
                 if muted_elem is not None:
@@ -3492,9 +3657,44 @@ class VideoroomChatHandler(object):
             # carries the agp-conf:admin_endpoint_* extensions.
             admin_url = None
             admin_token = None
+            udp_endpoint = None
             if ptype == 'bridge':
                 admin_url = Videoroom._extension_value(getattr(user, 'admin_endpoint_url', None))
                 admin_token = Videoroom._extension_value(getattr(user, 'admin_endpoint_token', None))
+                udp_endpoint = Videoroom._extension_value(getattr(user, 'audio_levels_udp_endpoint', None))
+                # Cache on the Videoroom so the WS request handler for
+                # mute can reach the conference admin API on demand
+                # (the request handler runs on a different async path
+                # than the NOTIFY arrival).
+                if admin_url:
+                    self.room.admin_endpoint_url = admin_url
+                if admin_token:
+                    self.room.admin_endpoint_token = admin_token
+                # Cache the bridge's participant_id so the audio-level
+                # periodic log can skip the bridge entry — the bridge's
+                # pjmedia in/out is plumbing, not a user-facing source.
+                # Pick the first endpoint that carries one; the bridge
+                # publishes a stable per-session pid on its endpoint.
+                for ep in endpoints:
+                    if ep.participant_id:
+                        self.room.bridge_participant_id = ep.participant_id
+                        # Drop the bridge entry from the label cache too,
+                        # so the log never even attempts to render it.
+                        new_labels.pop(ep.participant_id, None)
+                        break
+                # As soon as the bridge tells us where its audio-level UDP
+                # server lives, register/refresh our subscription so the
+                # remote focus starts streaming levels back. ensure_subscription
+                # is idempotent — repeated NOTIFYs just bump the timestamp.
+                if udp_endpoint and admin_token:
+                    try:
+                        from .audio_level_udp import AudioLevelUDPClient
+                        AudioLevelUDPClient().ensure_subscription(
+                            udp_endpoint, self.room.uri.replace('videoconference', 'conference', 1),
+                            admin_token,
+                        )
+                    except Exception as e:
+                        self.room.log.debug('audio-level UDP subscribe failed: %s' % e)
             payload_participants.append(sylkrtc.VideoroomConferenceParticipant(
                 type=ptype,
                 uri=user.entity,
@@ -3502,6 +3702,7 @@ class VideoroomChatHandler(object):
                 endpoints=endpoints,
                 admin_endpoint_url=admin_url,
                 admin_endpoint_token=admin_token,
+                audio_levels_udp_endpoint=udp_endpoint,
             ))
         for account_id, session in webrtc_publishers.items():
             if account_id in sip_aor_map:
@@ -3512,6 +3713,10 @@ class VideoroomChatHandler(object):
                 display_name=session.account.display_name,
                 endpoints=[],
             ))
+        # Replace the room's label cache wholesale. participant_ids
+        # that vanish from the NOTIFY drop out, fresh ones get the
+        # current label. Used by the audio-level periodic log.
+        self.room.participant_labels = new_labels
         # Conference duration is computed locally from the videoroom's
         # own start_time anchor. Intentionally NOT taken from the SIP
         # focus's `agp-conf:duration` field — the webrtcgateway runs an
