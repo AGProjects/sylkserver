@@ -141,7 +141,14 @@ class MessageHandler(object):
 
     def _handle_generate_token(self):
         account = f'{self.from_header.uri.user}@{self.from_header.uri.host}'
-        log.info(f'Adding {account} for storing messages')
+        destination = f'{self.to_header.uri.user}@{self.to_header.uri.host}'
+        # Loop guard: a token request must originate from a real account, never
+        # from the local sylkserver identity. If From == sylkserver, this is a
+        # looped-back reply, not a legitimate request — drop it silently.
+        if self.from_header.uri.user == 'sylkserver':
+            log.warning(f'ignoring sylk-api-token request from sylkserver identity {account} to {destination} (loop suppression)')
+            return
+        log.info(f'Adding {account} for storing messages (token request to {destination})')
         self.message_storage.add_account(account)
         token = secrets.token_urlsafe()
         self.outgoing_message(self.from_header.uri, json.dumps({'token': token, 'url': f'{server.url}/webrtcgateway/messages/history/{account}'}), 'application/sylk-api-token')
@@ -503,7 +510,14 @@ class MessageHandler(object):
             if identity is None:
                 identity = f'sip:sylkserver@{SIPConfig.local_ip}'
 
-            log.info("sending message from '%s' to '%s' using proxy %s" % (identity, uri, route))
+            # Loop guard: refuse to send a message where From == To and the
+            # sender is the local sylkserver identity — these are the messages
+            # that come straight back to us and re-trigger the same handler.
+            if str(identity) == str(uri) and 'sylkserver@' in str(identity):
+                log.warning("refusing to send self-addressed %s message from '%s' to '%s' (loop suppression)" % (content_type, identity, uri))
+                return
+
+            log.info("sending %s message from '%s' to '%s' using proxy %s" % (content_type, identity, uri, route))
             headers = [Header('X-Sylk-To-Sip', 'yes')] + extra_headers
             self._outgoing_message(uri, identity, content, content_type, headers=headers, route=route)
 
@@ -514,7 +528,7 @@ class MessageHandler(object):
             if identity is None:
                 identity = f'sip:sylkserver@{SIPConfig.local_ip}'
 
-            log.debug("sending message from '%s' to '%s' to self %s" % (identity, uri, route))
+            log.debug("sending %s message from '%s' to '%s' to self %s" % (content_type, identity, uri, route))
             headers = [Header('X-Sylk-From-Sip', 'yes'), Header('X-Sylk-App', 'webrtcgateway')] + extra_headers
             self._outgoing_message(uri, identity, content, content_type, headers=headers, route=route, subscribe=False)
 
@@ -525,7 +539,7 @@ class MessageHandler(object):
             if identity is None:
                 identity = f'sip:sylkserver@{SIPConfig.local_ip}'
 
-            log.info("sending message from '%s' to '%s' using proxy %s" % (identity, uri, route))
+            log.info("sending replicated %s message from '%s' to '%s' using proxy %s" % (content_type, identity, uri, route))
             headers = [Header('X-Sylk-To-Sip', 'yes'), Header('X-Replicated-Message', 'yes')] + extra_headers
             self._outgoing_message(uri, identity, content, content_type, headers=headers, route=route, message_type=ReplicatedMessage)
 

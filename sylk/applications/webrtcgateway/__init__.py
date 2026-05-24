@@ -233,8 +233,11 @@ class WebRTCGatewayApplication(SylkApplication):
             message_request.answer(400)
             return
 
+        from_account = '%s@%s' % (from_header.uri.user, from_header.uri.host)
+        to_account = '%s@%s' % (to_header.uri.user, to_header.uri.host)
+
         if not data.body:
-            log.warning('SIP message from %s to %s rejected: empty body' % (str(from_header.uri)[4:], '%s@%s' % (to_header.uri.user, to_header.uri.host)))
+            log.warning('SIP message from %s to %s rejected: empty body' % (from_account, to_account))
             message_request.answer(400)
             return
 
@@ -242,13 +245,24 @@ class WebRTCGatewayApplication(SylkApplication):
             try:
                 cpim_message = CPIMPayload.decode(data.body)
             except (CPIMParserError, UnicodeDecodeError):  # TODO: fix decoding in sipsimple
-                log.warning('SIP message from %s to %s rejected: CPIM parse error' % (str(from_header.uri)[4:], '%s@%s' % (to_header.uri.user, to_header.uri.host)))
+                log.warning('SIP message from %s to %s rejected: CPIM parse error' % (from_account, to_account))
                 message_request.answer(400)
                 return
             else:
                 content_type = cpim_message.content_type
 
-        log.info('received SIP message (%s) from %s to %s' % (content_type, str(from_header.uri)[4:], '%s@%s' % (to_header.uri.user, to_header.uri.host)))
+        # Loop mitigation: drop self-addressed control messages where From == To
+        # and the originator is the local sylkserver identity. These happen
+        # when an outgoing reply (typically application/sylk-api-token) is
+        # looped back to us by the proxy, which would otherwise re-trigger the
+        # same handler in an infinite cycle.
+        if from_header.uri.user == 'sylkserver' and from_account == to_account:
+            log.warning('dropping looped SIP message (%s) from %s to %s — sylkserver self-addressed' %
+                        (content_type, from_account, to_account))
+            message_request.answer(200)
+            return
+
+        log.info('received SIP message (%s) from %s to %s' % (content_type, from_account, to_account))
 
         message_request.answer(200)
 
