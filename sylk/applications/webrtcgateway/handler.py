@@ -372,6 +372,13 @@ class Videoroom(object):
         # the conference focus's admin endpoint when the target is a
         # WebRTC peer we already own a session for.
         self.webrtc_participants_by_pid = {}  # type: Dict[str, object]
+        # participant_id → user.entity (SIP URI string) for EVERY user
+        # in the most recent conference-info NOTIFY, regardless of type.
+        # Used by _RH_videoroom_mute_participant to build the Refer-To
+        # URI when proxying a SIP-side mute as REFER ;method=MUTE so
+        # the request can carry an honest SIP URI alongside the
+        # disambiguating participant_id parameter.
+        self.participant_uris_by_pid = {}  # type: Dict[str, str]
         if self.config.record:
             makedirs(self.config.recording_dir, 0o755)
             self.log.info('created (recording on)')
@@ -859,7 +866,7 @@ def _cached_lookup_sip_proxy(lookup_uri, transport_list, log):
 
 @implementer(IObserver)
 class SipFocusReferralHandler(object):
-    def __init__(self, focus_uri, participant_uri, account, log, status_callback=None, method='INVITE'):
+    def __init__(self, focus_uri, participant_uri, account, log, status_callback=None, method='INVITE', refer_to_extra_params=None):
         self.focus_uri = focus_uri
         self.participant_uri = participant_uri
         self.account = account
@@ -867,10 +874,18 @@ class SipFocusReferralHandler(object):
         self.status_callback = status_callback
         # Refer-To method parameter (RFC 4488). 'INVITE' = invite the
         # named URI into the conference; 'BYE' = ask the focus to BYE
-        # the named URI out of the conference (RFC 4579). Anything
+        # the named URI out of the conference (RFC 4579); 'MUTE' /
+        # 'UNMUTE' = ask the focus to mute / unmute the named participant
+        # (sylk extension, handled by the conference application). Anything
         # else is rejected upstream by the focus (488). Default 'INVITE'
         # preserves the original behaviour of every existing caller.
         self.method = (method or 'INVITE').upper()
+        # Optional extra Refer-To header parameters appended after the
+        # standard ones. Currently used by the MUTE / UNMUTE path to
+        # carry `participant_id=<token>` for disambiguating between
+        # devices sharing one AoR; safe to add for any method (the
+        # focus simply ignores params it doesn't know).
+        self.refer_to_extra_params = dict(refer_to_extra_params or {})
         self._channel = coros.queue()
         self._referral = None
         # Set by _safe_run when the handler completes (success or
@@ -977,14 +992,22 @@ class SipFocusReferralHandler(object):
                                      parameters=parameters)
                 refer_to_header = ReferToHeader(str(self.participant_uri))
                 refer_to_header.parameters['method'] = self.method
-                # Tell the conference focus to invite this participant
-                # for audio only. The conference's IncomingReferralHandler
-                # reads the `media=<csv>` parameter off the Refer-To
-                # header and restricts the outgoing INVITE accordingly,
-                # so the chat (MSRP) stream is not offered. This is
-                # per-REFER — every other invite the focus generates
-                # (e.g. from another participant's REFER) is unaffected.
-                refer_to_header.parameters['media'] = 'audio'
+                # `media=audio` only makes sense for INVITE — it tells
+                # the conference's IncomingReferralHandler to restrict
+                # the outgoing INVITE to the listed media (chat/MSRP
+                # then isn't offered). For BYE / MUTE / UNMUTE the
+                # focus doesn't look at media, so we skip it to keep
+                # the wire form clean for those branches.
+                if self.method == 'INVITE':
+                    refer_to_header.parameters['media'] = 'audio'
+                # Append any extra params the caller asked for (e.g.
+                # `participant_id=<token>` on a MUTE / UNMUTE REFER).
+                # Done after the standard params so the caller cannot
+                # accidentally clobber `method` / `media`.
+                for _k, _v in self.refer_to_extra_params.items():
+                    if _k in ('method', 'media'):
+                        continue
+                    refer_to_header.parameters[_k] = _v
                 self.log.info('[conference] sending REFER for {} via route {}:{}/{}'.format(
                     self.participant_uri, route.address, route.port, transport))
                 referral = Referral(self.focus_uri,
@@ -2508,33 +2531,28 @@ class ConnectionHandler(object):
         1. WebRTC peer — `participant_id` resolves to a publisher session
            we own a WS connection to. Send a `mute-request` event over
            that connection so the recipient mutes its mic at the source
-           and updates its local UI. Nothing is proxied to the conference
-           focus in this path: muting at the source means the recipient
-           keeps control and can unmute themselves; muting at the mix
-           (via admin API) would leave the recipient's mic hot with no
-           way to know they're suppressed.
+           and updates its local UI. Nothing is forwarded to the focus
+           in this path: source-level mute IS the authoritative state
+           for a WebRTC peer, and the recipient stays in control.
 
         2. SIP / bridge participant — no local WS session exists for the
-           target. Proxy the request to the conference focus's admin
-           HTTP API (advertised by the bridge participant as the agp-conf
-           `admin_endpoint_url` / `admin_endpoint_token` and cached on
-           the Videoroom at NOTIFY time):
-               POST {admin_url}/rooms/{room_uri}/participants/{pid}/mute
-               Authorization: Bearer <token>
-               {"muted": bool}
-           The conference's own admin handler is the canonical
-           implementation for that branch.
+           target. Send a SIP REFER ;method=MUTE / UNMUTE to the
+           conference focus we already have a chat session with. The
+           focus's conference application (see
+           IncomingReferralHandler in conference/__init__.py) handles
+           the method, identifies the target by Refer-To AoR with the
+           optional ;participant_id=<token> override for multi-device
+           disambiguation, and applies set_participant_muted() on the
+           room. This replaces the earlier admin-HTTP-POST path that
+           failed in deployments where the focus's admin endpoint is
+           bound to a private IP unreachable from the webrtcgateway.
         """
         try:
             base_session = self.videoroom_sessions[request.session]
         except KeyError:
             raise APIError('Unknown room session: {request.session}'.format(request=request))
         room = base_session.room
-        # Path 1: local WebRTC peer. Look the participant_id up in the
-        # NOTIFY-derived map. When it's a WebRTC publisher, ask their WS
-        # connection to mute the mic source and return — we do not also
-        # call the admin API for this case (the source-level mute IS the
-        # authoritative state for that branch).
+        # Path 1: local WebRTC peer.
         pid = str(getattr(request, 'participant_id', '') or '')
         target_session = None
         if pid:
@@ -2555,42 +2573,59 @@ class ConnectionHandler(object):
                 room.log.warning('mute dispatch (webrtc): {} muted={} failed: {}'.format(
                     pid, bool(request.muted), e))
             return
-        # Path 2: SIP / bridge participant — proxy to the focus admin API.
-        admin_url = getattr(room, 'admin_endpoint_url', None)
-        admin_token = getattr(room, 'admin_endpoint_token', None)
-        if not admin_url or not admin_token:
-            raise APIError('Conference admin endpoint not advertised yet')
-        # Translate the local videoroom URI back to its SIP-side conference
-        # URI so it matches the focus's /rooms/<uri>/... path. Inverse of
-        # the substitution VideoroomChatHandler.start does outbound.
-        conf_uri = room.uri.replace('videoconference', 'conference', 1)
-        target = '{admin_url}/rooms/{room}/participants/{pid}/mute'.format(
-            admin_url=admin_url.rstrip('/'),
-            room=urllib.parse.quote(conf_uri, safe=''),
-            pid=urllib.parse.quote(str(request.participant_id), safe=''),
-        )
-        body = json.dumps({'muted': bool(request.muted)}).encode('utf-8')
-        agent = Agent(reactor)
-        headers = Headers({
-            b'Authorization': [b'Bearer ' + admin_token.encode('utf-8')],
-            b'Content-Type': [b'application/json'],
-            b'Accept': [b'application/json'],
-        })
-        d = agent.request(b'POST', target.encode('utf-8'), headers, _BytesProducer(body))
+        # Path 2: SIP / bridge participant — REFER to the focus.
+        chat_handler = base_session.chat_handler
+        if chat_handler is None or chat_handler.sip_session is None:
+            raise APIError('Conference chat session not yet established')
+        if not chat_handler.sip_session.remote_focus:
+            raise APIError('Remote party is not a SIP focus')
+        try:
+            focus_uri = SIPURI.new(chat_handler.sip_session.remote_identity.uri)
+        except SIPCoreError as e:
+            raise APIError('Focus URI unresolved: {}'.format(e))
+        # Resolve a participant SIP URI from the NOTIFY-derived map so
+        # the Refer-To carries something honest. With multiple devices
+        # behind one AoR `participant_id` is still the authoritative
+        # disambiguator (carried as a Refer-To parameter below), so a
+        # missing entry is not fatal — we fall back to the focus's own
+        # AoR and let the conference handler key off participant_id.
+        participant_uri_str = None
+        try:
+            participant_uri_str = room.participant_uris_by_pid.get(pid)
+        except AttributeError:
+            participant_uri_str = None
+        if not participant_uri_str:
+            # Synthesise a Refer-To target that's at least syntactically
+            # valid. The participant_id parameter is what the focus will
+            # use for the actual lookup.
+            participant_uri_str = str(focus_uri)
+        if not participant_uri_str.lower().startswith(('sip:', 'sips:')):
+            participant_uri_str = 'sip:{}'.format(participant_uri_str)
+        try:
+            participant_uri = SIPURI.parse(participant_uri_str)
+        except SIPCoreError:
+            raise APIError('Invalid participant URI: {!r}'.format(participant_uri_str))
+        refer_method = 'MUTE' if bool(request.muted) else 'UNMUTE'
+        room.log.info('referring {} ;method={} (pid={}) to SIP focus {} for room {}'.format(
+            participant_uri, refer_method, pid, focus_uri, room.uri))
 
-        def _ok(response):
-            if 200 <= response.code < 300:
-                room.log.info('mute proxy: {} muted={} (HTTP {})'.format(
-                    request.participant_id, bool(request.muted), response.code))
+        def _status_cb(target, state, code, reason):
+            if state == 'failed':
+                room.log.warning('mute REFER for {} pid={} failed: {} {}'.format(
+                    target, pid, code or '', reason or ''))
             else:
-                room.log.warning('mute proxy: {} muted={} returned HTTP {}'.format(
-                    request.participant_id, bool(request.muted), response.code))
+                room.log.info('mute REFER for {} pid={} state={} code={} reason={}'.format(
+                    target, pid, state, code, reason))
 
-        def _err(failure):
-            room.log.warning('mute proxy: {} muted={} failed: {}'.format(
-                request.participant_id, bool(request.muted), failure.getErrorMessage()))
-
-        d.addCallbacks(_ok, _err)
+        SipFocusReferralHandler(
+            focus_uri,
+            participant_uri,
+            base_session.account,
+            room.log,
+            status_callback=_status_cb,
+            method=refer_method,
+            refer_to_extra_params={'participant_id': pid} if pid else None,
+        ).start()
 
     def _RH_videoroom_session_trickle(self, request):
         try:
@@ -2649,8 +2684,78 @@ class ConnectionHandler(object):
         except KeyError:
             raise APIError('Unknown room session: {request.session}'.format(request=request))
         videoroom = videoroom_session.room
+        # Step 1: tell every WebRTC publisher in the room to mute its
+        # own microphone (existing behaviour — the recipient client's
+        # mute-audio handler will toggle the local mic at the source).
         for session in videoroom:
             session.owner.send(sylkrtc.VideoroomMuteAudioEvent(session=session.id, originator=request.session))
+        # Step 2: for SIP-side participants (anyone in the room who
+        # is not a WebRTC publisher and not the audio bridge itself),
+        # send REFER ;method=MUTE to the conference focus through the
+        # existing SipFocusReferralHandler path. The bridge advertises
+        # its own pid on the room (`bridge_participant_id`); WebRTC
+        # publishers were already addressed in step 1 above and live
+        # in `room.webrtc_participants_by_pid`. Anything else in
+        # `room.participant_uris_by_pid` is a real SIP caller behind
+        # the bridge that won't get muted by the WebRTC mute-audio
+        # broadcast. We need the focus URI from the chat handler's
+        # SIP session for the referrer side of the REFER; bail out
+        # quietly when the chat session isn't established yet (the
+        # WebRTC mute portion has already done its work in that case).
+        chat_handler = videoroom_session.chat_handler
+        if chat_handler is None or chat_handler.sip_session is None:
+            videoroom.log.debug('mute-all: chat session not ready; SIP-side REFERs skipped')
+            return
+        if not chat_handler.sip_session.remote_focus:
+            videoroom.log.debug('mute-all: remote party is not a SIP focus; SIP-side REFERs skipped')
+            return
+        try:
+            focus_uri = SIPURI.new(chat_handler.sip_session.remote_identity.uri)
+        except SIPCoreError as e:
+            videoroom.log.warning('mute-all: focus URI unresolved: {}'.format(e))
+            return
+        webrtc_pids = set()
+        try:
+            webrtc_pids = set(videoroom.webrtc_participants_by_pid.keys())
+        except AttributeError:
+            webrtc_pids = set()
+        bridge_pid = getattr(videoroom, 'bridge_participant_id', None)
+        pid_to_uri = {}
+        try:
+            pid_to_uri = dict(videoroom.participant_uris_by_pid)
+        except AttributeError:
+            pid_to_uri = {}
+        referred = 0
+        for pid, uri_str in pid_to_uri.items():
+            if not pid or not uri_str:
+                continue
+            if pid in webrtc_pids:
+                continue  # already covered by mute-audio broadcast
+            if bridge_pid and pid == bridge_pid:
+                continue  # the bridge itself isn't a participant
+            if not uri_str.lower().startswith(('sip:', 'sips:')):
+                uri_str = 'sip:{}'.format(uri_str)
+            try:
+                participant_uri = SIPURI.parse(uri_str)
+            except SIPCoreError:
+                videoroom.log.warning('mute-all: skipping SIP pid={} (invalid URI {!r})'.format(pid, uri_str))
+                continue
+            videoroom.log.info('mute-all: referring {} ;method=MUTE (pid={}) to focus {}'.format(
+                participant_uri, pid, focus_uri))
+            try:
+                SipFocusReferralHandler(
+                    focus_uri,
+                    participant_uri,
+                    videoroom_session.account,
+                    videoroom.log,
+                    method='MUTE',
+                    refer_to_extra_params={'participant_id': pid},
+                ).start()
+                referred += 1
+            except Exception as e:
+                videoroom.log.warning('mute-all: REFER MUTE for pid={} failed: {}'.format(pid, e))
+        if referred:
+            videoroom.log.info('mute-all: dispatched {} SIP-side REFER MUTE(s)'.format(referred))
 
     def _RH_videoroom_toggle_hand(self, request):
         try:
@@ -3714,6 +3819,25 @@ class VideoroomChatHandler(object):
         for user in conference_info.users:
             display = user.display_text.value if user.display_text else None
             current_display[user.entity] = display
+        # Diagnostic: surface incoming NOTIFY so we can correlate
+        # mute REFER → focus republish → gateway forward → client
+        # event end-to-end. Prints one line per arriving NOTIFY with
+        # a short "uri[muted=…]" summary per endpoint. Cheap and
+        # essential when chasing "icon didn't update" reports.
+        try:
+            _summary = []
+            for u in conference_info.users:
+                _ent = str(getattr(u, 'entity', '') or '')
+                _eps = []
+                for ep in u:
+                    _m = getattr(ep, 'muted', None)
+                    if _m is not None and hasattr(_m, 'value'):
+                        _m = _m.value
+                    _eps.append('muted={}'.format(_m))
+                _summary.append('{}[{}]'.format(_ent, ','.join(_eps) or '-'))
+            self.room.log.info('conference-info NOTIFY in: {}'.format(' | '.join(_summary)))
+        except Exception as e:
+            self.room.log.debug('conference-info NOTIFY summary failed: {}'.format(e))
         def _aor(uri):
             if uri.startswith('sip:'):
                 uri = uri[4:]
@@ -3778,9 +3902,67 @@ class VideoroomChatHandler(object):
 
         sip_aor_map = {_aor(entity): entity for entity in sip_set}
         combined_set = set(sip_aor_map) | set(webrtc_publishers)
-        if combined_set == self._last_emitted_participants:
-            return
+        # Build a richer dedup signature than just the participant URI
+        # set: also fold in each endpoint's muted / status state, so a
+        # mute/unmute toggle (which doesn't change the roster) still
+        # passes the dedup gate and reaches the client. Without this,
+        # a moderator-driven mute via REFER ;method=MUTE updates the
+        # focus's audio_stream.muted flag and republishes conference
+        # info, but the gateway saw an unchanged participant set and
+        # returned early — the WebRTC client's tile never repainted.
+        #
+        # Tiny pre-scan over conference_info.users; mirrors the EXACT
+        # extraction the diagnostic NOTIFY summary above uses (which
+        # demonstrably sees muted=True), to avoid any divergence
+        # between what gets logged and what gets dedup-compared. The
+        # earlier attempt used a `_muted_of()` helper that called
+        # `getattr(muted_elem, 'value', muted_elem)` — that path
+        # silently lost the value for the sipsimple bool descriptor
+        # in some cases, producing muted=None even when the summary
+        # right above logged muted=True. Inline + minimal here.
+        state_sig_parts = []
+        for u in conference_info.users:
+            ep_states = []
+            for ep in u:
+                ep_pid = Videoroom._extension_value(getattr(ep, 'participant_id', None))
+                ep_status = getattr(ep, 'status', None)
+                if ep_status is not None and hasattr(ep_status, 'value'):
+                    ep_status = ep_status.value
+                # Muted: same two-step the summary does — fetch the
+                # attribute, unwrap .value if the descriptor returned
+                # a wrapper. Whatever bool/None comes out goes into
+                # the signature tuple as-is; equality between two
+                # signatures fires only if BOTH the bool flag and the
+                # absence/presence change.
+                _ep_muted = getattr(ep, 'muted', None)
+                if _ep_muted is not None and hasattr(_ep_muted, 'value'):
+                    _ep_muted = _ep_muted.value
+                ep_states.append((ep_pid or '', _ep_muted, str(ep_status or '')))
+            state_sig_parts.append((str(getattr(u, 'entity', '') or ''), tuple(ep_states)))
+        state_signature = tuple(state_sig_parts)
+        # Dedup intentionally disabled. The previous dedup compared the
+        # current state signature against `_last_emitted_state` (per-
+        # chat-handler) and skipped the forward when nothing changed.
+        # In the wild this hid the muted-state initial snapshot from
+        # clients that reconnected (bundle reload, transport blip) AFTER
+        # the muted state had already been emitted to the OLD handler —
+        # the new handler had None _last_emitted_state, but the OLD
+        # handler's state was preserved on its singleton _sip_roster
+        # and (despite the per-handler reset) the FIRST NOTIFY a fresh
+        # client receives can end up identical to its self-initialised
+        # baseline if the join NOTIFY isn't a fresh-roster event. Net
+        # effect for the user: the SIP-tile mute icon was stuck on
+        # unmuted even after the focus reported muted=True.
+        # Conference-info NOTIFYs are infrequent (one per join/leave/
+        # mute/state change), so emitting every one to the client is
+        # not a noise problem. Keep the bookkeeping fields so any
+        # external observer relying on them survives; they just don't
+        # gate the forward anymore.
         self._last_emitted_participants = combined_set
+        self._last_emitted_state = state_signature
+        self.room.log.info('conference-info forward (dedup disabled): roster_size={} endpoints_total={}'.format(
+            len(combined_set),
+            sum(len(p[1]) for p in state_signature)))
 
         # Rebuild the participant_id → label cache for this room from
         # the current NOTIFY. Audio-level UDP datagrams arrive keyed by
@@ -3794,6 +3976,11 @@ class VideoroomChatHandler(object):
         # focus's admin API — for WebRTC peers we want the mic to be
         # muted at the source, not just suppressed at the mix.
         new_webrtc_pid_map = {}
+        # participant_id → user.entity (SIP URI string) for every user
+        # in this NOTIFY. The SIP-side mute path uses it to build a
+        # truthful Refer-To URI for the REFER ;method=MUTE / UNMUTE
+        # the gateway sends back to the focus.
+        new_pid_uri_map = {}
         payload_participants = []
         for user in conference_info.users:
             user_aor = _aor(getattr(user, 'entity', '') or '')
@@ -3834,22 +4021,59 @@ class VideoroomChatHandler(object):
                 participant_id = Videoroom._extension_value(getattr(endpoint, 'participant_id', None))
                 if participant_id:
                     new_labels[participant_id] = user_label
+                    # Record pid → user.entity for the SIP-side mute
+                    # path. user.entity is the canonical SIP URI as
+                    # published by the focus; falling back to user_aor
+                    # if the entity slipped through empty.
+                    _entity = getattr(user, 'entity', None)
+                    if _entity:
+                        new_pid_uri_map[participant_id] = str(_entity)
+                    elif user_aor:
+                        new_pid_uri_map[participant_id] = 'sip:{}'.format(user_aor)
+                # Muted state extraction. The diagnostic NOTIFY summary
+                # at the top of this function reliably reads muted=True
+                # for endpoints the focus has flagged muted, but the
+                # earlier `getattr(elem,'value',elem)` + isinstance path
+                # we used here ended up serialising muted as null on the
+                # WS. Use the same hasattr-then-.value path the summary
+                # uses, and tolerate string forms ("true"/"True"/"1")
+                # because sipsimple's MutedFlag descriptor has shipped
+                # both shapes across versions. Cast the final result to
+                # a plain Python bool so BooleanProperty doesn't see a
+                # truthy-but-non-bool value and skip emit.
                 muted_elem = getattr(endpoint, 'muted', None)
                 muted_value = None
                 if muted_elem is not None:
-                    raw = getattr(muted_elem, 'value', muted_elem)
+                    if hasattr(muted_elem, 'value'):
+                        raw = muted_elem.value
+                    else:
+                        raw = muted_elem
                     if isinstance(raw, bool):
-                        muted_value = raw
+                        muted_value = bool(raw)
                     elif isinstance(raw, str):
                         muted_value = raw.strip().lower() in ('true', '1', 'yes')
-                endpoints.append(sylkrtc.VideoroomConferenceEndpoint(
+                    elif isinstance(raw, int):
+                        muted_value = bool(raw)
+                self.room.log.debug(
+                    'muted-extract endpoint pid={} muted_elem_type={} muted_elem_repr={!r} muted_value={!r}'.format(
+                        participant_id, type(muted_elem).__name__, muted_elem, muted_value))
+                _vce = sylkrtc.VideoroomConferenceEndpoint(
                     uri=str(endpoint.entity) if getattr(endpoint, 'entity', None) else None,
                     display_name=endpoint_display,
                     status=str(endpoint_status) if endpoint_status is not None else None,
                     media=media_items,
                     participant_id=participant_id,
                     muted=muted_value,
-                ))
+                )
+                # Confirm the model round-tripped the value — if the
+                # BooleanProperty descriptor refuses to keep True for
+                # some reason (e.g. optional=True with a falsey check)
+                # we want to see it in the log rather than silently
+                # shipping null to the mobile.
+                self.room.log.info(
+                    'endpoint payload pid={} input_muted={!r} stored_muted={!r}'.format(
+                        participant_id, muted_value, getattr(_vce, 'muted', '<missing>')))
+                endpoints.append(_vce)
             participant_aor = _aor(user.entity)
             if participant_aor in webrtc_publishers:
                 ptype = 'webrtc'
@@ -3945,9 +4169,12 @@ class VideoroomChatHandler(object):
         # using the same wholesale-replace approach. Consumed by
         # _RH_videoroom_mute_participant to decide whether a mute target
         # is a local WebRTC peer (dispatched as a mute-request WS event)
-        # or a SIP-only participant behind the bridge (proxied to the
-        # conference focus's admin HTTP API).
+        # or a SIP-only participant behind the bridge (proxied as a
+        # REFER ;method=MUTE / UNMUTE to the conference focus).
         self.room.webrtc_participants_by_pid = new_webrtc_pid_map
+        # And the pid → URI map used to build the Refer-To URI on the
+        # SIP-side branch of the same handler.
+        self.room.participant_uris_by_pid = new_pid_uri_map
         # Conference duration is computed locally from the videoroom's
         # own start_time anchor. Intentionally NOT taken from the SIP
         # focus's `agp-conf:duration` field — the webrtcgateway runs an

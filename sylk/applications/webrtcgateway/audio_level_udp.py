@@ -464,7 +464,12 @@ class AudioLevelUDPClient(object, metaclass=Singleton):
                 avg_tx = entry['tx_sum'] // count
                 avg_rx = entry['rx_sum'] // count
                 who = label_map.get(pid) or '?'
-                room_log.info(
+                # Demoted to .debug — was useful while bringing the
+                # audio-level plumbing online but at steady state it
+                # produces one INFO line per participant per period
+                # for every room. Re-enable by flipping to .info when
+                # troubleshooting the audio-bridge → gateway pipeline.
+                room_log.debug(
                     'audio level: "%-10.10s" "%s" %ss mean/peak, n=%d, tx=%d/%d rx=%d/%d' %
                     (who, pid, period_str, count,
                      avg_tx, entry['tx_peak'], avg_rx, entry['rx_peak'])
