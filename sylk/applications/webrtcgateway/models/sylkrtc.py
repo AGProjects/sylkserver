@@ -488,6 +488,24 @@ class VideoroomMuteAudioEvent(VideoroomEventBase):
     originator = StringProperty()
 
 
+class VideoroomMuteRequestEvent(VideoroomEventBase):
+    # Per-participant moderator-driven mute request, sent by the
+    # webrtcgateway to a single WebRTC publisher session when another
+    # client invokes the `videoroom-mute-participant` RPC targeting
+    # *this* participant. The recipient is expected to flip the mute
+    # state of its local microphone capture to `muted` and update its
+    # UI accordingly. SIP-side participants reachable only via the
+    # audio bridge are NOT notified through this event — for those the
+    # gateway proxies the request to the conference focus's admin HTTP
+    # API instead, so the mix-side mute is authoritative there.
+    event = FixedValueProperty('mute-request')
+    muted = BooleanProperty()
+    # The WS session that asked for the mute, so the recipient can
+    # render a "Muted by <name>" hint or filter out self-initiated
+    # mutes that were already applied locally.
+    originator = StringProperty(optional=True)
+
+
 class VideoroomRaisedHandsEvent(VideoroomEventBase):
     event = FixedValueProperty('raised-hands')
     raised_hands = ArrayProperty(VideoroomRaisedHands)

@@ -364,6 +364,14 @@ class Videoroom(object):
         # filter the bridge out of the per-participant audio-level log
         # since its in/out is just plumbing, not a user-facing source.
         self.bridge_participant_id = None  # type: Optional[str]
+        # participant_id → VideoroomSession for every WebRTC publisher
+        # currently joined to this room. Rebuilt wholesale from each
+        # conference-info NOTIFY (see _NH_SIPSessionGotConferenceInfo)
+        # and consulted by _RH_videoroom_mute_participant to dispatch a
+        # per-participant mute locally over WS instead of POSTing to
+        # the conference focus's admin endpoint when the target is a
+        # WebRTC peer we already own a session for.
+        self.webrtc_participants_by_pid = {}  # type: Dict[str, object]
         if self.config.record:
             makedirs(self.config.recording_dir, 0o755)
             self.log.info('created (recording on)')
@@ -2492,24 +2500,62 @@ class ConnectionHandler(object):
                                     status_callback=_status_cb_factory(participant), method='BYE').start()
 
     def _RH_videoroom_mute_participant(self, request):
-        """Proxy a mute request from the WebRTC client to the conference
-        focus's admin HTTP API.
+        """Dispatch a per-participant mute request to the right backend.
 
-        Looks up the cached admin URL + token on the Videoroom (populated
-        by _NH_SIPSessionGotConferenceInfo when the bridge participant
-        appears in the NOTIFY), then POSTs to
-            {admin_url}/rooms/{room_uri}/participants/{pid}/mute
-        with Authorization: Bearer <token> and JSON body {"muted": bool}.
-        The conference's own admin handler is the single source of truth
-        for mute — we just forward the WS request to it. participant_id
-        is the stable per-session token from the conference-info payload,
-        which the JS client already has.
+        Two paths, picked from the room's `webrtc_participants_by_pid`
+        map (rebuilt from every conference-info NOTIFY):
+
+        1. WebRTC peer — `participant_id` resolves to a publisher session
+           we own a WS connection to. Send a `mute-request` event over
+           that connection so the recipient mutes its mic at the source
+           and updates its local UI. Nothing is proxied to the conference
+           focus in this path: muting at the source means the recipient
+           keeps control and can unmute themselves; muting at the mix
+           (via admin API) would leave the recipient's mic hot with no
+           way to know they're suppressed.
+
+        2. SIP / bridge participant — no local WS session exists for the
+           target. Proxy the request to the conference focus's admin
+           HTTP API (advertised by the bridge participant as the agp-conf
+           `admin_endpoint_url` / `admin_endpoint_token` and cached on
+           the Videoroom at NOTIFY time):
+               POST {admin_url}/rooms/{room_uri}/participants/{pid}/mute
+               Authorization: Bearer <token>
+               {"muted": bool}
+           The conference's own admin handler is the canonical
+           implementation for that branch.
         """
         try:
             base_session = self.videoroom_sessions[request.session]
         except KeyError:
             raise APIError('Unknown room session: {request.session}'.format(request=request))
         room = base_session.room
+        # Path 1: local WebRTC peer. Look the participant_id up in the
+        # NOTIFY-derived map. When it's a WebRTC publisher, ask their WS
+        # connection to mute the mic source and return — we do not also
+        # call the admin API for this case (the source-level mute IS the
+        # authoritative state for that branch).
+        pid = str(getattr(request, 'participant_id', '') or '')
+        target_session = None
+        if pid:
+            try:
+                target_session = room.webrtc_participants_by_pid.get(pid)
+            except AttributeError:
+                target_session = None
+        if target_session is not None:
+            try:
+                target_session.owner.send(sylkrtc.VideoroomMuteRequestEvent(
+                    session=target_session.id,
+                    muted=bool(request.muted),
+                    originator=request.session,
+                ))
+                room.log.info('mute dispatch (webrtc): {} muted={} via session {}'.format(
+                    pid, bool(request.muted), target_session.id))
+            except Exception as e:
+                room.log.warning('mute dispatch (webrtc): {} muted={} failed: {}'.format(
+                    pid, bool(request.muted), e))
+            return
+        # Path 2: SIP / bridge participant — proxy to the focus admin API.
         admin_url = getattr(room, 'admin_endpoint_url', None)
         admin_token = getattr(room, 'admin_endpoint_token', None)
         if not admin_url or not admin_token:
@@ -3741,6 +3787,13 @@ class VideoroomChatHandler(object):
         # participant_id (an opaque token); the periodic log resolves
         # back to "display <aor>" via this map.
         new_labels = {}
+        # participant_id → VideoroomSession for every WebRTC publisher
+        # currently in this room. Used by _RH_videoroom_mute_participant
+        # to dispatch a per-participant mute event over the publisher's
+        # own WS connection instead of proxying through the conference
+        # focus's admin API — for WebRTC peers we want the mic to be
+        # muted at the source, not just suppressed at the mix.
+        new_webrtc_pid_map = {}
         payload_participants = []
         for user in conference_info.users:
             user_aor = _aor(getattr(user, 'entity', '') or '')
@@ -3800,6 +3853,19 @@ class VideoroomChatHandler(object):
             participant_aor = _aor(user.entity)
             if participant_aor in webrtc_publishers:
                 ptype = 'webrtc'
+                # Bind each endpoint's participant_id to the matching
+                # WebRTC publisher session so a per-participant mute
+                # request can be dispatched locally over WS. With one
+                # device per AoR (the common case) there is exactly one
+                # endpoint and the mapping is unambiguous; with multiple
+                # devices behind the same AoR `webrtc_publishers` keeps
+                # only one session (last-write-wins, same caveat the
+                # rest of this module already accepts).
+                _wpub = webrtc_publishers.get(participant_aor)
+                if _wpub is not None:
+                    for _ep in endpoints:
+                        if _ep.participant_id:
+                            new_webrtc_pid_map[_ep.participant_id] = _wpub
             elif _is_bridge(user.entity) or any(_is_bridge(getattr(e, 'uri', None)) for e in endpoints):
                 ptype = 'bridge'
             else:
@@ -3875,6 +3941,13 @@ class VideoroomChatHandler(object):
         # that vanish from the NOTIFY drop out, fresh ones get the
         # current label. Used by the audio-level periodic log.
         self.room.participant_labels = new_labels
+        # Refresh the participant_id → WebRTC session map for this room
+        # using the same wholesale-replace approach. Consumed by
+        # _RH_videoroom_mute_participant to decide whether a mute target
+        # is a local WebRTC peer (dispatched as a mute-request WS event)
+        # or a SIP-only participant behind the bridge (proxied to the
+        # conference focus's admin HTTP API).
+        self.room.webrtc_participants_by_pid = new_webrtc_pid_map
         # Conference duration is computed locally from the videoroom's
         # own start_time anchor. Intentionally NOT taken from the SIP
         # focus's `agp-conf:duration` field — the webrtcgateway runs an
