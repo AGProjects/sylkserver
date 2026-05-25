@@ -231,7 +231,23 @@ class IncomingRequestHandler(object, metaclass=Singleton):
             return '?'
 
     @staticmethod
-    def _request_summary(method, request_uri, peer_ip, headers):
+    def _peer_ip(peer_address):
+        """Stringified peer IP suitable for logs.
+
+        sipsimple's peer_address.ip is bytes; embedding it in a format
+        string yields "b'1.2.3.4'", which is awkward to read and breaks
+        copy/paste back into config files. Decode defensively.
+        """
+        ip = getattr(peer_address, 'ip', peer_address)
+        if isinstance(ip, bytes):
+            try:
+                return ip.decode()
+            except Exception:
+                return repr(ip)
+        return ip
+
+    @staticmethod
+    def _request_summary(method, request_uri, peer_address, headers):
         """One-line summary string used in every rejection log entry.
 
         Includes the SIP method, Request-URI, peer IP and From-URI so
@@ -240,23 +256,26 @@ class IncomingRequestHandler(object, metaclass=Singleton):
         without needing to cross-reference Call-IDs.
         """
         return '%s %s from peer %s, From %s' % (
-            method, request_uri, peer_ip,
+            method, request_uri,
+            IncomingRequestHandler._peer_ip(peer_address),
             IncomingRequestHandler._header_uri(headers, 'From'))
 
     def _NH_SIPSessionNewIncoming(self, notification):
         session = notification.sender
         try:
             self.authorization_handler.authorize_source(session.peer_address.ip)
-        except UnauthorizedRequest:
-            log.info('rejected 403 INVITE %s from peer %s, From %s — source IP not in trusted_peers' % (
-                session.request_uri, session.peer_address.ip, session.remote_identity.uri))
+        except UnauthorizedRequest as e:
+            log.info('rejected 403 INVITE %s from peer %s, From %s — %s' % (
+                session.request_uri, self._peer_ip(session.peer_address),
+                session.remote_identity.uri, e))
             session.reject(403)
             return
         try:
             app = self.get_application(session.request_uri, notification.data.headers)
         except ApplicationNotLoadedError:
             log.info('rejected 404 INVITE %s from peer %s, From %s — no application loaded for this request' % (
-                session.request_uri, session.peer_address.ip, session.remote_identity.uri))
+                session.request_uri, self._peer_ip(session.peer_address),
+                session.remote_identity.uri))
             session.reject(404)
         else:
             app.incoming_session(session)
@@ -265,10 +284,10 @@ class IncomingRequestHandler(object, metaclass=Singleton):
         subscribe_request = notification.sender
         try:
             self.authorization_handler.authorize_source(subscribe_request.peer_address.ip)
-        except UnauthorizedRequest:
-            log.info('rejected 403 %s — source IP not in trusted_peers' % self._request_summary(
+        except UnauthorizedRequest as e:
+            log.info('rejected 403 %s — %s' % (self._request_summary(
                 'SUBSCRIBE', notification.data.request_uri,
-                subscribe_request.peer_address.ip, notification.data.headers))
+                subscribe_request.peer_address, notification.data.headers), e))
             subscribe_request.reject(403)
             return
         try:
@@ -276,7 +295,7 @@ class IncomingRequestHandler(object, metaclass=Singleton):
         except ApplicationNotLoadedError:
             log.info('rejected 404 %s — no application loaded for this request' % self._request_summary(
                 'SUBSCRIBE', notification.data.request_uri,
-                subscribe_request.peer_address.ip, notification.data.headers))
+                subscribe_request.peer_address, notification.data.headers))
             subscribe_request.reject(404)
         else:
             app.incoming_subscription(subscribe_request, notification.data)
@@ -285,10 +304,10 @@ class IncomingRequestHandler(object, metaclass=Singleton):
         refer_request = notification.sender
         try:
             self.authorization_handler.authorize_source(refer_request.peer_address.ip)
-        except UnauthorizedRequest:
-            log.info('rejected 403 %s — source IP not in trusted_peers' % self._request_summary(
+        except UnauthorizedRequest as e:
+            log.info('rejected 403 %s — %s' % (self._request_summary(
                 'REFER', notification.data.request_uri,
-                refer_request.peer_address.ip, notification.data.headers))
+                refer_request.peer_address, notification.data.headers), e))
             refer_request.reject(403)
             return
         try:
@@ -296,7 +315,7 @@ class IncomingRequestHandler(object, metaclass=Singleton):
         except ApplicationNotLoadedError:
             log.info('rejected 404 %s — no application loaded for this request' % self._request_summary(
                 'REFER', notification.data.request_uri,
-                refer_request.peer_address.ip, notification.data.headers))
+                refer_request.peer_address, notification.data.headers))
             refer_request.reject(404)
         else:
             app.incoming_referral(refer_request, notification.data)
@@ -307,15 +326,15 @@ class IncomingRequestHandler(object, metaclass=Singleton):
         if method != 'MESSAGE':
             log.info('rejected 405 %s — only MESSAGE is accepted as out-of-dialog request' % self._request_summary(
                 method, notification.data.request_uri,
-                request.peer_address.ip, notification.data.headers))
+                request.peer_address, notification.data.headers))
             request.answer(405)
             return
         try:
             self.authorization_handler.authorize_source(request.peer_address.ip)
-        except UnauthorizedRequest:
-            log.info('rejected 403 %s — source IP not in trusted_peers' % self._request_summary(
+        except UnauthorizedRequest as e:
+            log.info('rejected 403 %s — %s' % (self._request_summary(
                 'MESSAGE', notification.data.request_uri,
-                request.peer_address.ip, notification.data.headers))
+                request.peer_address, notification.data.headers), e))
             request.answer(403)
             return
         try:
@@ -323,7 +342,7 @@ class IncomingRequestHandler(object, metaclass=Singleton):
         except ApplicationNotLoadedError:
             log.info('rejected 404 %s — no application loaded for this request' % self._request_summary(
                 'MESSAGE', notification.data.request_uri,
-                request.peer_address.ip, notification.data.headers))
+                request.peer_address, notification.data.headers))
             request.answer(404)
         else:
             app.incoming_message(request, notification.data)
@@ -343,8 +362,15 @@ class AuthorizationHandler(object):
 
     @property
     def trusted_parties(self):
+        # When Thor is enabled we still honour the statically configured
+        # [SIP] trusted_peers: a local sylk-janus-audio-bridge (or any
+        # other on-LAN peer) is typically a trusted peer rather than a
+        # full Thor node, and silently dropping those the moment Thor is
+        # turned on is a footgun that has already cost real time to
+        # diagnose. So the set is the union of the two when Thor is on,
+        # and just trusted_peers when it isn't.
         if ThorNodeConfig.enabled:
-            return self.thor_nodes
+            return list(self.thor_nodes) + list(self.trusted_peers)
         return self.trusted_peers
 
     def start(self):
@@ -357,11 +383,19 @@ class AuthorizationHandler(object):
 
     def authorize_source(self, ip_address):
         if self.state != 'started':
-            raise UnauthorizedRequest
+            raise UnauthorizedRequest('authorization handler not started')
+        ip_str = ip_address.decode() if isinstance(ip_address, bytes) else ip_address
+        addr_long = struct.unpack('!L', socket.inet_aton(ip_str))[0]
         for range in self.trusted_parties:
-            if struct.unpack('!L', socket.inet_aton(ip_address.decode()))[0] & range[1] == range[0]:
+            if addr_long & range[1] == range[0]:
                 return True
-        raise UnauthorizedRequest
+        if ThorNodeConfig.enabled:
+            raise UnauthorizedRequest(
+                'source IP %s not in any of %d thor_nodes or %d trusted_peers' %
+                (ip_str, len(self.thor_nodes), len(self.trusted_peers)))
+        raise UnauthorizedRequest(
+            'source IP %s not in any of %d trusted_peers' %
+            (ip_str, len(self.trusted_peers)))
 
     @run_in_twisted_thread
     def handle_notification(self, notification):
