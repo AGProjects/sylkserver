@@ -217,16 +217,46 @@ class IncomingRequestHandler(object, metaclass=Singleton):
         handler = getattr(self, '_NH_%s' % notification.name, Null)
         handler(notification)
 
+    @staticmethod
+    def _header_uri(headers, name):
+        """Best-effort extraction of a SIP URI from a header for logging.
+
+        Returns the URI as a string, or '?' when the header is missing
+        or doesn't expose a .uri attribute. Never raises — log helpers
+        must not become a source of secondary failures.
+        """
+        try:
+            return str(headers.get(name).uri)
+        except (AttributeError, KeyError, TypeError):
+            return '?'
+
+    @staticmethod
+    def _request_summary(method, request_uri, peer_ip, headers):
+        """One-line summary string used in every rejection log entry.
+
+        Includes the SIP method, Request-URI, peer IP and From-URI so
+        that a single grep on the conference / webrtcgateway / sylk log
+        ties the rejection back to the matching SIP-trace packet
+        without needing to cross-reference Call-IDs.
+        """
+        return '%s %s from peer %s, From %s' % (
+            method, request_uri, peer_ip,
+            IncomingRequestHandler._header_uri(headers, 'From'))
+
     def _NH_SIPSessionNewIncoming(self, notification):
         session = notification.sender
         try:
             self.authorization_handler.authorize_source(session.peer_address.ip)
         except UnauthorizedRequest:
+            log.info('rejected 403 INVITE %s from peer %s, From %s — source IP not in trusted_peers' % (
+                session.request_uri, session.peer_address.ip, session.remote_identity.uri))
             session.reject(403)
             return
         try:
             app = self.get_application(session.request_uri, notification.data.headers)
         except ApplicationNotLoadedError:
+            log.info('rejected 404 INVITE %s from peer %s, From %s — no application loaded for this request' % (
+                session.request_uri, session.peer_address.ip, session.remote_identity.uri))
             session.reject(404)
         else:
             app.incoming_session(session)
@@ -236,11 +266,17 @@ class IncomingRequestHandler(object, metaclass=Singleton):
         try:
             self.authorization_handler.authorize_source(subscribe_request.peer_address.ip)
         except UnauthorizedRequest:
+            log.info('rejected 403 %s — source IP not in trusted_peers' % self._request_summary(
+                'SUBSCRIBE', notification.data.request_uri,
+                subscribe_request.peer_address.ip, notification.data.headers))
             subscribe_request.reject(403)
             return
         try:
             app = self.get_application(notification.data.request_uri, notification.data.headers)
         except ApplicationNotLoadedError:
+            log.info('rejected 404 %s — no application loaded for this request' % self._request_summary(
+                'SUBSCRIBE', notification.data.request_uri,
+                subscribe_request.peer_address.ip, notification.data.headers))
             subscribe_request.reject(404)
         else:
             app.incoming_subscription(subscribe_request, notification.data)
@@ -250,28 +286,44 @@ class IncomingRequestHandler(object, metaclass=Singleton):
         try:
             self.authorization_handler.authorize_source(refer_request.peer_address.ip)
         except UnauthorizedRequest:
+            log.info('rejected 403 %s — source IP not in trusted_peers' % self._request_summary(
+                'REFER', notification.data.request_uri,
+                refer_request.peer_address.ip, notification.data.headers))
             refer_request.reject(403)
             return
         try:
             app = self.get_application(notification.data.request_uri, notification.data.headers)
         except ApplicationNotLoadedError:
+            log.info('rejected 404 %s — no application loaded for this request' % self._request_summary(
+                'REFER', notification.data.request_uri,
+                refer_request.peer_address.ip, notification.data.headers))
             refer_request.reject(404)
         else:
             app.incoming_referral(refer_request, notification.data)
 
     def _NH_SIPIncomingRequestGotRequest(self, notification):
         request = notification.sender
-        if notification.data.method != 'MESSAGE':
+        method = notification.data.method
+        if method != 'MESSAGE':
+            log.info('rejected 405 %s — only MESSAGE is accepted as out-of-dialog request' % self._request_summary(
+                method, notification.data.request_uri,
+                request.peer_address.ip, notification.data.headers))
             request.answer(405)
             return
         try:
             self.authorization_handler.authorize_source(request.peer_address.ip)
         except UnauthorizedRequest:
+            log.info('rejected 403 %s — source IP not in trusted_peers' % self._request_summary(
+                'MESSAGE', notification.data.request_uri,
+                request.peer_address.ip, notification.data.headers))
             request.answer(403)
             return
         try:
             app = self.get_application(notification.data.request_uri, notification.data.headers)
         except ApplicationNotLoadedError:
+            log.info('rejected 404 %s — no application loaded for this request' % self._request_summary(
+                'MESSAGE', notification.data.request_uri,
+                request.peer_address.ip, notification.data.headers))
             request.answer(404)
         else:
             app.incoming_message(request, notification.data)
