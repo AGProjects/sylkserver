@@ -25,6 +25,7 @@ from sylk.applications.conference.audio_level_udp import LevelUDPServer
 from sylk.applications.conference.configuration import get_room_config, ConferenceConfig
 from sylk.applications.conference.logger import log
 from sylk.applications.conference import payloads as _payloads  # noqa: F401 -- registers conference-info+xml extensions on import
+from sylk.applications.conference.registrar import RoomRegistrar
 from sylk.applications.conference.room import Room
 from sylk.applications.conference.web import ConferenceWeb
 from sylk.bonjour import BonjourService
@@ -101,6 +102,11 @@ class ConferenceApplication(SylkApplication):
         # used so in-dialog SUBSCRIBE requests for the selector URI can be
         # routed to the actual room the caller joined.
         self._selector_redirects = {}
+        # Owns sipsimple Accounts that register conference rooms at foreign
+        # SIP domains; consulted in incoming_session / incoming_subscription
+        # to route inbound traffic for the registered AOR into the
+        # matching room.
+        self.registrar = RoomRegistrar()
         self.bonjour_focus_service = Null
         self.bonjour_room_service = Null
         self.web = Null
@@ -151,6 +157,16 @@ class ConferenceApplication(SylkApplication):
         # loader installs its own observer, means our handler runs first.
         NotificationCenter().add_observer(self, name='SIPSessionNewIncoming')
 
+        # Per-room SIP REGISTER at foreign domains. Reads conference.ini,
+        # creates one sipsimple Account per section with `registrar_uri`
+        # set, and keeps each registration alive perpetually. Inbound
+        # calls hitting the registered Contact are routed into the room
+        # via `self.registrar.room_for_inbound(...)` in incoming_session.
+        try:
+            self.registrar.start()
+        except Exception:
+            log.exception('Conference registrar failed to start')
+
         # cleanup old files
         for path in (ConferenceConfig.file_transfer_dir, ConferenceConfig.screensharing_images_dir):
             try:
@@ -172,6 +188,10 @@ class ConferenceApplication(SylkApplication):
             NotificationCenter().remove_observer(self, name='SIPSessionNewIncoming')
         except KeyError:
             pass
+        try:
+            self.registrar.stop()
+        except Exception:
+            log.exception('Conference registrar failed to stop cleanly')
         if self.admin_web is not Null:
             try:
                 self.admin_web.stop()
@@ -357,11 +377,32 @@ class ConferenceApplication(SylkApplication):
         chat_stream = chat_streams[0] if chat_streams else None
         transfer_stream = transfer_streams[0] if transfer_streams else None
 
+        # Registered-room routing. If the INVITE arrived because we have a
+        # REGISTER binding at a foreign domain (PSTN gateway, third-party
+        # SIP provider) whose AOR matches the INVITE's Request-URI / To
+        # header, redirect the caller into the room that owns that
+        # registration. The Request-URI on inbound calls is the Contact
+        # we registered (sip:<aor-user>@<our-sylk-ip>) on some registrars,
+        # or still the foreign AOR on others; the To header always carries
+        # the original AOR. Check both. ACL is then evaluated against the
+        # ROOM URI rather than the registered AOR.
+        invite_headers = getattr(session, '_sylk_invite_headers', None) or {}
+        to_header = invite_headers.get('To') if invite_headers else None
+        to_uri = getattr(to_header, 'uri', None) if to_header is not None else None
+        registered_room = self.registrar.room_for_inbound(session.request_uri, to_uri)
+        if registered_room is not None:
+            user, _, host = registered_room.partition('@')
+            target_uri = _RoomTargetURI(user=user, host=host)
+            session._sylk_conference_target_uri = target_uri
+            log.info('Session %s: routed via registration to room %s' %
+                     (session.call_id, registered_room))
+
         # Detect the conference selector pseudo-room (default user 'conference',
-        # configurable via ConferenceConfig.default_conference_selector). We do
-        # not yet know which actual conference room to join: prompt the caller,
-        # collect DTMF, then continue into <digits>@<same domain>.
-        if _uri_field(session.request_uri.user) == ConferenceConfig.default_conference_selector:
+        # configurable via ConferenceConfig.default_conference_selector). A
+        # session already pinned to a room by the registrar mapping bypasses
+        # the IVR — the room is unambiguous.
+        if (getattr(session, '_sylk_conference_target_uri', None) is None and
+                _uri_field(session.request_uri.user) == ConferenceConfig.default_conference_selector):
             if audio_stream is None:
                 log.info('Session rejected: conference selector requires an audio stream')
                 session.reject(488)
@@ -372,8 +413,15 @@ class ConferenceApplication(SylkApplication):
             handler.start()
             return
 
+        # Use the registrar-pinned target URI for ACL / room lookup when
+        # set; otherwise fall back to the on-the-wire Request-URI as
+        # before. This makes the section's [room@host] ACL the one that
+        # applies, rather than the foreign AOR's ACL (which would always
+        # be the global default).
+        routing_uri = getattr(session, '_sylk_conference_target_uri', None) or session.request_uri
+
         try:
-            self.validate_acl(session.request_uri, session.remote_identity.uri)
+            self.validate_acl(routing_uri, session.remote_identity.uri)
         except ACLValidationError:
             log.info('Session rejected: unauthorized by access list')
             session.reject(403)
@@ -381,7 +429,7 @@ class ConferenceApplication(SylkApplication):
 
         if transfer_stream is not None:
             try:
-                room = self.get_room(session.request_uri)
+                room = self.get_room(routing_uri)
             except RoomNotFoundError:
                 log.info('Session rejected: room not found')
                 session.reject(404)
@@ -455,6 +503,17 @@ class ConferenceApplication(SylkApplication):
                 # room they joined is <digits>@<host>. Try the redirect map.
                 room = self._lookup_selector_redirect(data.request_uri, from_header.uri) \
                     or self._lookup_selector_redirect(to_header.uri, from_header.uri)
+                if room is None:
+                    # SUBSCRIBE may also arrive at a registered AOR (the
+                    # foreign account we REGISTER for the room). Map it
+                    # back to the room URI just like incoming INVITEs.
+                    registered_room = self.registrar.room_for_inbound(data.request_uri, to_header.uri)
+                    if registered_room is not None:
+                        user, _, host = registered_room.partition('@')
+                        try:
+                            room = self.get_room(_RoomTargetURI(user=user, host=host))
+                        except RoomNotFoundError:
+                            room = None
                 if room is None:
                     log.info('Subscription rejected: room not yet created')
                     subscribe_request.reject(480)

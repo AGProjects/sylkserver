@@ -7,10 +7,10 @@ from application.configuration import ConfigFile, ConfigSection, ConfigSetting
 from application.configuration.datatypes import NetworkAddress, StringList
 
 from sylk.configuration import ServerConfig
-from sylk.configuration.datatypes import Path, URL
+from sylk.configuration.datatypes import Path, SIPProxyAddress, URL
 
 
-__all__ = 'ConferenceConfig', 'get_room_config', 'pick_default_admin_ip'
+__all__ = 'ConferenceConfig', 'get_room_config', 'iter_registered_rooms', 'pick_default_admin_ip'
 
 
 # Interface name prefixes considered virtual / surrogate. We skip these when
@@ -332,6 +332,25 @@ class RoomConfig(ConfigSection):
     disable_music_on_hold = ConferenceConfig.disable_music_on_hold
     zrtp_auto_verify = ConferenceConfig.zrtp_auto_verify
 
+    # SIP REGISTER at a foreign domain. When `registrar_uri` is set on a
+    # room section the conference application creates a sipsimple Account
+    # for that AOR at startup and registers it perpetually. Inbound calls
+    # arriving at the registered Contact (matched by To header / Request-URI
+    # against `registrar_uri`) are routed into THIS room.
+    #
+    #   registrar_uri           = user@foreign.example   ; AOR to register
+    #   password                = secret                  ; SIP auth password
+    #   registrar_outbound_proxy = host[:port][;transport=udp|tcp|tls]
+    #                                                    ; optional explicit
+    #                                                    ; outbound proxy /
+    #                                                    ; registrar; empty
+    #                                                    ; means: DNS lookup
+    #                                                    ; on the registrar
+    #                                                    ; domain.
+    registrar_uri = ConfigSetting(type=SIPAddress, value=None)
+    password = ConfigSetting(type=str, value=None)
+    registrar_outbound_proxy = ConfigSetting(type=SIPProxyAddress, value=None)
+
 
 class Configuration(object):
     def __init__(self, data):
@@ -349,4 +368,61 @@ def get_room_config(room):
         # Apply general policy
         config = Configuration(dict(RoomConfig))
     return config
+
+
+def iter_registered_rooms():
+    """Yield (room_uri, RoomConfig-Configuration) for every conference.ini
+    section that declares a `registrar_uri` (i.e. wants to register at a
+    foreign SIP domain so that inbound calls to that AOR drop the caller
+    into the section's room).
+
+    Sections without a `registrar_uri` value are skipped. Sections whose
+    `registrar_uri` fails validation are skipped with a warning.
+
+    The room URI is the section name verbatim — a section like
+    `[agp@conference.sip2sip.info]` registers as <registrar_uri> at the
+    foreign registrar and routes inbound calls into the
+    `agp@conference.sip2sip.info` conference room.
+    """
+    from sylk.applications.conference.logger import log
+    config_file = ConfigFile(RoomConfig.__cfgfile__)
+    parser = getattr(config_file, 'parser', None)
+    if parser is None:
+        # Older python-application: fall back to scanning the file
+        # ourselves with the stdlib parser. The ConfigFile object will
+        # have at least .files exposing the list of loaded files.
+        try:
+            import configparser
+            files = list(getattr(config_file, 'files', []) or [])
+            if not files:
+                return
+            parser = configparser.ConfigParser(strict=False)
+            parser.read(files)
+        except Exception as e:
+            log.warning('cannot enumerate room sections for registration: %s' % e)
+            return
+    for section_name in parser.sections():
+        if section_name == ConferenceConfig.__section__:
+            continue
+        # Skip sections that don't look like a room URI (must be user@host).
+        if '@' not in section_name:
+            continue
+        # Skip sections without a registrar_uri.
+        try:
+            if not parser.has_option(section_name, 'registrar_uri'):
+                continue
+        except Exception:
+            continue
+        try:
+            RoomConfig.read(section=section_name)
+            cfg = Configuration(dict(RoomConfig))
+        except Exception as e:
+            log.warning('skipping room section %r: configuration error: %s' % (section_name, e))
+            RoomConfig.reset()
+            continue
+        finally:
+            RoomConfig.reset()
+        if not cfg.registrar_uri:
+            continue
+        yield section_name, cfg
 

@@ -150,3 +150,41 @@ screensharing_images_dir = /var/spool/sylkserver/conference/screensharing
 ; Disable music on hold, can be applied per room overriding the Default Policy
 ; disable_music_on_hold = False
 
+; ----------------------------------------------------------------------
+; Per-room SIP REGISTER at a foreign domain
+; ----------------------------------------------------------------------
+;
+; Make a conference room reachable as a regular SIP account on a third-
+; party SIP provider — typically to give a PSTN gateway something to dial
+; into. For each room section listed below, the conference application
+; creates a sipsimple Account at startup, REGISTERs perpetually at the
+; configured registrar, and routes any inbound INVITE arriving at the
+; registered Contact into THIS room.
+;
+; Settings (all three are needed for a working registration):
+;
+;   registrar_uri            = user@foreign.example     ; AOR to register
+;                                                       ; (becomes the SIP
+;                                                       ; account at the
+;                                                       ; foreign domain)
+;   password                 = secret                    ; auth password
+;   registrar_outbound_proxy = host[:port][;transport=udp|tcp|tls]
+;                                                       ; optional explicit
+;                                                       ; outbound proxy.
+;                                                       ; Empty => DNS
+;                                                       ; lookup on the
+;                                                       ; registrar domain.
+;
+; Example: expose the conference room "team-standup@conf.example.org" as
+; the SIP account "+15551234567@sip-trunk.example.net" at the trunk
+; provider, so any call routed to that AOR (e.g. a PSTN number that the
+; trunk maps to it) drops the caller straight into the conference.
+;
+; [team-standup@conf.example.org]
+; access_policy            = deny, allow
+; deny                     = all
+; allow                    = example.org, partner.example.net
+; registrar_uri            = +15551234567@sip-trunk.example.net
+; password                 = CHANGE_ME
+; registrar_outbound_proxy = sip-trunk.example.net:5060;transport=udp
+
