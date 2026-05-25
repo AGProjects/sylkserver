@@ -957,6 +957,89 @@ class IncomingReferralHandler(object):
             conference_application = ConferenceApplication()
             conference_application.remove_participant(self.refer_to_uri, self.room_uri)
             self._refer_request.end(200)
+        elif self.method in ('MUTE', 'UNMUTE'):
+            # Per-participant moderator mute/unmute via REFER. The
+            # referrer addresses the conference room itself (Request-URI
+            # = the room's AoR, same as for INVITE / BYE refers) and
+            # puts the target participant in the Refer-To header:
+            #
+            #   REFER sip:room@host SIP/2.0
+            #   Refer-To: <sip:alice@host>;method=MUTE
+            #   ...
+            #
+            # The mute state is taken from the method name (MUTE → True,
+            # UNMUTE → False); the target is identified by AoR derived
+            # from the Refer-To URI by default, or by an explicit
+            # `;participant_id=<token>` parameter on the Refer-To header
+            # when the moderator wants to disambiguate between several
+            # devices sharing the same AoR. The room's own
+            # `set_participant_muted` is the canonical implementation —
+            # the same one driven by the admin HTTP API — so SIP and
+            # HTTP moderation stay behaviourally identical (server-side
+            # input mute, idempotent, republishes conference-info on
+            # state change). The REFER subscription is terminated with
+            # 200 on success, 404 when no matching participant was
+            # found in the room, and 500 when the room itself is gone.
+            target_muted = self.method == 'MUTE'
+            # Re-fetch the Refer-To parameters dict from the cached
+            # headers — `refer_params` was a local in __init__ and
+            # isn't in scope here. self._refer_headers is the same
+            # dict __init__ pulled the original parameters out of, so
+            # this is a free lookup.
+            refer_params = self._refer_headers.get('Refer-To').parameters
+            # Optional disambiguation hint — participant_id beats AoR
+            # whenever it's present. Some PJSIP versions deliver
+            # parameter values as bytes; decode defensively.
+            pid_param = refer_params.get('participant_id', None)
+            if isinstance(pid_param, bytes):
+                try:
+                    pid_param = pid_param.decode()
+                except Exception:
+                    pid_param = None
+            if pid_param:
+                identifier = pid_param
+            else:
+                # AoR derived from the Refer-To URI. SIPURI user/host can
+                # be bytes (Refer-To came off the wire); keep the same
+                # decode-tolerant pattern terminate_sessions uses.
+                try:
+                    _u = self.refer_to_uri.user
+                    _h = self.refer_to_uri.host
+                    _u = _u.decode() if isinstance(_u, bytes) else (_u or '')
+                    _h = _h.decode() if isinstance(_h, bytes) else (_h or '')
+                except Exception:
+                    _u = _h = ''
+                if not _u or not _h:
+                    log.info('Room %s - %s REFER ;method=%s rejected: cannot derive AoR from %s' % (
+                        self.room_uri_str, self._refer_headers.get('From').uri, self.method, self.refer_to_uri))
+                    self._refer_request.reject(488)
+                    return
+                identifier = '{}@{}'.format(_u, _h)
+            self._refer_request.accept()
+            conference_application = ConferenceApplication()
+            try:
+                room = conference_application.get_room(self.room_uri)
+            except RoomNotFoundError:
+                log.info('Room %s - %s REFER ;method=%s failed: no such room' % (
+                    self.room_uri_str, self._refer_headers.get('From').uri, self.method))
+                self._refer_request.end(500)
+                return
+            try:
+                applied = room.set_participant_muted(identifier, target_muted)
+            except Exception as e:
+                log.warning('Room %s - %s REFER ;method=%s on %s raised: %s' % (
+                    self.room_uri_str, self._refer_headers.get('From').uri, self.method, identifier, e))
+                self._refer_request.end(500)
+                return
+            if not applied:
+                log.info('Room %s - %s REFER ;method=%s on %s: no matching participant' % (
+                    self.room_uri_str, self._refer_headers.get('From').uri, self.method, identifier))
+                self._refer_request.end(404)
+                return
+            log.info('Room %s - %s %smuted %s via REFER' % (
+                self.room_uri_str, self._refer_headers.get('From').uri,
+                '' if target_muted else 'un', identifier))
+            self._refer_request.end(200)
         else:
             self._refer_request.reject(488)
 
