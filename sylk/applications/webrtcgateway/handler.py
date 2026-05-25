@@ -379,6 +379,15 @@ class Videoroom(object):
         # the request can carry an honest SIP URI alongside the
         # disambiguating participant_id parameter.
         self.participant_uris_by_pid = {}  # type: Dict[str, str]
+        # Pids the gateway has already auto-muted on join. Shared
+        # across every chat_handler subscribing to this room's
+        # conference-info, so the first handler that sees a brand
+        # new SIP participant claims the auto-mute and the rest
+        # short-circuit. Pids are pruned to current roster on every
+        # NOTIFY so a rejoining participant (which gets a fresh pid
+        # from the focus) is auto-muted again rather than remembered
+        # forever.
+        self.auto_muted_pids = set()  # type: Set[str]
         if self.config.record:
             makedirs(self.config.recording_dir, 0o755)
             self.log.info('created (recording on)')
@@ -3813,6 +3822,92 @@ class VideoroomChatHandler(object):
         # self.sip_session.reject_transfer(403)
         pass
 
+    def _auto_mute_new_sip_participants(self, new_pid_uri_map, new_webrtc_pid_map, bridge_pid):
+        """
+        Send REFER ;method=MUTE for each newly-arrived SIP participant.
+
+        Called from _NH_SIPSessionGotConferenceInfo once the per-NOTIFY
+        pid maps have been rebuilt. The room-shared `auto_muted_pids`
+        set records pids we have already auto-muted so multiple chat
+        handlers (one per WebRTC client subscribed to this room) don't
+        race to issue redundant REFERs for the same arrival.
+
+        Pids no longer present in the current roster are dropped from
+        the set so a participant that leaves and rejoins (focus mints
+        a fresh pid for the new session) gets auto-muted again.
+
+        WebRTC publishers and the audio-bridge endpoint are excluded —
+        WebRTC peers are addressed through the regular client-side
+        mute flow / mute-all broadcast, and muting the bridge would
+        silence the entire PSTN leg of the conference.
+        """
+        room = self.room
+        # Prune stale pids first so the set never grows unbounded.
+        try:
+            current_pids = set(new_pid_uri_map.keys())
+            room.auto_muted_pids = {p for p in room.auto_muted_pids if p in current_pids}
+        except Exception:
+            room.auto_muted_pids = set()
+        # Pre-resolve the focus URI once; bail if the chat session
+        # isn't ready yet (a brand-new NOTIFY can race the SIP
+        # session setup on initial join).
+        if self.sip_session is None or not getattr(self.sip_session, 'remote_focus', False):
+            return
+        try:
+            focus_uri = SIPURI.new(self.sip_session.remote_identity.uri)
+        except SIPCoreError as e:
+            room.log.debug('auto-mute: focus URI unresolved: {}'.format(e))
+            return
+        # Find an AccountInfo to attribute the REFER to. The chat
+        # handler's own session is bound to a specific account already
+        # (self.account); reuse it. Without an account credentials are
+        # missing and SipFocusReferralHandler can't authenticate.
+        if self.account is None:
+            return
+        new_sip_pids = []
+        for pid, uri_str in new_pid_uri_map.items():
+            if not pid or not uri_str:
+                continue
+            if pid in new_webrtc_pid_map:
+                continue  # WebRTC peer; not a SIP arrival
+            if bridge_pid and pid == bridge_pid:
+                continue  # audio-bridge endpoint
+            if pid in room.auto_muted_pids:
+                continue  # already auto-muted this pid in this room
+            new_sip_pids.append((pid, uri_str))
+        if not new_sip_pids:
+            return
+        for pid, uri_str in new_sip_pids:
+            if not uri_str.lower().startswith(('sip:', 'sips:')):
+                uri_str = 'sip:{}'.format(uri_str)
+            try:
+                participant_uri = SIPURI.parse(uri_str)
+            except SIPCoreError:
+                room.log.warning('auto-mute: skipping SIP pid={} (invalid URI {!r})'.format(pid, uri_str))
+                continue
+            # Mark the pid as claimed BEFORE dispatching so a second
+            # chat handler hitting this code path on the same NOTIFY
+            # (rare but possible if NOTIFYs interleave) sees the set
+            # entry and skips. The REFER itself is async; if it fails
+            # downstream the pid stays marked until the participant
+            # leaves and rejoins.
+            room.auto_muted_pids.add(pid)
+            room.log.info('auto-mute: referring {} ;method=MUTE (pid={}) — new SIP arrival'.format(
+                participant_uri, pid))
+            try:
+                SipFocusReferralHandler(
+                    focus_uri,
+                    participant_uri,
+                    self.account,
+                    room.log,
+                    method='MUTE',
+                    refer_to_extra_params={'participant_id': pid},
+                ).start()
+            except Exception as e:
+                room.log.warning('auto-mute: REFER MUTE for pid={} failed: {}'.format(pid, e))
+                # Roll back so a retry on the next NOTIFY is possible.
+                room.auto_muted_pids.discard(pid)
+
     def _NH_SIPSessionGotConferenceInfo(self, notification):
         conference_info = notification.data.conference_info
         current_display = {}
@@ -4175,6 +4270,22 @@ class VideoroomChatHandler(object):
         # And the pid → URI map used to build the Refer-To URI on the
         # SIP-side branch of the same handler.
         self.room.participant_uris_by_pid = new_pid_uri_map
+        # Auto-mute new SIP arrivals. Run AFTER the pid maps above are
+        # updated so we can cleanly distinguish "WebRTC publisher" (in
+        # new_webrtc_pid_map), "audio bridge" (room.bridge_participant_id),
+        # and "SIP caller" (everything else in new_pid_uri_map). For each
+        # newly-seen SIP pid we fire a REFER ;method=MUTE to the focus
+        # exactly once, recording the pid in room.auto_muted_pids so
+        # other chat handlers (one per WebRTC client subscribed to the
+        # same room) don't re-issue the REFER. Pids no longer in the
+        # roster are pruned so a rejoining participant — which the
+        # focus would mint a fresh pid for — gets re-auto-muted.
+        try:
+            self._auto_mute_new_sip_participants(
+                new_pid_uri_map, new_webrtc_pid_map,
+                getattr(self.room, 'bridge_participant_id', None))
+        except Exception as e:
+            self.room.log.warning('auto-mute pass failed: {}'.format(e))
         # Conference duration is computed locally from the videoroom's
         # own start_time anchor. Intentionally NOT taken from the SIP
         # focus's `agp-conf:duration` field — the webrtcgateway runs an
