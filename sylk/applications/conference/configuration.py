@@ -218,6 +218,19 @@ class ConferenceConfig(ConfigSection):
     disable_music_on_hold = False
     moh_disable_header = ''
 
+    # Default media types to offer a participant invited via REFER when
+    # the Refer-To URI does NOT carry a `;media=<csv>` parameter. CSV of
+    # `audio`, `chat`, `msrp` or `text` (msrp/text are aliases for chat).
+    # Empty (the default) means: fall back to whatever media the room
+    # currently has active. A REFER that DOES carry `;media=...` always
+    # wins over this default — see IncomingReferralHandler in
+    # sylk/applications/conference/__init__.py for the precedence rules.
+    #
+    # Example:
+    #     [Conference]
+    #     default_refer_media = audio,chat
+    default_refer_media = ConfigSetting(type=str, value='')
+
     # Marker that lets a SIP-to-Janus audio bridge identify itself on its
     # INVITE. When the incoming Request-URI carries a parameter
     # `;app=<this value>`, the conference application:

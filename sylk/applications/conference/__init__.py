@@ -1117,22 +1117,42 @@ class IncomingReferralHandler(object):
             log.info('Room %s - failed to add %s' % (self.room_uri_str, self.refer_to_uri))
             self._refer_request.end(500)
             return
-        active_media = set(room.active_media).intersection(('audio', 'chat'))
-        # If the REFER carries a `;media=<csv>` parameter on its
-        # Refer-To header (e.g. `;media=audio` to invite the new
-        # participant for audio only), only offer the listed media.
-        # Otherwise every active media in the room is offered.
+        # Decide what media to offer the new participant. A conference
+        # hosts whatever media its participants bring; the new joiner is
+        # NOT gated by what is currently active in the room. The first
+        # audio leg into a previously chat-only room is a perfectly
+        # valid join — the webrtcgateway uses exactly this pattern to
+        # invite SIP UAs into Janus-bridged rooms with `media=audio`
+        # regardless of the room's chat state.
+        #
+        # Precedence:
+        #   1. `;media=<csv>` on the Refer-To URI — the referrer told
+        #      us exactly what to invite the participant with. Used
+        #      verbatim, clamped to media types we support.
+        #   2. ConferenceConfig.default_refer_media — admin-configured
+        #      default when the referrer did not specify a media set.
+        #   3. The room's current active_media — legacy fallback when
+        #      neither a per-REFER value nor an admin default is set.
+        supported_media = ('audio', 'chat')
         if self.refer_media:
-            filtered = active_media & set(self.refer_media)
-            if filtered != active_media:
-                log.info('Room %s - Refer-To media= restricts new participant media to %s (was %s)' %
-                         (self.room_uri_str, sorted(filtered), sorted(active_media)))
-            active_media = filtered
-        if not active_media:
-            log.info('Room %s - failed to add %s' % (self.room_uri_str, self.refer_to_uri))
+            offer_media = set(self.refer_media) & set(supported_media)
+            offer_source = 'Refer-To media=%s' % sorted(self.refer_media)
+        else:
+            cfg_default = _parse_media_csv(ConferenceConfig.default_refer_media)
+            if cfg_default:
+                offer_media = set(cfg_default) & set(supported_media)
+                offer_source = 'configured default_refer_media=%s' % sorted(cfg_default)
+            else:
+                offer_media = set(room.active_media) & set(supported_media)
+                offer_source = "room's active media %s" % sorted(offer_media)
+        if not offer_media:
+            log.info('Room %s - failed to add %s: no usable media (%s yielded empty set)' %
+                     (self.room_uri_str, self.refer_to_uri, offer_source))
             self._refer_request.end(500)
             return
-        for stream_type in active_media:
+        log.info('Room %s - inviting %s with media %s (from %s)' %
+                 (self.room_uri_str, self.refer_to_uri, sorted(offer_media), offer_source))
+        for stream_type in offer_media:
             self.streams.append(MediaStreamRegistry.get(stream_type)())
         self.session = Session(account)
         notification_center.add_observer(self, sender=self.session)
