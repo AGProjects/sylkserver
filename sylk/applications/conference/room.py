@@ -37,7 +37,7 @@ from sylk.accounts import DefaultAccount
 from sylk.applications.conference.audio_level_udp import LevelUDPServer
 from sylk.applications.conference.configuration import get_room_config, ConferenceConfig
 from sylk.applications.conference.logger import log
-from sylk.applications.conference.payloads import Duration
+from sylk.payloads.conference_info_extensions import Duration
 from sylk.bonjour import BonjourService
 from sylk.configuration import ServerConfig, ThorNodeConfig
 from sylk.configuration.datatypes import URL
@@ -230,7 +230,7 @@ class Room(object):
         # so the client doesn't have to deal with timezone or clock-skew.
         # Late joiners read it once from their initial NOTIFY and run a
         # local counter from there. The Duration extension (registered
-        # in sylk.applications.conference.payloads on application load)
+        # in sylk.payloads.conference_info_extensions on application load)
         # wraps the int through its XML descriptor automatically.
         try:
             elapsed = int((ISOTimestamp.utcnow() - self.start_time).total_seconds())
@@ -238,7 +238,7 @@ class Room(object):
                 elapsed = 0
             self.conference_info_payload.conference_description.duration = Duration(elapsed)
         except (AttributeError, Exception):
-            # sylk.applications.conference.payloads not imported yet —
+            # sylk.payloads.conference_info_extensions not imported yet —
             # the descriptor on conference_description.duration doesn't
             # exist. Skip silently rather than break the whole payload.
             pass

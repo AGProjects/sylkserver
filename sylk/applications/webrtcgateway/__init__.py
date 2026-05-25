@@ -14,7 +14,7 @@ from twisted.internet import defer, reactor
 from zope.interface import implementer
 
 from sylk.applications import SylkApplication
-from sylk.applications.conference import payloads as _conference_payloads  # noqa: F401 -- registers conference-info+xml extensions on import so this app can parse them even if the conference application is not loaded
+from sylk.payloads import conference_info_extensions as _conference_payloads  # noqa: F401 -- registers conference-info+xml extensions on import so this app can parse them even if the conference application is not loaded. Lives under sylk.payloads (not sylk.applications.conference) so importing it does NOT pull in ConferenceApplication, whose metaclass would otherwise auto-register and auto-start it even when 'conference' is in [Server] disabled_applications.
 from sylk.session import IllegalStateError
 
 from .audio_level_udp import AudioLevelUDPClient

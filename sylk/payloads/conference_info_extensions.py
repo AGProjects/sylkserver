@@ -19,10 +19,23 @@ classes `UserExtension`, `ConferenceDescriptionExtension`) stays in
 sipsimple — it's a reusable capability, not sylkserver-specific.
 
 Importing this module is a side effect: every class below registers
-itself on the appropriate sipsimple element at import time. Both the
-conference and webrtcgateway applications import this module from
-their `__init__.py` so the extensions are available regardless of
-which application loads first.
+itself on the appropriate sipsimple element at import time.
+
+This module lives in `sylk.payloads` (NOT under any single application)
+on purpose. The conference and webrtcgateway applications both need
+these extensions registered with sipsimple before they parse or build
+a conference-info NOTIFY, but neither application should have to drag
+the other's package into the import graph to get them. In particular,
+importing `sylk.applications.conference.payloads` (the previous home of
+these extensions) implicitly executed `sylk.applications.conference`'s
+package `__init__.py`, which defines `ConferenceApplication`. That
+class is auto-registered with `ApplicationRegistry` by the
+`SylkApplicationMeta` metaclass at class-definition time, bypassing
+the `[Server] disabled_applications` list and causing the conference
+focus to come up (REGISTERs, UDP server, observers, …) on any process
+that imported this module — including a webrtcgateway-only deployment.
+Keeping the registrations in a neutral package eliminates that import
+side effect.
 """
 
 from sipsimple.payloads import (XMLBooleanElement, XMLStringElement,
@@ -36,6 +49,7 @@ from sipsimple.payloads.conference import (ConferenceDescription,
 
 
 __all__ = ('AdminEndpointURL', 'AdminEndpointToken',
+           'AudioLevelsUdpEndpoint',
            'MutedFlag', 'ParticipantId', 'Duration')
 
 

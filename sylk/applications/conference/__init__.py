@@ -24,7 +24,7 @@ from sylk.applications.conference.admin_web import AdminWebHandler
 from sylk.applications.conference.audio_level_udp import LevelUDPServer
 from sylk.applications.conference.configuration import get_room_config, ConferenceConfig
 from sylk.applications.conference.logger import log
-from sylk.applications.conference import payloads as _payloads  # noqa: F401 -- registers conference-info+xml extensions on import
+from sylk.payloads import conference_info_extensions as _payloads  # noqa: F401 -- registers conference-info+xml extensions on import
 from sylk.applications.conference.registrar import RoomRegistrar
 from sylk.applications.conference.room import Room
 from sylk.applications.conference.web import ConferenceWeb
