@@ -555,3 +555,61 @@ class AdminWebHandler(object, metaclass=Singleton):
         # Re-arm
         if request in self._event_subscribers:
             reactor.callLater(25, self._sse_keepalive, request)
+
+    @app.route('/accounts/<string:account>', methods=['POST'])
+    def confirm_account_deletion(self, request, account):
+        self._check_auth(request)
+        request.setHeader('Content-Type', 'application/json')
+
+        # Read the POST body. cdrtool sends application/json; we
+        # accept it as-is and fall back to logging the raw bytes
+        # if it doesn't parse so the operator can spot a malformed
+        # caller.
+        raw = request.content.read() if request.content else b''
+        try:
+            payload = json.loads(raw.decode('utf-8')) if raw else {}
+        except (UnicodeDecodeError, ValueError) as e:
+            log.warning(f'[delete-account-api] {account}: malformed POST body ({e}); raw={raw[:200]!r}')
+            payload = {}
+
+        log.info(f'[delete-account-api] {account}: confirmation received, payload={json.dumps(payload, sort_keys=True)}')
+
+        client_request_id = payload.get('client_request_id') if isinstance(payload, dict) else None
+        if not client_request_id:
+            log.info(f'[delete-account-api] {account}: no client_request_id in payload — cannot correlate to a chat-side message')
+            return json.dumps({
+                'ok': True,
+                'matched': False,
+                'reason': 'no_client_request_id_in_payload',
+            })
+
+        # Two-channel proof: the mobile/web client sent an
+        # application/sylk-account-delete-request message to its
+        # own AOR at request time, using client_request_id as the
+        # message_id. A match here means the SIP-credential
+        # holder INITIATED the request AND the email holder
+        # CONFIRMED it — both halves of the round-trip accounted
+        # for. Logging only at this stage; no storage cleanup.
+        deferred = MessageStorage().find_message(
+            account,
+            client_request_id,
+            content_type='application/sylk-account-delete-request',
+        )
+
+        def _on_result(matched):
+            if matched:
+                log.info(f'[delete-account-api] {account}: '
+                         f'account deletion request match email confirmation request '
+                         f'(client_request_id={client_request_id})')
+            else:
+                log.info(f'[delete-account-api] {account}: '
+                         f'no user request has been found for the delete operation '
+                         f'(client_request_id={client_request_id})')
+            return json.dumps({
+                'ok':                True,
+                'matched':           bool(matched),
+                'client_request_id': client_request_id,
+            })
+
+        deferred.addCallback(_on_result)
+        return deferred

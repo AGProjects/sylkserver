@@ -618,6 +618,45 @@ class FileMessageStorage(object):
         remove()
         return deferred
 
+    def find_message(self, account, message_id, content_type=None):
+        """
+        Look up a message by id for an account. Returns a Deferred
+        that fires with True when a matching row exists, False
+        otherwise. When `content_type` is given, the match is also
+        gated on that content_type — useful to confirm e.g. an
+        application/sylk-account-delete-request message exists for
+        a given client_request_id without scanning the rest of the
+        history.
+        """
+        deferred = defer.Deferred()
+
+        @run_in_thread('file-io')
+        def lookup():
+            try:
+                id_by_timestamp = self._load_id_by_timestamp(account)
+            except (OSError, IOError):
+                reactor.callFromThread(deferred.callback, False)
+                return
+            timestamp = id_by_timestamp.get(message_id)
+            if not timestamp:
+                reactor.callFromThread(deferred.callback, False)
+                return
+            try:
+                messages = self._load_messages(account)
+            except (OSError, IOError):
+                reactor.callFromThread(deferred.callback, False)
+                return
+            for n in messages:
+                if n.get('message_id') != message_id:
+                    continue
+                if content_type is not None and n.get('content_type') != content_type:
+                    continue
+                reactor.callFromThread(deferred.callback, True)
+                return
+            reactor.callFromThread(deferred.callback, False)
+        lookup()
+        return deferred
+
 
 class CassandraMessageStorage(object):
     @run_in_thread('cassandra')
@@ -859,6 +898,39 @@ class CassandraMessageStorage(object):
                     pass
 
         remove(account, message_id)
+        return deferred
+
+    def find_message(self, account, message_id, content_type=None):
+        """
+        Cassandra-side mirror of FileMessageStorage.find_message.
+        Returns a Deferred firing True when a row matching account
+        + message_id (+ optional content_type) exists.
+        """
+        deferred = defer.Deferred()
+
+        @run_in_thread('cassandra')
+        def lookup(account, message_id, content_type):
+            try:
+                mapping = ChatMessageIdMapping.objects(
+                    ChatMessageIdMapping.message_id == message_id)[0]
+            except IndexError:
+                reactor.callFromThread(deferred.callback, False)
+                return
+            try:
+                msgs = ChatMessage.objects(
+                    ChatMessage.account == account,
+                    ChatMessage.created_at == mapping.created_at,
+                    ChatMessage.message_id == message_id)
+                for m in msgs:
+                    if content_type is not None and m.content_type != content_type:
+                        continue
+                    reactor.callFromThread(deferred.callback, True)
+                    return
+                reactor.callFromThread(deferred.callback, False)
+            except Exception:
+                reactor.callFromThread(deferred.callback, False)
+
+        lookup(account, message_id, content_type)
         return deferred
 
 
