@@ -426,7 +426,8 @@ class MessageHandler(object):
 
                             # log.info(f'{message.disposition} {message.contact} {message.state}')
                     # log.info(f'there are {unread} messages')
-                    push.message(originator=originator, destination=account.account, call_id=str(uuid.uuid4()),
+                    push.message(originator=originator, destination=account.account,
+                                 call_id=self.parsed_message.message_id,
                                  badge=unread, message=self.parsed_message)
 
                 messages = self.message_storage[[account.account, '']]
