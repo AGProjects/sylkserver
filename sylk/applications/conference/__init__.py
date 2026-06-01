@@ -960,6 +960,77 @@ class SelectConferenceHandler(object):
 @implementer(IObserver)
 class IncomingReferralHandler(object):
 
+    # Class-level registry of in-flight outgoing INVITEs that were
+    # started by a REFER ;method=INVITE but have not yet been
+    # established. Keyed by lower-cased room AoR ("room@host") to a
+    # set of handler instances. Lets REFER ;method=BYE and the admin
+    # HTTP kick path CANCEL a still-ringing callee in addition to
+    # BYE'ing already-joined sessions — `room.sessions` only carries
+    # legs that have reached SIPSessionDidStart, so before this
+    # registry existed a kick during the INVITE phase silently did
+    # nothing and the callee, if they ever answered, was parked in
+    # the conference. See cancel_pending_invites() for the lookup
+    # entry point; room.terminate_sessions() consults it.
+    _pending_invites = {}
+
+    @classmethod
+    def _register_pending(cls, handler):
+        cls._pending_invites.setdefault(handler.room_uri_str.lower(), set()).add(handler)
+
+    @classmethod
+    def _unregister_pending(cls, handler):
+        bucket = cls._pending_invites.get(handler.room_uri_str.lower())
+        if bucket is None:
+            return
+        bucket.discard(handler)
+        if not bucket:
+            cls._pending_invites.pop(handler.room_uri_str.lower(), None)
+
+    @classmethod
+    def cancel_pending_invites(cls, room_uri_str, target_aor):
+        """CANCEL any in-flight outgoing INVITE the given room has started
+        via REFER ;method=INVITE whose Refer-To AoR matches `target_aor`
+        (already lower-cased "user@host"). Returns the number of pending
+        invites that were ended. Called by room.terminate_sessions() so
+        that REFER ;method=BYE and the admin HTTP kick endpoint also
+        take effect during the INVITE-ringing window, before the leg has
+        been promoted into room.sessions.
+        """
+        bucket = cls._pending_invites.get(room_uri_str.lower())
+        if not bucket:
+            return 0
+        cancelled = 0
+        for handler in list(bucket):
+            try:
+                user = handler.refer_to_uri.user
+                host = handler.refer_to_uri.host
+                user = user.decode() if isinstance(user, bytes) else (user or '')
+                host = host.decode() if isinstance(host, bytes) else (host or '')
+                handler_aor = '{}@{}'.format(user, host).lower()
+            except Exception:
+                continue
+            if not user or not host or handler_aor != target_aor:
+                continue
+            # Only act while the leg is still being negotiated.
+            # session.end() dispatches to CANCEL for early states and
+            # to BYE once established; the room.sessions walk in
+            # terminate_sessions() owns the established case, so
+            # gating here on early states keeps responsibilities
+            # cleanly split and avoids double-BYE'ing a session that
+            # happened to finish negotiating between the kick request
+            # and us getting here.
+            if handler.session is None:
+                continue
+            if handler.session.state not in (None, 'outgoing', 'connecting', 'received_proposal', 'sending_proposal'):
+                continue
+            try:
+                handler.session.end()
+                cancelled += 1
+            except Exception as e:
+                log.warning('Room %s - cancel_pending_invites: session.end() raised for %s: %s' %
+                            (room_uri_str, handler_aor, e))
+        return cancelled
+
     def __init__(self, refer_request, data):
         self._refer_request = refer_request
         self._refer_headers = data.headers
@@ -985,6 +1056,19 @@ class IncomingReferralHandler(object):
         self.refer_media = _parse_media_csv(media_param) if media_param else None
         self.session = None
         self.streams = []
+        # Set when the referrer terminates the implicit REFER
+        # subscription early (SUBSCRIBE Refer ;Expires=0 in the REFER
+        # dialog). RFC 3515 does not define a method for the referrer
+        # to abort the referenced operation once the REFER has been
+        # accepted with 202, but terminating the subscription is the
+        # only standards-compliant in-band signal of "I no longer want
+        # this", and is what every interop-tested referrer (PJSIP,
+        # Sofia, reSIProcate) does. We honour it by CANCEL'ing the
+        # outgoing INVITE to the would-be participant if it is still
+        # being negotiated. A fully established session is left alone —
+        # an established participant must be removed with an explicit
+        # REFER ;method=BYE, which is a separate transaction.
+        self._cancelled = False
 
     def start(self):
         if not self.refer_to_uri.startswith(('sip:', 'sips:')):
@@ -1109,13 +1193,24 @@ class IncomingReferralHandler(object):
     def _NH_DNSLookupDidSucceed(self, notification):
         notification_center = NotificationCenter()
         notification_center.remove_observer(self, sender=notification.sender)
+        # Referrer cancelled while we were resolving — no session has
+        # been created yet, so there is nothing to CANCEL on the SIP
+        # bridge side. Just drop the result and stop. The REFER
+        # subscription has already been torn down by sipsimple, so
+        # `_refer_request` is None and we don't owe the referrer any
+        # further NOTIFY.
+        if self._cancelled:
+            log.info('Room %s - DNS lookup for %s completed but REFER was cancelled by referrer; not inviting' %
+                     (self.room_uri_str, self.refer_to_uri))
+            return
         account = DefaultAccount()
         conference_application = ConferenceApplication()
         try:
             room = conference_application.get_room(self.room_uri)
         except RoomNotFoundError:
             log.info('Room %s - failed to add %s' % (self.room_uri_str, self.refer_to_uri))
-            self._refer_request.end(500)
+            if self._refer_request is not None:
+                self._refer_request.end(500)
             return
         # Decide what media to offer the new participant. A conference
         # hosts whatever media its participants bring; the new joiner is
@@ -1173,7 +1268,17 @@ class IncomingReferralHandler(object):
         else:
             extra_headers.append(Header('Referred-By', str(original_from_header.uri)))
         route = notification.data.result[0]
-        self.session.connect(from_header, to_header, route=route, streams=self.streams, is_focus=True, extra_headers=extra_headers)
+        # Publish ourselves in the pending-invites registry BEFORE
+        # firing the INVITE. Doing it before .connect() means a
+        # REFER ;method=BYE that races with the outgoing INVITE
+        # finds us and CANCELs the leg as intended; if .connect()
+        # raises we fall through to the except and deregister.
+        IncomingReferralHandler._register_pending(self)
+        try:
+            self.session.connect(from_header, to_header, route=route, streams=self.streams, is_focus=True, extra_headers=extra_headers)
+        except Exception:
+            IncomingReferralHandler._unregister_pending(self)
+            raise
 
     def _NH_DNSLookupDidFail(self, notification):
         notification.center.remove_observer(self, sender=notification.sender)
@@ -1190,6 +1295,11 @@ class IncomingReferralHandler(object):
 
     def _NH_SIPSessionDidStart(self, notification):
         notification.center.remove_observer(self, sender=notification.sender)
+        # The leg is now established and ownership passes to the
+        # room.sessions list; drop ourselves out of the pending-invite
+        # registry so a subsequent kick goes through room.terminate_sessions
+        # only and we don't try to .end() a session twice.
+        IncomingReferralHandler._unregister_pending(self)
         # Deliver the final sipfrag via an "active" NOTIFY first, then
         # terminate the subscription. Splitting the final code from the
         # subscription teardown avoids losing the result when the
@@ -1212,6 +1322,7 @@ class IncomingReferralHandler(object):
     def _NH_SIPSessionDidFail(self, notification):
         log.info('Room %s - failed to add %s: %s' % (self.room_uri_str, self.refer_to_uri, notification.data.reason))
         notification.center.remove_observer(self, sender=notification.sender)
+        IncomingReferralHandler._unregister_pending(self)
         if self._refer_request is not None:
             code = notification.data.code or 500
             reason = notification.data.reason or str(notification.data.code)
@@ -1231,6 +1342,7 @@ class IncomingReferralHandler(object):
         # If any stream fails to start we won't get SIPSessionDidFail, we'll get here instead
         log.info('Room %s - failed to add %s' % (self.room_uri_str, self.refer_to_uri))
         notification.center.remove_observer(self, sender=notification.sender)
+        IncomingReferralHandler._unregister_pending(self)
         if self._refer_request is not None:
             try:
                 self._refer_request.send_notify(200, 'OK')
@@ -1239,6 +1351,40 @@ class IncomingReferralHandler(object):
             self._refer_request.end(200)
         self.session = None
         self.streams = []
+
+    def _NH_SIPIncomingReferralGotUnsubscribe(self, notification):
+        # The referrer terminated the implicit REFER subscription
+        # (SUBSCRIBE Refer with Expires: 0 inside the REFER dialog).
+        # Per RFC 3515 §2.4.4 this means the referrer no longer
+        # cares about progress notifications; we additionally treat
+        # it as "cancel the outgoing INVITE if it is still in
+        # progress". The IncomingReferral core has already moved to
+        # TERMINATED and will fire SIPIncomingReferralDidEnd right
+        # after this callback returns (which clears
+        # `self._refer_request`), so we must NOT call .end() or
+        # .send_notify() on the refer_request here — the final
+        # NOTIFY is generated by the core itself in response to the
+        # Expires:0 SUBSCRIBE.
+        #
+        # `self.session` is set in _NH_DNSLookupDidSucceed and
+        # cleared in _NH_SIPSessionDidStart / DidFail / DidEnd, so a
+        # non-None value here means the INVITE leg to the bridge is
+        # still being negotiated and can be CANCELled. Session.end()
+        # dispatches to CANCEL when the session is in an early state
+        # and to BYE once it is established; we gate on the early
+        # states only so that an already-joined participant is not
+        # silently kicked just because the referrer's NOTIFY plumbing
+        # went away — for that, the caller must send a REFER
+        # ;method=BYE.
+        self._cancelled = True
+        log.info('Room %s - %s cancelled REFER (subscription terminated); aborting invite to %s' %
+                 (self.room_uri_str, self._refer_headers.get('From').uri, self.refer_to_uri))
+        if self.session is not None and self.session.state in (None, 'outgoing', 'connecting', 'received_proposal', 'sending_proposal'):
+            try:
+                self.session.end()
+            except Exception as e:
+                log.warning('Room %s - failed to cancel pending session to %s on REFER unsubscribe: %s' %
+                            (self.room_uri_str, self.refer_to_uri, e))
 
     def _NH_SIPIncomingReferralDidEnd(self, notification):
         notification.center.remove_observer(self, sender=notification.sender)

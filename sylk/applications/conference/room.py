@@ -1073,7 +1073,21 @@ class Room(object):
         if target_aor is None:
             log.warning('Room %s - terminate_sessions: cannot derive AoR from %r' % (self.uri, uri))
             return
-        terminated = 0
+        # Also CANCEL any outgoing INVITEs this room issued via REFER
+        # ;method=INVITE that are still ringing for the same target.
+        # `self.sessions` only carries legs that have reached
+        # SIPSessionDidStart — without this hook a REFER ;method=BYE
+        # or admin-kick that arrives while the callee's phone is still
+        # ringing would walk an empty match set and return silently,
+        # and the callee would then be parked in the room if they
+        # eventually answered. Lazy import to avoid the circular
+        # conference/__init__ ↔ conference/room dependency.
+        from sylk.applications.conference import IncomingReferralHandler
+        pending_cancelled = IncomingReferralHandler.cancel_pending_invites(self.uri, target_aor)
+        if pending_cancelled:
+            log.info('Room %s - terminate_sessions: cancelled %d in-flight invite(s) to %s' %
+                     (self.uri, pending_cancelled, target_aor))
+        terminated = pending_cancelled
         for session in list(self.sessions):
             if _aor(session.remote_identity.uri) == target_aor:
                 log.info('Room %s - terminate_sessions: ending session of %s' % (self.uri, target_aor))
