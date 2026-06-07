@@ -1,9 +1,11 @@
 
+import math
 import os
 import random
 import secrets
 import shutil
 import string
+import time
 import weakref
 import base64
 
@@ -123,6 +125,79 @@ class ScreenImage(object):
             log.info(txt)
 
 
+class _InviterEviction(object):
+    """Per-invitee anti-fraud eviction timer.
+
+    Armed when the recorded inviter of a tracked invitee leaves the
+    conference. While armed it logs once per minute showing the
+    minutes remaining, then fires by BYE'ing every session in the
+    room whose remote AoR matches the protected invitee. Cancelled
+    if the invitee leaves on their own, if the inviter rejoins (any
+    device, AoR match), or if the room shuts down.
+
+    The lifecycle is driven by a single recurring `reactor.callLater`
+    handle (`_tick_call`). Each tick decides whether to log + reschedule
+    or to fire + stop — keeping one timer per invitee is simpler to
+    cancel correctly than two parallel timers (a logger and an
+    evictor). The tick interval is the lesser of 60s and the time
+    remaining, so the final tick lands exactly on the eviction deadline
+    no matter what the grace period is.
+    """
+
+    def __init__(self, room, invitee_aor, inviter_aor, grace_seconds):
+        self.room = room
+        self.invitee_aor = invitee_aor
+        self.inviter_aor = inviter_aor
+        self.deadline = time.time() + grace_seconds
+        self._tick_call = None
+        log.info('Room %s - anti-fraud eviction armed: %s (invited by %s) will be released in %d minute(s) if inviter does not return' %
+                 (room.uri, invitee_aor, inviter_aor, max(1, int(round(grace_seconds / 60.0)))))
+        self._schedule_next_tick()
+
+    def _schedule_next_tick(self):
+        remaining = self.deadline - time.time()
+        # Final tick lands on the deadline; intermediate ticks every 60s.
+        delay = max(0.0, min(60.0, remaining))
+        self._tick_call = reactor.callLater(delay, self._tick)
+
+    def _tick(self):
+        self._tick_call = None
+        remaining = self.deadline - time.time()
+        if remaining <= 0.5:
+            self._fire()
+            return
+        # Round UP so the user-visible countdown never reads "0 minutes
+        # remaining" on a tick that isn't the firing one.
+        minutes_left = max(1, int(math.ceil(remaining / 60.0)))
+        log.info('Room %s - eviction countdown: %s (invited by %s) — %d minute(s) remaining' %
+                 (self.room.uri, self.invitee_aor, self.inviter_aor, minutes_left))
+        self._schedule_next_tick()
+
+    def cancel(self, reason):
+        if self._tick_call is not None and self._tick_call.active():
+            self._tick_call.cancel()
+        self._tick_call = None
+        log.info('Room %s - eviction cancelled for %s (invited by %s): %s' %
+                 (self.room.uri, self.invitee_aor, self.inviter_aor, reason))
+
+    def _fire(self):
+        log.info('Room %s - eviction fired: releasing leg %s (invited by %s, grace period elapsed)' %
+                 (self.room.uri, self.invitee_aor, self.inviter_aor))
+        # Remove ourselves from the pending map BEFORE BYE'ing — the
+        # session.end() below will fire SIPSessionDidEnd → remove_session
+        # which would otherwise try to cancel us again and log a spurious
+        # "cancelled" line for a timer that already fired.
+        self.room._pending_evictions.pop(self.invitee_aor, None)
+        # One-shot: also drop the invitee_inviter mapping. If the
+        # same AoR comes back into the room by some other route later
+        # we treat that as a fresh, untracked join (per design).
+        self.room._invitee_inviter.pop(self.invitee_aor, None)
+        try:
+            self.room._bye_invitee_sessions(self.invitee_aor)
+        except Exception as e:
+            log.warning('Room %s - eviction BYE for %s raised: %s' % (self.room.uri, self.invitee_aor, e))
+
+
 @implementer(IObserver)
 class Room(object):
     """
@@ -140,6 +215,29 @@ class Room(object):
         self.sessions = []
         self.subscriptions = []
         self.state = 'stopped'
+        # Anti-fraud eviction state. Two parallel maps:
+        #   _invitee_inviter   : invitee_aor (lower "user@host") ->
+        #                        inviter_aor (lower "user@host")
+        #                        Populated by add_session() when a
+        #                        tracked invited session joins (the
+        #                        IncomingReferralHandler tagged the
+        #                        session with _sylk_inviter_aor based
+        #                        on inviter_eviction_destinations).
+        #                        Cleared when the invitee leaves or
+        #                        the eviction timer fires.
+        #   _pending_evictions : invitee_aor -> _InviterEviction
+        #                        Armed by remove_session() when the
+        #                        inviter's last session leaves the
+        #                        room. Cancelled when the invitee
+        #                        leaves on their own, when the
+        #                        inviter rejoins (any device, same
+        #                        AoR), or when the room shuts down.
+        # Both maps are keyed by lower-cased AoR so they survive
+        # parameter / scheme differences between the REFER's
+        # Refer-To URI and the session's remote_identity.uri at
+        # join time. See _InviterEviction for the timer mechanics.
+        self._invitee_inviter = {}
+        self._pending_evictions = {}
         self.incoming_message_queue = coros.queue()
         self.message_dispatcher = None
         self.audio_conference = None
@@ -432,6 +530,19 @@ class Room(object):
             subscription.end()
         self.subscriptions = []
         self.cleanup_files()
+        # Cancel every armed anti-fraud eviction timer — the room is
+        # going away, so any reactor.callLater holding a reference to
+        # `self` would prevent garbage collection AND fire after the
+        # Room has been torn down (logging against a half-destroyed
+        # state). The mappings themselves are dropped too for the
+        # same reason.
+        for _invitee_aor, _ev in list(self._pending_evictions.items()):
+            try:
+                _ev.cancel('room stopping')
+            except Exception:
+                pass
+        self._pending_evictions.clear()
+        self._invitee_inviter.clear()
         self.conference_info_payload = None
         self.state = 'stopped'
 
@@ -929,12 +1040,87 @@ class Room(object):
             handler = FileTransferHandler(self)
             handler.init_outgoing(uri, file)
 
+    @staticmethod
+    def _session_aor(session):
+        """Lower-cased "user@host" for a session's remote identity, or ''
+        when the URI fields don't yield a usable AoR. Tolerates the
+        bytes-typed SIPURI attributes that sipsimple sometimes returns
+        for URIs that came off the wire — same defensive pattern used
+        by terminate_sessions.
+        """
+        try:
+            u = session.remote_identity.uri
+            user = u.user
+            host = u.host
+            user = user.decode() if isinstance(user, bytes) else (user or '')
+            host = host.decode() if isinstance(host, bytes) else (host or '')
+        except Exception:
+            return ''
+        if not user or not host:
+            return ''
+        return '{}@{}'.format(user, host).lower()
+
+    def _bye_invitee_sessions(self, invitee_aor):
+        """End every session in self.sessions whose AoR matches the given
+        invitee_aor (lower-cased). Called by _InviterEviction._fire().
+        Defensive against the session being already gone — session.end()
+        is a no-op once the session has reached terminated state.
+        """
+        ended = 0
+        for session in list(self.sessions):
+            if self._session_aor(session) != invitee_aor:
+                continue
+            try:
+                session.end()
+                ended += 1
+            except Exception as e:
+                log.warning('Room %s - anti-fraud BYE for %s raised: %s' % (self.uri, invitee_aor, e))
+        if ended == 0:
+            log.info('Room %s - eviction fire: no live session matched %s (already gone)' % (self.uri, invitee_aor))
+
     def add_session(self, session):
         notification_center = NotificationCenter()
         notification_center.add_observer(self, sender=session)
         self.sessions.append(session)
         remote_uri = str(session.remote_identity.uri)
         self.participants_counter[remote_uri] += 1
+        # Anti-fraud bookkeeping. Two distinct hooks fire here:
+        #
+        #   1. If this session was created by a REFER ;method=INVITE
+        #      to a destination matching the configured tracking
+        #      pattern, IncomingReferralHandler stamped it with
+        #      `_sylk_inviter_aor` (and only in that case). Record
+        #      the invitee→inviter mapping so a later departure of
+        #      the inviter can arm the eviction timer. Direct
+        #      (incoming) dial-ins have no such tag — they pay their
+        #      own bill and are not tracked.
+        #
+        #   2. The joining session's own AoR may match an inviter who
+        #      had previously left and triggered timers for their
+        #      invitees. Treat any reappearance of the inviter
+        #      (same AoR, any device) as the inviter retaking
+        #      responsibility — cancel every pending eviction they
+        #      own. The map entry is left intact: if they leave again
+        #      we re-arm.
+        try:
+            inviter_aor = getattr(session, '_sylk_inviter_aor', None)
+            if inviter_aor:
+                invitee_aor = self._session_aor(session)
+                if invitee_aor:
+                    self._invitee_inviter[invitee_aor] = inviter_aor
+                    log.info('Room %s - tracking invitee %s (invited by %s) for anti-fraud eviction' %
+                             (self.uri, invitee_aor, inviter_aor))
+        except Exception as e:
+            log.warning('Room %s - add_session: anti-fraud registration raised: %s' % (self.uri, e))
+        try:
+            joining_aor = self._session_aor(session)
+            if joining_aor and self._pending_evictions:
+                for ev_invitee_aor, ev in list(self._pending_evictions.items()):
+                    if ev.inviter_aor == joining_aor:
+                        ev.cancel('inviter rejoined the room')
+                        self._pending_evictions.pop(ev_invitee_aor, None)
+        except Exception as e:
+            log.warning('Room %s - add_session: inviter-rejoin sweep raised: %s' % (self.uri, e))
         # Assign a stable short opaque identifier for this session. Used by
         # the conference admin API and published in the conference-info
         # NOTIFY payload as <agp-conf:participant_id>. Disambiguates
@@ -1005,6 +1191,59 @@ class Room(object):
         self.session_nickname_map.pop(session, None)
         remote_uri = str(session.remote_identity.uri)
         self.participants_counter[remote_uri] -= 1
+        # Anti-fraud bookkeeping on departure. Three independent
+        # actions, all gated on the leaving session's AoR; we compute
+        # it once and reuse. None of these raise on missing entries,
+        # so a non-tracked session (incoming dial-in, SIP user with
+        # no recorded inviter) flows straight through.
+        try:
+            leaving_aor = self._session_aor(session)
+            if leaving_aor:
+                # (1) If the leaver IS a tracked invitee, drop
+                #     its inviter mapping. The leg is gone — there is
+                #     nothing left to evict and the inviter no longer
+                #     owes anything for it.
+                self._invitee_inviter.pop(leaving_aor, None)
+                # (2) Same target: cancel any eviction timer that was
+                #     armed for this invitee. Defensive — normally the
+                #     invitee leaving WHILE a timer is armed means the
+                #     leg ended voluntarily inside the grace period.
+                _pending = self._pending_evictions.pop(leaving_aor, None)
+                if _pending is not None:
+                    _pending.cancel('invitee left voluntarily')
+                # (3) Did the leaver own any other sessions in the
+                #     room? If not — i.e. their last device just
+                #     dropped — they were the inviter of one or more
+                #     tracked invitees who are still here, arm an
+                #     eviction timer for each. Match by AoR so all
+                #     devices of the inviter count as "still here".
+                still_present_aors = set()
+                for s in self.sessions:
+                    a = self._session_aor(s)
+                    if a:
+                        still_present_aors.add(a)
+                if leaving_aor not in still_present_aors:
+                    grace = int(getattr(ConferenceConfig, 'inviter_eviction_grace_period', 0) or 0)
+                    if grace > 0:
+                        for invitee_aor, inviter_aor in list(self._invitee_inviter.items()):
+                            if inviter_aor != leaving_aor:
+                                continue
+                            if invitee_aor in self._pending_evictions:
+                                # Already armed (e.g. inviter had
+                                # multiple sessions and we already
+                                # processed their previous one).
+                                continue
+                            # The invitee must actually still be in
+                            # the room — if they had left already
+                            # action (2) above on THEIR removal would
+                            # have cleared the mapping. Belt and
+                            # braces in case of out-of-order events.
+                            if invitee_aor not in still_present_aors:
+                                self._invitee_inviter.pop(invitee_aor, None)
+                                continue
+                            self._pending_evictions[invitee_aor] = _InviterEviction(self, invitee_aor, inviter_aor, grace)
+        except Exception as e:
+            log.warning('Room %s - remove_session: anti-fraud bookkeeping raised: %s' % (self.uri, e))
         if self.participants_counter[remote_uri] == 0:
             del self.participants_counter[remote_uri]
             self.last_nicknames_map.pop(remote_uri, None)

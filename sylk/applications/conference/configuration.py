@@ -231,6 +231,43 @@ class ConferenceConfig(ConfigSection):
     #     default_refer_media = audio,chat
     default_refer_media = ConfigSetting(type=str, value='')
 
+    # Anti-fraud eviction timer for invitees whose inviter has left
+    # the conference. Each outgoing INVITE issued by a REFER
+    # ;method=INVITE is tagged with the inviter's AoR (the REFER's
+    # From header) if its Refer-To target matches the configured
+    # destination pattern (see inviter_eviction_destinations below).
+    # When that AoR's last session leaves the room, a per-invitee
+    # grace timer is armed; when it expires the invitee's leg is
+    # BYE'd by the conference. The intent is to stop an abandoned
+    # call from racking up termination charges against the inviter's
+    # account when they themselves have already disconnected. The
+    # timer is cancelled if the inviter rejoins (any device, matched
+    # by AoR) or the invitee leaves on their own. SIP/PSTN
+    # participants cannot issue REFERs in our deployment, so this
+    # only ever touches WebRTC-initiated invitations. Set the grace
+    # period to 0 to disable the feature entirely.
+    #
+    # While a timer is armed, the server log emits one line per
+    # invitee per minute showing minutes remaining.
+    inviter_eviction_grace_period = 1200  # seconds (20 minutes)
+
+    # Which Refer-To destinations get tracked by the anti-fraud
+    # eviction timer. One of:
+    #   * `pstn` (default) — only PSTN numbers. The Refer-To URI's
+    #     user part must begin with `0` or `+`. Pure SIP destinations
+    #     (alice@example.com) are ignored. This is the original
+    #     billing-protection scope: outbound PSTN is where the
+    #     inviter's account actually gets charged termination fees.
+    #   * `sip`           — only non-PSTN SIP destinations. Inverse
+    #     of `pstn`. Useful when SIP-trunk providers also bill per
+    #     leg and you want the protection without the PSTN-format
+    #     gate.
+    #   * `all`           — every Refer-To destination is tracked,
+    #     regardless of URI shape.
+    # Anything unrecognised falls back to `pstn` so a typo never
+    # silently widens the protection scope.
+    inviter_eviction_destinations = ConfigSetting(type=str, value='pstn')
+
     # Marker that lets a SIP-to-Janus audio bridge identify itself on its
     # INVITE. When the incoming Request-URI carries a parameter
     # `;app=<this value>`, the conference application:

@@ -66,6 +66,44 @@ def _parse_media_csv(value):
     return items or None
 
 
+def _refer_destination_eligible_for_eviction(refer_to_uri):
+    """Decide whether a REFER ;method=INVITE target should be tagged
+    for anti-fraud eviction tracking, based on the configured
+    ConferenceConfig.inviter_eviction_destinations pattern:
+
+        pstn (default) — user part starts with `0` or `+`. Outbound
+                         PSTN calls, where the inviter's account is
+                         actually billed for termination minutes.
+        sip            — anything that is NOT a PSTN-shaped user
+                         (i.e. SIP / WebRTC URIs). Useful when SIP
+                         trunks also bill per leg and PSTN-only is
+                         too narrow.
+        all            — every Refer-To destination, no filtering.
+
+    Unrecognised values fall back to `pstn` so a typo in the config
+    file never silently widens the protection scope. Returns False
+    when the URI's user part can't be derived (defensive — we'd
+    rather under-track than mis-track on a malformed URI).
+    """
+    try:
+        user = refer_to_uri.user
+        user = user.decode() if isinstance(user, bytes) else (user or '')
+        user = user.strip()
+    except Exception:
+        return False
+    if not user:
+        return False
+    pattern = getattr(ConferenceConfig, 'inviter_eviction_destinations', 'pstn')
+    pattern = str(pattern or 'pstn').strip().lower()
+    is_pstn = user.startswith(('0', '+'))
+    if pattern == 'all':
+        return True
+    if pattern == 'sip':
+        return not is_pstn
+    # 'pstn' and any unrecognised value
+    return is_pstn
+
+
 class _RoomTargetURI(object):
     """Minimal user@host carrier with .user/.host as plain strings.
 
@@ -1268,6 +1306,32 @@ class IncomingReferralHandler(object):
         else:
             extra_headers.append(Header('Referred-By', str(original_from_header.uri)))
         route = notification.data.result[0]
+        # Anti-fraud tag: record the inviter's AoR on the outgoing
+        # session when the Refer-To target matches the configured
+        # destination pattern (ConferenceConfig.inviter_eviction_destinations).
+        # Room.add_session() picks this up to populate
+        # _invitee_inviter, which arms an eviction timer if the
+        # inviter ever leaves the room before the invitee does. See
+        # _refer_destination_eligible_for_eviction below and the
+        # configuration setting's own docstring for the pattern
+        # semantics — this file makes no assumption about which
+        # destinations are in scope; the helper is the single source
+        # of truth.
+        if _refer_destination_eligible_for_eviction(self.refer_to_uri):
+            try:
+                _from_uri = original_from_header.uri
+                _u = _from_uri.user
+                _h = _from_uri.host
+                _u = _u.decode() if isinstance(_u, bytes) else (_u or '')
+                _h = _h.decode() if isinstance(_h, bytes) else (_h or '')
+                if _u and _h:
+                    self.session._sylk_inviter_aor = '{}@{}'.format(_u, _h).lower()
+                    log.info('Room %s - tagging invitee %s with inviter AoR %s for anti-fraud eviction (pattern=%s)' %
+                             (self.room_uri_str, self.refer_to_uri, self.session._sylk_inviter_aor,
+                              str(getattr(ConferenceConfig, 'inviter_eviction_destinations', 'pstn') or 'pstn').strip().lower() or 'pstn'))
+            except Exception as e:
+                log.warning('Room %s - could not derive inviter AoR for invitee %s: %s' %
+                            (self.room_uri_str, self.refer_to_uri, e))
         # Publish ourselves in the pending-invites registry BEFORE
         # firing the INVITE. Doing it before .connect() means a
         # REFER ;method=BYE that races with the outgoing INVITE
