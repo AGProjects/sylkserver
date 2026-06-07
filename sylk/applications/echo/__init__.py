@@ -50,11 +50,12 @@ class EchoApplication(SylkApplication):
 
     def incoming_session(self, session):
         peer = '%s:%s' % (session.transport, session.peer_address)
-        log.info('Session %s from %s to %s' % (session.call_id, peer, format_identity(session.remote_identity)))
+        caller = '%s@%s' % (session.remote_identity.uri.user, session.remote_identity.uri.host)
+        log.info('Session %s from %s (%s) to %s' % (session.call_id, caller, peer, format_identity(session.remote_identity)))
         audio_streams = [stream for stream in session.proposed_streams if stream.type=='audio']
         chat_streams = [stream for stream in session.proposed_streams if stream.type=='chat']
         if not audio_streams and not chat_streams:
-            log.info('Session %s rejected: invalid media, only RTP audio and MSRP chat are supported' % session.call_id)
+            log.info('Session %s from %s rejected: invalid media, only RTP audio and MSRP chat are supported' % (session.call_id, caller))
             session.reject(488)
             return
         if audio_streams:
@@ -107,6 +108,7 @@ class EchoHandler(object):
 
     def __init__(self, session, audio_stream, chat_stream):
         self.session = session
+        self.caller = '%s@%s' % (session.remote_identity.uri.user, session.remote_identity.uri.host)
         self.audio_stream = audio_stream
         self.chat_stream = chat_stream
 
@@ -165,7 +167,7 @@ class EchoHandler(object):
             chat_stream = next(stream for stream in session.streams if stream.type == 'chat')
         except StopIteration:
             chat_stream = None
-        log.info('Session %s started' % session.call_id)
+        log.info('Session %s from %s started' % (session.call_id, self.caller))
         if audio_stream is not None:
             self._make_audio_stream_echo(audio_stream)
             notification.center.add_observer(self, sender=audio_stream)
@@ -177,7 +179,7 @@ class EchoHandler(object):
 
     def _NH_SIPSessionDidEnd(self, notification):
         session = notification.sender
-        log.info('Session %s ended' % session.call_id)
+        log.info('Session %s from %s ended' % (session.call_id, self.caller))
         self._cleanup()
 
     def _NH_SIPSessionDidFail(self, notification):
@@ -200,7 +202,7 @@ class EchoHandler(object):
         session = notification.sender
         for stream in notification.data.added_streams:
             notification.center.add_observer(self, sender=stream)
-            log.info('Session %s has added %s' % (session.call_id, stream.type))
+            log.info('Session %s from %s has added %s' % (session.call_id, self.caller, stream.type))
             if stream.type == 'audio':
                 self._make_audio_stream_echo(stream)
                 self.audio_stream = stream
@@ -209,21 +211,21 @@ class EchoHandler(object):
 
         for stream in notification.data.removed_streams:
             notification.center.remove_observer(self, sender=stream)
-            log.info('Session %s has removed %s' % (session.call_id, stream.type))
+            log.info('Session %s from %s has removed %s' % (session.call_id, self.caller, stream.type))
             if stream.type == 'audio':
                 self.audio_stream = None
             elif stream.type == 'chat':
                 self.chat_stream = None
 
         if not session.streams:
-            log.info('Session %s has removed all streams, session will be terminated' % session.call_id)
+            log.info('Session %s from %s has removed all streams, session will be terminated' % (session.call_id, self.caller))
             session.end()
 
     def _NH_SIPSessionTransferNewIncoming(self, notification):
         notification.sender.reject_transfer(403)
 
     def _NH_AudioStreamGotDTMF(self, notification):
-        log.info('Session %s received DTMF: %s' % (self.session.call_id, notification.data.digit))
+        log.info('Session %s from %s received DTMF: %s' % (self.session.call_id, self.caller, notification.data.digit))
 
     def _NH_ChatStreamGotMessage(self, notification):
         stream = notification.sender

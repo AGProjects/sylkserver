@@ -52,12 +52,13 @@ class PlaybackApplication(SylkApplication):
         del self.bonjour_services[:]
 
     def incoming_session(self, session):
-        log.info('Session %s from %s to %s' % (session.call_id, session.remote_identity.uri, session.local_identity.uri))
+        caller = '%s@%s' % (session.remote_identity.uri.user, session.remote_identity.uri.host)
+        log.info('Session %s from %s to %s' % (session.call_id, caller, session.local_identity.uri))
         config = get_config('%s@%s' % (session.request_uri.user, session.request_uri.host))
         if config is None:
             config = get_config('%s' % session.request_uri.user)
             if config is None:
-                log.info('Session %s rejected: no configuration found for %s' % (session.call_id, session.request_uri))
+                log.info('Session %s from %s rejected: no configuration found for %s' % (session.call_id, caller, session.request_uri))
                 session.reject(488)
                 return
         stream_types = {'audio'}
@@ -65,7 +66,7 @@ class PlaybackApplication(SylkApplication):
             stream_types.add('video')
         streams = [stream for stream in session.proposed_streams if stream.type in stream_types]
         if not streams:
-            log.info(u'Session %s rejected: invalid media' % session.call_id)
+            log.info(u'Session %s from %s rejected: invalid media' % (session.call_id, caller))
             session.reject(488)
             return
         handler = PlaybackHandler(config, session)
@@ -127,6 +128,7 @@ class PlaybackHandler(object):
     def __init__(self, config, session):
         self.config = config
         self.session = session
+        self.caller = '%s@%s' % (session.remote_identity.uri.user, session.remote_identity.uri.host)
         self.proc = None
 
     def run(self):
@@ -154,11 +156,11 @@ class PlaybackHandler(object):
             return
         player = WavePlayer(audio_stream.mixer, config.file)
         audio_stream.bridge.add(player)
-        log.info('Playing file %s for session %s' % (config.file, self.session.call_id))
+        log.info('Playing file %s for session %s to %s' % (config.file, self.session.call_id, self.caller))
         try:
             player.play().wait()
         except (ValueError, WavePlayerError) as e:
-            log.warning('Error playing file %s: %s' % (config.file, e))
+            log.warning('Error playing file %s for session %s from %s: %s' % (config.file, self.session.call_id, self.caller, e))
         except proc.ProcExit:
             pass
         finally:
@@ -188,10 +190,10 @@ class PlaybackHandler(object):
         session = notification.sender
 
         for stream in notification.data.added_streams:
-            log.info('Session %s added %s' % (session.call_id, stream.type))
+            log.info('Session %s from %s added %s' % (session.call_id, self.caller, stream.type))
 
         for stream in notification.data.removed_streams:
-            log.info('Session %s removed %s' % (session.call_id, stream.type))
+            log.info('Session %s from %s removed %s' % (session.call_id, self.caller, stream.type))
 
         if notification.data.added_streams and self.proc is None:
             self.proc = proc.spawn(self._play)
@@ -201,12 +203,12 @@ class PlaybackHandler(object):
 
     def _NH_SIPSessionDidStart(self, notification):
         session = notification.sender
-        log.info('Session %s started' % session.call_id)
+        log.info('Session %s from %s started' % (session.call_id, self.caller))
         self.proc = proc.spawn(self._play)
 
     def _NH_SIPSessionDidFail(self, notification):
         session = notification.sender
-        log.info('Session %s failed' % session.call_id)
+        log.info('Session %s from %s failed' % (session.call_id, self.caller))
         notification.center.remove_observer(self, sender=session)
 
     def _NH_SIPSessionWillEnd(self, notification):
@@ -215,7 +217,7 @@ class PlaybackHandler(object):
 
     def _NH_SIPSessionDidEnd(self, notification):
         session = notification.sender
-        log.info('Session %s ended' % session.call_id)
+        log.info('Session %s from %s ended' % (session.call_id, self.caller))
         notification.center.remove_observer(self, sender=session)
 
 
