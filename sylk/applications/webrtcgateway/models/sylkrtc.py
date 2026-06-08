@@ -95,6 +95,21 @@ class VideoroomPublisher(JSONObject):
     id = StringProperty()
     uri = StringProperty(validator=AORValidator())
     display_name = StringProperty(optional=True)
+    # SIP-side metadata folded into the native publisher primitive so the
+    # client no longer needs the separate conference-participants snapshot:
+    #   type  - 'webrtc' (a Janus publisher), 'sip' (a caller behind the
+    #           audio bridge, surfaced as a surrogate participant) or
+    #           'bridge' (the audio-bridge publisher itself; client hides it).
+    #   muted - server-side input-mute flag reported by the focus.
+    # Both optional so a plain WebRTC join with no SIP focus still validates.
+    #
+    # There is deliberately no separate participant_id: a SIP surrogate's
+    # `id` IS the conference focus's per-session token (the same value the
+    # audio-level event is keyed by, so tiles join on `id`), and a WebRTC
+    # publisher's `id` is its videoroom session id (resolved directly for
+    # feed-attach and mute routing). One identifier per participant.
+    type = LimitedChoiceProperty(['webrtc', 'sip', 'bridge'], optional=True)
+    muted = BooleanProperty(optional=True)
 
 
 class VideoroomPublishers(JSONArray):
@@ -457,6 +472,19 @@ class VideoroomPublishersJoinedEvent(VideoroomEventBase):
 class VideoroomPublishersLeftEvent(VideoroomEventBase):
     event = FixedValueProperty('publishers-left')
     publishers = ArrayProperty(StringArray)          # type: StringArray
+
+
+class VideoroomPublisherUpdatedEvent(VideoroomEventBase):
+    # Per-participant delta for mutable fields (currently only `muted`),
+    # emitted instead of re-broadcasting the whole participant list when a
+    # single participant's state changes on the SIP focus. `publisher` is
+    # the participant's `id` as used in initial-publishers / publishers-joined
+    # (the videoroom session id for a WebRTC publisher, or the focus token
+    # for a SIP surrogate), so the client resolves the target straight out of
+    # its participants map. `type` is immutable and deliberately absent.
+    event = FixedValueProperty('publisher-updated')
+    publisher = StringProperty()
+    muted = BooleanProperty(optional=True)
 
 
 class VideoroomFileSharingEvent(VideoroomEventBase):

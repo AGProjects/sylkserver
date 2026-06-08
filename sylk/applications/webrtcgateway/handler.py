@@ -61,6 +61,43 @@ from .storage import MessageStorage, TokenStorage
 _SIP_URI_RE = re.compile(r'^sips?:[^\s@]+@[^\s@]+$')
 
 
+def _is_bridge_uri(uri):
+    """True if a SIP URI identifies the sylk-janus-audio-bridge.
+
+    The bridge advertises itself with the app=sylk-janus-audio-bridge
+    marker on its URI; this is the same test _NH_SIPSessionGotConferenceInfo
+    uses to classify the bridge participant in a conference-info NOTIFY, so
+    join-time and NOTIFY-time classification stay consistent.
+    """
+    return 'app=sylk-janus-audio-bridge' in (uri or '').lower()
+
+
+def _classify_external_publisher(room, ext_uri, janus_id, log=None):
+    """Classify a non-WebRTC (external) Janus publisher as 'bridge' or 'sip'.
+
+    The audio bridge is the only non-WebRTC entity that publishes into the
+    room, but its Janus 'display' URI doesn't carry the
+    app=sylk-janus-audio-bridge marker (that lives in the bridge's SIP
+    Contact, which the conference focus consumes). So we primarily match the
+    publisher's AoR against the bridge AoR(s) the conference-info NOTIFY
+    taught us (room.bridge_aors), falling back to the URI marker for the
+    race where no NOTIFY has landed yet.
+    """
+    aor = ext_uri or ''
+    if aor.startswith('sip:'):
+        aor = aor[4:]
+    elif aor.startswith('sips:'):
+        aor = aor[5:]
+    aor = aor.split(';', 1)[0]
+    bridge_aors = getattr(room, 'bridge_aors', set()) or set()
+    is_bridge = aor in bridge_aors or _is_bridge_uri(ext_uri)
+    ptype = 'bridge' if is_bridge else 'sip'
+    if log is not None:
+        log.info('external publisher {pid}: uri={uri} aor={aor} -> type={t} (bridge_aors={b})'.format(
+            pid=janus_id, uri=ext_uri, aor=aor, t=ptype, b=sorted(bridge_aors) or '-'))
+    return ptype
+
+
 def _parse_external_publisher_display(display, janus_id):
     """
     Parse the Janus 'display' field of an external publisher (e.g.
@@ -365,6 +402,13 @@ class Videoroom(object):
         # filter the bridge out of the per-participant audio-level log
         # since its in/out is just plumbing, not a user-facing source.
         self.bridge_participant_id = None  # type: Optional[str]
+        # AoR(s) of the audio bridge, learned from the conference-info
+        # NOTIFY (the bridge is the User element carrying the agp-conf
+        # admin/UDP extensions — the app=sylk-janus-audio-bridge marker
+        # itself lives in the bridge's SIP Contact, not on the entity URI,
+        # so it isn't visible here). Consulted by _EH_janus_videoroom_joined
+        # to tag the bridge's Janus publisher as type='bridge' at join time.
+        self.bridge_aors = set()  # type: Set[str]
         # participant_id → VideoroomSession for every WebRTC publisher
         # currently joined to this room. Rebuilt wholesale from each
         # conference-info NOTIFY (see _NH_SIPSessionGotConferenceInfo)
@@ -389,6 +433,16 @@ class Videoroom(object):
         # from the focus) is auto-muted again rather than remembered
         # forever.
         self.auto_muted_pids = set()  # type: Set[str]
+        # Current SIP-side surrogate participants (callers behind the audio
+        # bridge), as plain dicts ready to build VideoroomPublisher entries:
+        # {id, uri, display_name, type[, muted]}, where id is the conference
+        # focus's per-session token. Rebuilt at the end of every
+        # conference-info NOTIFY and read by _EH_janus_videoroom_joined to
+        # seed a freshly joined WebRTC client's initial participant list, so
+        # a late joiner sees existing SIP callers without waiting for the
+        # next NOTIFY. `type` is always 'sip' here — the bridge arrives as a
+        # Janus publisher and WebRTC peers via the native publisher events.
+        self.sip_participants = []  # type: List[dict]
         if self.config.record:
             makedirs(self.config.recording_dir, 0o755)
             self.log.info('created (recording on)')
@@ -2571,14 +2625,26 @@ class ConnectionHandler(object):
         except KeyError:
             raise APIError('Unknown room session: {request.session}'.format(request=request))
         room = base_session.room
-        # Path 1: local WebRTC peer.
+        # Path 1: local WebRTC peer. The request carries the participant's
+        # unified `id`. For a WebRTC publisher that id IS its videoroom
+        # session id, so resolve it against the room directly; for a SIP
+        # participant the same field is the focus's per-session token, which
+        # won't resolve to a publisher session and so falls through to the
+        # REFER path below. (The pid -> session map is kept as a fallback.)
         pid = str(getattr(request, 'participant_id', '') or '')
         target_session = None
         if pid:
             try:
-                target_session = room.webrtc_participants_by_pid.get(pid)
-            except AttributeError:
-                target_session = None
+                sess = room[pid]
+            except (KeyError, TypeError):
+                sess = None
+            if sess is not None and getattr(sess, 'type', None) == 'publisher':
+                target_session = sess
+            else:
+                try:
+                    target_session = room.webrtc_participants_by_pid.get(pid)
+                except AttributeError:
+                    target_session = None
         if target_session is not None:
             try:
                 target_session.owner.send(sylkrtc.VideoroomMuteRequestEvent(
@@ -3314,7 +3380,10 @@ class ConnectionHandler(object):
                 # directly to Janus). The bridge packs its display name
                 # and SIP URI into the Janus 'display' field with a TAB
                 # separator; split them back out so clients see a real
-                # user@domain entity with its own name.
+                # user@domain entity with its own name. The individual SIP
+                # callers behind the bridge are NOT Janus publishers — they
+                # are appended below as surrogate participants from the
+                # conference-info cache.
                 ext_name, ext_uri = _parse_external_publisher_display(
                     publisher.display, publisher.id,
                 )
@@ -3322,9 +3391,28 @@ class ConnectionHandler(object):
                     id=str(publisher.id),
                     uri=ext_uri,
                     display_name=ext_name,
+                    type=_classify_external_publisher(room, ext_uri, publisher.id, self.log),
                 ))
             else:
-                publishers.append(dict(id=publisher_session.id, uri=publisher_session.account.id, display_name=publisher.display or ''))
+                # Native WebRTC publisher. Its id comes from the underlying
+                # Janus publisher (carried as the videoroom session id). We
+                # tag only its type — a WebRTC peer's mute is handled through
+                # the mute-request / local-mic flow, so the focus's muted flag
+                # is not surfaced for it.
+                publishers.append(dict(
+                    id=publisher_session.id,
+                    uri=publisher_session.account.id,
+                    display_name=publisher.display or '',
+                    type='webrtc',
+                ))
+        # Append SIP callers behind the bridge as surrogate participants so a
+        # late joiner's initial list is complete in this one event. They have
+        # no Janus feed (their audio reaches everyone through the bridge mix),
+        # so the client renders them as audio-only tiles and never attaches a
+        # subscription. Copy each cached dict so the model can't mutate the
+        # room's shared cache.
+        for sp in room.sip_participants:
+            publishers.append(dict(sp))
         self.send(sylkrtc.VideoroomInitialPublishersEvent(session=videoroom_session.id, publishers=publishers))
         room.add(videoroom_session)  # adding the session to the room might also trigger sending an event with the active participants which must be sent last
 
@@ -3383,6 +3471,7 @@ class ConnectionHandler(object):
                     id=str(publisher.id),
                     uri=ext_uri,
                     display_name=ext_name,
+                    type=_classify_external_publisher(room, ext_uri, publisher.id, self.log),
                 ))
                 continue
             publishers.append(dict(id=publisher_session.id, uri=publisher_session.account.id, display_name=publisher.display or ''))
@@ -3665,6 +3754,14 @@ class VideoroomChatHandler(object):
         self._message_queue = deque()
         self._conference_participants = set()  # type: Set[str]
         self._last_emitted_participants = set()  # type: Set[str]
+        # Per-participant snapshot last forwarded to THIS handler's client,
+        # keyed by a stable diff key (participant_id for SIP surrogates,
+        # 'webrtc:<aor>' for WebRTC publishers). Value:
+        # {target_id, type, muted, publisher}. Diffed against the freshly
+        # built snapshot on each conference-info NOTIFY to emit
+        # publishers-joined / publishers-left / publisher-updated instead of
+        # the whole-roster conference-participants event.
+        self._participant_state = {}  # type: Dict[str, dict]
 
     @property
     def account(self):
@@ -3730,6 +3827,7 @@ class VideoroomChatHandler(object):
             self.chat_stream = None
             self._conference_participants = set()
             self._last_emitted_participants = set()
+            self._participant_state = {}
             self.room.log.debug('chat session for {} ended'.format(self.account.id))
             notification_center.post_notification('ChatSessionDidEnd', sender=self)
         while self._message_queue:
@@ -3960,7 +4058,7 @@ class VideoroomChatHandler(object):
             return uri.split(';', 1)[0]
 
         def _is_bridge(uri):
-            return 'app=sylk-janus-audio-bridge' in (uri or '').lower()
+            return _is_bridge_uri(uri)
 
         webrtc_publishers = {}
         for session in self.room:
@@ -4096,6 +4194,17 @@ class VideoroomChatHandler(object):
         # the gateway sends back to the focus.
         new_pid_uri_map = {}
         payload_participants = []
+        # Native-primitive view built alongside payload_participants:
+        #   current_surrogates - SIP callers (type='sip') as publisher dicts,
+        #                        cached on the room for join seeding.
+        #   current_state      - diff map (see _participant_state) used to emit
+        #                        join/leave/update deltas to this handler's
+        #                        client. Only SIP surrogates are tracked here;
+        #                        WebRTC join/leave/mute is owned by the native
+        #                        videoroom flow.
+        current_surrogates = []
+        current_state = {}
+        current_bridge_aors = set()
         for user in conference_info.users:
             user_aor = _aor(getattr(user, 'entity', '') or '')
             user_display = ''
@@ -4189,6 +4298,21 @@ class VideoroomChatHandler(object):
                         participant_id, muted_value, getattr(_vce, 'muted', '<missing>')))
                 endpoints.append(_vce)
             participant_aor = _aor(user.entity)
+            # Learn whether this User is the audio bridge from the
+            # conference-event NOTIFY itself: the focus republishes the
+            # bridge's agp-conf extensions (admin_endpoint_url /
+            # audio_levels_udp_endpoint) on its User element. The
+            # app=sylk-janus-audio-bridge marker is carried in the bridge's
+            # SIP Contact (which the conference application consumes to
+            # recognise it) and is NOT present on the entity URI we see
+            # here, so the URI heuristic alone misses it — the extension
+            # presence is the authoritative signal.
+            _user_admin_url = Videoroom._extension_value(getattr(user, 'admin_endpoint_url', None))
+            _user_admin_token = Videoroom._extension_value(getattr(user, 'admin_endpoint_token', None))
+            _user_udp = Videoroom._extension_value(getattr(user, 'audio_levels_udp_endpoint', None))
+            _user_is_bridge = bool(_user_admin_url or _user_udp) \
+                or _is_bridge(user.entity) \
+                or any(_is_bridge(getattr(e, 'uri', None)) for e in endpoints)
             if participant_aor in webrtc_publishers:
                 ptype = 'webrtc'
                 # Bind each endpoint's participant_id to the matching
@@ -4204,7 +4328,7 @@ class VideoroomChatHandler(object):
                     for _ep in endpoints:
                         if _ep.participant_id:
                             new_webrtc_pid_map[_ep.participant_id] = _wpub
-            elif _is_bridge(user.entity) or any(_is_bridge(getattr(e, 'uri', None)) for e in endpoints):
+            elif _user_is_bridge:
                 ptype = 'bridge'
             else:
                 ptype = 'sip'
@@ -4215,9 +4339,14 @@ class VideoroomChatHandler(object):
             admin_token = None
             udp_endpoint = None
             if ptype == 'bridge':
-                admin_url = Videoroom._extension_value(getattr(user, 'admin_endpoint_url', None))
-                admin_token = Videoroom._extension_value(getattr(user, 'admin_endpoint_token', None))
-                udp_endpoint = Videoroom._extension_value(getattr(user, 'audio_levels_udp_endpoint', None))
+                admin_url = _user_admin_url
+                admin_token = _user_admin_token
+                udp_endpoint = _user_udp
+                # Remember the bridge AoR so the join handler can tag the
+                # bridge's Janus publisher as type='bridge' (it can't tell
+                # from the publisher URI alone).
+                if participant_aor:
+                    current_bridge_aors.add(participant_aor)
                 # Cache on the Videoroom so the WS request handler for
                 # mute can reach the conference admin API on demand
                 # (the request handler runs on a different async path
@@ -4266,6 +4395,35 @@ class VideoroomChatHandler(object):
                 admin_endpoint_token=admin_token,
                 audio_levels_udp_endpoint=udp_endpoint,
             ))
+            # Build the native-primitive view of this user for the
+            # join-seeding cache and the per-client diff. A SIP caller
+            # becomes one surrogate participant per endpoint, whose `id` is
+            # the focus's per-session token (the same key the audio-level
+            # stream uses, so the client joins on `id`); WebRTC publishers
+            # contribute only their muted state (the publisher itself already
+            # reached the client via the native videoroom events). The bridge
+            # is intentionally skipped here — it arrives as a Janus publisher.
+            _surrogate_uri = 'sip:{}'.format(participant_aor)
+            _display = current_display.get(user.entity) or ''
+            if ptype == 'sip':
+                for _ep in endpoints:
+                    if not _ep.participant_id:
+                        continue
+                    _sp = dict(
+                        id=_ep.participant_id,
+                        uri=_surrogate_uri,
+                        display_name=_display,
+                        type='sip',
+                    )
+                    if _ep.muted is not None:
+                        _sp['muted'] = _ep.muted
+                    current_surrogates.append(_sp)
+                    current_state[_ep.participant_id] = dict(
+                        target_id=_ep.participant_id,
+                        type='sip',
+                        muted=_ep.muted,
+                        publisher=_sp,
+                    )
         for account_id, session in webrtc_publishers.items():
             if account_id in sip_aor_map:
                 continue
@@ -4305,22 +4463,78 @@ class VideoroomChatHandler(object):
                 getattr(self.room, 'bridge_participant_id', None))
         except Exception as e:
             self.room.log.warning('auto-mute pass failed: {}'.format(e))
-        # Conference duration is computed locally from the videoroom's
-        # own start_time anchor. Intentionally NOT taken from the SIP
-        # focus's `agp-conf:duration` field — the webrtcgateway runs an
-        # independent timer so the duration shown to WebRTC clients is
-        # consistent even if the SIP bridge restarts, the focus reports
-        # a different value, or the SIP side of the conference came up
-        # earlier than the webrtc side.
-        duration = self.room.duration
+        # Conference duration is no longer carried on these per-participant
+        # deltas — the client seeds its local timer from the duration on the
+        # VideoroomSessionAcceptedEvent at join (computed locally from the
+        # videoroom's own start_time anchor, independent of the SIP focus's
+        # `agp-conf:duration`) and counts up from there.
+        # Publish the SIP-side view onto the room so a WebRTC client that
+        # joins next can be seeded with the current SIP callers (see
+        # _EH_janus_videoroom_joined). Shared, last-writer-wins cache — every
+        # chat handler in the room recomputes the same view from the same
+        # NOTIFY.
+        self.room.sip_participants = current_surrogates
+        self.room.bridge_aors = current_bridge_aors
+
+        # Diff the freshly built snapshot against what this handler last
+        # forwarded to its client and emit only the deltas, reusing the
+        # native publisher primitives. SIP surrogates produce
+        # publishers-joined / publishers-left; a muted change on any
+        # participant (SIP surrogate or WebRTC publisher) produces a
+        # publisher-updated. WebRTC join/leave is NOT emitted here — that is
+        # owned by the native videoroom publisher events. Because a freshly
+        # joined client already received the current SIP callers via the
+        # initial-publishers event, the client treats publishers-joined as
+        # an upsert (keyed by participant_id) so the first NOTIFY after join
+        # is harmless if it re-announces them.
+        previous_state = self._participant_state
+        joined_publishers = []
+        left_ids = []
+        updated = []  # list of (target_id, muted)
+        for key, cur in current_state.items():
+            old = previous_state.get(key)
+            if old is None:
+                if cur['type'] == 'sip' and cur['publisher'] is not None:
+                    joined_publishers.append(cur['publisher'])
+            elif cur['muted'] != old['muted']:
+                updated.append((cur['target_id'], cur['muted']))
+        for key, old in previous_state.items():
+            if key not in current_state and old['type'] == 'sip':
+                left_ids.append(old['target_id'])
+        self._participant_state = current_state
+
+        # Operator-visible log of the SIP participant deltas this NOTIFY
+        # produced for this client, plus the current SIP roster snapshot so
+        # it's easy to confirm the bridge is classified as 'bridge' (and
+        # therefore excluded from the surrogate list) rather than leaking
+        # through as a 'sip' participant.
+        if joined_publishers or left_ids or updated:
+            _joined_desc = ', '.join('{}({})'.format(p.get('uri'), p.get('id')) for p in joined_publishers) or '-'
+            _updated_desc = ', '.join('{}={}'.format(tid, 'muted' if m else 'unmuted') for tid, m in updated) or '-'
+            self.room.log.info(
+                'SIP participant deltas for {account}: joined=[{j}] left={l} muted-changed=[{u}]'.format(
+                    account=self.account.id if self.account else '?',
+                    j=_joined_desc, l=left_ids or '-', u=_updated_desc))
+            self.room.log.info(
+                'SIP roster now: {n} caller(s) [{roster}] bridge_aors={bridges}'.format(
+                    n=len(current_surrogates),
+                    roster=', '.join('{}({})'.format(s.get('uri'), s.get('id')) for s in current_surrogates) or '-',
+                    bridges=', '.join(sorted(current_bridge_aors)) or '-'))
+
+        owner = self.sylk_session.owner
+        session_id = self.sylk_session.id
         try:
-            self.sylk_session.owner.send(sylkrtc.VideoroomConferenceParticipantsEvent(
-                session=self.sylk_session.id,
-                participants=payload_participants,
-                duration=duration,
-            ))
+            if joined_publishers:
+                owner.send(sylkrtc.VideoroomPublishersJoinedEvent(
+                    session=session_id, publishers=joined_publishers))
+            if left_ids:
+                owner.send(sylkrtc.VideoroomPublishersLeftEvent(
+                    session=session_id, publishers=left_ids))
+            for target_id, muted in updated:
+                owner.send(sylkrtc.VideoroomPublisherUpdatedEvent(
+                    session=session_id, publisher=target_id, muted=muted))
         except Exception as e:
-            self.room.log.warning('failed to forward SIP conference participants event: {}'.format(e))
+            self.room.log.warning('failed to forward SIP participant deltas: {}'.format(e))
 
     def _NH_ChatStreamGotMessage(self, notification):
         self.chat_stream.msrp_session.send_report(notification.data.chunk, 200, 'OK')
