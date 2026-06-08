@@ -2,6 +2,7 @@
 import math
 import os
 import random
+import re
 import secrets
 import shutil
 import string
@@ -1078,6 +1079,42 @@ class Room(object):
         if ended == 0:
             log.info('Room %s - eviction fire: no live session matched %s (already gone)' % (self.uri, invitee_aor))
 
+    @staticmethod
+    def _device_id_from_contact(session):
+        """Return the device identity advertised by the UA in its Contact
+        header, or None if it didn't advertise one.
+
+        Looks for the RFC 5626 ``+sip.instance`` Contact-header parameter,
+        whose value is the device's instance-id (typically a
+        ``"<urn:uuid:...>"``). The urn:uuid wrapper is stripped and the
+        value is reduced to SIP/XML token-safe characters so the result
+        can be published as the <agp-conf:participant_id> attribute and
+        ride in a Refer-To parameter (mute/unmute) without quoting.
+        Returns None when no instance-id is present or nothing usable
+        survives sanitisation, so the caller falls back to a generated
+        token. Never raises.
+        """
+        try:
+            inv = getattr(session, '_invitation', None)
+            contact_hdr = getattr(inv, 'remote_contact_header', None) if inv is not None else None
+            params = getattr(contact_hdr, 'parameters', None) or {} if contact_hdr is not None else {}
+            for k, v in params.items():
+                key = k.decode() if isinstance(k, bytes) else k
+                if str(key).strip().lower() != '+sip.instance':
+                    continue
+                val = v.decode() if isinstance(v, bytes) else v
+                val = str(val).strip().strip('"').strip()
+                if val.startswith('<') and val.endswith('>'):
+                    val = val[1:-1].strip()
+                if val.lower().startswith('urn:uuid:'):
+                    val = val[len('urn:uuid:'):]
+                # Keep only token-safe characters (alnum and -._~).
+                val = re.sub(r'[^A-Za-z0-9._~-]', '', val)
+                return val or None
+        except Exception as e:
+            log.warning('extracting device id from Contact failed: %s' % e)
+        return None
+
     def add_session(self, session):
         notification_center = NotificationCenter()
         notification_center.add_observer(self, sender=session)
@@ -1121,13 +1158,27 @@ class Room(object):
                         self._pending_evictions.pop(ev_invitee_aor, None)
         except Exception as e:
             log.warning('Room %s - add_session: inviter-rejoin sweep raised: %s' % (self.uri, e))
-        # Assign a stable short opaque identifier for this session. Used by
-        # the conference admin API and published in the conference-info
+        # Assign a stable identifier for this session. Used by the
+        # conference admin API and published in the conference-info
         # NOTIFY payload as <agp-conf:participant_id>. Disambiguates
-        # multiple devices that share the same AoR. Stable for the
-        # lifetime of this one SIP session, never recycled.
+        # multiple devices that share the same AoR.
+        #
+        # Prefer the device's own identity advertised in its Contact
+        # header (the RFC 5626 +sip.instance / instance-id): that way the
+        # participant_id IS the device id the UA chose, stays consistent
+        # for that physical device, and lets other components correlate a
+        # participant to its device instead of an opaque server token. We
+        # only fall back to a generated token when the UA didn't advertise
+        # an instance-id, or when the advertised id would collide with
+        # another live session in this room (e.g. several endpoints reusing
+        # one +sip.instance), since participant_id must stay unique here.
         if not getattr(session, '_sylk_participant_id', None):
-            session._sylk_participant_id = secrets.token_urlsafe(8)
+            device_id = self._device_id_from_contact(session)
+            if device_id and any(getattr(other, '_sylk_participant_id', None) == device_id
+                                  for other in self.sessions if other is not session):
+                log.info('Room %s - device id %r already in use by another session, generating a token instead' % (self.uri, device_id))
+                device_id = None
+            session._sylk_participant_id = device_id or secrets.token_urlsafe(8)
         try:
             chat_stream = next(stream for stream in session.streams if stream.type == 'chat')
         except StopIteration:
