@@ -2079,6 +2079,16 @@ class ConnectionHandler(object):
 
         return update
 
+    def _client_ip(self):
+        # IP address of the WebRTC endpoint on the signalling socket.
+        # autobahn's protocol.peer is a string like 'tcp4:1.2.3.4:54321'
+        # or 'tcp6:2001:db8::1:54321'; strip the transport prefix and the
+        # trailing :port (host is everything in between, so IPv6 with
+        # embedded colons survives).
+        peer = getattr(self.protocol, 'peer', None) or ''
+        match = re.match(r'^tcp[46]?:(?P<host>.+):(?P<port>\d+)$', peer)
+        return match.group('host') if match else peer
+
     def _RH_session_create(self, request):
         if request.session in self.sip_sessions:
             raise APIError('Session ID {request.session} already in use'.format(request=request))
@@ -2101,6 +2111,9 @@ class ConnectionHandler(object):
         # calling/ringing/proceeding — see _EH_janus_sip_event_*).
         extra_headers = list(request.headers.__data__) if request.headers is not None else []
         extra_headers.append({'name': 'X-Sylk-Session-Id', 'value': request.session})
+        # IP address of the WebRTC endpoint placing the call, so it
+        # surfaces in the server-side SIP trace / CDR.
+        extra_headers.append({'name': 'X-Sylk-Client-Ip', 'value': self._client_ip()})
         headers = {'headers': extra_headers}
         try:
             janus_handle.call(account_info, uri=request.uri, sdp=request.sdp, proxy=proxy, **headers)
@@ -2126,8 +2139,12 @@ class ConnectionHandler(object):
         if session_info.state != 'connecting':
             raise APIError('Invalid state for answering session {session.id}: {session.state}'.format(session=session_info))
 
-        headers = {'headers': request.headers.__data__} if request.headers is not None else {}
-        session_info.janus_handle.accept(sdp=request.sdp, **headers)
+        # Add extra headers to the 200 OK answering the incoming call,
+        # mirroring the outgoing INVITE: the WebRTC endpoint IP (here,
+        # the answering party) surfaces in the server-side SIP trace.
+        extra_headers = list(request.headers.__data__) if request.headers is not None else []
+        extra_headers.append({'name': 'X-Sylk-Client-Ip', 'value': self._client_ip()})
+        session_info.janus_handle.accept(sdp=request.sdp, headers=extra_headers)
         self.log.info('incoming session {session.id} answered'.format(session=session_info))
 
     def _RH_session_trickle(self, request):
