@@ -365,6 +365,12 @@ class SessionEstablishedEvent(SessionStateEvent):
 class SessionTerminatedEvent(SessionStateEvent):
     state = FixedValueProperty('terminated')
     reason = StringProperty(optional=True)
+    # SIP Call-ID of the terminated session, when known. Lets the
+    # client learn the Call-ID even for outgoing calls cancelled /
+    # unanswered before an accept/early-media event (the only other
+    # events that carry it). Optional: a call cancelled before the
+    # proxy surfaced the Call-ID won't have one.
+    call_id = StringProperty(optional=True)
 
 
 class SessionUpdateEvent(SessionEventBase):

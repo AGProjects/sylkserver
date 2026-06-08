@@ -180,6 +180,7 @@ class SIPSessionInfo(object):
         self.local_identity = None     # type: Optional[SessionPartyIdentity]
         self.remote_identity = None    # type: Optional[SessionPartyIdentity]
         self.janus_handle = None       # type: Optional[SIPPluginHandle]
+        self.call_id = None            # SIP Call-ID, learned from the first event that carries it
         self.slow_download = False
         self.slow_upload = False
         self._message_queue = deque()
@@ -2828,7 +2829,7 @@ class ConnectionHandler(object):
         if session_info.state != 'terminated':
             session_info.state = 'terminated'
             reason = event.reason or 'unspecified reason'
-            self.send(sylkrtc.SessionTerminatedEvent(session=session_info.id, reason=reason))
+            self.send(sylkrtc.SessionTerminatedEvent(session=session_info.id, reason=reason, call_id=session_info.call_id))
             self.log.info('{session.direction} session {session.id} terminated ({reason})'.format(session=session_info, reason=reason))
             self._cleanup_session(session_info)
 
@@ -2942,6 +2943,7 @@ class ConnectionHandler(object):
             return
 
         session.init_incoming(account_info, originator.uri, originator.display_name)
+        session.call_id = call_id
         self.sip_sessions.add(session)
         self.send(sylkrtc.AccountIncomingSessionEvent(account=account_info.id, session=session.id, originator=originator, sdp=event.jsep.sdp, call_id=call_id, **headers))
         self.log.info('incoming session {session.id} from {session.remote_identity.uri!s}'.format(session=session))
@@ -2973,6 +2975,9 @@ class ConnectionHandler(object):
         except KeyError:
             self.log.warning('could not find SIP session with handle ID {event.sender} for accepted event'.format(event=event))
             return
+
+        if event.plugindata.data.call_id:
+            session_info.call_id = event.plugindata.data.call_id
 
         if session_info.state in ('local-updating', 'remote-updating'):
             previous_state = session_info.state
@@ -3046,7 +3051,7 @@ class ConnectionHandler(object):
             session_info.state = 'terminated'
             data = event.plugindata.data.result  # type: janus.SIPResultHangup
             reason = '{0.code} {0.reason}'.format(data)
-            self.send(sylkrtc.SessionTerminatedEvent(session=session_info.id, reason=reason))
+            self.send(sylkrtc.SessionTerminatedEvent(session=session_info.id, reason=reason, call_id=session_info.call_id))
             if session_info.direction == 'incoming' and data.code == 487:  # incoming call was cancelled -> missed
                 self.send(sylkrtc.AccountMissedSessionEvent(account=session_info.account.id, originator=session_info.remote_identity.__dict__))
             if data.code >= 300:
@@ -3072,12 +3077,17 @@ class ConnectionHandler(object):
         self.send(sylkrtc.ProceedingEvent(session=session_info.id, code=data.code))
 
     def _EH_janus_sip_event_progress(self, event):
-        if (event.jsep):
-            try:
-                session_info = self.sip_sessions[event.sender]
-            except KeyError:
-                self.log.warning('could not find SIP session with handle ID {event.sender} for progress event'.format(event=event))
-                return
+        try:
+            session_info = self.sip_sessions[event.sender]
+        except KeyError:
+            self.log.warning('could not find SIP session with handle ID {event.sender} for progress event'.format(event=event))
+            return
+        # The 183 progress is the earliest event that carries the SIP
+        # Call-ID for an outgoing call. Remember it so a later cancel /
+        # terminate can report it to the caller (SessionTerminatedEvent).
+        if event.plugindata.data.call_id:
+            session_info.call_id = event.plugindata.data.call_id
+        if event.jsep:
             session_info.state = 'early_media'
             self.log.info('{session.direction} session {session.id} has early media'.format(session=session_info))
             self.send(sylkrtc.SessionEarlyMediaEvent(session=session_info.id, sdp=event.jsep.sdp, call_id=event.plugindata.data.call_id))
