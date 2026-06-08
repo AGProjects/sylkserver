@@ -2038,7 +2038,16 @@ class ConnectionHandler(object):
 
         # Create a new plugin handle and 'register' it, without actually doing so
         janus_handle = SIPPluginHandle(self.janus_session, event_handler=self._handle_janus_sip_event)
-        headers = {'headers': request.headers.__data__} if request.headers is not None else {}
+        # Inject the client's session id (the value sylkrtc uses as
+        # call.id) as a custom SIP header on the outgoing INVITE. It
+        # then appears in the server-side SIP trace, so a call can be
+        # correlated back to the client even when it's cancelled /
+        # unanswered before the proxy surfaces a Call-ID (Janus only
+        # gives us the Call-ID at 183 progress / 200, never on
+        # calling/ringing/proceeding — see _EH_janus_sip_event_*).
+        extra_headers = list(request.headers.__data__) if request.headers is not None else []
+        extra_headers.append({'name': 'X-Sylk-Session-Id', 'value': request.session})
+        headers = {'headers': extra_headers}
         try:
             janus_handle.call(account_info, uri=request.uri, sdp=request.sdp, proxy=proxy, **headers)
         except Exception:
