@@ -164,11 +164,22 @@ class PlaybackHandler(object):
         except proc.ProcExit:
             pass
         finally:
-            player.stop()
             self.proc = None
-            audio_stream.bridge.remove(player)
-            self.session.end()
-            self.session = None
+            try:
+                player.stop()
+            except Exception:
+                pass
+            # The audio stream/bridge may already be gone if the caller hung
+            # up or the stream was renegotiated away while the file was
+            # playing; removing a player that is no longer part of the bridge
+            # raises ValueError. Tearing down is best-effort.
+            try:
+                audio_stream.bridge.remove(player)
+            except ValueError:
+                pass
+            if self.session is not None:
+                self.session.end()
+                self.session = None
 
     def handle_notification(self, notification):
         handler = getattr(self, '_NH_%s' % notification.name, Null)
