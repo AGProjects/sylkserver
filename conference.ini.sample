@@ -5,6 +5,14 @@
 ; Replay last chat messages after joining a room
 ; history_size = 20
 
+; DoS / overload mitigation. Maximum number of concurrent calls (sessions)
+; a single conference room will carry. A new INVITE that would exceed this
+; is refused with a 603 response (Maximum conference calls exceeded). A
+; value of 0 disables the cap. This is the global default; override it for a
+; specific room by setting maximum_call_count_per_room in that room's
+; [room@domain] section below.
+; maximum_call_count_per_room = 10
+
 ; Directory for storing files transferred to rooms (a subdirectory for each
 ; room will be created)
 file_transfer_dir = /var/spool/sylkserver

@@ -168,6 +168,7 @@ class IncomingRequestHandler(object, metaclass=Singleton):
                 txt += '  {}: {}\n'.format(app, ', '.join(urls))
             log.info(txt[:-1])
         self.authorization_handler = AuthorizationHandler()
+        self.call_limit_handler = CallLimitHandler()
 
     def start(self):
         for app in self.application_registry:
@@ -271,6 +272,14 @@ class IncomingRequestHandler(object, metaclass=Singleton):
             session.reject(403)
             return
         try:
+            self.call_limit_handler.check(session.peer_address.ip)
+        except CallLimitExceeded as e:
+            log.info('rejected 603 INVITE %s from peer %s, From %s — %s' % (
+                session.request_uri, self._peer_ip(session.peer_address),
+                session.remote_identity.uri, e))
+            session.reject(603, 'Maximum calls exceeded')
+            return
+        try:
             app = self.get_application(session.request_uri, notification.data.headers)
         except ApplicationNotLoadedError:
             log.info('rejected 404 INVITE %s from peer %s, From %s — no application loaded for this request' % (
@@ -278,6 +287,7 @@ class IncomingRequestHandler(object, metaclass=Singleton):
                 session.remote_identity.uri))
             session.reject(404)
         else:
+            self.call_limit_handler.track(session)
             app.incoming_session(session)
 
     def _NH_SIPIncomingSubscriptionGotSubscribe(self, notification):
@@ -404,6 +414,125 @@ class AuthorizationHandler(object):
 
     def _NH_ThorNetworkGotUpdate(self, notification):
         self.thor_nodes = [NetworkRange(node.decode()) for node in chain.from_iterable(n.nodes for n in list(notification.data.networks.values()))]
+
+
+class CallLimitExceeded(Exception):
+    pass
+
+
+@implementer(IObserver)
+class CallLimitHandler(object):
+    """DoS / call-flood mitigation.
+
+    Keeps a live count of active SIP calls (INVITE sessions) both globally
+    and per source IP, and refuses new INVITEs that would breach the limits
+    configured in [SIP] of config.ini:
+
+        maximum_call_count            - cap on total concurrent calls
+        maximum_call_count_per_ip     - cap on concurrent calls per source IP
+        maximum_call_count_exclude_ips- networks exempt from both caps
+
+    A call is counted from the moment its INVITE is accepted into an
+    application (via track()) until the session ends or fails, at which
+    point the per-session observer below decrements the counters again.
+    Excluded source IPs are never counted and never rejected. A limit of 0
+    means "unlimited" for that dimension.
+    """
+
+    def __init__(self):
+        self.active_calls = set()            # id(session) of every tracked call
+        self.calls_per_ip = defaultdict(int)  # source IP -> active call count
+
+    @staticmethod
+    def _ip_str(ip_address):
+        return ip_address.decode() if isinstance(ip_address, bytes) else ip_address
+
+    def _is_excluded(self, ip_address):
+        ip_str = self._ip_str(ip_address)
+        try:
+            addr_long = struct.unpack('!L', socket.inet_aton(ip_str))[0]
+        except (socket.error, OSError, TypeError):
+            return False
+        # NetworkRangeList('none') evaluates to None (no networks), so guard
+        # against a non-iterable value before iterating.
+        for net in SIPConfig.maximum_call_count_exclude_ips or ():
+            if addr_long & net[1] == net[0]:
+                return True
+        return False
+
+    def check(self, ip_address):
+        """Raise CallLimitExceeded if a new call from ip_address would breach
+        a configured limit. Excluded source IPs are always allowed."""
+        if self._is_excluded(ip_address):
+            return
+        max_total = SIPConfig.maximum_call_count
+        if max_total and len(self.active_calls) >= max_total:
+            raise CallLimitExceeded(
+                'global active call count limit reached (%d)' % max_total)
+        max_per_ip = SIPConfig.maximum_call_count_per_ip
+        if max_per_ip:
+            ip_str = self._ip_str(ip_address)
+            if self.calls_per_ip.get(ip_str, 0) >= max_per_ip:
+                raise CallLimitExceeded(
+                    'per-IP active call count limit reached (%d for %s)' % (max_per_ip, ip_str))
+
+    def track(self, session):
+        """Start counting an accepted call and arrange for it to be
+        decremented when the session terminates. Excluded source IPs and
+        sessions already tracked are ignored."""
+        ip_address = session.peer_address.ip
+        if self._is_excluded(ip_address):
+            return
+        key = id(session)
+        if key in self.active_calls:
+            return
+        ip_str = self._ip_str(ip_address)
+        self.active_calls.add(key)
+        self.calls_per_ip[ip_str] += 1
+        session._sylk_call_limit_ip = ip_str
+        notification_center = NotificationCenter()
+        notification_center.add_observer(self, sender=session, name='SIPSessionDidEnd')
+        notification_center.add_observer(self, sender=session, name='SIPSessionDidFail')
+        log.info('Active calls: %s total, %s from %s' % (
+            self._format_count(len(self.active_calls), SIPConfig.maximum_call_count),
+            self._format_count(self.calls_per_ip[ip_str], SIPConfig.maximum_call_count_per_ip),
+            ip_str))
+
+    @staticmethod
+    def _format_count(current, limit):
+        """Render a counter as 'current/limit', or 'current (no limit)' when
+        the limit is 0 (disabled)."""
+        if limit:
+            return '%d/%d' % (current, limit)
+        return '%d (no limit)' % current
+
+    def _untrack(self, session):
+        key = id(session)
+        if key not in self.active_calls:
+            return
+        self.active_calls.discard(key)
+        ip_str = getattr(session, '_sylk_call_limit_ip', None)
+        if ip_str is not None:
+            self.calls_per_ip[ip_str] -= 1
+            if self.calls_per_ip[ip_str] <= 0:
+                self.calls_per_ip.pop(ip_str, None)
+        notification_center = NotificationCenter()
+        for name in ('SIPSessionDidEnd', 'SIPSessionDidFail'):
+            try:
+                notification_center.remove_observer(self, sender=session, name=name)
+            except KeyError:
+                pass
+
+    @run_in_twisted_thread
+    def handle_notification(self, notification):
+        handler = getattr(self, '_NH_%s' % notification.name, Null)
+        handler(notification)
+
+    def _NH_SIPSessionDidEnd(self, notification):
+        self._untrack(notification.sender)
+
+    def _NH_SIPSessionDidFail(self, notification):
+        self._untrack(notification.sender)
 
 
 class ApplicationLogger(object):

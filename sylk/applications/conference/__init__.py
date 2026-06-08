@@ -3,6 +3,8 @@ import os
 import re
 import shutil
 
+from collections import defaultdict
+
 from application.notification import IObserver, NotificationCenter
 from application.python import Null
 from eventlib import proc
@@ -134,6 +136,12 @@ class ConferenceApplication(SylkApplication):
 
     def __init__(self):
         self._rooms = {}
+        # room_uri_str -> set of id(session) for calls that have passed the
+        # per-room limit check but not yet been added to Room.sessions. Counted
+        # alongside the room's live sessions so a burst of INVITEs arriving
+        # within the accept delay can't all slip past the cap. Entries are
+        # cleared when the session joins the room, ends, or fails.
+        self._pending_room_joins = defaultdict(set)
         self.invited_participants_map = {}
         # Maps (selector_uri_str, caller_from_uri_str) -> real room_uri_str.
         # Populated when a caller is routed through the conference selector IVR;
@@ -269,6 +277,30 @@ class ConferenceApplication(SylkApplication):
     def remove_room(self, uri):
         room_uri = '%s@%s' % (uri.user, uri.host)
         self._rooms.pop(room_uri, None)
+
+    # --- per-room call limit ------------------------------------------------
+
+    def _room_call_count(self, room_uri_str):
+        """Current load for a room: live sessions plus accepted-but-not-yet-
+        joined calls held in the pending set."""
+        room = self._rooms.get(room_uri_str)
+        live = len(room.sessions) if room is not None else 0
+        return live + len(self._pending_room_joins.get(room_uri_str, ()))
+
+    def _track_pending_room_join(self, session, room_uri_str):
+        self._pending_room_joins[room_uri_str].add(id(session))
+        session._sylk_pending_room = room_uri_str
+
+    def _clear_pending_room_join(self, session):
+        room_uri_str = getattr(session, '_sylk_pending_room', None)
+        if room_uri_str is None:
+            return
+        pending = self._pending_room_joins.get(room_uri_str)
+        if pending is not None:
+            pending.discard(id(session))
+            if not pending:
+                self._pending_room_joins.pop(room_uri_str, None)
+        session._sylk_pending_room = None
 
     # --- conference selector redirects --------------------------------------
     #
@@ -489,7 +521,28 @@ class ConferenceApplication(SylkApplication):
             else:
                 transfer_stream.handler.save_directory = os.path.join(settings.file_transfer.directory.normalized, room.uri)
 
+        # Per-room DoS / overload mitigation. Reject the call with 603 when the
+        # target room is already carrying its configured maximum number of
+        # concurrent calls. The limit comes from the room's own section if it
+        # sets maximum_call_count_per_room, otherwise the [Conference] default.
+        # 0 disables the cap. The accepted call is recorded as pending until it
+        # actually joins the room so a burst within the accept delay still
+        # counts against the cap.
+        room_uri_str = '%s@%s' % (routing_uri.user, routing_uri.host)
+        room_config = get_room_config(room_uri_str)
+        max_room_calls = getattr(room_config, 'maximum_call_count_per_room',
+                                 ConferenceConfig.maximum_call_count_per_room)
+        if max_room_calls and self._room_call_count(room_uri_str) >= max_room_calls:
+            log.info('Session rejected: room %s call limit reached (%d)' % (room_uri_str, max_room_calls))
+            session.reject(603, 'Maximum conference calls exceeded')
+            return
+
         NotificationCenter().add_observer(self, sender=session)
+        self._track_pending_room_join(session, room_uri_str)
+        if max_room_calls:
+            log.info('Room %s active calls: %d/%d' % (room_uri_str, self._room_call_count(room_uri_str), max_room_calls))
+        else:
+            log.info('Room %s active calls: %d (no limit)' % (room_uri_str, self._room_call_count(room_uri_str)))
         is_bridge = getattr(session, '_sylk_audio_bridge', False)
         # Skip the 180 Ringing for bridge calls — there's no human on the
         # other end to comfort with ringback. The trace collapses to
@@ -629,11 +682,15 @@ class ConferenceApplication(SylkApplication):
             room.config.disable_music_on_hold = True
         room.start()
         room.add_session(session)
+        # The call is now a live room session; drop it from the pending set so
+        # it isn't double-counted against the per-room limit.
+        self._clear_pending_room_join(session)
 
     @run_in_green_thread
     def _NH_SIPSessionDidEnd(self, notification):
         session = notification.sender
         notification.center.remove_observer(self, sender=session)
+        self._clear_pending_room_join(session)
         if session.direction == 'incoming':
             # A session that came in through the conference selector IVR is
             # actually parked in a different room than its SIP Request-URI
@@ -663,6 +720,7 @@ class ConferenceApplication(SylkApplication):
     def _NH_SIPSessionDidFail(self, notification):
         session = notification.sender
         notification.center.remove_observer(self, sender=session)
+        self._clear_pending_room_join(session)
         log.info('Session from %s failed: %s (%s)' % (session.remote_identity.uri, notification.data.reason, notification.data.failure_reason))
 
 

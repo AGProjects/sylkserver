@@ -46,6 +46,23 @@ class SIPConfig(ConfigSection):
     trusted_peers = ConfigSetting(type=NetworkRangeList, value=NetworkRangeList('any'))
     enable_ice = False
 
+    # DoS / call-flood mitigation. These limits cap the number of
+    # concurrent SIP calls (INVITE sessions) the server will carry. A new
+    # INVITE that would breach a limit is rejected with 603. A value of 0
+    # disables that particular limit.
+    #
+    #   maximum_call_count          - total active calls across the server
+    #   maximum_call_count_per_ip   - active calls allowed from one source IP
+    #   maximum_call_count_exclude_ips
+    #                               - source networks exempt from BOTH limits
+    #                                 above (never rejected, never counted).
+    #                                 Same ACL syntax as trusted_peers; the
+    #                                 keywords 'any' and 'none' are accepted.
+    #                                 Defaults to 'none' (no exemptions).
+    maximum_call_count = ConfigSetting(type=NonNegativeInteger, value=200)
+    maximum_call_count_per_ip = ConfigSetting(type=NonNegativeInteger, value=10)
+    maximum_call_count_exclude_ips = ConfigSetting(type=NetworkRangeList, value=NetworkRangeList('none'))
+
 
 class MSRPConfig(ConfigSection):
     __cfgfile__ = 'config.ini'

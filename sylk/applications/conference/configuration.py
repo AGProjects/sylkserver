@@ -209,6 +209,14 @@ class ConferenceConfig(ConfigSection):
 
     zrtp_auto_verify = True
 
+    # DoS / overload mitigation for conference rooms. Caps the number of
+    # concurrent calls (sessions) a single room will carry. A new INVITE
+    # that would exceed it is rejected with 603 (max conf calls exceeded).
+    # 0 means unlimited. This is the global default; it can be overridden
+    # per room by setting maximum_call_count_per_room in that room's
+    # [room@host] section.
+    maximum_call_count_per_room = 10
+
     # Music on hold. Global default for rooms; overridable per room via the
     # same `disable_music_on_hold` setting in RoomConfig. If `moh_disable_header`
     # is set to a header name, every incoming INVITE is inspected — if that
@@ -381,6 +389,8 @@ class RoomConfig(ConfigSection):
 
     disable_music_on_hold = ConferenceConfig.disable_music_on_hold
     zrtp_auto_verify = ConferenceConfig.zrtp_auto_verify
+
+    maximum_call_count_per_room = ConferenceConfig.maximum_call_count_per_room
 
     # SIP REGISTER at a foreign domain. When `registrar_uri` is set on a
     # room section the conference application creates a sipsimple Account

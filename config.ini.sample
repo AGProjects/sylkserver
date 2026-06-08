@@ -82,6 +82,25 @@ certificate = /etc/sylkserver/tls/default.crt
 ; Toggle ICE support (RFC 5245)
 ; enable_ice = False
 
+; DoS / call-flood mitigation. These limits cap the number of concurrent
+; SIP calls (INVITE sessions) the server will carry. A new INVITE that
+; would breach a limit is refused with a 603 response (Maximum calls
+; exceeded). A value of 0 disables that particular limit.
+
+; Maximum number of active calls across the whole server
+; maximum_call_count = 200
+
+; Maximum number of active calls allowed from a single source IP address.
+; The source IP is the peer address of the SIP transport, e.g. 212.95.45.179
+; for a connection logged as (tcp:212.95.45.179:39953).
+; maximum_call_count_per_ip = 10
+
+; Source networks exempt from BOTH limits above (never rejected, never
+; counted). Uses the same ACL syntax as trusted_peers: a comma-separated
+; list of IP addresses or CIDR networks, plus the special keywords 'any'
+; and 'none'. Defaults to 'none' (no exemptions).
+; maximum_call_count_exclude_ips = none
+
 
 [MSRP]
 
