@@ -1,0 +1,46 @@
+; SylkServer QoS capture server configuration file
+;
+; Install as /etc/sylkserver/qos-server.ini (same directory as config.ini).
+; Same syntax as the other SylkServer .ini files. All settings below show
+; their built-in defaults — uncomment only the ones you want to change.
+;
+; The per-call trace folders are written under <trace_dir>/qos/, where
+; trace_dir is read from [Server] in config.ini (default /var/log/sylkserver),
+; i.e. by default /var/log/sylkserver/qos/<call-id>/.
+
+[Server]
+
+; host:port the HTTP API binds to. Use 127.0.0.1 to keep it host-local and
+; front it with a reverse proxy, or 0.0.0.0 to expose it directly.
+; listen = 0.0.0.0:9810
+
+; Shared bearer token clients must present (Authorization: Bearer <token>,
+; or ?token=). Leave empty to only answer requests from localhost.
+; auth_token =
+
+; Capture interface. Empty = the default-route interface.
+; interface =
+
+; Expected client packets/sec used for the NIC-loss estimate (Opus 20ms = 50).
+; expected_pps = 50
+
+; Seconds between samples written to samples.ndjson.
+; sample_interval = 5
+
+; Hard cap on a single call's capture, seconds (safety net for calls that
+; never get a stop). Default 2 hours.
+; max_capture_seconds = 7200
+
+; Delete per-call folders older than this many days. 0 disables pruning.
+; retention_days = 7
+
+
+[MediaProxy]
+
+; Optional: also capture the Janus<->MediaProxy RTP leg at this NIC, so the
+; summary can localize a break to which side of MediaProxy it dies on.
+; ip =
+
+; Narrow the RTP-leg capture to this port range (Janus' RTP range). Optional.
+; rtp_port_min = 50000
+; rtp_port_max = 60000

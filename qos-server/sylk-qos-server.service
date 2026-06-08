@@ -1,0 +1,33 @@
+[Unit]
+Description=Sylk QoS capture server (per-call media-plane capture + HTTP API)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# tcpdump needs raw-socket capability; grant just that instead of full root.
+AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
+CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN
+# Run as the SylkServer user so it can write under [Server] trace_dir from
+# config.ini (per-call folders go to <trace_dir>/qos/, e.g.
+# /var/log/sylkserver/qos/). Adjust User/Group to your install.
+User=sylkserver
+Group=sylkserver
+
+# Configuration is read from /etc/sylkserver (config.ini + qos-server.ini) by
+# default; append --config-dir PATH to ExecStart to override. All tunables
+# (listen, auth_token, mediaproxy, retention, ...) live in qos-server.ini, so
+# no Environment= settings are needed here.
+ExecStart=/usr/bin/python3 /usr/share/sylkserver/qos-server/sylk-qos-server.py
+Restart=on-failure
+RestartSec=3
+
+# Hardening. ProtectSystem=full keeps /usr,/boot,/etc read-only while still
+# allowing writes under /var (where trace_dir lives).
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
