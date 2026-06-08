@@ -614,6 +614,21 @@ class Videoroom(object):
             self.log.info('{session} raises hand '.format(session=session_id))
             self._raised_hands.append(session_id)
 
+    def _log_participants(self):
+        """Log the full current participant roster.
+
+        Called whenever the participant list changes (join / leave /
+        clear) so the server log always carries a complete snapshot of
+        who is in the room, not just the incremental "X has joined / has
+        left" line. Each entry is "<aor> [<session-id>]" so multiple
+        devices sharing one AoR (same account.id, different session) are
+        individually visible rather than collapsing into a single name.
+        """
+        participants = ['{session.account.id} [{session.id}]'.format(session=session)
+                        for session in sorted(self._sessions, key=lambda s: (s.account.id, s.id))]
+        self.log.info('participants ({count}): {roster}'.format(
+            count=len(participants), roster=', '.join(participants) or '(none)'))
+
     def add(self, session):
         assert session not in self._sessions
         assert session.publisher_id is not None
@@ -621,6 +636,7 @@ class Videoroom(object):
         self._sessions.add(session)
         self._id_map[session.id] = self._id_map[session.publisher_id] = session
         self.log.info('{session.account.id} has joined'.format(session=session))
+        self._log_participants()
         self._update_bitrate()
         if self._active_participants:
             session.owner.send(sylkrtc.VideoroomConfigureEvent(session=session.id, active_participants=self._active_participants, originator='videoroom'))
@@ -642,6 +658,7 @@ class Videoroom(object):
             self._id_map.pop(session.id, None)
             self._id_map.pop(session.publisher_id, None)
             self.log.info('{session.account.id} has left'.format(session=session))
+            self._log_participants()
             if session.id in self._active_participants:
                 self._active_participants.remove(session.id)
                 self.log.info('active participants: {}'.format(', '.join(self._active_participants) or None))
@@ -655,6 +672,7 @@ class Videoroom(object):
         self._id_map.pop(session.id)
         self._id_map.pop(session.publisher_id)
         self.log.info('{session.account.id} has left'.format(session=session))
+        self._log_participants()
         if session.id in self._active_participants:
             self._active_participants.remove(session.id)
             self.log.info('active participants: {}'.format(', '.join(self._active_participants) or None))
@@ -669,6 +687,7 @@ class Videoroom(object):
         self._shared_files = []
         self._sessions.clear()
         self._id_map.clear()
+        self._log_participants()
 
     def allow_uri(self, uri):
         config = self.config
