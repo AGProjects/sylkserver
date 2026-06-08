@@ -168,6 +168,13 @@ class JanusConfig(ConfigSection):
 
     api_url = 'ws://127.0.0.1:8188'
     api_secret = '0745f2f74f34451c89343afcdcae5809'
+    # Janus Admin/Monitor API — used at call end to harvest per-handle RTP
+    # counters (handle_info) for the media-plane break locator. Set admin_url
+    # to '' to disable the harvest (the media-plane render then falls back to
+    # media-event / SDP signals only). admin_secret must match Janus'
+    # janus.transport.http.cfg `admin_secret`.
+    admin_url = 'http://127.0.0.1:7088/admin'
+    admin_secret = 'janusoverlord'
     trace_janus = False
     max_bitrate = ConfigSetting(type=VideoBitrate, value=VideoBitrate(2016000))  # ~2 MBits/s
     video_codec = ConfigSetting(type=VideoCodec, value=VideoCodec('vp9'))

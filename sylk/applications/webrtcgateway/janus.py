@@ -1,6 +1,7 @@
 
 import json
 import re
+import uuid
 
 from application.notification import (IObserver, NotificationCenter,
                                       NotificationData)
@@ -12,6 +13,9 @@ from eventlib.twistedutil import block_on
 from twisted.internet import defer, reactor
 from twisted.internet.protocol import ReconnectingClientFactory
 from twisted.python.failure import Failure
+from twisted.web.client import Agent, readBody
+from twisted.web.http_headers import Headers
+from twisted.web.iweb import IBodyProducer
 from zope.interface import implementer
 
 from sylk import __version__
@@ -26,6 +30,27 @@ class JanusError(Exception):
         super(JanusError, self).__init__(reason)
         self.code = code
         self.reason = reason
+
+
+_admin_agent = Agent(reactor)
+_admin_headers = Headers({'User-Agent': ['SylkServer'], 'Content-Type': ['application/json']})
+
+
+@implementer(IBodyProducer)
+class _JSONBodyProducer(object):
+    def __init__(self, data):
+        self.body = data
+        self.length = len(data)
+
+    def startProducing(self, consumer):
+        consumer.write(self.body)
+        return defer.succeed(None)
+
+    def pauseProducing(self):
+        pass
+
+    def stopProducing(self):
+        pass
 
 
 _pstn_uri_re = re.compile(r'^(?:sips?:)?(?:\+|00)\d+@')
@@ -232,6 +257,39 @@ class JanusBackend(object, metaclass=Singleton):
     def trickle(self, session_id, handle_id, candidates):
         return self.protocol.trickle(session_id, handle_id, candidates)
 
+    @defer.inlineCallbacks
+    def admin_handle_info(self, session_id, handle_id):
+        """Fetch per-handle media stats via the Janus Admin API (HTTP).
+
+        Returns the parsed `info` dict, or None on any failure (admin not
+        configured / unreachable / non-success). Best-effort: never raises,
+        so it is safe to block_on() from a teardown path."""
+        admin_url = getattr(JanusConfig, 'admin_url', None)
+        if not admin_url:
+            return None
+        request = {'janus': 'handle_info',
+                   'transaction': uuid.uuid4().hex,
+                   'session_id': session_id,
+                   'handle_id': handle_id}
+        if getattr(JanusConfig, 'admin_secret', None):
+            request['admin_secret'] = JanusConfig.admin_secret
+        body = json.dumps(request).encode()
+        try:
+            request_deferred = _admin_agent.request(b'POST', admin_url.encode(), _admin_headers, _JSONBodyProducer(body))
+            # Never let a misconfigured / unreachable admin endpoint stall the
+            # call-teardown path that block_on()s this.
+            request_deferred.addTimeout(5, reactor)
+            response = yield request_deferred
+            raw_body = yield readBody(response)
+            data = json.loads(raw_body)
+        except Exception as e:
+            log.warning('Janus admin handle_info failed (session=%s handle=%s): %s', session_id, handle_id, e)
+            return None
+        if data.get('janus') != 'success':
+            log.debug('Janus admin handle_info non-success for handle %s: %s', handle_id, data)
+            return None
+        return data.get('info')
+
     # Notification handling
 
     def handle_notification(self, notification):
@@ -291,6 +349,15 @@ class JanusPluginHandle(object):
 
     def trickle(self, candidates, _async=False):
         deferred = self.backend.trickle(self.session.id, self.id, candidates)
+        return deferred if _async else block_on(deferred)
+
+    def handle_info(self, _async=False):
+        """Harvest this handle's media stats via the Janus Admin API.
+
+        Returns the parsed `info` dict (or None). Synchronous by default
+        (block_on) so it can be called from a green-thread teardown path
+        before the handle is detached."""
+        deferred = self.backend.admin_handle_info(self.session.id, self.id)
         return deferred if _async else block_on(deferred)
 
 

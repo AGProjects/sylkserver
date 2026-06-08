@@ -64,6 +64,14 @@
 ; python -c 'import uuid; print(uuid.uuid4().hex)'
 api_secret = 0745f2f74f34451c89343afcdcae5809
 
+; Janus Admin/Monitor API (HTTP), used at call end to harvest per-handle RTP
+; counters for the media-plane break locator (the [media-plane] log block).
+; admin_url must point to Janus' admin HTTP endpoint and admin_secret must
+; match `admin_secret` in janus.transport.http.cfg. Set admin_url empty to
+; disable the harvest (the render then uses media-event/SDP signals only).
+; admin_url = http://127.0.0.1:7088/admin
+; admin_secret = janusoverlord
+
 ; Boolean indicating if the messages between SylkServer and Janus should be
 ; logged to a file
 ; trace_janus = False

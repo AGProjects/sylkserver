@@ -20,6 +20,7 @@ from application.python import Null, limit
 from application.python.weakref import defaultweakobjectmap
 from application.system import makedirs, unlink
 from eventlib import api, coros, proc
+from eventlib.twistedutil import block_on
 from sipsimple.configuration.settings import SIPSimpleSettings
 from sipsimple.core import (SIPURI, ContactHeader, Credentials, Engine,
                             FromHeader, Header, Message, Referral,
@@ -47,6 +48,11 @@ from sylk.configuration import SIPConfig
 from sylk.session import Session
 
 from . import push
+# Import the submodule's names directly (not `from . import media_plane`):
+# during package startup the parent package is only partially initialized, so
+# the attribute-based form raises a spurious circular-import error.
+from .media_plane import parse_sdp_directions as media_plane_parse_sdp
+from .media_plane import render as media_plane_render
 from .addressbook import get_addressbook, update_addressbook
 from .auth import AuthHandler
 from .configuration import (ExternalAuthConfig, GeneralConfig, JanusConfig,
@@ -220,7 +226,27 @@ class SIPSessionInfo(object):
         self.call_id = None            # SIP Call-ID, learned from the first event that carries it
         self.slow_download = False
         self.slow_upload = False
+        # Accumulated media-plane signals for the end-of-call break locator
+        # (see media_plane.render). Filled by the Janus event handlers and
+        # the SDP-carrying request/response paths over the life of the call.
+        self.media_plane = {
+            'media_receiving': {},    # medium -> bool (latest Janus 'media' event: receiving RTP from the phone?)
+            'media_events': [],       # [(ts, medium, receiving)] full history
+            'slowlink': {'down_lost': None, 'up_lost': None},
+            'webrtc_sdp': {},         # 'offer'/'answer' -> {medium: {'direction','port','addr'}} (phone-facing)
+            'sip_sdp': {},            # 'local'/'remote' -> {...} (filled from handle_info at call end)
+            'established_at': None,    # time.time() at webrtcup
+            'rendered': False,
+        }
         self._message_queue = deque()
+
+    def record_sdp(self, role, sdp):
+        """Stash the negotiated direction of a phone-facing SDP (role is
+        'offer' or 'answer'). Best-effort, never raises."""
+        try:
+            self.media_plane['webrtc_sdp'][role] = media_plane_parse_sdp(sdp)
+        except Exception:
+            pass
 
     def init_outgoing(self, account, destination):
         self.account = account
@@ -1307,6 +1333,27 @@ class ConnectionHandler(object):
 
     # internal methods (not overriding / implementing the protocol API)
 
+    def _render_media_plane(self, session):
+        # Harvest Janus per-handle RTP counters (Admin API) and log the
+        # end-of-call media-plane break locator. Must run in a green thread
+        # (uses block_on) and BEFORE the handle is detached. Best-effort.
+        mp = getattr(session, 'media_plane', None)
+        if mp is None or mp.get('rendered'):
+            return
+        mp['rendered'] = True
+        handle_info = None
+        handle = session.janus_handle
+        if handle is not None:
+            try:
+                handle_info = handle.handle_info()
+            except Exception as e:
+                self.log.debug('media-plane: handle_info harvest failed: {!s}'.format(e))
+        try:
+            for line in media_plane_render(session, handle_info).split('\n'):
+                self.log.info(line)
+        except Exception as e:
+            self.log.debug('media-plane render failed: {!s}'.format(e))
+
     def _cleanup_session(self, session):
         # should only be called from a green thread.
 
@@ -1314,6 +1361,7 @@ class ConnectionHandler(object):
             return
 
         if session in self.sip_sessions:
+            self._render_media_plane(session)  # harvest counters while the handle is still attached
             self.sip_sessions.remove(session)
             if session.direction == 'outgoing':
                 # Destroy plugin handle for outgoing sessions. For incoming ones it's the same as the account handle, so don't
@@ -2124,6 +2172,7 @@ class ConnectionHandler(object):
         session_info = SIPSessionInfo(request.session)
         session_info.janus_handle = janus_handle
         session_info.init_outgoing(account_info, request.uri)
+        session_info.record_sdp('offer', request.sdp)  # phone-facing offer (outgoing leg)
         self.sip_sessions.add(session_info)
 
         self.log.info('outgoing session {request.session} to {request.uri}'.format(request=request))
@@ -2144,6 +2193,7 @@ class ConnectionHandler(object):
         # the answering party) surfaces in the server-side SIP trace.
         extra_headers = list(request.headers.__data__) if request.headers is not None else []
         extra_headers.append({'name': 'X-Sylk-Client-Ip', 'value': self._client_ip()})
+        session_info.record_sdp('answer', request.sdp)  # phone-facing answer (incoming leg)
         session_info.janus_handle.accept(sdp=request.sdp, headers=extra_headers)
         self.log.info('incoming session {session.id} answered'.format(session=session_info))
 
@@ -2910,6 +2960,8 @@ class ConnectionHandler(object):
             self.log.warning('could not find SIP session with handle ID {event.sender} for webrtcup event'.format(event=event))
             return
         session_info.state = 'established'
+        if session_info.media_plane.get('established_at') is None:
+            session_info.media_plane['established_at'] = time.time()
         self.send(sylkrtc.SessionEstablishedEvent(session=session_info.id))
         self.log.info('{session.direction} session {session.id} established'.format(session=session_info))
 
@@ -2931,17 +2983,35 @@ class ConnectionHandler(object):
         except KeyError:
             self.log.warning('could not find SIP session with handle ID {event.sender} for slowlink event'.format(event=event))
             return
+        lost = getattr(event, 'lost', None)
         if event.uplink:  # uplink is from janus' point of view
             if not session_info.slow_download:
                 self.log.debug('poor download connectivity for session {session.id}'.format(session=session_info))
             session_info.slow_download = True
+            if lost is not None:
+                session_info.media_plane['slowlink']['down_lost'] = lost
         else:
             if not session_info.slow_upload:
                 self.log.debug('poor upload connectivity for session {session.id}'.format(session=session_info))
             session_info.slow_upload = True
+            if lost is not None:
+                session_info.media_plane['slowlink']['up_lost'] = lost
 
     def _EH_janus_sip_media(self, event):
-        pass
+        # Janus 'media' event: it (re)started or stopped receiving RTP from
+        # the WebRTC peer (the phone) for one medium. The single most direct
+        # one-way-media signal — feed it into the media-plane break locator.
+        try:
+            session_info = self.sip_sessions[event.sender]
+        except KeyError:
+            return
+        medium = getattr(event, 'type', None) or 'audio'
+        receiving = bool(getattr(event, 'receiving', False))
+        mp = session_info.media_plane
+        mp['media_receiving'][medium] = receiving
+        mp['media_events'].append((time.time(), medium, receiving))
+        self.log.debug('{session.direction} session {session.id} media {medium} receiving={receiving}'.format(
+            session=session_info, medium=medium, receiving=receiving))
 
     def _EH_janus_sip_detached(self, event):
         pass
@@ -3036,6 +3106,7 @@ class ConnectionHandler(object):
 
         session.init_incoming(account_info, originator.uri, originator.display_name)
         session.call_id = call_id
+        session.record_sdp('offer', event.jsep.sdp)  # phone-facing offer (incoming leg)
         self.sip_sessions.add(session)
         self.send(sylkrtc.AccountIncomingSessionEvent(account=account_info.id, session=session.id, originator=originator, sdp=event.jsep.sdp, call_id=call_id, **headers))
         self.log.info('incoming session {session.id} from {session.remote_identity.uri!s}'.format(session=session))
@@ -3092,6 +3163,7 @@ class ConnectionHandler(object):
         session_info.state = 'accepted'
         if session_info.direction == 'outgoing':
             assert event.jsep is not None
+            session_info.record_sdp('answer', event.jsep.sdp)  # phone-facing answer (outgoing leg)
             data = event.plugindata.data.result  # type: janus.SIPResultAccepted
             headers = {'headers': data.headers} if data.headers else {}
             self.send(sylkrtc.SessionAcceptedEvent(session=session_info.id, sdp=event.jsep.sdp, call_id=event.plugindata.data.call_id, **headers))
