@@ -1240,6 +1240,16 @@ class ConnectionHandler(object):
     def __init__(self, protocol):
         self.protocol = protocol
         self.device_id = base64.b64encode(hashlib.md5(protocol.peer.encode('utf-8')).digest()).rstrip(b'=\n').decode('utf-8')
+        # Per-connection SIP instance-id (RFC 5626), advertised as the
+        # +sip.instance Contact parameter on this connection's conference
+        # chat sessions. Deterministically derived from device_id so it is
+        # stable for the connection and reproducible. Sent as a urn:uuid so
+        # the conference focus adopts it (after sanitisation) as that
+        # endpoint's participant_id — giving us a reliable key to map a
+        # focus conference-info endpoint back to this exact WebRTC device
+        # instead of guessing by AoR. str() form is hyphen-hex, which the
+        # focus's participant_id sanitiser preserves unchanged.
+        self.sip_instance_id = uuid.uuid5(uuid.NAMESPACE_URL, 'sylk-webrtc-device:{}'.format(self.device_id))
         self.janus_session = None      # type: Optional[JanusSession]
         self.accounts_map = {}         # account ID -> account
         self.devices_map = {}          # device ID -> account
@@ -3920,7 +3930,24 @@ class VideoroomChatHandler(object):
         notification_center.add_observer(self, sender=self.sip_session)
         notification_center.add_observer(self, sender=self.chat_stream)
         self.room.log.debug('chat {} starting at {}'.format(to_uri, route))
-        self.sip_session.connect(FromHeader(from_uri, self.account.display_name), ToHeader(to_uri), route=route, streams=[self.chat_stream], credentials=credentials)
+        # Advertise this connection's stable instance-id in the chat
+        # session's Contact header (+sip.instance, RFC 5626). The conference
+        # focus turns it into the endpoint's participant_id, which lets the
+        # gateway later map a focus conference-info endpoint back to this
+        # exact WebRTC device by id rather than by AoR. Best-effort: if the
+        # contact URI can't be built or the sipsimple binding rejects the
+        # parameter shape, fall back to the default contact (focus then
+        # mints a random participant_id, i.e. the prior behaviour).
+        contact_header = None
+        try:
+            instance_id = getattr(self.sylk_session.owner, 'sip_instance_id', None)
+            if instance_id is not None:
+                contact_header = ContactHeader(sip_account.contact[route])
+                contact_header.parameters[b'+sip.instance'] = '"<urn:uuid:{}>"'.format(instance_id).encode()
+        except Exception as e:
+            self.room.log.warning('could not set +sip.instance on chat contact: {}'.format(e))
+            contact_header = None
+        self.sip_session.connect(FromHeader(from_uri, self.account.display_name), ToHeader(to_uri), route=route, streams=[self.chat_stream], credentials=credentials, contact_header=contact_header)
 
     @run_in_twisted_thread
     def end(self):
@@ -4169,10 +4196,23 @@ class VideoroomChatHandler(object):
             return _is_bridge_uri(uri)
 
         webrtc_publishers = {}
+        # participant_id (focus token) -> WebRTC publisher session, keyed by
+        # each connection's SIP instance-id. Every WebRTC connection
+        # advertises a stable +sip.instance (ConnectionHandler.sip_instance_id)
+        # on its conference chat session; the focus publishes that value back
+        # as the endpoint's participant_id. So this is a PRECISE per-device
+        # link — unlike the AoR map below it neither collapses two devices on
+        # one AoR nor swallows a genuine SIP caller that happens to share a
+        # WebRTC user's AoR. It is the key the per-endpoint classification
+        # further down uses instead of matching by AoR.
+        webrtc_by_instance = {}
         for session in self.room:
             if session.type != 'publisher' or session.account is None:
                 continue
             webrtc_publishers[session.account.id] = session
+            instance_id = getattr(getattr(session, 'owner', None), 'sip_instance_id', None)
+            if instance_id is not None:
+                webrtc_by_instance[str(instance_id)] = session
 
         # Find the bridge participant up front so we can log its admin
         # + UDP endpoints on every fresh arrival below. The bridge is
@@ -4517,6 +4557,21 @@ class VideoroomChatHandler(object):
                 for _ep in endpoints:
                     if not _ep.participant_id:
                         continue
+                    if _ep.participant_id in webrtc_by_instance:
+                        continue  # our WebRTC device's own echo — skip
+                    # Diagnostic for the "phantom SIP join 1s after a WebRTC
+                    # client joins" symptom: if this endpoint's AoR belongs to
+                    # a WebRTC publisher but its participant_id did NOT match
+                    # any of our instance-ids, it's a WebRTC echo leaking back
+                    # as a surrogate (the +sip.instance -> participant_id link
+                    # failed to resolve). That produces a duplicate of someone
+                    # already present, under a different id. Log it loudly with
+                    # both sides so the mismatch is obvious in the trace.
+                    if participant_aor in webrtc_publishers:
+                        self.room.log.warning(
+                            'conference-info: endpoint pid={} under WebRTC AoR {} did NOT match any instance-id '
+                            '(known instance-ids: {}) — surfacing as SIP surrogate; +sip.instance link likely not resolving'.format(
+                                _ep.participant_id, participant_aor, sorted(webrtc_by_instance) or '-'))
                     _sp = dict(
                         id=_ep.participant_id,
                         uri=_surrogate_uri,
