@@ -4461,25 +4461,29 @@ class VideoroomChatHandler(object):
             _user_is_bridge = bool(_user_admin_url or _user_udp) \
                 or _is_bridge(user.entity) \
                 or any(_is_bridge(getattr(e, 'uri', None)) for e in endpoints)
-            if participant_aor in webrtc_publishers:
-                ptype = 'webrtc'
-                # Bind each endpoint's participant_id to the matching
-                # WebRTC publisher session so a per-participant mute
-                # request can be dispatched locally over WS. With one
-                # device per AoR (the common case) there is exactly one
-                # endpoint and the mapping is unambiguous; with multiple
-                # devices behind the same AoR `webrtc_publishers` keeps
-                # only one session (last-write-wins, same caveat the
-                # rest of this module already accepts).
-                _wpub = webrtc_publishers.get(participant_aor)
-                if _wpub is not None:
-                    for _ep in endpoints:
-                        if _ep.participant_id:
-                            new_webrtc_pid_map[_ep.participant_id] = _wpub
-            elif _user_is_bridge:
+            # Classify by participant_id, not AoR. The bridge stays a
+            # whole-User decision (its agp-conf extensions live on the User
+            # element). For everyone else each endpoint is judged on its own
+            # participant_id: an endpoint that matches one of our WebRTC
+            # connections' instance-ids (webrtc_by_instance) is that device's
+            # own echo in the focus — bound here for per-participant mute
+            # routing and kept out of the SIP surrogate list below; any other
+            # endpoint is a genuine SIP caller, surfaced as a surrogate keyed
+            # by its own participant_id even when it shares this User's AoR
+            # with a WebRTC device. `ptype` remains a coarse per-User label
+            # used only by the (unsent) payload_participants and the bridge
+            # branch; the surrogate decision is made per endpoint.
+            if _user_is_bridge:
                 ptype = 'bridge'
+            elif participant_aor in webrtc_publishers:
+                ptype = 'webrtc'
             else:
                 ptype = 'sip'
+            if not _user_is_bridge:
+                for _ep in endpoints:
+                    _pid = _ep.participant_id
+                    if _pid and _pid in webrtc_by_instance:
+                        new_webrtc_pid_map[_pid] = webrtc_by_instance[_pid]
             # Surface the admin endpoint URL + per-room token only on the
             # bridge participant — that's the only User in the NOTIFY that
             # carries the agp-conf:admin_endpoint_* extensions.
@@ -4553,7 +4557,13 @@ class VideoroomChatHandler(object):
             # is intentionally skipped here — it arrives as a Janus publisher.
             _surrogate_uri = 'sip:{}'.format(participant_aor)
             _display = current_display.get(user.entity) or ''
-            if ptype == 'sip':
+            # Build one SIP surrogate per endpoint that is NOT one of our own
+            # WebRTC device echoes (those are owned by the native videoroom
+            # events and would otherwise be double-shown). This replaces the
+            # old whole-User `if ptype == 'sip'` gate, so a genuine SIP caller
+            # sharing a WebRTC user's AoR is no longer swallowed. The bridge's
+            # own endpoints are skipped entirely.
+            if not _user_is_bridge:
                 for _ep in endpoints:
                     if not _ep.participant_id:
                         continue
