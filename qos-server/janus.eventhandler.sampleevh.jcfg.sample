@@ -1,0 +1,41 @@
+# Janus sample event handler -> sylk-qos-server (events mode)
+#
+# Two things are required on the Janus side:
+#  1) Enable event BROADCASTING in janus.jcfg (off by default). In the
+#     `events: { }` section set:
+#         broadcast = true
+#     and make sure libjanus_sampleevh.so is NOT in the `disable` list.
+#  2) Enable + point THIS handler at sylk-qos-server (below), by installing
+#     this file as /etc/janus/janus.eventhandler.sampleevh.jcfg.
+# Then set [Janus] mode = events in /etc/sylkserver/qos-server.ini.
+#
+# Janus POSTs batches of events to `backend`; sylk-qos-server consumes them on
+# /janus-events and starts/stops captures on call start/end.
+
+general: {
+	enabled = true
+
+	# Where to POST events — the sylk-qos-server /janus-events endpoint.
+	# Janus is co-located, so use the PLAIN-HTTP loopback listener
+	# (default 127.0.0.1:9809). The public dashboard/API may be HTTPS, but
+	# internal Janus->qos-server comms stay on localhost HTTP.
+	backend = "http://127.0.0.1:9809/janus-events"
+
+	# Batch a few events per POST to cut overhead (optional).
+	# events_per_post = 5
+
+	# Which event types to emit. We need WebRTC (ICE/selected-pair), media,
+	# and plugin (SIP) events; "all" is simplest. To be selective, the bit
+	# mask for webrtc|media|plugins is 16|32|64 = 112, plus core hangup (256):
+	#   events = 368
+	events = "all"
+
+	# Send JSON as a JSON object/array body (not form-encoded).
+	json = "indented"
+
+	# Optional HTTP Basic auth (sylk-qos-server's /janus-events is unauthenticated
+	# by default and meant to be reached over localhost; if you proxy it, add auth
+	# at the proxy):
+	# backend_user = ""
+	# backend_pwd = ""
+}

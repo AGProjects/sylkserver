@@ -61,6 +61,60 @@ The unit grants only `CAP_NET_RAW`/`CAP_NET_ADMIN` (so tcpdump works without
 full root) and runs as the `sylkserver` user so it can write under `trace_dir`.
 Old call folders are pruned after `retention_days`.
 
+## Automatic capture
+
+A call starting in Janus *is* the trigger — the daemon starts a capture for the
+call's 5-tuple and finalizes it when the call ends. Two modes (`[Janus] mode`,
+default `events`):
+
+### `events` — Janus pushes (default, preferred)
+
+Janus' sample event handler POSTs events to the daemon's `/janus-events`
+endpoint; no polling. Per handle it assembles the SIP **Call-ID** (from plugin
+events) and the **selected ICE pair** (from WebRTC events) and starts/stops the
+capture. If an event lacks the 5-tuple, a single `handle_info` admin lookup
+fills the gap (admin access optional but recommended).
+
+Enable it on the Janus side (two steps — event broadcasting is **off by
+default**):
+
+1. In `janus.jcfg`, in the `events: { }` section, set `broadcast = true` (and
+   make sure `libjanus_sampleevh.so` isn't in its `disable` list).
+2. Copy `janus.eventhandler.sampleevh.jcfg.sample` to
+   `/etc/janus/janus.eventhandler.sampleevh.jcfg`, set `enabled = true` and
+   `backend = "http://<this-host>:9810/janus-events"`.
+
+Then set `mode = events` in `qos-server.ini`.
+
+```
+janus-events: listening for Janus event pushes at http://127.0.0.1:9810/janus-events ...
+janus-events: call STARTED call_id=abc@ex.com 86.1.2.3:42744 <-> server:9002 -> capturing
+janus-events: call ENDED call_id=abc@ex.com -> capture finalized
+```
+
+The `/janus-events` endpoint is unauthenticated (the Janus event handler can't
+send a bearer token) — keep it on localhost or behind a proxy.
+
+### `poll` — daemon polls the admin API
+
+The daemon polls the **Admin API** (`list_sessions` → `list_handles` →
+`handle_info`) every `poll_interval` seconds, detecting SIP calls with a
+Call-ID + established ICE pair. Admin URL/secret are auto-detected from
+`[Janus] config_dir` (the `/etc/janus` files) or set explicitly. At startup it
+connects once and logs the result:
+
+```
+janus-monitor: CONNECTED to http://127.0.0.1:7088/admin OK — 2 active session(s) (polling every 2s for call start/stop)
+janus-monitor: call STARTED call_id=abc@ex.com 86.1.2.3:42744 <-> server:9001 -> capturing
+janus-monitor: call ENDED call_id=abc@ex.com -> capture finalized
+```
+
+Both need the Janus admin HTTP transport (`admin_http` in
+`janus.transport.http.jcfg`) and an `admin_secret` (`janus.jcfg`) — `poll`
+requires it, `events` uses it only for gap-fill. `mode = off` (or
+`monitor = false`) disables auto-capture; calls can still be registered
+manually via the HTTP API below.
+
 ## HTTP API
 
 All endpoints except `/health` require `Authorization: Bearer <token>` (or
@@ -70,7 +124,7 @@ All endpoints except `/health` require `Authorization: Bearer <token>` (or
 GET  /health                      {status, version, active}
 POST /calls                       register + start capture
      {call_id, client_ip, client_port, server_port,
-      server_ip?, mediaproxy_ip?, rtp_port_min?, rtp_port_max?, expected_pps?}
+      server_ip?, mediaproxy_ip?, expected_pps?}
 POST /calls/{call_id}/stop        finalize -> {summary}
 GET  /calls                       active/recent calls
 GET  /calls/{call_id}             manifest {meta, summary, artifacts[]}
