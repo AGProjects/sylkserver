@@ -413,7 +413,8 @@ class ConferenceApplication(SylkApplication):
 
     def incoming_session(self, session):
         peer = '%s:%s' % (session.transport, session.peer_address)
-        log.info('Session %s from %s: %s -> %s' % (session.call_id, peer, session.remote_identity.uri, session.local_identity.uri))
+        proposed_media = '+'.join(sorted(set(stream.type for stream in session.proposed_streams))) or 'none'
+        log.info('Session %s from %s: %s -> %s (media: %s)' % (session.call_id, peer, session.remote_identity.uri, session.local_identity.uri, proposed_media))
         settings = SIPSimpleSettings()
 
         # Decide MoH disable up front while we still have easy access to the
