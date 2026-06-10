@@ -3876,10 +3876,17 @@ class VideoroomChatHandler(object):
             return
         self._started = True
         notification_center = NotificationCenter()
-        from_uri = SIPURI.parse(self.account.uri)
+        # Present the video room itself as the From identity (the real video
+        # room URI) rather than the participant on whose behalf the gateway
+        # opened this chat leg. This is a bridge-to-bridge session between the
+        # WebRTC gateway and the conference focus with no authentication, so no
+        # credentials are sent and a third-party From is fine. All WebRTC
+        # participants in a room share the room AoR on their chat legs and are
+        # told apart by the per-device +sip.instance on the Contact (set below).
+        from_uri = SIPURI.parse('sip:{}'.format(self.room.uri))
         to_uri = SIPURI.parse('sip:{}'.format(self.room.uri))
         to_uri.host = to_uri.host.replace(b'videoconference', b'conference', 1)  # TODO: find a way to define this
-        credentials = Credentials(username=from_uri.user, password=self.account.password.encode('utf-8'), digest=True)
+        credentials = None
         sip_account = DefaultAccount()
         sip_settings = SIPSimpleSettings()
         if sip_account.sip.outbound_proxy is not None:
