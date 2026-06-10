@@ -4679,22 +4679,12 @@ class VideoroomChatHandler(object):
         # And the pid → URI map used to build the Refer-To URI on the
         # SIP-side branch of the same handler.
         self.room.participant_uris_by_pid = new_pid_uri_map
-        # Auto-mute new SIP arrivals. Run AFTER the pid maps above are
-        # updated so we can cleanly distinguish "WebRTC publisher" (in
-        # new_webrtc_pid_map), "audio bridge" (room.bridge_participant_id),
-        # and "SIP caller" (everything else in new_pid_uri_map). For each
-        # newly-seen SIP pid we fire a REFER ;method=MUTE to the focus
-        # exactly once, recording the pid in room.auto_muted_pids so
-        # other chat handlers (one per WebRTC client subscribed to the
-        # same room) don't re-issue the REFER. Pids no longer in the
-        # roster are pruned so a rejoining participant — which the
-        # focus would mint a fresh pid for — gets re-auto-muted.
-        try:
-            self._auto_mute_new_sip_participants(
-                new_pid_uri_map, new_webrtc_pid_map,
-                getattr(self.room, 'bridge_participant_id', None))
-        except Exception as e:
-            self.room.log.warning('auto-mute pass failed: {}'.format(e))
+        # Auto-mute on join is disabled by request: new SIP arrivals are no
+        # longer muted automatically when they join the conference. The
+        # _auto_mute_new_sip_participants helper and room.auto_muted_pids remain
+        # in place but are intentionally not invoked, so the only muting that
+        # happens is explicit (a WebRTC client muting a participant via the
+        # mute-participant request).
         # Conference duration is no longer carried on these per-participant
         # deltas — the client seeds its local timer from the duration on the
         # VideoroomSessionAcceptedEvent at join (computed locally from the
