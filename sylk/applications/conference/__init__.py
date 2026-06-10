@@ -639,6 +639,83 @@ class ConferenceApplication(SylkApplication):
         log.info('SIP MESSAGE is not supported, use MSRP media instead')
         message_request.answer(405)
 
+    def incoming_publish(self, publish_request, data):
+        # Event State Compositor (RFC 3903) for the videoroom roster. The
+        # webrtcgateway PUBLISHes its roster to the conference room (Event:
+        # conference) so the focus can include the WebRTC participants in the
+        # conference-info NOTIFY it sends to SIP-only subscribers. sipsimple's
+        # Publication primitive manages ETags itself, so we must behave as a
+        # proper state agent:
+        #   - initial PUBLISH (no SIP-If-Match) carries a body -> store it,
+        #     return a fresh SIP-ETag;
+        #   - modify (SIP-If-Match + body) -> validate the tag, replace body;
+        #   - refresh (SIP-If-Match, no body) -> validate the tag, keep the
+        #     existing body, just extend the expiry;
+        #   - remove (Expires: 0) -> drop the stored state.
+        # A SIP-If-Match that doesn't match the stored tag -> 412.
+        request_uri = data.request_uri
+        room_uri_str = '%s@%s' % (request_uri.user, request_uri.host)
+        headers = data.headers
+
+        def _hval(h):
+            return str(getattr(h, 'body', h)).strip() if h is not None else None
+
+        event_header = headers.get('Event')
+        event = getattr(event_header, 'event', None) or (_hval(event_header) or '').split(';', 1)[0].strip() or None
+        if event != 'conference':
+            log.info('Room %s - PUBLISH rejected: unsupported event %r' % (room_uri_str, event))
+            publish_request.answer(489)  # Bad Event
+            return
+        try:
+            room = self.get_room(request_uri)
+        except RoomNotFoundError:
+            log.info('Room %s - PUBLISH rejected: room not found' % room_uri_str)
+            publish_request.answer(404)
+            return
+
+        if_match = _hval(headers.get('SIP-If-Match'))
+        try:
+            expires = int(_hval(headers.get('Expires'))) if headers.get('Expires') is not None else 3600
+        except (TypeError, ValueError):
+            expires = 3600
+
+        current = room.videoroom_roster  # {'body', 'content_type', 'etag'} or None
+
+        # Conditional request: the referenced state must still exist and match.
+        if if_match is not None and (current is None or current.get('etag') != if_match):
+            log.info('Room %s - PUBLISH rejected: SIP-If-Match %r does not match current state' % (room_uri_str, if_match))
+            publish_request.answer(412)  # Conditional Request Failed
+            return
+
+        if expires == 0:
+            room.set_videoroom_roster(None)
+            log.info('Room %s - videoroom roster removed via PUBLISH' % room_uri_str)
+            publish_request.answer(200, extra_headers=[Header('Expires', '0')])
+            return
+
+        body = data.body or None
+        if if_match is None and body is None:
+            # Initial publication must carry the state document.
+            log.info('Room %s - PUBLISH rejected: initial publication without a body' % room_uri_str)
+            publish_request.answer(400)
+            return
+
+        if body is not None:
+            content_type_header = headers.get('Content-Type')
+            content_type = getattr(content_type_header, 'content_type', None) or (_hval(content_type_header) or None)
+            action = 'initial' if if_match is None else 'modified'
+        else:
+            # Refresh: keep the existing document, only the expiry is renewed.
+            body = current['body']
+            content_type = current['content_type']
+            action = 'refreshed'
+
+        etag = os.urandom(8).hex()
+        room.set_videoroom_roster(body, content_type, etag=etag)
+        log.info('Room %s - videoroom roster %s via PUBLISH (%s, %d bytes, etag=%s, expires=%d)' % (
+            room_uri_str, action, content_type, len(body or ''), etag, expires))
+        publish_request.answer(200, extra_headers=[Header('SIP-ETag', etag), Header('Expires', str(expires))])
+
     def accept_session(self, session, streams):
         if session.state == 'incoming':
             try:

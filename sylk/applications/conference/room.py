@@ -216,6 +216,11 @@ class Room(object):
         self.sessions = []
         self.subscriptions = []
         self.state = 'stopped'
+        # Latest videoroom roster published to this room by the webrtcgateway
+        # via SIP PUBLISH (Event: conference). Used to enrich the conference-info
+        # NOTIFY sent to SIP-only subscribers with the WebRTC participants.
+        # {'body': <str|None>, 'content_type': <str|None>}.
+        self.videoroom_roster = None
         # Anti-fraud eviction state. Two parallel maps:
         #   _invitee_inviter   : invitee_aor (lower "user@host") ->
         #                        inviter_aor (lower "user@host")
@@ -1034,6 +1039,17 @@ class Room(object):
                 subscription.push_content(conference.ConferenceDocument.content_type, data)
             except (SIPCoreError, SIPCoreInvalidStateError):
                 pass
+
+    def set_videoroom_roster(self, body, content_type=None, etag=None):
+        """Store (or clear, when body is None) the videoroom roster most
+        recently PUBLISHed to this room by the webrtcgateway. `etag` is the
+        SIP-ETag the focus handed back on the 200, used to validate the
+        SIP-If-Match on subsequent refresh/modify PUBLISHes. Consumed when
+        building the conference-info NOTIFY for SIP-only subscribers."""
+        if body is None:
+            self.videoroom_roster = None
+        else:
+            self.videoroom_roster = {'body': body, 'content_type': content_type, 'etag': etag}
 
     def dispatch_file(self, file):
         sender_uri = file.sender.uri
