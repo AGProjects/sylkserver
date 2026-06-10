@@ -82,12 +82,23 @@ def _classify_external_publisher(room, ext_uri, janus_id, log=None):
     """Classify a non-WebRTC (external) Janus publisher as 'bridge' or 'sip'.
 
     The audio bridge is the only non-WebRTC entity that publishes into the
-    room, but its Janus 'display' URI doesn't carry the
+    room. Its Janus 'display' URI carries neither the
     app=sylk-janus-audio-bridge marker (that lives in the bridge's SIP
-    Contact, which the conference focus consumes). So we primarily match the
-    publisher's AoR against the bridge AoR(s) the conference-info NOTIFY
-    taught us (room.bridge_aors), falling back to the URI marker for the
-    race where no NOTIFY has landed yet.
+    Contact) nor anything else app-specific, so the earlier approach of
+    matching room.bridge_aors / the URI marker depended on a conference-info
+    NOTIFY having already populated room.bridge_aors. That NOTIFY arrives on
+    the SIP path AFTER Janus has announced the publisher (the join handler
+    starts the chat session only after the Janus join), so the very first
+    classification reliably saw an empty bridge_aors and mislabelled the
+    bridge as 'sip'.
+
+    The deterministic, NOTIFY-independent signal: the bridge joins the SIP
+    conference whose URI is the videoroom URI with the 'videoconference' host
+    label rewritten to 'conference' — the exact rewrite
+    VideoroomChatHandler.start() uses. So for a room
+    `<user>@videoconference.<domain>` the bridge's external-publisher AoR is
+    `<user>@conference.<domain>`: same user part, conference host. Match that
+    first; fall back to the (now redundant) bridge_aors / URI-marker tests.
     """
     aor = ext_uri or ''
     if aor.startswith('sip:'):
@@ -95,12 +106,19 @@ def _classify_external_publisher(room, ext_uri, janus_id, log=None):
     elif aor.startswith('sips:'):
         aor = aor[5:]
     aor = aor.split(';', 1)[0]
+    # Expected bridge AoR derived from the room URI (videoconference->conference).
+    room_uri = getattr(room, 'uri', '') or ''
+    expected_bridge_aor = room_uri.replace('videoconference', 'conference', 1)
     bridge_aors = getattr(room, 'bridge_aors', set()) or set()
-    is_bridge = aor in bridge_aors or _is_bridge_uri(ext_uri)
+    is_bridge = (
+        (bool(expected_bridge_aor) and aor.lower() == expected_bridge_aor.lower())
+        or aor in bridge_aors
+        or _is_bridge_uri(ext_uri)
+    )
     ptype = 'bridge' if is_bridge else 'sip'
     if log is not None:
-        log.info('external publisher {pid}: uri={uri} aor={aor} -> type={t} (bridge_aors={b})'.format(
-            pid=janus_id, uri=ext_uri, aor=aor, t=ptype, b=sorted(bridge_aors) or '-'))
+        log.info('external publisher {pid}: uri={uri} aor={aor} -> type={t}'.format(
+            pid=janus_id, uri=ext_uri, aor=aor, t=ptype))
     return ptype
 
 
