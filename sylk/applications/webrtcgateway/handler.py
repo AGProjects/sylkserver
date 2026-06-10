@@ -401,6 +401,14 @@ class Videoroom(object):
         self.video = video
         self.config = get_room_config(uri)
         self.log = VideoroomLogger(self)
+        # SIP routes to the conference focus, resolved once on the first leg
+        # (when the room is created) and reused for the whole conference. Every
+        # leg — the per-participant chat sessions and their conference-info
+        # SUBSCRIBEs and REFERs — must reach the same conference bridge
+        # instance, so the DNS result is cached here for the room's lifetime
+        # rather than re-resolved (and immune to the global lookup cache's TTL
+        # expiring mid-conference).
+        self._conference_routes = None
         # Webrtc-side conference timer. Anchored to videoroom creation
         # (the moment the first WebRTC client opens this room here) and
         # used to compute the duration sent to clients in the
@@ -646,6 +654,24 @@ class Videoroom(object):
                         for session in sorted(self._sessions, key=lambda s: (s.account.id, s.id))]
         self.log.info('participants ({count}): {roster}'.format(
             count=len(participants), roster=', '.join(participants) or '(none)'))
+
+    def get_conference_routes(self, log):
+        """Resolve the SIP routes to this room's conference focus once and cache
+        them for the room's lifetime. Every leg to the focus must reach the same
+        conference bridge instance, so the lookup is done on the first leg (when
+        the room is created) and the result reused for the whole conference.
+        Raises DNSLookupError if the initial lookup fails (it is not cached)."""
+        if self._conference_routes is not None:
+            return self._conference_routes
+        sip_account = DefaultAccount()
+        sip_settings = SIPSimpleSettings()
+        if sip_account.sip.outbound_proxy is not None:
+            lookup_uri = SIPURI(host=sip_account.sip.outbound_proxy.host, port=sip_account.sip.outbound_proxy.port, parameters={'transport': sip_account.sip.outbound_proxy.transport})
+        else:
+            lookup_uri = SIPURI.parse('sip:%s' % self.uri.replace('videoconference', 'conference', 1))
+        routes = _cached_lookup_sip_proxy(lookup_uri, sip_settings.sip.transport_list, log)
+        self._conference_routes = routes
+        return routes
 
     def add(self, session):
         assert session not in self._sessions
@@ -3950,24 +3976,14 @@ class VideoroomChatHandler(object):
         to_uri.host = to_uri.host.replace(b'videoconference', b'conference', 1)  # TODO: find a way to define this
         credentials = Credentials(username=from_uri.user, password=self.account.password.encode('utf-8'), digest=True)
         sip_account = DefaultAccount()
-        sip_settings = SIPSimpleSettings()
-        if sip_account.sip.outbound_proxy is not None:
-            uri = SIPURI(host=sip_account.sip.outbound_proxy.host, port=sip_account.sip.outbound_proxy.port, parameters={'transport': sip_account.sip.outbound_proxy.transport})
-        else:
-            uri = to_uri
-        # Route the chat-session DNS lookup through the shared cache so
-        # every REFER (invite / BYE) the gateway later sends to the same
-        # focus reuses this result instead of doing its own resolver
-        # round-trip. The cache key is (uri, transport_list); the REFER
-        # path composes the exact same key (outbound_proxy if set, else
-        # the focus URI), so the chat handler's miss populates the entry
-        # the REFER then hits.
+        # Resolve the focus route once per room and reuse it for the whole
+        # conference, so every leg (each participant's chat session + its
+        # conference-info SUBSCRIBE, and REFERs) reaches the same conference
+        # bridge instance.
         try:
-            routes = _cached_lookup_sip_proxy(uri, sip_settings.sip.transport_list, self.room.log)
-            route = routes[0]
+            route = self.room.get_conference_routes(self.room.log)[0]
         except (DNSLookupError, IndexError):
             self.end()
-            self.room.log.error('DNS lookup for SIP proxy for {} failed'.format(uri))
             self.room.log.error('chat session for {} failed: DNS lookup error'.format(self.account.id))
             notification_center.post_notification('ChatSessionDidFail', sender=self, data=NotificationData(originator='local', code=0, reason=None, failure_reason='DNS lookup error'))
             return
