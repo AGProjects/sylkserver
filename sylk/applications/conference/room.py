@@ -806,7 +806,7 @@ class Room(object):
             peak_tx = acc['tx_peak']
             peak_rx = acc['rx_peak']
             who = label_by_pid.get(pid, '?')
-            log.info(
+            log.debug(
                 'Room %s audio level: "%-10.10s" "%s" %ss mean/peak, n=%d, tx=%d/%d rx=%d/%d' %
                 (self.uri, who, pid, period, count,
                  avg_tx, peak_tx, avg_rx, peak_rx)
