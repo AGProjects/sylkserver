@@ -199,6 +199,12 @@ class IncomingRequestHandler(object, metaclass=Singleton):
     def get_application(self, ruri, headers):
         if SYLK_APP_HEADER in headers:
             application_name = headers[SYLK_APP_HEADER].body.strip()
+            # Sessions from the WebRTC gateway's video-room chat bridge and the
+            # sylk-janus-audio-bridge select their target app explicitly via this
+            # header. Log it at the selection point — before the app's
+            # incoming_session runs — so routing decisions are visible regardless
+            # of which application ends up handling the request.
+            log.info('Application %r selected by %s header for %s' % (application_name, SYLK_APP_HEADER, ruri))
         else:
             application_name = ServerConfig.default_application
             if self.application_map:
