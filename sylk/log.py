@@ -2,6 +2,7 @@
 import inspect
 import logging
 import os
+import re
 
 from abc import ABCMeta, abstractproperty
 from application import log
@@ -334,3 +335,19 @@ root_logger = log.get_logger()
 root_logger.name = core_name
 log.Formatter.prefix_format = '{record.levelname:<8s} [{record.name}] '
 log.Formatter.prefix_length = max(len(name) for name in chain(find_applications(), [core_name])) + 8 + 4  # max name length + max level name length + 2 square brackets + 2 spaces
+
+# Strip the sip:/sips: URI scheme from the conference application's log lines
+# (it logs participants and rooms by bare AoR / room URI). Scoped to records
+# whose logger name is 'conference', so other applications are unaffected.
+# Done at the formatter so every conference log line is covered without
+# touching individual call sites.
+_sip_scheme_re = re.compile(r'\bsips?:')
+_base_formatter_format = log.Formatter.format
+
+def _format_strip_sip_scheme(self, record):
+    formatted = _base_formatter_format(self, record)
+    if getattr(record, 'name', None) == 'conference':
+        formatted = _sip_scheme_re.sub('', formatted)
+    return formatted
+
+log.Formatter.format = _format_strip_sip_scheme
