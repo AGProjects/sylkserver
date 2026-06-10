@@ -3947,7 +3947,14 @@ class VideoroomChatHandler(object):
         except Exception as e:
             self.room.log.warning('could not set +sip.instance on chat contact: {}'.format(e))
             contact_header = None
-        self.sip_session.connect(FromHeader(from_uri, self.account.display_name), ToHeader(to_uri), route=route, streams=[self.chat_stream], credentials=credentials, contact_header=contact_header)
+        # Explicitly route this session to the conference application on the
+        # receiving SylkServer. Without the X-Sylk-App header the target server
+        # falls back to its default_application / application_map (and to the
+        # videoconference->conference host rewrite above), which is fragile.
+        # Sending X-Sylk-App: conference makes the application selection
+        # deterministic — get_application() reads this header first.
+        extra_headers = [Header('X-Sylk-App', 'conference')]
+        self.sip_session.connect(FromHeader(from_uri, self.account.display_name), ToHeader(to_uri), route=route, streams=[self.chat_stream], credentials=credentials, contact_header=contact_header, extra_headers=extra_headers)
 
     @run_in_twisted_thread
     def end(self):
