@@ -440,6 +440,14 @@ class ConferenceApplication(SylkApplication):
         audio_streams = [stream for stream in session.proposed_streams if stream.type=='audio']
         chat_streams = [stream for stream in session.proposed_streams if stream.type=='chat']
         transfer_streams = [stream for stream in session.proposed_streams if stream.type=='file-transfer']
+        # Conference rooms never negotiate OTR over their MSRP chat streams. OTR
+        # is a 1-to-1 end-to-end feature; in a multiparty room the focus is the
+        # MSRP endpoint, so OTR with the focus is meaningless and would garble
+        # the messages the focus relays to other participants. The SDK
+        # auto-starts OTR on MediaStreamDidStart when stream.start_otr is True
+        # (the default), so disable it per chat stream here.
+        for stream in chat_streams:
+            stream.start_otr = False
         if not audio_streams and not chat_streams and not transfer_streams:
             log.info(u'Session rejected: invalid media')
             session.reject(488)
@@ -1435,7 +1443,10 @@ class IncomingReferralHandler(object):
         log.info('Room %s - inviting %s with media %s (from %s)' %
                  (self.room_uri_str, self.refer_to_uri, sorted(offer_media), offer_source))
         for stream_type in offer_media:
-            self.streams.append(MediaStreamRegistry.get(stream_type)())
+            stream = MediaStreamRegistry.get(stream_type)()
+            if stream_type == 'chat':
+                stream.start_otr = False  # conference rooms never negotiate OTR (see incoming_session)
+            self.streams.append(stream)
         self.session = Session(account)
         notification_center.add_observer(self, sender=self.session)
         original_from_header = self._refer_headers.get('From')
