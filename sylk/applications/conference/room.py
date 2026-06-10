@@ -1338,8 +1338,23 @@ class Room(object):
         if ServerConfig.enable_bonjour:
             self._update_bonjour_presence()
 
-    def terminate_sessions(self, uri):
+    def terminate_sessions(self, uri, participant_id=None):
         if not self.started:
+            return
+        # Per-device path: when a participant_id token is supplied (a
+        # REFER ;method=BYE carrying ;participant_id=, or an admin kick by
+        # pid) end ONLY the session bearing that token, so one device can
+        # be removed without dropping its siblings on the same AoR. Reuses
+        # the same resolver the mute path uses, so SIP and HTTP moderation
+        # disambiguate devices identically.
+        if participant_id:
+            session, _audio_stream = self._find_audio_session(participant_id)
+            if session is None:
+                log.info('Room %s - terminate_sessions: no session matched participant_id %s' % (self.uri, participant_id))
+                return
+            log.info('Room %s - terminate_sessions: ending session for participant_id %s (%s)' % (
+                self.uri, participant_id, session.remote_identity.uri))
+            session.end()
             return
         # Match by AoR (user@host, lower-cased) rather than by full
         # SIPURI equality. SIPURI's __eq__ compares all attributes —

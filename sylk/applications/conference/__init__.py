@@ -659,14 +659,14 @@ class ConferenceApplication(SylkApplication):
         room.start()
         room.add_session(session)
 
-    def remove_participant(self, participant_uri, room_uri):
+    def remove_participant(self, participant_uri, room_uri, participant_id=None):
         try:
             room = self.get_room(room_uri)
         except RoomNotFoundError:
             pass
         else:
             log.info('Room %s - %s removed from conference' % (room_uri, participant_uri))
-            room.terminate_sessions(participant_uri)
+            room.terminate_sessions(participant_uri, participant_id=participant_id)
 
     def handle_notification(self, notification):
         handler = getattr(self, '_NH_%s' % notification.name, Null)
@@ -1192,10 +1192,23 @@ class IncomingReferralHandler(object):
             notification_center.add_observer(self, sender=lookup)
             lookup.lookup_sip_proxy(uri, settings.sip.transport_list)
         elif self.method == 'BYE':
-            log.info('Room %s - %s removed %s from the room' % (self.room_uri_str, self._refer_headers.get('From').uri, self.refer_to_uri))
+            # Optional per-device disambiguation: a ;participant_id=<token>
+            # parameter on the Refer-To header picks one endpoint when
+            # several devices share an AoR — the same mechanism the
+            # MUTE/UNMUTE branch below uses. Absent it, removal falls back
+            # to AoR matching (legacy single-device behaviour). Some PJSIP
+            # versions deliver parameter values as bytes; decode defensively.
+            refer_params = self._refer_headers.get('Refer-To').parameters
+            pid_param = refer_params.get('participant_id', None)
+            if isinstance(pid_param, bytes):
+                try:
+                    pid_param = pid_param.decode()
+                except Exception:
+                    pid_param = None
+            log.info('Room %s - %s removed %s (pid=%s) from the room' % (self.room_uri_str, self._refer_headers.get('From').uri, self.refer_to_uri, pid_param or '-'))
             self._refer_request.accept()
             conference_application = ConferenceApplication()
-            conference_application.remove_participant(self.refer_to_uri, self.room_uri)
+            conference_application.remove_participant(self.refer_to_uri, self.room_uri, participant_id=pid_param or None)
             self._refer_request.end(200)
         elif self.method in ('MUTE', 'UNMUTE'):
             # Per-participant moderator mute/unmute via REFER. The
