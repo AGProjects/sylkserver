@@ -215,6 +215,11 @@ class Room(object):
         self.subject = ''
         self.sessions = []
         self.subscriptions = []
+        # subscription object -> subscriber From URI. IncomingSubscription is a
+        # C-extension type and can't hold arbitrary attributes, so the
+        # subscriber identity (used to pick the SIP-only vs videoroom NOTIFY
+        # variant) is kept here instead. Cleaned up when the subscription ends.
+        self._subscription_uris = {}
         self.state = 'stopped'
         # Latest videoroom roster published to this room by the webrtcgateway
         # via SIP PUBLISH (Event: conference). Used to enrich the conference-info
@@ -317,6 +322,13 @@ class Room(object):
 
     @property
     def conference_info(self):
+        return self.build_conference_info()
+
+    def build_conference_info(self, hide_bridges=False):
+        # When hide_bridges is True the bridge components (the
+        # sylk-janus-audio-bridge leg) are omitted — used for the NOTIFY sent to
+        # SIP-only subscribers. The videoroom (webrtcgateway) subscriber gets
+        # the full roster (hide_bridges=False) and does its own merge.
         if self.conference_info_payload is None:
             settings = SIPSimpleSettings()
             conference_description = conference.ConferenceDescription(display_text='Ad-hoc conference', free_text='Hosted by %s' % settings.user_agent, subject=self.subject)
@@ -359,6 +371,8 @@ class Room(object):
 
         users = conference.Users()
         for session in (session for session in self.sessions if not (len(session.streams) == 1 and session.streams[0].type == 'file-transfer')):
+            if hide_bridges and self._session_matches_room(session):
+                continue
             try:
                 user = next(user for user in users if user.entity == str(session.remote_identity.uri))
             except StopIteration:
@@ -535,6 +549,7 @@ class Room(object):
             notification_center.remove_observer(self, sender=subscription)
             subscription.end()
         self.subscriptions = []
+        self._subscription_uris = {}
         self.cleanup_files()
         # Cancel every armed anti-fraud eviction timer — the room is
         # going away, so any reactor.callLater holding a reference to
@@ -1032,9 +1047,42 @@ class Room(object):
                 continue
             chat_stream.send_message(content, content_type, sender=self.identity, recipients=[self.identity], additional_headers=[message_type])
 
+    def _session_matches_room(self, session):
+        """True if a session's AoR user-part equals this room's user-part — the
+        gateway/bridge plumbing that joins as the room itself: the
+        sylk-janus-audio-bridge leg (<room>@conference.<domain>) and the
+        webrtcgateway videoroom chat legs (<room>@videoconference.<domain>).
+        These are hidden from SIP-only subscribers, whose roster shows the real
+        WebRTC participants (published separately) instead."""
+        try:
+            def _s(x):
+                return (x.decode() if isinstance(x, bytes) else (x or '')).lower()
+            return _s(session.remote_identity.uri.user) == _s(self.identity.uri.user)
+        except Exception:
+            return getattr(session, '_sylk_audio_bridge', False)
+
+    def _is_videoroom_subscriber(self, uri):
+        """True if a subscriber URI is the videoroom (webrtcgateway) leg rather
+        than a SIP-only participant. The gateway presents the videoroom URI
+        (<room user>@videoconference.<domain>) as From on its conference
+        legs, so SIP-only participants are everyone whose host is not the
+        videoconference variant of this room's host."""
+        if uri is None:
+            return False
+        def _s(x):
+            return (x.decode() if isinstance(x, bytes) else (x or '')).lower()
+        return _s(uri.user) == _s(self.identity.uri.user) and _s(uri.host).startswith('videoconference')
+
     def dispatch_conference_info(self):
-        data = self.conference_info
+        full_data = self.build_conference_info(hide_bridges=False)
+        sip_data = None  # built on demand when a SIP-only subscriber is present
         for subscription in (subscription for subscription in self.subscriptions if subscription.state.lower() == 'active'):
+            if self._is_videoroom_subscriber(self._subscription_uris.get(subscription)):
+                data = full_data
+            else:
+                if sip_data is None:
+                    sip_data = self.build_conference_info(hide_bridges=True)
+                data = sip_data
             try:
                 subscription.push_content(conference.ConferenceDocument.content_type, data)
             except (SIPCoreError, SIPCoreInvalidStateError):
@@ -1423,10 +1471,13 @@ class Room(object):
             #log.info('Room %s - Subscription for event %s rejected: only conference event is supported' % (self.uri, subscribe_request.event))
             subscribe_request.reject(489)
             return
+        subscriber_uri = data.headers['From'].uri
+        self._subscription_uris[subscribe_request] = subscriber_uri
         NotificationCenter().add_observer(self, sender=subscribe_request)
         self.subscriptions.append(subscribe_request)
         try:
-            subscribe_request.accept(conference.ConferenceDocument.content_type, self.conference_info)
+            hide_bridges = not self._is_videoroom_subscriber(subscriber_uri)
+            subscribe_request.accept(conference.ConferenceDocument.content_type, self.build_conference_info(hide_bridges=hide_bridges))
         except SIPCoreError as e:
             log.warning('Error accepting SIP subscription: %s' % e)
             subscribe_request.end()
@@ -1581,6 +1632,7 @@ class Room(object):
 
     def _NH_SIPIncomingSubscriptionDidEnd(self, notification):
         subscription = notification.sender
+        self._subscription_uris.pop(subscription, None)
         try:
             self.subscriptions.remove(subscription)
         except ValueError:
