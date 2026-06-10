@@ -140,6 +140,11 @@ class SylkApplication(object, metaclass=SylkApplicationMeta):
     def incoming_message(self, message_request, data):
         pass
 
+    def incoming_publish(self, publish_request, data):
+        # Default: applications do not accept SIP PUBLISH. Override to handle it.
+        # Not abstract so existing applications need not implement it.
+        publish_request.answer(489)  # Bad Event
+
 
 class ApplicationNotLoadedError(Exception):
     pass
@@ -339,8 +344,8 @@ class IncomingRequestHandler(object, metaclass=Singleton):
     def _NH_SIPIncomingRequestGotRequest(self, notification):
         request = notification.sender
         method = notification.data.method
-        if method != 'MESSAGE':
-            log.info('rejected 405 %s — only MESSAGE is accepted as out-of-dialog request' % self._request_summary(
+        if method not in ('MESSAGE', 'PUBLISH'):
+            log.info('rejected 405 %s — only MESSAGE and PUBLISH are accepted as out-of-dialog requests' % self._request_summary(
                 method, notification.data.request_uri,
                 request.peer_address, notification.data.headers))
             request.answer(405)
@@ -349,7 +354,7 @@ class IncomingRequestHandler(object, metaclass=Singleton):
             self.authorization_handler.authorize_source(request.peer_address.ip)
         except UnauthorizedRequest as e:
             log.info('rejected 403 %s — %s' % (self._request_summary(
-                'MESSAGE', notification.data.request_uri,
+                method, notification.data.request_uri,
                 request.peer_address, notification.data.headers), e))
             request.answer(403)
             return
@@ -357,11 +362,14 @@ class IncomingRequestHandler(object, metaclass=Singleton):
             app = self.get_application(notification.data.request_uri, notification.data.headers)
         except ApplicationNotLoadedError:
             log.info('rejected 404 %s — no application loaded for this request' % self._request_summary(
-                'MESSAGE', notification.data.request_uri,
+                method, notification.data.request_uri,
                 request.peer_address, notification.data.headers))
             request.answer(404)
         else:
-            app.incoming_message(request, notification.data)
+            if method == 'PUBLISH':
+                app.incoming_publish(request, notification.data)
+            else:
+                app.incoming_message(request, notification.data)
 
 
 class UnauthorizedRequest(Exception):
