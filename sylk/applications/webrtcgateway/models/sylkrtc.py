@@ -91,6 +91,19 @@ class AORList(StringArray):
     item_validator = AORValidator()
 
 
+class ParticipantRefList(StringArray):
+    # A list of participant references for videoroom-remove. Unlike AORList
+    # there is deliberately NO per-item AOR validator: an entry may be
+    # either an AoR (legacy URI-based removal — SIP participants and
+    # not-yet-joined invitees) OR a per-session publisher id
+    # (VideoroomSessionInfo.id, what the client knows as
+    # Participant.publisherId). The session-id form is what makes it
+    # possible to remove ONE of several devices sharing a single AoR — an
+    # AoR can't disambiguate them. The handler resolves each entry by
+    # trying a session-id lookup first and falls back to AoR routing.
+    list_validator = UniqueItemsValidator()
+
+
 class VideoroomPublisher(JSONObject):
     id = StringProperty()
     uri = StringProperty(validator=AORValidator())
@@ -831,14 +844,16 @@ class VideoroomInviteRequest(VideoroomRequestBase):
 
 
 class VideoroomRemoveRequest(VideoroomRequestBase):
-    # Request the conference focus to remove the named participants
-    # from the room via SIP REFER ;method=BYE (RFC 4579). The gateway
-    # spawns one SipFocusReferralHandler(method='BYE') per URI; the
-    # focus BYEs the participant's existing call leg in the room. Used
-    # both for explicit client-driven kicks and for the server-side
-    # cleanup when the last WebRTC publisher leaves the room.
+    # Request that the named participants be removed from the room. Each
+    # entry is either a per-session publisher id (preferred — uniquely
+    # identifies one device even when several share an AoR; the gateway
+    # issues a Janus videoroom kick for it) or an AoR (legacy/SIP path —
+    # the gateway spawns a SipFocusReferralHandler(method='BYE') per URI
+    # so the focus BYEs the participant's call leg, RFC 4579). Used both
+    # for explicit client-driven kicks and for the server-side cleanup
+    # when the last WebRTC publisher leaves the room.
     sylkrtc = FixedValueProperty('videoroom-remove')
-    participants = ArrayProperty(AORList)              # type: AORList
+    participants = ArrayProperty(ParticipantRefList)   # type: ParticipantRefList
 
 
 class VideoroomSessionTrickleRequest(VideoroomRequestBase):

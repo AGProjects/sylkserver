@@ -2579,98 +2579,162 @@ class ConnectionHandler(object):
                     _room.log.warning('failed to forward remove-status event for {}: {}'.format(p_uri_inner, e))
             return _status_cb
 
-        for participant in participants.difference([base_session.account.id]):
-            participant_aor = _aor(participant)
+        def _kick_webrtc_publisher(target, label):
+            # Janus kick + full teardown for ONE WebRTC publisher session.
+            # `label` is used only for logging / the status event; the
+            # session object itself is what's acted on, so this works
+            # whether the target was resolved by session id (per-device)
+            # or by AoR (legacy).
+            publisher_id = getattr(target, 'publisher_id', None)
+            if publisher_id is None:
+                room.log.warning('skipping Janus kick for {}: no publisher_id'.format(label))
+                return
+            room.log.info('kicking WebRTC publisher {} (pid={}) from room {}'.format(label, publisher_id, room.uri))
+            try:
+                base_session.janus_handle.kick_publisher(room.id, publisher_id)
+            except Exception as e:
+                room.log.warning('Janus kick threw for {}: {}'.format(label, e))
+                return
 
-            # WebRTC branch — Janus kick. The base_session's janus_handle
-            # is in the same room as the kick target, so a kick request
-            # on it removes the named publisher.
-            if participant_aor in webrtc_publishers:
-                target = webrtc_publishers[participant_aor]
-                publisher_id = getattr(target, 'publisher_id', None)
-                if publisher_id is None:
-                    room.log.warning('skipping Janus kick for {}: no publisher_id'.format(participant))
-                    continue
-                room.log.info('kicking WebRTC publisher {} (pid={}) from room {}'.format(participant, publisher_id, room.uri))
+            # Janus only sends the 'kicked' event back to US (the
+            # moderator) as an ack — it does NOT notify the kicked
+            # publisher on their own handle. So Janus stops their media
+            # but their gateway-side videoroom session AND the
+            # client-side Conference object stay alive, leaving the
+            # kicked user's phone silently connected. Drive the teardown
+            # from this side: send the terminated event to the target's
+            # WebSocket client and clean up the target's gateway state.
+            # `target.owner` is the target's ConnectionHandler.
+            target_owner = getattr(target, 'owner', None)
+            if target_owner is not None:
                 try:
-                    base_session.janus_handle.kick_publisher(room.id, publisher_id)
+                    target_owner.send(sylkrtc.VideoroomSessionTerminatedEvent(
+                        session=target.id, reason='kicked'))
                 except Exception as e:
-                    room.log.warning('Janus kick threw for {}: {}'.format(participant, e))
-                    continue
-
-                # Janus only sends the 'kicked' event back to US (the
-                # moderator) as an ack — it does NOT notify the kicked
-                # publisher on their own handle. So Janus stops their
-                # media but their gateway-side videoroom session AND
-                # the client-side Conference object stay alive,
-                # leaving the kicked user's phone silently connected.
-                # Drive the teardown from this side: send the
-                # terminated event to the target's WebSocket client
-                # and clean up the target's gateway state. The room
-                # iteration above gave us the target's session object,
-                # whose `.owner` is the target's ConnectionHandler.
-                target_owner = getattr(target, 'owner', None)
-                if target_owner is not None:
-                    try:
-                        target_owner.send(sylkrtc.VideoroomSessionTerminatedEvent(
-                            session=target.id, reason='kicked'))
-                    except Exception as e:
-                        room.log.warning('failed to forward kicked event to {}: {}'.format(participant, e))
-                    try:
-                        target_owner._cleanup_videoroom_session(target)
-                    except Exception as e:
-                        room.log.warning('cross-connection cleanup of kicked session for {} failed: {}'.format(participant, e))
-
-                # Update the moderator's own roster. Janus sends the
-                # 'kicked' event as an ack to the moderator INSTEAD of
-                # the 'leaving' event other publishers receive when a
-                # peer drops, so the normal _EH_janus_videoroom_event_leaving
-                # path that emits VideoroomPublishersLeftEvent doesn't
-                # fire on this side. Walk our own feeds (subscriptions
-                # to the kicked publisher) to clean them up, then send
-                # the publishers-left event so the moderator's client
-                # removes the tile from its grid.
+                    room.log.warning('failed to forward kicked event to {}: {}'.format(label, e))
                 try:
-                    departed_subscriber = base_session.feeds.pop(publisher_id)
-                    departed_id = departed_subscriber.id
-                except KeyError:
-                    departed_id = str(publisher_id)
-                try:
-                    self.send(sylkrtc.VideoroomPublishersLeftEvent(
-                        session=base_session.id, publishers=[departed_id]))
+                    target_owner._cleanup_videoroom_session(target)
                 except Exception as e:
-                    room.log.warning('failed to push publishers-left to moderator for {}: {}'.format(participant, e))
+                    room.log.warning('cross-connection cleanup of kicked session for {} failed: {}'.format(label, e))
 
-                # Surface "200 OK" on the issuer's UI so the tile
-                # reconciles to "removed" right away.
-                try:
-                    _status_cb_factory(participant)(participant, 'success', 200, 'OK')
-                except Exception:
-                    pass
-                continue
+            # Update the moderator's own roster. Janus sends the 'kicked'
+            # event as an ack to the moderator INSTEAD of the 'leaving'
+            # event other publishers receive when a peer drops, so the
+            # normal _EH_janus_videoroom_event_leaving path that emits
+            # VideoroomPublishersLeftEvent doesn't fire on this side.
+            # Walk our own feeds (subscriptions to the kicked publisher)
+            # to clean them up, then send the publishers-left event so
+            # the moderator's client removes the tile from its grid.
+            try:
+                departed_subscriber = base_session.feeds.pop(publisher_id)
+                departed_id = departed_subscriber.id
+            except KeyError:
+                departed_id = str(publisher_id)
+            try:
+                self.send(sylkrtc.VideoroomPublishersLeftEvent(
+                    session=base_session.id, publishers=[departed_id]))
+            except Exception as e:
+                room.log.warning('failed to push publishers-left to moderator for {}: {}'.format(label, e))
 
-            # SIP branch — REFER ;method=BYE.
+            # Surface "200 OK" on the issuer's UI so the tile reconciles
+            # to "removed" right away.
+            try:
+                _status_cb_factory(label)(label, 'success', 200, 'OK')
+            except Exception:
+                pass
+
+        def _refer_bye_sip(target_uri_str, label, participant_id=None):
+            # Remove a SIP participant by asking the conference focus to
+            # REFER ;method=BYE its leg. When `participant_id` is given it
+            # rides as a Refer-To ;participant_id=<token> parameter so the
+            # focus drops exactly that endpoint even when several SIP
+            # devices share one AoR (mirrors the SIP mute path). Without it
+            # the focus falls back to AoR matching (legacy single-device).
             chat_handler = base_session.chat_handler
             if chat_handler is None or chat_handler.sip_session is None:
-                room.log.debug('skipping SIP REFER ;method=BYE for {}: chat session not yet established'.format(participant))
-                continue
+                room.log.debug('skipping SIP REFER ;method=BYE for {}: chat session not yet established'.format(label))
+                return
             if not chat_handler.sip_session.remote_focus:
-                room.log.debug('skipping SIP REFER ;method=BYE for {}: remote party is not a SIP focus'.format(participant))
-                continue
+                room.log.debug('skipping SIP REFER ;method=BYE for {}: remote party is not a SIP focus'.format(label))
+                return
             try:
                 focus_uri = SIPURI.new(chat_handler.sip_session.remote_identity.uri)
             except SIPCoreError as e:
-                room.log.warning('skipping SIP REFER ;method=BYE for {}: focus URI unresolved: {}'.format(participant, e))
-                continue
-            participant_str = participant if participant.startswith(('sip:', 'sips:')) else 'sip:{}'.format(participant)
+                room.log.warning('skipping SIP REFER ;method=BYE for {}: focus URI unresolved: {}'.format(label, e))
+                return
+            participant_str = target_uri_str if target_uri_str.startswith(('sip:', 'sips:')) else 'sip:{}'.format(target_uri_str)
             try:
                 participant_uri = SIPURI.parse(participant_str)
             except SIPCoreError:
-                room.log.warning('skipping SIP REFER ;method=BYE for {}: invalid URI'.format(participant))
-                continue
-            room.log.info('removing SIP participant {} via REFER ;method=BYE from focus {} for room {}'.format(participant_uri, focus_uri, room.uri))
+                room.log.warning('skipping SIP REFER ;method=BYE for {}: invalid URI {!r}'.format(label, participant_str))
+                return
+            room.log.info('removing SIP participant {} (pid={}) via REFER ;method=BYE from focus {} for room {}'.format(
+                participant_uri, participant_id or '-', focus_uri, room.uri))
             SipFocusReferralHandler(focus_uri, participant_uri, base_session.account, room.log,
-                                    status_callback=_status_cb_factory(participant), method='BYE').start()
+                                    status_callback=_status_cb_factory(label), method='BYE',
+                                    refer_to_extra_params={'participant_id': participant_id} if participant_id else None).start()
+
+        for participant in participants:
+            # Path A — per-session removal (the multi-device fix). The
+            # client sends the target's publisher id, which is exactly the
+            # gateway's VideoroomSessionInfo.id (see the publishers roster:
+            # dict(id=publisher_session.id, ...)), so room[participant]
+            # resolves to ONE specific device even when several share a
+            # single AoR. That's what makes "kick my other device" work:
+            # same account, different session id. Only the requester's OWN
+            # session is refused — leaving yourself is the hangup button's
+            # job, not a kick.
+            try:
+                target_session = room[participant]
+            except (KeyError, TypeError):
+                target_session = None
+            if target_session is not None and getattr(target_session, 'type', None) == 'publisher':
+                if target_session.id == base_session.id:
+                    room.log.info('skipping self-kick of own session {}'.format(target_session.id))
+                    continue
+                _kick_webrtc_publisher(target_session, participant)
+                continue
+
+            # Path A2 — SIP participant addressed by its focus
+            # participant_id. A SIP caller behind the bridge has no gateway
+            # videoroom session (so Path A's room[...] lookup misses), but
+            # the focus assigns it a stable participant_id that the client
+            # sends here (the same token the SIP mute uses). Map it to the
+            # caller's URI from the NOTIFY-derived table and BYE that exact
+            # leg, carrying the pid so the focus can disambiguate devices
+            # sharing one AoR. WebRTC participants also have a focus pid but
+            # are already handled above by session id, so exclude them here.
+            try:
+                _sip_pid_uri = room.participant_uris_by_pid.get(participant)
+                _is_webrtc_pid = participant in room.webrtc_participants_by_pid
+            except AttributeError:
+                _sip_pid_uri = None
+                _is_webrtc_pid = False
+            if _sip_pid_uri is not None and not _is_webrtc_pid:
+                _refer_bye_sip(_sip_pid_uri, participant, participant_id=participant)
+                continue
+
+            # Path B — legacy AoR routing for entries that aren't a session
+            # id: SIP callers and not-yet-joined invitees. A bare AoR can't
+            # tell two devices apart, so removal by the requester's own AoR
+            # stays excluded here (use the per-session id path above to drop
+            # a sibling device).
+            if _aor(participant) == _aor(base_session.account.id):
+                room.log.info('skipping AoR-based self removal for {}'.format(participant))
+                continue
+            participant_aor = _aor(participant)
+
+            # WebRTC publisher reachable only by AoR (e.g. an older client
+            # that sent a URI rather than a session id): same Janus kick.
+            if participant_aor in webrtc_publishers:
+                _kick_webrtc_publisher(webrtc_publishers[participant_aor], participant)
+                continue
+
+            # SIP branch — REFER ;method=BYE by AoR. Reached for plain URI
+            # entries (a not-yet-joined invitee being cancelled, or an
+            # older client that sent a URI). No participant_id to
+            # disambiguate, so the focus matches by AoR (legacy behaviour).
+            _refer_bye_sip(participant, participant)
 
     def _RH_videoroom_mute_participant(self, request):
         """Dispatch a per-participant mute request to the right backend.
