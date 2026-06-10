@@ -1410,43 +1410,6 @@ class ConnectionHandler(object):
                 session.room.discard(session)
                 session.feeds.clear()
                 session.janus_handle.detach()
-                # Last-publisher auto-kick of SIP participants. When the
-                # WebRTC side of the room empties out, every SIP-side
-                # participant (PSTN-dialled invitees, bridge, etc.) is
-                # left orphaned in the conference focus — nothing's
-                # listening to them on the WebRTC end. Send
-                # REFER ;method=BYE for each of them through the still-
-                # alive chat session BEFORE we tear that session down
-                # so the chat dialog (the SUBSCRIBE/NOTIFY anchor the
-                # focus uses to validate REFERs from us) is still
-                # present when the focus processes each REFER.
-                #
-                # Fire-and-forget: we spawn the REFER greenlets without
-                # waiting on completion. Tearing down the chat session
-                # next isn't synchronous with REFER transmission either
-                # — the focus has more than enough time to read the
-                # REFERs off the wire before our BYE for the chat
-                # session lands. This avoids holding the destroy path
-                # behind a 15 s/REFER timeout when the focus is slow.
-                last_publisher = len(session.room) == 0
-                # Log the gate state so it's never invisible WHY the
-                # auto-kick did or didn't fire — multiple things can
-                # silently disable it (no chat handler yet, no SIP
-                # session, focus not detected) and "nobody got kicked"
-                # is exactly the failure mode we want to diagnose.
-                session.room.log.info(
-                    'auto-kick gate: last_publisher={} chat_handler={} sip_session={} roster_size={}'.format(
-                        last_publisher,
-                        session.chat_handler is not None,
-                        session.chat_handler is not None and session.chat_handler.sip_session is not None,
-                        len(getattr(session.room, '_sip_roster', {})),
-                    )
-                )
-                if last_publisher and session.chat_handler is not None and session.chat_handler.sip_session is not None:
-                    try:
-                        self._kick_all_sip_participants_fire_and_forget(session)
-                    except Exception as e:
-                        session.room.log.warning('auto-kick failed: {}'.format(e))
                 session.chat_handler.end()
                 self._maybe_destroy_videoroom(session.room)
             else:
