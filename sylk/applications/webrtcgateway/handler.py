@@ -476,6 +476,11 @@ class Videoroom(object):
         # Written by ConnectionHandler._update_talking on talking /
         # stopped-talking events; read by the admin audio-levels endpoint.
         self.webrtc_talking = {}  # type: Dict[int, dict]
+        # Admin-only snapshot of the audio bridge participant (dict with
+        # id/uri/display_name/type), or None when no bridge is present.
+        # Rebuilt from each conference-info NOTIFY; surfaced in the
+        # management UI but kept out of sip_participants.
+        self.bridge_info = None
         if self.config.record:
             makedirs(self.config.recording_dir, 0o755)
             self.log.info('created (recording on)')
@@ -1080,8 +1085,8 @@ class SipFocusReferralHandler(object):
             return False
 
     def _run(self):
-        self.log.info('[conference] _run entered for {} (focus={})'.format(
-            self.participant_uri, self.focus_uri))
+        #self.log.info('[conference] _run entered for {} (focus={})'.format(
+        #    self.participant_uri, self.focus_uri))
         notification_center = NotificationCenter()
         settings = SIPSimpleSettings()
         try:
@@ -4420,6 +4425,7 @@ class VideoroomChatHandler(object):
         current_surrogates = []
         current_state = {}
         current_bridge_aors = set()
+        current_bridge_info = None  # admin-only view of the audio bridge
         for user in conference_info.users:
             user_aor = _aor(getattr(user, 'entity', '') or '')
             user_display = ''
@@ -4514,8 +4520,8 @@ class VideoroomChatHandler(object):
                 # we want to see it in the log rather than silently
                 # shipping null to the mobile.
                 self.room.log.info(
-                    'endpoint payload pid={} input_muted={!r} stored_muted={!r}'.format(
-                        participant_id, muted_value, getattr(_vce, 'muted', '<missing>')))
+                    'endpoint payload pid={} input_muted={!r} stored_muted={!r} user_agent={!r}'.format(
+                        participant_id, muted_value, getattr(_vce, 'muted', '<missing>'), user_agent))
                 endpoints.append(_vce)
             participant_aor = _aor(user.entity)
             # Learn whether this User is the audio bridge from the
@@ -4597,6 +4603,17 @@ class VideoroomChatHandler(object):
                         # so the log never even attempts to render it.
                         new_labels.pop(ep.participant_id, None)
                         break
+                # Admin-only view of the bridge for the management UI. Kept
+                # OUT of sip_participants (which is replayed to WebRTC
+                # clients as publishers) so clients don't render a bridge
+                # tile; surfaced separately via room.bridge_info.
+                _bridge_pid = next((ep.participant_id for ep in endpoints if ep.participant_id), None)
+                current_bridge_info = dict(
+                    id=_bridge_pid,
+                    uri=str(user.entity) if getattr(user, 'entity', None) else None,
+                    display_name=current_display.get(user.entity) or 'Audio bridge',
+                    type='bridge',
+                )
                 # As soon as the bridge tells us where its audio-level UDP
                 # server lives, register/refresh our subscription so the
                 # remote focus starts streaming levels back. ensure_subscription
@@ -4662,8 +4679,13 @@ class VideoroomChatHandler(object):
                     )
                     if _ep.muted is not None:
                         _sp['muted'] = _ep.muted
-                    if getattr(_ep, 'user_agent', None):
-                        _sp['user_agent'] = _ep.user_agent
+                    # Coerce to a plain string — the agp-conf:user_agent
+                    # extension accessor may hand back an XML element rather
+                    # than a str, which wouldn't survive JSON serialisation
+                    # in the admin participants endpoint.
+                    _ua = getattr(_ep, 'user_agent', None)
+                    if _ua:
+                        _sp['user_agent'] = str(_ua).strip()
                     current_surrogates.append(_sp)
                     current_state[_ep.participant_id] = dict(
                         target_id=_ep.participant_id,
@@ -4712,6 +4734,9 @@ class VideoroomChatHandler(object):
         # NOTIFY.
         self.room.sip_participants = current_surrogates
         self.room.bridge_aors = current_bridge_aors
+        # Wholesale-replace the admin bridge view (None when no bridge user
+        # is present in this NOTIFY, so a departed bridge drops out).
+        self.room.bridge_info = current_bridge_info
 
         # Diff the freshly built snapshot against what this handler last
         # forwarded to its client and emit only the deltas, reusing the

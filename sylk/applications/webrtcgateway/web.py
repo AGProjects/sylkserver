@@ -414,6 +414,7 @@ ADMIN_UI_HTML = r"""<!doctype html>
   .badge { display:inline-block; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.4px; padding:2px 8px; border-radius:5px; }
   .badge-webrtc { background:#eef2ff; color:#4338ca; }
   .badge-sip { background:#ecfdf5; color:#047857; }
+  .badge-bridge { background:#fef3c7; color:#92400e; }
   .badge-muted { background:#fef2f2; color:#b91c1c; margin-left:6px; }
   .pbtn { border:1px solid var(--border); background:#fff; border-radius:7px; padding:6px 12px; font-size:13px; font-weight:600; cursor:pointer; color:#334155; }
   .pbtn:hover { background:#f1f5f9; }
@@ -615,39 +616,43 @@ async function renderParticipants() {
   $('d-body').innerHTML = `
     <table>
       <thead><tr>
-        <th>Participant</th><th class="lvl-cell">Audio level</th><th class="hide">Client</th><th style="text-align:right">Actions</th>
+        <th>Participant</th><th class="lvl-cell">Audio level</th><th style="text-align:right">Actions</th>
       </tr></thead>
       <tbody>
         ${ps.map((p, i) => {
           const tid = encodeURIComponent(p.target_id == null ? '' : p.target_id);
           const muteLabel = p.muted === true ? 'Unmute' : 'Mute';
           const muteVal = p.muted === true ? 'false' : 'true';
+          const isBridge = p.kind === 'bridge';
           const badge = p.kind === 'sip'
             ? '<span class="badge badge-sip">SIP</span>'
+            : p.kind === 'bridge'
+            ? '<span class="badge badge-bridge">Bridge</span>'
             : '<span class="badge badge-webrtc">WebRTC</span>';
           const mutedBadge = p.muted === true ? '<span class="badge badge-muted">Muted</span>' : '';
           const srcTitle = p.kind === 'sip' ? 'mic level from conference focus (0–255)' : 'speaker activity from Janus (talking + dBov)';
           const uri = stripSip(p.uri);
           const name = p.display_name || uri || 'unknown';
+          const slow = (p.slow_download ? ' <span style="color:#dc2626;font-size:11px">↓slow</span>' : '')
+                     + (p.slow_upload ? ' <span style="color:#dc2626;font-size:11px">↑slow</span>' : '');
+          const ua = p.user_agent ? `<div style="font-size:11px;color:#94a3b8;margin-top:1px">${esc(p.user_agent)}${slow}</div>` : (slow ? `<div style="margin-top:1px">${slow}</div>` : '');
           return `
           <tr style="cursor:default" data-row="${i}">
             <td>
               <div style="font-weight:600">${esc(name)} ${badge}${mutedBadge}<span class="spkdot" data-dot="${i}"></span></div>
               <div class="mono" style="font-size:12px;color:#64748b">${esc(uri)}</div>
+              ${ua}
             </td>
             <td>
-              <div class="meter" title="${srcTitle}"><i data-fill="${i}"></i></div>
-              <div class="lvl-num" data-num="${i}">—</div>
-            </td>
-            <td class="hide" style="font-size:12px;color:#475569">${esc(p.user_agent || '—')}
-              ${p.slow_download ? ' <span style="color:#dc2626">↓slow</span>' : ''}
-              ${p.slow_upload ? ' <span style="color:#dc2626">↑slow</span>' : ''}
+              ${isBridge ? '<span style="font-size:12px;color:#94a3b8">audio mixer</span>'
+                         : `<div class="meter" title="${srcTitle}"><i data-fill="${i}"></i></div>
+              <div class="lvl-num" data-num="${i}">—</div>`}
             </td>
             <td>
-              <div class="actions">
+              ${isBridge ? '' : `<div class="actions">
                 <button class="pbtn" onclick="muteParticipant('${tid}', ${muteVal}, this)">${muteLabel}</button>
                 <button class="pbtn pbtn-kick" onclick="kickParticipant('${tid}','${esc(name)}', this)">Kick</button>
-              </div>
+              </div>`}
             </td>
           </tr>`; }).join('')}
       </tbody>
@@ -1119,7 +1124,26 @@ class AdminWebHandler(object, metaclass=Singleton):
                 'slow_download': False,
                 'slow_upload': False,
             })
-        participants.sort(key=lambda p: (p['kind'], (p['uri'] or ''), str(p['target_id'])))
+        # The audio bridge (sylk-janus-audio-bridge) — shown for visibility
+        # only; it's infrastructure, so it carries no mute/kick actions and
+        # no audio meter (its level is the conference mix, not a speaker).
+        bridge = getattr(room, 'bridge_info', None)
+        if bridge:
+            participants.append({
+                'kind': 'bridge',
+                'target_id': bridge.get('id') or 'bridge',
+                'session_id': None,
+                'audio_pid': None,
+                'janus_pid': None,
+                'uri': bridge.get('uri'),
+                'display_name': bridge.get('display_name') or 'Audio bridge',
+                'user_agent': None,
+                'muted': None,
+                'slow_download': False,
+                'slow_upload': False,
+            })
+        order = {'bridge': 0, 'webrtc': 1, 'sip': 2}
+        participants.sort(key=lambda p: (order.get(p['kind'], 9), (p['uri'] or ''), str(p['target_id'])))
         return participants
 
     @app.route('/rooms/<string:uri>/participants', methods=['GET'])
