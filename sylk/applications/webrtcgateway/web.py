@@ -1113,7 +1113,7 @@ class AdminWebHandler(object, metaclass=Singleton):
                 'audio_pid': sp.get('id'),
                 'uri': sp.get('uri'),
                 'display_name': sp.get('display_name'),
-                'user_agent': None,
+                'user_agent': sp.get('user_agent'),
                 'muted': sp.get('muted'),
                 'slow_download': False,
                 'slow_upload': False,

@@ -3545,7 +3545,8 @@ class ConnectionHandler(object):
         else:
             media = 'unknown'
 
-        self.log.info('joined room {session.room.uri} with {media}'.format(session=videoroom_session, media=media))
+        user_agent = getattr(videoroom_session.account, 'user_agent', None) or 'unknown'
+        self.log.info('{session.account.id} joined room {session.room.uri} with {media} (user agent: {ua})'.format(session=videoroom_session, media=media, ua=user_agent))
         self.log.debug('joined room {session.room.uri} with session {session.id}'.format(session=videoroom_session))
         data = event.plugindata.data  # type: janus.VideoroomJoined
         videoroom_session.publisher_id = data.id
@@ -4494,6 +4495,10 @@ class VideoroomChatHandler(object):
                 self.room.log.debug(
                     'muted-extract endpoint pid={} muted_elem_type={} muted_elem_repr={!r} muted_value={!r}'.format(
                         participant_id, type(muted_elem).__name__, muted_elem, muted_value))
+                # SIP User-Agent of this endpoint's client, published by the
+                # focus on every non-bridge endpoint (agp-conf:user_agent).
+                # Surfaced to the admin UI so each SIP caller shows its client.
+                user_agent = Videoroom._extension_value(getattr(endpoint, 'user_agent', None))
                 _vce = sylkrtc.VideoroomConferenceEndpoint(
                     uri=str(endpoint.entity) if getattr(endpoint, 'entity', None) else None,
                     display_name=endpoint_display,
@@ -4501,6 +4506,7 @@ class VideoroomChatHandler(object):
                     media=media_items,
                     participant_id=participant_id,
                     muted=muted_value,
+                    user_agent=user_agent,
                 )
                 # Confirm the model round-tripped the value — if the
                 # BooleanProperty descriptor refuses to keep True for
@@ -4656,6 +4662,8 @@ class VideoroomChatHandler(object):
                     )
                     if _ep.muted is not None:
                         _sp['muted'] = _ep.muted
+                    if getattr(_ep, 'user_agent', None):
+                        _sp['user_agent'] = _ep.user_agent
                     current_surrogates.append(_sp)
                     current_state[_ep.participant_id] = dict(
                         target_id=_ep.participant_id,

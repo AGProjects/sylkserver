@@ -573,10 +573,12 @@ class VideoroomConferenceEndpoint(JSONObject):
     status = StringProperty(optional=True)
     media = ArrayProperty(VideoroomConferenceMediaList, optional=True)
     # Sylk-specific extensions surfaced from the conference-info NOTIFY:
-    # the stable participant_id token published per endpoint, and the
-    # server-side input mute flag set on every endpoint except the bridge.
+    # the stable participant_id token published per endpoint, the
+    # server-side input mute flag set on every endpoint except the bridge,
+    # and the SIP User-Agent of the participant's client (non-bridge only).
     participant_id = StringProperty(optional=True)
     muted = BooleanProperty(optional=True)
+    user_agent = StringProperty(optional=True)
 
 
 class VideoroomConferenceEndpoints(JSONArray):
