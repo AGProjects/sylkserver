@@ -449,11 +449,18 @@ class Room(object):
                         # Older sipsimple without the Endpoint extension —
                         # don't break the rest of the NOTIFY payload.
                         pass
-            # Publish the SIP User-Agent (taken verbatim from the participant's
-            # INVITE, stashed on the session as _sylk_invite_headers) on every
-            # non-bridge endpoint, so subscribers — notably the webrtcgateway
-            # admin UI — can show which client each SIP caller is running. The
-            # bridge is plumbing and gets no User-Agent.
+            # Publish the SIP User-Agent on every non-bridge endpoint so
+            # subscribers — notably the webrtcgateway admin UI — can show
+            # which client each SIP caller is running. The bridge is plumbing
+            # and gets no User-Agent.
+            #
+            # Two cases, by call direction:
+            #   * Participant dialled IN  → the User-Agent is on their INVITE,
+            #     stashed as _sylk_invite_headers.
+            #   * Focus INVITEd them OUT (REFER ;method=INVITE) → there is no
+            #     incoming INVITE; the participant's User-Agent comes back in
+            #     the 200 OK, which sipsimple exposes as
+            #     session.remote_user_agent. Use it as the fallback.
             if not getattr(session, '_sylk_audio_bridge', False):
                 ua = None
                 inv_headers = getattr(session, '_sylk_invite_headers', None) or {}
@@ -466,6 +473,15 @@ class Room(object):
                         except Exception:
                             ua = None
                     ua = str(ua).strip() if ua is not None else None
+                if not ua:
+                    rua = getattr(session, 'remote_user_agent', None)
+                    if rua:
+                        if isinstance(rua, bytes):
+                            try:
+                                rua = rua.decode()
+                            except Exception:
+                                rua = None
+                        ua = str(rua).strip() if rua else None
                 if ua:
                     try:
                         endpoint.user_agent = ua
@@ -1297,6 +1313,14 @@ class Room(object):
                 if isinstance(ua, bytes):
                     ua = ua.decode(errors='replace')
                 ua = str(ua).strip() or None
+            # Focus-initiated (outgoing) legs have no incoming INVITE — the
+            # participant's User-Agent is in the 200 OK (session.remote_user_agent).
+            if not ua:
+                rua = getattr(session, 'remote_user_agent', None)
+                if rua:
+                    if isinstance(rua, bytes):
+                        rua = rua.decode(errors='replace')
+                    ua = str(rua).strip() or None
             log.info('Room %s - %s joined (user agent: %s)' % (self.uri, remote_uri, ua or 'unknown'))
         except Exception as e:
             log.warning('Room %s - add_session: user-agent logging raised: %s' % (self.uri, e))
