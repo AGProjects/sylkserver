@@ -1,4 +1,11 @@
 
+# Twisted >= 21.2 removed the private twisted.python.compat._PY3 flag, but the
+# (unmaintained) wokkel library still imports it in wokkel.data_form. Re-inject
+# it before any wokkel module is imported below so the gateway keeps loading.
+import twisted.python.compat as _twisted_compat
+if not hasattr(_twisted_compat, '_PY3'):
+    _twisted_compat._PY3 = True
+
 from application.notification import IObserver, NotificationCenter
 from application.python import Null
 from sipsimple.core import SIPURI, SIPCoreError
