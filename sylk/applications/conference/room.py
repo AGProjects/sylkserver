@@ -454,7 +454,53 @@ class Room(object):
         if self.files:
             files = conference.FileResources(conference.FileResource(os.path.basename(file.name), file.hash, file.size, file.sender, 'OK') for file in self.files)
             self.conference_info_payload.conference_description.resources = conference.Resources(files=files)
+        try:
+            log.info('Room %s - conference-info built (%s)' %
+                     (self.uri, self._conference_info_summary(users, hide_bridges)))
+        except Exception as e:
+            log.debug('Room %s - conference-info summary failed: %s' % (self.uri, e))
         return self.conference_info_payload.toxml()
+
+    @staticmethod
+    def _conference_info_summary(users, hide_bridges):
+        """One-line summary of a freshly built conference-info payload, for
+        diagnosing what the focus actually puts on the wire per subscriber
+        variant. Mirrors the gateway's 'conference-info NOTIFY in:' line so the
+        two ends can be correlated. Flags the audio bridge (the only User that
+        carries agp-conf:admin_endpoint_url / audio_levels_udp_endpoint) and
+        whether those extensions made it into the payload — that's exactly what
+        the gateway needs to subscribe to the audio-level UDP feed."""
+        def _val(el):
+            if el is None:
+                return None
+            v = getattr(el, 'value', None)
+            if v not in (None, ''):
+                return v
+            try:
+                s = str(el).strip()
+                return s or None
+            except Exception:
+                return None
+        entries = []
+        bridge_seen = False
+        for user in users:
+            udp = _val(getattr(user, 'audio_levels_udp_endpoint', None))
+            admin_url = _val(getattr(user, 'admin_endpoint_url', None))
+            token = getattr(user, 'admin_endpoint_token', None)
+            is_bridge = udp is not None or admin_url is not None
+            try:
+                n_ep = sum(1 for _ in user)
+            except Exception:
+                n_ep = '?'
+            if is_bridge:
+                bridge_seen = True
+                entries.append('%s[BRIDGE udp=%s token=%s ep=%s]' %
+                               (user.entity, udp or '-', 'yes' if token is not None else 'no', n_ep))
+            else:
+                entries.append('%s[ep=%s]' % (user.entity, n_ep))
+        return 'hide_bridges=%s users=%d bridge_published=%s | %s' % (
+            hide_bridges, len(entries), 'yes' if bridge_seen else 'NO',
+            ' '.join(entries) if entries else '(empty)')
 
     def start(self):
         if self.started:
@@ -1102,7 +1148,11 @@ class Room(object):
         full_data = self.build_conference_info(hide_bridges=False)
         sip_data = None  # built on demand when a SIP-only subscriber is present
         for subscription in (subscription for subscription in self.subscriptions if subscription.state.lower() == 'active'):
-            if self._is_videoroom_subscriber(self._subscription_uris.get(subscription)):
+            sub_uri = self._subscription_uris.get(subscription)
+            is_videoroom = self._is_videoroom_subscriber(sub_uri)
+            log.info('Room %s - NOTIFY to %s: videoroom=%s variant=%s' %
+                     (self.uri, sub_uri, is_videoroom, 'full' if is_videoroom else 'sip-only'))
+            if is_videoroom:
                 data = full_data
             else:
                 if sip_data is None:
@@ -1501,7 +1551,12 @@ class Room(object):
         NotificationCenter().add_observer(self, sender=subscribe_request)
         self.subscriptions.append(subscribe_request)
         try:
-            hide_bridges = not self._is_videoroom_subscriber(subscriber_uri)
+            is_videoroom = self._is_videoroom_subscriber(subscriber_uri)
+            hide_bridges = not is_videoroom
+            log.info('Room %s - subscription accept: subscriber=%s videoroom=%s hide_bridges=%s '
+                     '(gateway_sessions=%d)' %
+                     (self.uri, subscriber_uri, is_videoroom, hide_bridges,
+                      sum(1 for s in self.sessions if getattr(s, '_sylk_from_gateway', False))))
             subscribe_request.accept(conference.ConferenceDocument.content_type, self.build_conference_info(hide_bridges=hide_bridges))
         except SIPCoreError as e:
             log.warning('Error accepting SIP subscription: %s' % e)
