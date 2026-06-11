@@ -1804,19 +1804,21 @@ def make_handler(registry, token, event_receiver=None):
             pass  # silence default stderr logging; we log via log_request below
 
         def log_request(self, code='-', size='-'):
-            # Log every served HTTP request (client, method, path, status) so
-            # it's visible who fetched what and when — e.g. a web/app client
-            # pulling a call's qos summary. Skip the Janus event-push sink:
-            # Janus POSTs to it constantly and those lines are pure noise.
+            # Only log fetches of an INDIVIDUAL call's data — i.e. a GET on
+            # /call/<id> or /calls/<id>[/...] — so it's visible who pulled which
+            # call's qos summary/artifacts and when. Everything else (health
+            # checks, the dashboard, the /calls and /finalized listings the UI
+            # polls continuously, the Janus event-push sink, and POSTs) is noise
+            # and is skipped.
             try:
                 path = urlparse(self.path).path
             except Exception:
                 path = self.path
-            # Skip noisy poll endpoints: the Janus event-push sink, and the
-            # dashboard's active-call listing (GET /calls with no call id, which
-            # the dashboard JS polls continuously). Per-call fetches
-            # (/calls/<id>, /call/<id>/...) are still logged.
-            if path == '/janus-events' or path.rstrip('/') in ('/calls', '/call'):
+            parts = [p for p in path.strip('/').split('/') if p]
+            individual_call_get = (self.command == 'GET'
+                                   and len(parts) >= 2
+                                   and parts[0] in ('call', 'calls'))
+            if not individual_call_get:
                 return
             try:
                 code = code.value if hasattr(code, 'value') else code
