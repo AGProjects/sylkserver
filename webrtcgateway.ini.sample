@@ -34,6 +34,11 @@
 ; Shared secret for the HTTP management interface (Authorization: THE_KEY)
 ; http_management_auth_secret =
 
+; Web page interactive login credentials
+; https_management_interface = 127.0.0.1:20889
+; http_management_admin_username = admin
+; http_management_admin_password = your-strong-password
+
 ; Sylk-push URL to send conference push notification
 ; sylk_push_url =
 

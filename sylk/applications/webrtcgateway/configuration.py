@@ -139,6 +139,28 @@ class GeneralConfig(ConfigSection):
     file_transfer_dir = ConfigSetting(type=Path, value=Path(os.path.join(ApplicationConfig.application_dir.normalized, 'file_transfers')))
     http_management_interface = ConfigSetting(type=ManagementInterfaceAddress, value=ManagementInterfaceAddress('127.0.0.1'))
     http_management_auth_secret = ConfigSetting(type=str, value=None)
+    # Credentials for the browser-based admin UI served at / on the
+    # management interface. When both are set, the UI login form accepts
+    # them and issues a session cookie; that cookie also authorises the
+    # /rooms* JSON endpoints. Leave unset to disable UI login. The
+    # shared-secret header auth (http_management_auth_secret) is
+    # unaffected and keeps working for tooling like sip-janus-bridge.
+    http_management_admin_username = ConfigSetting(type=str, value=None)
+    http_management_admin_password = ConfigSetting(type=str, value=None)
+    # The admin/management interface runs TWO independent listeners:
+    #
+    #   * http_management_interface  — always plain HTTP. Used by internal
+    #     tooling (sip-janus-bridge, the audio bridge's /rooms/events SSE
+    #     subscription, etc.) that talk to the gateway over a trusted
+    #     network. Keep this bound to an internal/private address.
+    #
+    #   * https_management_interface — optional HTTPS, for reaching the
+    #     browser admin UI over the internet. Uses the same certificate as
+    #     the main web/WebSocket server (WebServerConfig.certificate /
+    #     certificate_chain). Unset (None) disables the HTTPS listener.
+    #
+    # Both serve the same routes; pick a different port for the HTTPS one.
+    https_management_interface = ConfigSetting(type=ManagementInterfaceAddress, value=None)
     # UDP listener for real-time audio-level updates pushed by a remote
     # conference focus (see sylk.applications.conference.audio_level_udp).
     # host:port; set to empty to disable. Pairs with the conference's
@@ -210,13 +232,27 @@ class VideoroomConfiguration(object):
     record = False
     recording_dir = None
     filesharing_dir = None
+    # Janus videoroom audio-level detection. With these enabled Janus
+    # inspects the RTP audio-level extension and emits talking /
+    # stopped-talking events (carrying audio-level-dBov-avg) per
+    # publisher, which the gateway surfaces as per-WebRTC-participant
+    # speaker activity in the admin UI. Independent of the SIP conference
+    # focus's UDP level feed, so it also works for pure-WebRTC rooms.
+    #   audio_active_packets: packets averaged before deciding (Janus default 100)
+    #   audio_level_average:  avg level threshold 0..127, 127=silence (Janus default 25)
+    audiolevel_ext = True
+    audiolevel_event = True
+    audio_active_packets = 100
+    audio_level_average = 25
 
     def __init__(self, data):
         self.__dict__.update(data)
 
     @property
     def janus_data(self):
-        return dict(videocodec=self.video_codec, bitrate=self.max_bitrate, record=self.record, rec_dir=self.recording_dir)
+        return dict(videocodec=self.video_codec, bitrate=self.max_bitrate, record=self.record, rec_dir=self.recording_dir,
+                    audiolevel_ext=self.audiolevel_ext, audiolevel_event=self.audiolevel_event,
+                    audio_active_packets=self.audio_active_packets, audio_level_average=self.audio_level_average)
 
 
 def get_room_config(room):

@@ -470,6 +470,12 @@ class Videoroom(object):
         # next NOTIFY. `type` is always 'sip' here — the bridge arrives as a
         # Janus publisher and WebRTC peers via the native publisher events.
         self.sip_participants = []  # type: List[dict]
+        # Per-WebRTC-publisher speaker state from Janus audiolevel events,
+        # keyed by Janus publisher_id (== VideoroomSessionInfo.publisher_id):
+        # {'talking': bool, 'dbov': int|None, 'level': 0..255, 'ts': float}.
+        # Written by ConnectionHandler._update_talking on talking /
+        # stopped-talking events; read by the admin audio-levels endpoint.
+        self.webrtc_talking = {}  # type: Dict[int, dict]
         if self.config.record:
             makedirs(self.config.recording_dir, 0o755)
             self.log.info('created (recording on)')
@@ -1172,7 +1178,7 @@ class SipFocusReferralHandler(object):
                     if notification.name == 'SIPReferralGotNotify':
                         body = getattr(notification.data, 'body', None)
                         event_name = getattr(notification.data, 'event', None)
-                        self.log.debug('[conference] NOTIFY from focus {} for {}: event={!r} body={!r}'.format(self.focus_uri, self.participant_uri, event_name, body.de))
+                        self.log.debug('[conference] NOTIFY from focus {} for {}: event={!r} body={!r}'.format(self.focus_uri, self.participant_uri, event_name, body))
                         if body:
                             if isinstance(body, bytes):
                                 try:
@@ -3402,8 +3408,11 @@ class ConnectionHandler(object):
     def _EH_janus_videoroom(self, event):
         if isinstance(event, janus.PluginEvent):
             event_id = event.plugindata.data.__id__
+            # Normalise hyphens in event names to underscores so they map to
+            # valid handler method names (e.g. the 'stopped-talking'
+            # audio-level event -> _EH_janus_videoroom_stopped_talking).
             try:
-                handler = getattr(self, '_EH_janus_' + '_'.join(event_id))
+                handler = getattr(self, '_EH_janus_' + '_'.join(event_id).replace('-', '_'))
             except AttributeError:
                 self.log.warning('unhandled Janus videoroom event: {event_name}'.format(event_name=event_id[-1]))
             else:
@@ -3471,6 +3480,53 @@ class ConnectionHandler(object):
 
     def _EH_janus_videoroom_detached(self, event):
         pass
+
+    def _EH_janus_videoroom_talking(self, event):
+        self._update_talking(event, talking=True)
+
+    def _EH_janus_videoroom_stopped_talking(self, event):
+        self._update_talking(event, talking=False)
+
+    def _update_talking(self, event, talking):
+        # Janus audiolevel events (talking / stopped-talking) are broadcast
+        # to every participant handle in the room, so this may fire once per
+        # connection — the write is idempotent (keyed by publisher id) so
+        # duplicates are harmless. `data.id` is the talking publisher's feed
+        # id, which matches a VideoroomSessionInfo.publisher_id via the
+        # room's id map. We stash per-publisher speaker state on the shared
+        # Videoroom for the admin UI's audio-levels endpoint to read.
+        try:
+            receiver = self.videoroom_sessions[event.sender]
+        except KeyError:
+            return
+        room = getattr(receiver, 'room', None)
+        if room is None:
+            return
+        data = event.plugindata.data
+        publisher_id = getattr(data, 'id', None)
+        if publisher_id is None:
+            return
+        dbov = getattr(data, 'audio_level_dbov_avg', None)
+        # dBov-avg: 0 = loudest, 127 = silence. Map a talking sample to a
+        # 0..255 level for the UI meter; a stopped sample reports zero.
+        if talking and isinstance(dbov, (int, float)):
+            level = int(round((1.0 - (max(0, min(127, dbov)) / 127.0)) * 255))
+            level = max(0, min(255, level))
+        else:
+            level = 0
+        # One-time positive confirmation that Janus audiolevel events are
+        # actually arriving for this room — mirrors the UDP path's "first
+        # audio-levels datagram" log so an operator can tell at a glance
+        # whether the feature is live (vs. Janus not emitting events
+        # because the audio-level RTP extension wasn't negotiated).
+        if not room.webrtc_talking:
+            room.log.info('Janus audio-level events active (first talking event received, publisher={})'.format(publisher_id))
+        room.webrtc_talking[publisher_id] = {
+            'talking': bool(talking),
+            'dbov': dbov,
+            'level': level,
+            'ts': time.time(),
+        }
 
     def _EH_janus_videoroom_joined(self, event):
         # send when a publisher successfully joined a room

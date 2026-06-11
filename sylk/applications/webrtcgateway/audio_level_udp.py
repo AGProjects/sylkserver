@@ -134,6 +134,14 @@ class AudioLevelUDPClient(object, metaclass=Singleton):
         # participant_id → {tx_sum, rx_sum, tx_peak, rx_peak, count}.
         self._log_accumulator = {}
         self._level_logger = None
+        # Latest per-room audio-level snapshot, for pull-based consumers
+        # such as the admin web UI (which polls instead of holding a
+        # WebSocket). Keyed by videoroom_uri (lower-cased, the same key
+        # the admin handler uses); value is
+        #   {'ts': <focus ts or None>, 'received': <unix seconds>,
+        #    'levels': {pid: {'tx','rx','tx_peak','rx_peak'}}}.
+        # Replaced wholesale on every datagram so stale pids drop out.
+        self.latest_levels = {}
 
     # ----- lifecycle ------------------------------------------------
 
@@ -360,6 +368,7 @@ class AudioLevelUDPClient(object, metaclass=Singleton):
         room_key = (room_uri or '').lower()
         room_acc = self._log_accumulator.setdefault(room_key, {})
         payload_levels = []
+        snapshot = {}
         for pid, v in levels.items():
             if not isinstance(v, dict):
                 continue
@@ -370,6 +379,7 @@ class AudioLevelUDPClient(object, metaclass=Singleton):
                 rx_peak = int(v.get('rx_peak') or 0)
             except (TypeError, ValueError):
                 continue
+            snapshot[str(pid)] = {'tx': tx, 'rx': rx, 'tx_peak': tx_peak, 'rx_peak': rx_peak}
             try:
                 payload_levels.append(sylkrtc.VideoroomConferenceAudioLevel(
                     participant_id=str(pid),
@@ -395,6 +405,12 @@ class AudioLevelUDPClient(object, metaclass=Singleton):
             if rx_peak > entry['rx_peak']:
                 entry['rx_peak'] = rx_peak
             entry['count'] += 1
+        # Publish the latest snapshot for pull-based consumers (admin UI).
+        self.latest_levels[videoroom_uri] = {
+            'ts': ts,
+            'received': time.time(),
+            'levels': snapshot,
+        }
         try:
             sessions = list(videoroom)
         except Exception:

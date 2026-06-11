@@ -307,6 +307,13 @@ class VideoroomCreate(JSONObject):
     bitrate = IntegerProperty(optional=True)    # don't need a validator, as the value comes from the configuration and it's validated there
     record = BooleanProperty(optional=True, default=False)
     rec_dir = StringProperty(optional=True)
+    # Per-publisher audio-level detection (RFC 6464 audio-level ext).
+    # When enabled Janus emits talking / stopped-talking events with
+    # audio-level-dBov-avg, used for WebRTC speaker activity in the admin UI.
+    audiolevel_ext = BooleanProperty(optional=True)
+    audiolevel_event = BooleanProperty(optional=True)
+    audio_active_packets = IntegerProperty(optional=True)
+    audio_level_average = IntegerProperty(optional=True)
 
 
 class VideoroomDestroy(JSONObject):
@@ -795,6 +802,31 @@ class VideoroomAttached(VideoroomPluginData):
 class VideoroomSlowLink(VideoroomPluginData):
     videoroom = FixedValueProperty('slow_link')
     # current_bitrate = IntegerProperty()  # this is actually defined as 'current-bitrate' in JSON, so we cannot map it to an attribute name. also not used.
+
+
+class _VideoroomAudioLevelEvent(VideoroomPluginData):
+    # Common base for the talking / stopped-talking audio-level events
+    # Janus emits per publisher when audiolevel_event is enabled on the
+    # room. `id` is the talking publisher's feed id (maps to the
+    # gateway's VideoroomSessionInfo.publisher_id). The dBov average is
+    # published under the JSON key 'audio-level-dBov-avg', which can't be
+    # a Python attribute (hyphens), so it's captured manually in __init__
+    # as `audio_level_dbov_avg` (0 = loudest .. 127 = silence; None if
+    # the field is absent).
+    room = IntegerProperty(optional=True)
+    id = IntegerProperty()
+
+    def __init__(self, **data):
+        super(_VideoroomAudioLevelEvent, self).__init__(**data)
+        self.audio_level_dbov_avg = data.get('audio-level-dBov-avg')
+
+
+class VideoroomTalkingEvent(_VideoroomAudioLevelEvent):
+    videoroom = FixedValueProperty('talking')
+
+
+class VideoroomStoppedTalkingEvent(_VideoroomAudioLevelEvent):
+    videoroom = FixedValueProperty('stopped-talking')
 
 
 class VideoroomUpdatedEvent(VideoroomPluginData):  # SVC temporal layer change
