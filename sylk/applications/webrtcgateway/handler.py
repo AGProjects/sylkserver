@@ -1172,8 +1172,7 @@ class SipFocusReferralHandler(object):
                     if notification.name == 'SIPReferralGotNotify':
                         body = getattr(notification.data, 'body', None)
                         event_name = getattr(notification.data, 'event', None)
-                        self.log.info('[conference] NOTIFY from focus {} for {}: event={!r} body={!r}'.format(
-                            self.focus_uri, self.participant_uri, event_name, body))
+                        self.log.debug('[conference] NOTIFY from focus {} for {}: event={!r} body={!r}'.format(self.focus_uri, self.participant_uri, event_name, body.de))
                         if body:
                             if isinstance(body, bytes):
                                 try:
