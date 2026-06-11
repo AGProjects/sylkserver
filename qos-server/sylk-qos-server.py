@@ -34,7 +34,9 @@ HTTP API (all JSON unless noted; auth via Bearer token — see --token):
          body: {call_id, client_ip, client_port, server_port,
                 server_ip?, mediaproxy_ip?, expected_pps?}
     POST /calls/{call_id}/stop        -> finalize capture
-    GET  /calls                       -> [{call_id, status, ...}, ...]
+    GET  /calls                       -> [{call_id, status, ...}, ...] (in progress)
+    GET  /finalized                   -> [{call_id, status, ...}, ...] (recently finished)
+                                         text/html -> recent finalized calls page
     GET  /calls/{call_id}             -> manifest {meta, summary}
     GET  /calls/{call_id}/bundle      -> application/gzip tar of the whole dir
     GET  /calls/{call_id}/{artifact}  -> raw file (pcap / samples.ndjson / ...)
@@ -1256,6 +1258,50 @@ class Registry(object):
             return [c.brief() for c in self.calls.values()
                     if c.status in ('registered', 'capturing', 'finalizing')]
 
+    def list_finalized(self, limit=100):
+        """Most-recently FINISHED calls, newest first, read from disk.
+
+        A finished call has a summary.json written by finalize(); we read it
+        (plus meta.json for the registration params) and shape each one like
+        brief() so the finalized page can reuse the dashboard's row renderer."""
+        try:
+            summaries = sorted(self.log_dir.glob('*/*/summary.json'),
+                               key=lambda p: p.stat().st_mtime, reverse=True)
+        except Exception:
+            summaries = []
+        out = []
+        for sp in summaries[:max(0, int(limit))]:
+            try:
+                s = json.load(open(sp))
+            except Exception:
+                continue
+            try:
+                m = json.load(open(sp.parent / 'meta.json'))
+            except Exception:
+                m = {}
+            params = m.get('params', {}) if isinstance(m, dict) else {}
+            webrtc = (s.get('legs') or {}).get('webrtc', {})
+            client = webrtc.get('client') or '{}:{}'.format(
+                params.get('client_ip'), params.get('client_port'))
+            out.append({
+                'call_id': s.get('call_id'),
+                'status': 'finished',
+                'started_at': m.get('started_at'),
+                'ended_at': s.get('ended_at'),
+                'duration_s': s.get('duration_s'),
+                'media_types': s.get('media_types') or [],
+                'client': client,
+                'server_port': webrtc.get('janus_port') or params.get('server_port'),
+                'mediaproxy': s.get('mediaproxy_ip'),
+                'webrtc_in': s.get('in_total'), 'webrtc_out': s.get('out_total'),
+                'rtp_out': s.get('rtp_out_total'), 'rtp_in': s.get('rtp_in_total'),
+                'flows': [],
+                'evaluation': s.get('evaluation'),
+                'evaluation_text': s.get('evaluation_text'),
+                'capture_error': s.get('capture_error'),
+            })
+        return out
+
     def prune(self, retention_days):
         if retention_days <= 0:
             return
@@ -1623,7 +1669,7 @@ DASHBOARD_HTML = r'''<!doctype html><html><head><meta charset="utf-8">
  #dot.stale{background:#c33}
 </style></head><body>
 <h1>sylk-qos-server __VERSION__ — calls in progress</h1>
-<div class="sub"><span id="dot"></span><span id="count">loading…</span> &nbsp; ▲ packets in &nbsp; ▼ packets out &nbsp; live</div>
+<div class="sub"><span id="dot"></span><span id="count">loading…</span> &nbsp; ▲ packets in &nbsp; ▼ packets out &nbsp; live &nbsp; · &nbsp; <a id="finlink" href="/finalized">recent finalized calls &rarr;</a></div>
 <table><thead><tr>
 <th>Call-ID</th><th>Status</th><th>Dur</th><th>Media</th>
 <th>WebRTC leg (client &#8644; Janus)</th><th>Downstream (Janus &#8644; MediaProxy)</th>
@@ -1632,6 +1678,7 @@ DASHBOARD_HTML = r'''<!doctype html><html><head><meta charset="utf-8">
 <script>
 var token = new URLSearchParams(location.search).get('token') || '';
 var q = token ? ('?token=' + encodeURIComponent(token)) : '';
+document.getElementById('finlink').href = '/finalized' + q;
 function esc(s){var d=document.createElement('div');d.textContent=(s==null?'':String(s));return d.innerHTML;}
 function rowHtml(c){
  var ev = c.evaluation || '';
@@ -1662,6 +1709,71 @@ function refresh(){
   .catch(function(){ document.getElementById('dot').className='stale'; });
 }
 refresh(); setInterval(refresh, 2000);
+</script>
+</body></html>'''
+
+
+# Recent finalized calls. The JS fetches /finalized (JSON) and renders the
+# last N finished calls read from disk. Same look as the live dashboard.
+FINALIZED_HTML = r'''<!doctype html><html><head><meta charset="utf-8">
+<title>sylk-qos-server — finalized calls</title>
+<style>
+ body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;margin:1.2rem;color:#1b1b1b}
+ h1{font-size:1.1rem;margin:0 0 .2rem}
+ .sub{color:#666;font-size:.8rem;margin-bottom:.8rem}
+ table{border-collapse:collapse;width:100%;font-size:.82rem}
+ th,td{border:1px solid #ddd;padding:.32rem .5rem;text-align:left;vertical-align:top}
+ th{background:#f4f4f4}
+ .mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.78rem}
+ tr.ok{background:#eafbea} tr.bad{background:#fdecec} tr.neutral{background:#fffceb}
+ td.ev{font-weight:600} .muted{color:#999}
+ a{color:#0a58ca;text-decoration:none} a:hover{text-decoration:underline}
+ #dot{display:inline-block;width:.6rem;height:.6rem;border-radius:50%;background:#3c3;margin-right:.35rem;vertical-align:middle}
+ #dot.stale{background:#c33}
+</style></head><body>
+<h1>sylk-qos-server __VERSION__ — recent finalized calls</h1>
+<div class="sub"><span id="dot"></span><span id="count">loading…</span> &nbsp; · &nbsp; <a id="backlink" href="/">&larr; calls in progress</a></div>
+<table><thead><tr>
+<th>Call-ID</th><th>Status</th><th>Ended</th><th>Dur</th><th>Media</th>
+<th>WebRTC leg (client &#8644; Janus)</th><th>Downstream (Janus &#8644; MediaProxy)</th>
+<th>Evaluation</th><th>Data</th></tr></thead>
+<tbody id="rows"></tbody></table>
+<script>
+var token = new URLSearchParams(location.search).get('token') || '';
+var q = token ? ('?token=' + encodeURIComponent(token)) : '';
+document.getElementById('backlink').href = '/' + q;
+function esc(s){var d=document.createElement('div');d.textContent=(s==null?'':String(s));return d.innerHTML;}
+function evClass(ev){ ev = ev || '';
+ if(ev.indexOf('ok')===0) return 'ok';
+ if(ev.indexOf('one-way')>=0 || ev.indexOf('no-media')===0 || ev.indexOf('broken')===0 || ev.indexOf('bad')===0) return 'bad';
+ return 'neutral'; }
+function rowHtml(c){
+ var cls = evClass(c.evaluation);
+ var mp = c.mediaproxy ? (esc(c.mediaproxy)+' &nbsp; ▲'+c.rtp_out+' ▼'+c.rtp_in) : '<span class="muted">n/a</span>';
+ var media = (c.media_types && c.media_types.length) ? c.media_types.join(', ') : '?';
+ var cid = encodeURIComponent(c.call_id);
+ var ended = c.ended_at ? esc(c.ended_at).replace('T',' ').replace(/\..*$/,'') : '—';
+ return '<tr class="'+cls+'">'
+  +'<td class="mono">'+esc(c.call_id)+'</td><td>'+esc(c.status)+'</td><td class="mono">'+ended+'</td>'
+  +'<td>'+esc(c.duration_s)+'s</td><td>'+esc(media)+'</td>'
+  +'<td class="mono">'+esc(c.client)+' ⇄ :'+esc(c.server_port)+' &nbsp; ▲'+c.webrtc_in+' ▼'+c.webrtc_out+'</td>'
+  +'<td class="mono">'+mp+'</td>'
+  +'<td class="ev">'+esc(c.evaluation_text || c.evaluation)+'</td>'
+  +'<td class="mono"><a href="/call/'+cid+'">json</a> &nbsp;<a href="/call/'+cid+'/tar">tar</a></td></tr>';
+}
+function render(calls){
+ var tb = document.getElementById('rows');
+ tb.innerHTML = calls.length ? calls.map(rowHtml).join('') : '<tr><td colspan="9" class="muted">no finalized calls on disk</td></tr>';
+ document.getElementById('count').textContent = calls.length + ' finalized call(s)';
+ document.getElementById('dot').className = '';
+}
+function refresh(){
+ fetch('/finalized'+q, {headers:{'Accept':'application/json'}})
+  .then(function(r){ if(!r.ok) throw new Error(r.status); return r.json(); })
+  .then(render)
+  .catch(function(){ document.getElementById('dot').className='stale'; });
+}
+refresh(); setInterval(refresh, 10000);
 </script>
 </body></html>'''
 
@@ -1781,6 +1893,16 @@ def make_handler(registry, token, event_receiver=None):
                 return self._dashboard()
             if path == '/calls':
                 return self._json(200, registry.list_active())
+            if path in ('/finalized', '/recent'):
+                # Browsers get the page; the page's fetch (Accept: json) and API
+                # clients get the JSON list of recently finished calls.
+                if 'text/html' in self.headers.get('Accept', ''):
+                    return self._finalized_page()
+                try:
+                    limit = int(parse_qs(urlparse(self.path).query).get('limit', ['100'])[0])
+                except (TypeError, ValueError):
+                    limit = 100
+                return self._json(200, registry.list_finalized(limit))
             return self._err(404, 'not found')
 
         def do_POST(self):
@@ -1847,6 +1969,11 @@ def make_handler(registry, token, event_receiver=None):
             # Static page; the JS fetches /calls and updates the table in place
             # (no full-page reload / flashing).
             return self._html(200, DASHBOARD_HTML.replace('__VERSION__', _h(VERSION)))
+
+        def _finalized_page(self):
+            # Static page; the JS fetches /finalized (JSON) and lists the most
+            # recently finished calls read from disk.
+            return self._html(200, FINALIZED_HTML.replace('__VERSION__', _h(VERSION)))
 
         def _manifest(self, ident):
             d = registry.resolve_dir(ident)
