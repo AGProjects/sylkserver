@@ -209,7 +209,7 @@ class IncomingRequestHandler(object, metaclass=Singleton):
             # header. Log it at the selection point — before the app's
             # incoming_session runs — so routing decisions are visible regardless
             # of which application ends up handling the request.
-            log.info('Application %r selected by %s header for %s' % (application_name, SYLK_APP_HEADER, ruri))
+            log.debug('Application %r selected by %s header for %s' % (application_name, SYLK_APP_HEADER, ruri))
         else:
             application_name = ServerConfig.default_application
             if self.application_map:
