@@ -1732,7 +1732,7 @@ FINALIZED_HTML = r'''<!doctype html><html><head><meta charset="utf-8">
  #dot.stale{background:#c33}
 </style></head><body>
 <h1>sylk-qos-server __VERSION__ — recent finalized calls</h1>
-<div class="sub"><span id="dot"></span><span id="count">loading…</span> &nbsp; · &nbsp; <a id="backlink" href="/">&larr; calls in progress</a></div>
+<div class="sub"><span id="dot"></span><span id="count">loading…</span> &nbsp; · &nbsp; <a id="filterlink" href="/finalized">broken only</a> &nbsp; · &nbsp; <a id="backlink" href="/">&larr; calls in progress</a></div>
 <table><thead><tr>
 <th>Call-ID</th><th>Status</th><th>Ended</th><th>Dur</th><th>Media</th>
 <th>WebRTC leg (client &#8644; Janus)</th><th>Downstream (Janus &#8644; MediaProxy)</th>
@@ -1741,8 +1741,21 @@ FINALIZED_HTML = r'''<!doctype html><html><head><meta charset="utf-8">
 <script>
 var token = new URLSearchParams(location.search).get('token') || '';
 var q = token ? ('?token=' + encodeURIComponent(token)) : '';
+// "broken only" = anything that didn't evaluate OK (one-way / no-media /
+// bad / broken / unknown). Client-side filter, toggled via ?broken=1.
+var brokenOnly = new URLSearchParams(location.search).get('broken') === '1';
 document.getElementById('backlink').href = '/' + q;
+(function(){
+ var p = new URLSearchParams();
+ if(token) p.set('token', token);
+ if(!brokenOnly) p.set('broken', '1');
+ var s = p.toString();
+ var fl = document.getElementById('filterlink');
+ fl.href = '/finalized' + (s ? ('?' + s) : '');
+ fl.textContent = brokenOnly ? 'show all' : 'broken only';
+})();
 function esc(s){var d=document.createElement('div');d.textContent=(s==null?'':String(s));return d.innerHTML;}
+function isBroken(c){ return (c.evaluation || '').indexOf('ok') !== 0; }
 function evClass(ev){ ev = ev || '';
  if(ev.indexOf('ok')===0) return 'ok';
  if(ev.indexOf('one-way')>=0 || ev.indexOf('no-media')===0 || ev.indexOf('broken')===0 || ev.indexOf('bad')===0) return 'bad';
@@ -1762,9 +1775,11 @@ function rowHtml(c){
   +'<td class="mono"><a href="/call/'+cid+'">json</a> &nbsp;<a href="/call/'+cid+'/tar">tar</a></td></tr>';
 }
 function render(calls){
+ if(brokenOnly) calls = calls.filter(isBroken);
  var tb = document.getElementById('rows');
- tb.innerHTML = calls.length ? calls.map(rowHtml).join('') : '<tr><td colspan="9" class="muted">no finalized calls on disk</td></tr>';
- document.getElementById('count').textContent = calls.length + ' finalized call(s)';
+ var empty = brokenOnly ? 'no broken calls' : 'no finalized calls on disk';
+ tb.innerHTML = calls.length ? calls.map(rowHtml).join('') : '<tr><td colspan="9" class="muted">'+empty+'</td></tr>';
+ document.getElementById('count').textContent = calls.length + (brokenOnly ? ' broken call(s)' : ' finalized call(s)');
  document.getElementById('dot').className = '';
 }
 function refresh(){
