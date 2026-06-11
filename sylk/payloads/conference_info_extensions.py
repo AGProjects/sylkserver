@@ -50,7 +50,7 @@ from sipsimple.payloads.conference import (ConferenceDescription,
 
 __all__ = ('AdminEndpointURL', 'AdminEndpointToken',
            'AudioLevelsUdpEndpoint',
-           'MutedFlag', 'ParticipantId', 'Duration')
+           'MutedFlag', 'ParticipantId', 'UserAgent', 'Duration')
 
 
 # --- User extensions -----------------------------------------------------
@@ -139,6 +139,25 @@ class ParticipantId(XMLStringElement, EndpointExtension):
 
 
 Endpoint.register_extension('participant_id', ParticipantId)
+
+
+class UserAgent(XMLStringElement, EndpointExtension):
+    """SIP User-Agent of a participant's endpoint.
+
+    Copied verbatim from the `User-Agent` header of the participant's
+    INVITE (the focus stashes the INVITE headers on the session, so this
+    is available without an extra lookup). Published on every non-bridge
+    endpoint so subscribers — in particular the webrtcgateway's admin web
+    UI — can show which SIP client each caller is using. The bridge
+    endpoint omits it: the bridge is plumbing, not a user-facing client.
+    Absent when the INVITE carried no User-Agent header.
+    """
+    _xml_tag = 'user_agent'
+    _xml_namespace = agp_conf_namespace
+    _xml_document = ConferenceDocument
+
+
+Endpoint.register_extension('user_agent', UserAgent)
 
 
 # --- ConferenceDescription extensions ------------------------------------

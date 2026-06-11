@@ -449,6 +449,30 @@ class Room(object):
                         # Older sipsimple without the Endpoint extension —
                         # don't break the rest of the NOTIFY payload.
                         pass
+            # Publish the SIP User-Agent (taken verbatim from the participant's
+            # INVITE, stashed on the session as _sylk_invite_headers) on every
+            # non-bridge endpoint, so subscribers — notably the webrtcgateway
+            # admin UI — can show which client each SIP caller is running. The
+            # bridge is plumbing and gets no User-Agent.
+            if not getattr(session, '_sylk_audio_bridge', False):
+                ua = None
+                inv_headers = getattr(session, '_sylk_invite_headers', None) or {}
+                ua_header = inv_headers.get('User-Agent')
+                if ua_header is not None:
+                    ua = getattr(ua_header, 'body', ua_header)
+                    if isinstance(ua, bytes):
+                        try:
+                            ua = ua.decode()
+                        except Exception:
+                            ua = None
+                    ua = str(ua).strip() if ua is not None else None
+                if ua:
+                    try:
+                        endpoint.user_agent = ua
+                    except Exception:
+                        # Older sipsimple without the Endpoint extension —
+                        # don't break the rest of the NOTIFY payload.
+                        pass
             user.add(endpoint)
         self.conference_info_payload.users = users
         if self.files:
@@ -1260,6 +1284,22 @@ class Room(object):
         self.sessions.append(session)
         remote_uri = str(session.remote_identity.uri)
         self.participants_counter[remote_uri] += 1
+        # Log the joining participant's SIP User-Agent (taken from the
+        # INVITE, stashed on the session as _sylk_invite_headers). Useful
+        # server-side since subscribers can't always see the conference-info
+        # endpoint's user_agent extension.
+        try:
+            ua = None
+            inv_headers = getattr(session, '_sylk_invite_headers', None) or {}
+            ua_header = inv_headers.get('User-Agent')
+            if ua_header is not None:
+                ua = getattr(ua_header, 'body', ua_header)
+                if isinstance(ua, bytes):
+                    ua = ua.decode(errors='replace')
+                ua = str(ua).strip() or None
+            log.info('Room %s - %s joined (user agent: %s)' % (self.uri, remote_uri, ua or 'unknown'))
+        except Exception as e:
+            log.warning('Room %s - add_session: user-agent logging raised: %s' % (self.uri, e))
         # Anti-fraud bookkeeping. Two distinct hooks fire here:
         #
         #   1. If this session was created by a REFER ;method=INVITE
