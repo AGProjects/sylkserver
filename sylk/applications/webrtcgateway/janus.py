@@ -1,8 +1,6 @@
 
 import json
-import os
 import re
-import uuid
 
 from application.notification import (IObserver, NotificationCenter,
                                       NotificationData)
@@ -14,9 +12,6 @@ from eventlib.twistedutil import block_on
 from twisted.internet import defer, reactor
 from twisted.internet.protocol import ReconnectingClientFactory
 from twisted.python.failure import Failure
-from twisted.web.client import Agent, readBody
-from twisted.web.http_headers import Headers
-from twisted.web.iweb import IBodyProducer
 from zope.interface import implementer
 
 from sylk import __version__
@@ -31,171 +26,6 @@ class JanusError(Exception):
         super(JanusError, self).__init__(reason)
         self.code = code
         self.reason = reason
-
-
-_admin_agent = Agent(reactor)
-_admin_headers = Headers({'User-Agent': ['SylkServer'], 'Content-Type': ['application/json']})
-
-
-def _strip_jcfg_comments(text):
-    text = re.sub(r'/\*.*?\*/', '', text, flags=re.DOTALL)  # /* block */
-    text = re.sub(r'(?m)//.*$', '', text)                    # // line
-    text = re.sub(r'(?m)#.*$', '', text)                     # #  line
-    return text
-
-
-def _jcfg_value(text, key):
-    """Extract a scalar value for `key` from libconfig (.jcfg) text. Returns the
-    string value (quotes stripped) or None. Tolerant best-effort."""
-    m = re.search(r'(?m)^\s*' + re.escape(key) + r'\s*[:=]\s*(?:"([^"]*)"|([^\s;,#]+))', text)
-    if not m:
-        return None
-    return (m.group(1) if m.group(1) is not None else m.group(2)).strip()
-
-
-def read_janus_admin_from_dir(directory):
-    """Auto-detect Janus' Admin API URL + secret from its own config files.
-
-    - admin_secret: janus.jcfg  -> general.admin_secret
-    - admin url:    janus.transport.http.jcfg -> admin.admin_port / admin_base_path
-    Returns (admin_url, admin_secret); either may be None if undetectable. Logs
-    each file it reads so a successful (or failed) read is visible in the log."""
-    secret = None
-    url = None
-
-    janus_cfg = os.path.join(directory, 'janus.jcfg')
-    if os.path.isfile(janus_cfg):
-        try:
-            secret = _jcfg_value(_strip_jcfg_comments(open(janus_cfg).read()), 'admin_secret')
-            log.info('Janus config: read {} (admin_secret: {})'.format(
-                janus_cfg, 'found' if secret else 'not present'))
-        except Exception as e:
-            log.warning('Janus config: failed to read {}: {}'.format(janus_cfg, e))
-    else:
-        log.warning('Janus config: {} not found'.format(janus_cfg))
-
-    http_cfg = os.path.join(directory, 'janus.transport.http.jcfg')
-    if os.path.isfile(http_cfg):
-        try:
-            text = _strip_jcfg_comments(open(http_cfg).read())
-            enabled = _jcfg_value(text, 'admin_http')
-            port = _jcfg_value(text, 'admin_port') or '7088'
-            base = _jcfg_value(text, 'admin_base_path') or '/admin'
-            if not base.startswith('/'):
-                base = '/' + base
-            if enabled is not None and str(enabled).lower() not in ('true', 'yes', '1'):
-                log.warning('Janus config: read {} but admin HTTP is DISABLED '
-                            '(admin_http={}) — enable it for handle_info'.format(http_cfg, enabled))
-            else:
-                url = 'http://127.0.0.1:{}{}'.format(port, base)
-                log.info('Janus config: read {} (admin endpoint: {})'.format(http_cfg, url))
-        except Exception as e:
-            log.warning('Janus config: failed to read {}: {}'.format(http_cfg, e))
-    else:
-        log.warning('Janus config: {} not found'.format(http_cfg))
-
-    return url, secret
-
-
-_resolved_admin = None
-
-
-def resolve_janus_admin():
-    """Effective (admin_url, admin_secret), cached.
-
-    Precedence: explicit webrtcgateway.ini [Janus] values win; otherwise read
-    from Janus' own jcfg files under JanusConfig.janus_config_dir; otherwise the
-    built-in default URL (secret may legitimately be None)."""
-    global _resolved_admin
-    if _resolved_admin is not None:
-        return _resolved_admin
-    ini_url = (JanusConfig.admin_url or '').strip()
-    ini_secret = (JanusConfig.admin_secret or '').strip()
-    url, secret = ini_url, ini_secret
-    url_source = 'webrtcgateway.ini' if ini_url else None
-    secret_source = 'webrtcgateway.ini' if ini_secret else None
-    if not url or not secret:
-        directory = getattr(JanusConfig, 'janus_config_dir', '/etc/janus')
-        log.info('Janus admin: auto-detecting from {}'.format(directory))
-        detected_url, detected_secret = read_janus_admin_from_dir(directory)
-        if not url and detected_url:
-            url, url_source = detected_url, 'janus:{}'.format(directory)
-        if not secret and detected_secret:
-            secret, secret_source = detected_secret, 'janus:{}'.format(directory)
-        if not url:
-            url, url_source = 'http://127.0.0.1:7088/admin', 'built-in default'
-    log.info('Janus admin: endpoint {} (source: {}), secret {} (source: {})'.format(
-        url, url_source, 'set' if secret else 'NOT SET', secret_source or 'none'))
-    _resolved_admin = (url, secret or None)
-    return _resolved_admin
-
-
-@defer.inlineCallbacks
-def check_janus_admin():
-    """Probe the Janus Admin API at startup and log a clear success/failure.
-
-    Distinguishes: not configured, unreachable (connection failed), reachable
-    but auth rejected (403), and fully working. The media-plane handle_info
-    harvest depends on this working, so the result is logged prominently."""
-    url, secret = resolve_janus_admin()
-    if not url:
-        log.warning('Janus admin: NOT configured — media-plane per-handle RTP '
-                    'counters (handle_info) will be unavailable')
-        return
-    # list_sessions exercises auth too; ping only checks reachability.
-    if secret:
-        request = {'janus': 'list_sessions', 'transaction': uuid.uuid4().hex, 'admin_secret': secret}
-    else:
-        request = {'janus': 'ping', 'transaction': uuid.uuid4().hex}
-    body = json.dumps(request).encode()
-    try:
-        d = _admin_agent.request(b'POST', url.encode(), _admin_headers, _JSONBodyProducer(body))
-        d.addTimeout(5, reactor)
-        response = yield d
-        raw_body = yield readBody(response)
-        data = json.loads(raw_body)
-    except Exception as e:
-        log.warning('Janus admin: CONNECT to {} FAILED: {} — is the Janus admin '
-                    'HTTP transport enabled and reachable? (media-plane handle_info '
-                    'will be unavailable)'.format(url, e))
-        return
-    kind = data.get('janus')
-    if kind in ('success', 'pong'):
-        if not secret:
-            log.warning('Janus admin: CONNECTED to {} (reachable) but no admin_secret '
-                        'is set — handle_info needs the secret; set it in janus.jcfg '
-                        'or webrtcgateway.ini'.format(url))
-        else:
-            count = len(data.get('sessions', []) or [])
-            log.info('Janus admin: CONNECTED to {} OK — authenticated, '
-                     '{} active session(s)'.format(url, count))
-    elif kind == 'error':
-        err = data.get('error', {}) or {}
-        code, reason = err.get('code'), err.get('reason')
-        if code == 403:
-            log.warning('Janus admin: reached {} but AUTH FAILED (403: {}) — the '
-                        'admin_secret is wrong; handle_info will fail'.format(url, reason))
-        else:
-            log.warning('Janus admin: reached {} but request ERRORED: {} {}'.format(url, code, reason))
-    else:
-        log.warning('Janus admin: unexpected response from {}: {}'.format(url, data))
-
-
-@implementer(IBodyProducer)
-class _JSONBodyProducer(object):
-    def __init__(self, data):
-        self.body = data
-        self.length = len(data)
-
-    def startProducing(self, consumer):
-        consumer.write(self.body)
-        return defer.succeed(None)
-
-    def pauseProducing(self):
-        pass
-
-    def stopProducing(self):
-        pass
 
 
 _pstn_uri_re = re.compile(r'^(?:sips?:)?(?:\+|00)\d+@')
@@ -362,14 +192,6 @@ class JanusBackend(object, metaclass=Singleton):
         notification_center.add_observer(self, name='JanusBackendConnected')
         notification_center.add_observer(self, name='JanusBackendDisconnected')
         self.connector = connectWS(self.factory)
-        # Probe the Janus Admin API (used for the media-plane handle_info
-        # harvest) and log a clear success/failure. Deferred to the next
-        # reactor tick so the HTTP Agent runs after the reactor is up.
-        reactor.callLater(0, self._probe_admin)
-
-    def _probe_admin(self):
-        d = check_janus_admin()
-        d.addErrback(lambda f: log.warning('Janus admin probe error: {}'.format(f.getErrorMessage())))
 
     def stop(self):
         if self._stopped:
@@ -409,39 +231,6 @@ class JanusBackend(object, metaclass=Singleton):
 
     def trickle(self, session_id, handle_id, candidates):
         return self.protocol.trickle(session_id, handle_id, candidates)
-
-    @defer.inlineCallbacks
-    def admin_handle_info(self, session_id, handle_id):
-        """Fetch per-handle media stats via the Janus Admin API (HTTP).
-
-        Returns the parsed `info` dict, or None on any failure (admin not
-        configured / unreachable / non-success). Best-effort: never raises,
-        so it is safe to block_on() from a teardown path."""
-        admin_url, admin_secret = resolve_janus_admin()
-        if not admin_url:
-            return None
-        request = {'janus': 'handle_info',
-                   'transaction': uuid.uuid4().hex,
-                   'session_id': session_id,
-                   'handle_id': handle_id}
-        if admin_secret:
-            request['admin_secret'] = admin_secret
-        body = json.dumps(request).encode()
-        try:
-            request_deferred = _admin_agent.request(b'POST', admin_url.encode(), _admin_headers, _JSONBodyProducer(body))
-            # Never let a misconfigured / unreachable admin endpoint stall the
-            # call-teardown path that block_on()s this.
-            request_deferred.addTimeout(5, reactor)
-            response = yield request_deferred
-            raw_body = yield readBody(response)
-            data = json.loads(raw_body)
-        except Exception as e:
-            log.warning('Janus admin handle_info failed (session=%s handle=%s): %s', session_id, handle_id, e)
-            return None
-        if data.get('janus') != 'success':
-            log.debug('Janus admin handle_info non-success for handle %s: %s', handle_id, data)
-            return None
-        return data.get('info')
 
     # Notification handling
 
@@ -502,15 +291,6 @@ class JanusPluginHandle(object):
 
     def trickle(self, candidates, _async=False):
         deferred = self.backend.trickle(self.session.id, self.id, candidates)
-        return deferred if _async else block_on(deferred)
-
-    def handle_info(self, _async=False):
-        """Harvest this handle's media stats via the Janus Admin API.
-
-        Returns the parsed `info` dict (or None). Synchronous by default
-        (block_on) so it can be called from a green-thread teardown path
-        before the handle is detached."""
-        deferred = self.backend.admin_handle_info(self.session.id, self.id)
         return deferred if _async else block_on(deferred)
 
 
