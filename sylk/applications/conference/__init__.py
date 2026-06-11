@@ -411,6 +411,35 @@ class ConferenceApplication(SylkApplication):
                 return True
         return False
 
+    @staticmethod
+    def _is_videoroom_gateway_session(session):
+        """Return True when the INVITE was placed by the webrtcgateway on
+        behalf of a WebRTC participant.
+
+        The gateway opens each WebRTC participant's conference chat leg under
+        that participant's own real AoR (so the participant shows up as itself
+        in the roster), which makes the leg indistinguishable from a native
+        SIP phone by URI alone. It does, however, tag every such leg with an
+        `X-Sylk-App: conference` header (added in VideoroomChatHandler.start to
+        make application selection on the focus deterministic); no native SIP
+        phone sends that header. We latch onto it here so the room can later
+        recognise the gateway leg's conference-info subscription and feed it
+        the full roster — including the audio-bridge User whose
+        agp-conf:audio_levels_udp_endpoint / admin_endpoint_token the gateway
+        needs to subscribe to the focus's real-time audio-level UDP stream.
+        """
+        headers = getattr(session, '_sylk_invite_headers', None) or {}
+        h = headers.get('X-Sylk-App')
+        if h is None:
+            return False
+        body = getattr(h, 'body', h)
+        if isinstance(body, bytes):
+            try:
+                body = body.decode()
+            except Exception:
+                return False
+        return str(body).strip().lower() == 'conference'
+
     def incoming_session(self, session):
         peer = '%s:%s' % (session.transport, session.peer_address)
         proposed_media = '+'.join(sorted(set(stream.type for stream in session.proposed_streams))) or 'none'
@@ -436,6 +465,15 @@ class ConferenceApplication(SylkApplication):
         if self._is_audio_bridge_session(session):
             session._sylk_audio_bridge = True
             session._sylk_disable_moh = True
+
+        # The webrtcgateway opens each WebRTC participant's conference chat leg
+        # under that participant's real AoR, tagged with `X-Sylk-App: conference`.
+        # Flag those legs so the room serves their conference-info subscription
+        # the full roster (audio bridge included) rather than the bridge-stripped
+        # SIP-only variant — the gateway needs the bridge User to learn the
+        # audio-level UDP endpoint and subscribe to it.
+        if self._is_videoroom_gateway_session(session):
+            session._sylk_from_gateway = True
 
         audio_streams = [stream for stream in session.proposed_streams if stream.type=='audio']
         chat_streams = [stream for stream in session.proposed_streams if stream.type=='chat']

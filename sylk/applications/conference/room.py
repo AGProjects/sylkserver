@@ -1062,16 +1062,41 @@ class Room(object):
             return getattr(session, '_sylk_audio_bridge', False)
 
     def _is_videoroom_subscriber(self, uri):
-        """True if a subscriber URI is the videoroom (webrtcgateway) leg rather
-        than a SIP-only participant. The gateway presents the videoroom URI
-        (<room user>@videoconference.<domain>) as From on its conference
-        legs, so SIP-only participants are everyone whose host is not the
-        videoconference variant of this room's host."""
+        """True if a conference-info subscriber is a webrtcgateway participant
+        leg rather than a native SIP phone.
+
+        The gateway opens each WebRTC participant's chat leg — and therefore
+        its conference-info SUBSCRIBE — under that participant's OWN real AoR
+        (see VideoroomChatHandler.start), so it appears as itself in the
+        roster. That makes the subscriber URI alone indistinguishable from a
+        SIP phone: the earlier `<user>@videoconference.<host>` heuristic never
+        matched any real subscriber, so every gateway leg was misclassified as
+        SIP-only and served the bridge-stripped NOTIFY — which dropped the
+        audio-bridge User carrying agp-conf:audio_levels_udp_endpoint and the
+        gateway then never subscribed to the audio-level UDP stream.
+
+        Instead, match the subscriber's AoR against the sessions this room has
+        already flagged as gateway-originated (`_sylk_from_gateway`, set in
+        ConferenceApplication.incoming_session from the INVITE's
+        `X-Sylk-App: conference` marker). Gateway legs get the full roster
+        (hide_bridges=False); native SIP phones get the bridge filtered out."""
         if uri is None:
             return False
         def _s(x):
             return (x.decode() if isinstance(x, bytes) else (x or '')).lower()
-        return _s(uri.user) == _s(self.identity.uri.user) and _s(uri.host).startswith('videoconference')
+        subscriber_aor = '%s@%s' % (_s(uri.user), _s(uri.host))
+        if not _s(uri.user) or not _s(uri.host):
+            return False
+        for session in self.sessions:
+            if not getattr(session, '_sylk_from_gateway', False):
+                continue
+            try:
+                ruri = session.remote_identity.uri
+            except Exception:
+                continue
+            if '%s@%s' % (_s(ruri.user), _s(ruri.host)) == subscriber_aor:
+                return True
+        return False
 
     def dispatch_conference_info(self):
         full_data = self.build_conference_info(hide_bridges=False)
