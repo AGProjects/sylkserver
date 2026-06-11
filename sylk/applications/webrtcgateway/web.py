@@ -2,6 +2,7 @@
 import hashlib
 import hmac
 import json
+import math
 import mimetypes
 import os
 import secrets
@@ -1142,7 +1143,29 @@ class AdminWebHandler(object, metaclass=Singleton):
     # arrives; if one is somehow missed (publisher dropped mid-talk) the
     # state would stick "on". Decay it after this many ms with no update.
     WEBRTC_TALKING_TTL_MS = 10000
-    SPEAKING_LEVEL = 28  # of 255; focus-side threshold for "speaking"
+    # SIP meter shaping. The focus reports pjmedia signal levels (0..255)
+    # which are *mean* amplitude — for speech the mean sits low, so a raw
+    # linear bar reads tiny even when it's loud (and doesn't track what you
+    # hear). We instead drive the meter from the per-window PEAK and apply a
+    # perceptual dB curve, matching how the sylk client VU meters look.
+    #   FOCUS_DB_FLOOR: levels at/below this many dBFS read as 0 (also acts
+    #                   as the silence gate — raise toward 0 for less
+    #                   sensitivity, lower (e.g. -36) for more headroom).
+    FOCUS_DB_FLOOR = -30.0
+    FOCUS_SPEAKING_DISPLAY = 60  # of 255 on the shaped scale -> "speaking"
+
+    @staticmethod
+    def _focus_display_level(linear):
+        # Map a 0..255 linear amplitude (peak) to a 0..255 perceptual meter
+        # value via 20*log10, floored at FOCUS_DB_FLOOR (which doubles as a
+        # noise gate so silence stays at 0).
+        if linear <= 0:
+            return 0
+        db = 20.0 * math.log10(min(255.0, float(linear)) / 255.0)
+        floor = AdminWebHandler.FOCUS_DB_FLOOR
+        if db <= floor:
+            return 0
+        return int(round((1.0 - db / floor) * 255))
 
     @app.route('/rooms/<string:uri>/audio-levels', methods=['GET'])
     def get_room_audio_levels(self, request, uri):
@@ -1174,9 +1197,13 @@ class AdminWebHandler(object, metaclass=Singleton):
             if p['kind'] == 'sip':
                 pid = p.get('audio_pid')
                 v = focus_levels.get(pid) if pid else None
-                rx = int(v.get('rx', 0)) if v else 0
+                # Drive the meter from the per-window peak (falls back to the
+                # mean if a peak wasn't reported) and shape it perceptually.
+                raw = int(v.get('rx_peak', v.get('rx', 0))) if v else 0
+                display = self._focus_display_level(raw)
                 out[tid] = {
-                    'value': rx, 'talking': (not focus_stale and rx >= self.SPEAKING_LEVEL),
+                    'value': display, 'raw': raw,
+                    'talking': (not focus_stale and display >= self.FOCUS_SPEAKING_DISPLAY),
                     'source': 'focus', 'stale': bool(focus_stale),
                 }
             else:
