@@ -1,3 +1,63 @@
+sylkserver (6.7.0) unstable; urgency=medium
+
+  * Added DoS mitigator using active calls counters
+  * Added handling of incoming PUBLISH
+  * Improve validation and logging of trusted peers
+  * [webrtcgateway] Added web portal for active video rooms
+  * [webrtcgateway] Reuse DNS lookup results in videoroom
+  * [webrtcgateway] Classify by participant_id, not AoR
+  * [webrtcgateway] Use sip-instance for sip participants
+  * [webrtcgateway] Added qos server and web interface
+  * [webrtcgateway] Added Janus call monitoring endpoints to server api
+  * [webrtcgateway] Add Sylk client IP headers to Janus
+  * [webrtcgateway] Refactor videoroom publishers
+  * [webrtcgateway] Inject Sylk call id in Janus SIP sessions
+  * [webrtcgateway] Save sip call id for all janus events
+  * [webrtcgateway] Reuse the canonical message_id for push message id
+  * [webrtcgateway] Added plumbing to bomb account storage for user the requested account deletion
+  * [webrtcgateway] Log why incoming calls are rejected
+  * [webrtcgateway] Use REFER to mute/unmute SIP participants of videorooms
+  * [webrtcgateway] Auto subscribe to conference audio mixer audio levels
+  * [webrtcgateway] Added conference started duration payload to webrtc clients
+  * [webrtcgateway] Improve reaction time for sylk-janus bridge connect
+  * [webrtcgateway] Implement kick out participants in videoroom
+  * [webrtcgateway] Subscribe to SIP conference bridge participants
+  * [webrtcgateway] Added janus room events to web admin handler
+  * [webrtcgateway] Added janus room lookup admin api endpoint
+  * [webrtcgateway] Added reinvite support to webrtcgateway
+  * [webrtcgateway] Remove sdes for PSTN destinations
+  * [webrtcgateway] Don't let janus autoaccept reinvites
+  * [webrtcgateway] Don't limit result rows for delete operations
+  * [webrtcgateway] Added SIP info DTMF support for webrtcgateway
+  * [webrtcgateway] Updated sylk-db script to contain more info
+  * [webrtcgateway] Fixed updating addressbook on filestorage
+  * [webrtcgateway] Return better addressbook errors and fork to online accounts
+  * [webrtcgateway] Added option to skip adding IMDN to in dialog messages
+  * [webrtcgateway] Handle empty local adderssbook storage
+  * [webrtcgateway] Fixed file storage for addressbook data
+  * [webrtcgateway] Fixed push token split in file backend
+  * [playback] Capture exception when call is teared down in playback app
+  * [playback] [echo] Add sip uri to loglines of playback and echo apps
+  * [conference] Added anti-fraud measure to prevent lingering outgoing PSTN calls from
+  * [conference] Support sending Cancel to existing conference Invites by REFER 
+  * [conference] Fix NOTIFY for REFER in conference app
+  * [conference] Added disable MoH for conference app
+  * [conference] Fix X-Orginator header for refferals
+  * [conference] Publish audio levels over UDP socket
+  * [conference] Added user data to conference info payload (type, muted)
+  * [conference] Added media to outgoing REFER request
+  * [conference] Propagate new admin end-points and muted state of SIP participants
+  * [conference] Log conference admin web point at room start
+  * [conference] Added admin web site for conference app
+  * [conference] Log audio levels of each participant
+  * [conference] Accept any media suported by the focus for each participant
+  * [conference] Added registrar capability for conference rooms
+  * [conference] Added mute/unmute REFER methods to conference application
+  * [conference] Added mute/unmute for remote videoroom participants inside the SIP conference
+  * [conference] Log conference info Notify payload
+
+ -- Tijmen de Mes <support@ag-projects.com>  Fri, 12 Jun 2026 08:29:27 +0200
+
 sylkserver (6.6.1) unstable; urgency=medium
 
   * Fixed push token split in file backend
