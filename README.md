@@ -102,7 +102,7 @@ Video conferencing
  - Encryption (TLS, sRTP)
  - VP8/VP9/H.264 video codecs
  - Opus wideband audio
- - SFU scaling methodology
+ - SFU methodology
  - Floor control
 
 XMPP Gateway
@@ -174,7 +174,7 @@ however WebRTC has standardised particular codecs for the use on the web
 (like OPUS for audio), therefore the SIP clients must support the same set
 of codecs.
 
-See https://webrtc.sipthor.net for a working example.
+See https://ag-projects.com/endpoints/ for client examples.
 
 
 WebRTC multi-party conference
@@ -237,6 +237,7 @@ The server implements relevant features from the following standards:
  - RTP Topologies RFC7667
    3.7 Selective Forwarding Middlebox
  - OMA RCC0.7 Filetransfer over HTTP/POST
+ - Addreesbook support based on XCAP protocol
 
 
 Support
@@ -267,8 +268,8 @@ Special thanks to our sponsors:
 Developers
 ----------
 
- - Dan Pascu
- - Tijmen de Mes
- - Saul Ibarra Corretge
  - Adrian Georgescu
+ - Dan Pascu
+ - Saul Ibarra Corretge
+ - Tijmen de Mes
 
