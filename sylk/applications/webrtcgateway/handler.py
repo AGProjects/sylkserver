@@ -3867,6 +3867,24 @@ class ConnectionHandler(object):
         message = notification.data
         self.send(message)
 
+    def _NH_SIPApplicationGotAddressbookUpdate(self, notification):
+        # The account's addressbook changed on the XCAP server (xcap-diff
+        # PUBLISH). Re-fetch and push it to this device. Fired on every
+        # ConnectionHandler that has the account, so all the user's devices
+        # are refreshed.
+        try:
+            account_info = self.accounts_map[notification.sender]
+        except KeyError:
+            return
+
+        if not account_info.auth_state:
+            return
+
+        self.log.info('addressbook changed on server (xcap-diff) — pushing refresh')
+        addressbook = defer.maybeDeferred(get_addressbook, account_info)
+        addressbook.addCallback(lambda result: self.send(sylkrtc.AccountAddressBookFetchedEvent(addressbook=result, account=account_info.id)))
+        return addressbook
+
     def _NH_SIPMessageDidSucceed(self, notification):
         notification_center = NotificationCenter()
         notification_center.remove_observer(self, sender=notification.sender)

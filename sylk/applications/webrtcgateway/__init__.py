@@ -4,7 +4,7 @@ import time
 import errno
 import re
 
-from application.notification import IObserver, NotificationCenter
+from application.notification import IObserver, NotificationCenter, NotificationData
 from application.python import Null
 from application.system import unlink
 from sipsimple.configuration.settings import SIPSimpleSettings
@@ -217,6 +217,38 @@ class WebRTCGatewayApplication(SylkApplication):
             session.accept(streams)
         except IllegalStateError:
             session.reject(500)
+
+    def incoming_publish(self, publish_request, data):
+        # Handle the XCAP server's xcap-diff PUBLISH: when a user's addressbook
+        # document changes on XCAP, the XCAP/presence side PUBLISHes an
+        # 'xcap-diff' event to us. We answer it and notify every online device
+        # of that account to re-fetch its addressbook (so changes made on one
+        # device, or by the server, propagate to all the user's devices).
+        headers = data.headers
+
+        def _hval(h):
+            return str(getattr(h, 'body', h)).strip() if h is not None else None
+
+        event_header = headers.get('Event')
+        event = getattr(event_header, 'event', None) or (_hval(event_header) or '').split(';', 1)[0].strip() or None
+        if event is None and event_header is not None:
+            event = _hval(event_header)
+        if not event or 'xcap-diff' not in str(event).lower():
+            log.info('rejecting PUBLISH with unsupported event %r' % event)
+            publish_request.answer(489)  # Bad Event
+            return
+
+        request_uri = data.request_uri
+        if request_uri is None or request_uri.user is None:
+            publish_request.answer(400)
+            return
+
+        account = '%s@%s' % (request_uri.user, request_uri.host)
+        publish_request.answer(200)
+        log.info('received xcap-diff PUBLISH for %s — notifying online devices to refresh addressbook' % account)
+        NotificationCenter().post_notification(name='SIPApplicationGotAddressbookUpdate',
+                                               sender=account,
+                                               data=NotificationData())
 
     def incoming_subscription(self, request, data):
         request.reject(405)
