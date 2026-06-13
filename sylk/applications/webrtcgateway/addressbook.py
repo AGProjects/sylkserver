@@ -26,10 +26,18 @@ class XCAPRoutes:
 
     ROUTES = {
         "GET": {"addressbook": "/api/v1/users/{user}/addressbook",
-                "contact": "/api/v1/users/{user}/addressbook/contacts/{contact_id}"},
-        "PUT": {"contact": "/api/v1/users/{user}/addressbook/contacts/{contact_id}"},
-        "POST": {"contact": "/api/v1/users/{user}/addressbook/contacts"},
-        "DELETE": {"contact": "/api/v1/users/{user}/addressbook/contacts/{contact_id}"}
+                "contact": "/api/v1/users/{user}/addressbook/contacts/{contact_id}",
+                "group": "/api/v1/users/{user}/addressbook/groups/{group_id}",
+                "policy": "/api/v1/users/{user}/addressbook/policies/{policy_id}"},
+        "PUT": {"contact": "/api/v1/users/{user}/addressbook/contacts/{contact_id}",
+                "group": "/api/v1/users/{user}/addressbook/groups/{group_id}",
+                "policy": "/api/v1/users/{user}/addressbook/policies/{policy_id}"},
+        "POST": {"contact": "/api/v1/users/{user}/addressbook/contacts",
+                 "group": "/api/v1/users/{user}/addressbook/groups",
+                 "policy": "/api/v1/users/{user}/addressbook/policies"},
+        "DELETE": {"contact": "/api/v1/users/{user}/addressbook/contacts/{contact_id}",
+                   "group": "/api/v1/users/{user}/addressbook/groups/{group_id}",
+                   "policy": "/api/v1/users/{user}/addressbook/policies/{policy_id}"}
     }
 
     ACTION_MAP = {'add': 'POST',
@@ -102,7 +110,7 @@ def update_addressbook(account, request):
 
 def _update_addressbook(account, request):
     storage = FileAddressBookStorage()
-    if request.type == 'contact':
+    if request.type in ('contact', 'group', 'policy'):
         storage.update(account.id, request.data, request.type, action=request.action)
 
 
@@ -111,6 +119,10 @@ def _send_update_addressbook(account, request, destination):
     routes = XCAPRoutes(destination)
     if request.type == 'contact':
         url = routes.resolve(request.type, action=request.action, user=account.id, contact_id=request.data.id)
+    elif request.type == 'group':
+        url = routes.resolve(request.type, action=request.action, user=account.id, group_id=request.data.id)
+    elif request.type == 'policy':
+        url = routes.resolve(request.type, action=request.action, user=account.id, policy_id=request.data.id)
     else:
         url = routes.resolve(request.type, action=request.action, user=account.id)
 
