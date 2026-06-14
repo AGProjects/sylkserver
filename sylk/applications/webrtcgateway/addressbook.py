@@ -14,6 +14,21 @@ from .storage import FileAddressBookStorage
 __all__ = 'get_addressbook, update_addressbook'
 
 
+class AddressbookUpdateError(Exception):
+    """Carries whether a failed addressbook update is worth retrying.
+
+    retryable=True  -> transient (XCAP unreachable, connection reset, 5xx,
+                       408/429): the client should queue the change and re-push
+                       when the server is back.
+    retryable=False -> permanent (4xx validation, or a parse error AFTER the
+                       write already succeeded): retrying won't help / could
+                       duplicate, so the client should drop it.
+    """
+    def __init__(self, message, retryable=True):
+        super().__init__(message)
+        self.retryable = retryable
+
+
 agent = Agent(reactor)
 headers = Headers({'User-Agent': ['SylkServer'],
                    'Content-Type': ['application/json']})
@@ -96,10 +111,14 @@ class BytesProducer(object):
         pass
 
 
-def get_addressbook(account):
+def get_addressbook(account, raise_on_error=False):
+    # raise_on_error=True lets callers distinguish a FAILED fetch (XCAP
+    # unreachable / non-200 / bad JSON) from a genuinely empty addressbook.
+    # The default (False) preserves the legacy "return empty on failure"
+    # behaviour for the initial/login fetch path.
     if not GeneralConfig.xcap_url:
         return _fetch_addressbook(account)
-    return _send_fetch_addressbook(account, GeneralConfig.xcap_url)
+    return _send_fetch_addressbook(account, GeneralConfig.xcap_url, raise_on_error=raise_on_error)
 
 
 def update_addressbook(account, request):
@@ -135,8 +154,10 @@ def _send_update_addressbook(account, request, destination):
     except defer.CancelledError:
         raise
     except Exception as e:
+        # Transport-level failure (XCAP unreachable, DNS, connection reset) —
+        # the write never landed, so it is safe and worthwhile to retry.
         log.warning("Error updating addressbook to %s: %s", destination, e)
-        raise
+        raise AddressbookUpdateError(str(e), retryable=True)
 
     if resp.code not in (200, 204):
         body = yield readBody(resp)
@@ -148,7 +169,9 @@ def _send_update_addressbook(account, request, destination):
                 detail = ', '.join(e.get('msg', str(e)) for e in detail)
         except (ValueError, TypeError):
             detail = body_text
-        raise Exception(f"Non-200 response: {resp.code}, {detail}")
+        # 5xx / 408 / 429 are transient; 4xx is a permanent rejection (bad data).
+        retryable = resp.code >= 500 or resp.code in (408, 429)
+        raise AddressbookUpdateError(f"Non-200 response: {resp.code}, {detail}", retryable=retryable)
 
     if resp.code == 204 and routes.method == 'DELETE':
         return xcap.XCAPMapper.from_payload(request.data.__data__, request.type)
@@ -158,8 +181,10 @@ def _send_update_addressbook(account, request, destination):
         payload = json.loads(body)
         return xcap.XCAPMapper.from_payload(payload, request.type)
     except (ValueError, TypeError) as e:
+        # The write SUCCEEDED (2xx); only parsing the echoed body failed.
+        # Retrying would duplicate the change, so this is not retryable.
         log.warning("Invalid JSON from %s: %s", destination, e)
-        raise
+        raise AddressbookUpdateError(str(e), retryable=False)
 
 
 @defer.inlineCallbacks
@@ -172,7 +197,12 @@ def _fetch_addressbook(account):
 
 
 @defer.inlineCallbacks
-def _send_fetch_addressbook(account, destination):
+def _send_fetch_addressbook(account, destination, raise_on_error=False):
+    # When raise_on_error is True a failure propagates as a failed Deferred so
+    # the caller can react (e.g. skip a broadcast) instead of being handed an
+    # empty addressbook that masquerades as "no contacts" — which downstream
+    # clients would treat as a mass deletion. When False, the legacy behaviour
+    # of returning an empty addressbook on failure is preserved.
     routes = XCAPRoutes(destination)
     url = routes.resolve("addressbook", user=account.id)
     try:
@@ -181,12 +211,16 @@ def _send_fetch_addressbook(account, destination):
         raise
     except Exception as e:
         log.warning("Error fetching addressbook from %s: %s", destination, e)
+        if raise_on_error:
+            raise
         return xcap.AddressBook(contacts=[], groups=[], policies=[])
 
     if resp.code != 200:
         body = yield readBody(resp)
         body_text = body.decode('utf-8')
         log.warning("Non-200 response (%s) fetching addressbook from %s: %r", resp.code, destination, body_text)
+        if raise_on_error:
+            raise Exception("Non-200 response (%s) fetching addressbook" % resp.code)
         return xcap.AddressBook(contacts=[], groups=[], policies=[])
 
     try:
@@ -195,6 +229,8 @@ def _send_fetch_addressbook(account, destination):
         return xcap.XCAPMapper.from_payload(payload)
     except (ValueError, TypeError) as e:
         log.warning("Invalid JSON from %s: %s", destination, e)
+        if raise_on_error:
+            raise
         return xcap.AddressBook(contacts=[], groups=[], policies=[])
 
 

@@ -2116,13 +2116,21 @@ class ConnectionHandler(object):
             self.send(event)
             self._fork_event_to_online_accounts(account_info, event)
 
+        def addressbook_update_failed(failure):
+            # retryable defaults to True for unknown errors (safer to let the
+            # client retry than to silently drop a write); permanent 4xx
+            # rejections set it False via AddressbookUpdateError.
+            retryable = getattr(failure.value, 'retryable', True)
+            self.send(sylkrtc.AccountAddressBookUpdateFailedEvent(error=str(failure.value),
+                                                                  type=request.type,
+                                                                  action=request.action,
+                                                                  account=account_info.id,
+                                                                  id=request.data.id,
+                                                                  retryable=retryable))
+
         update = defer.maybeDeferred(update_addressbook, account_info, request)
         update.addCallback(addressbook_updated)
-        update.addErrback(lambda failure: self.send(sylkrtc.AccountAddressBookUpdateFailedEvent(error=str(failure.value),
-                                                                                                type=request.type,
-                                                                                                action=request.action,
-                                                                                                account=account_info.id,
-                                                                                                id=request.data.id)))
+        update.addErrback(addressbook_update_failed)
 
         return update
 
@@ -3881,8 +3889,17 @@ class ConnectionHandler(object):
             return
 
         self.log.info('addressbook changed on server (xcap-diff) — pushing refresh')
-        addressbook = defer.maybeDeferred(get_addressbook, account_info)
-        addressbook.addCallback(lambda result: self.send(sylkrtc.AccountAddressBookFetchedEvent(addressbook=result, account=account_info.id)))
+        # raise_on_error=True: if the re-fetch fails (XCAP unreachable / non-200),
+        # do NOT broadcast. Pushing an empty addressbook to every online device
+        # on a transient outage would look like a mass deletion and let clients
+        # wipe local state. Skipping the refresh leaves every device with the
+        # data it already has; the next successful change re-syncs them.
+        addressbook = defer.maybeDeferred(get_addressbook, account_info, raise_on_error=True)
+        def _push_refresh(result):
+            self.send(sylkrtc.AccountAddressBookFetchedEvent(addressbook=result, account=account_info.id))
+        def _skip_refresh(failure):
+            self.log.warning('addressbook re-fetch failed (%s) — skipping broadcast, devices keep current data' % failure.value)
+        addressbook.addCallbacks(_push_refresh, _skip_refresh)
         return addressbook
 
     def _NH_SIPMessageDidSucceed(self, notification):

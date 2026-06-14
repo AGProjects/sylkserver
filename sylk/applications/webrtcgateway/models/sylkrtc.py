@@ -356,6 +356,10 @@ class AccountAddressBookUpdateFailedEvent(AccountEventBase):
     action = StringProperty()
     error = StringProperty()
     id = StringProperty()
+    # True when the failure is transient (XCAP unreachable / 5xx) and the client
+    # should queue the change and re-push later; False for permanent rejections
+    # (4xx) that won't succeed on retry.
+    retryable = BooleanProperty(optional=True)
 
 
 # Session events
