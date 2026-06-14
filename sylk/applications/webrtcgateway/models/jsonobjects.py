@@ -211,6 +211,28 @@ class JSONObject(object, metaclass=JSONObjectType):
         return name in self.__properties__
 
 
+class DictObject(JSONObject):
+    """A free-form JSON object that preserves arbitrary keys.
+
+    The base JSONObject only (de)serializes its *declared* properties, so a
+    bare JSONObject used as a schemaless bag silently drops every key it is
+    given (serializing to {}). DictObject instead round-trips the raw dict,
+    for fields such as contact/uri/group/policy ``attributes`` that have no
+    fixed schema and must carry whatever the client stored (organization,
+    email, bypassdnd, muted, read_receipts, caregiver, ...).
+    """
+
+    def __init__(self, **data):
+        self.__dict__['__rawdata__'] = dict(data)
+
+    @property
+    def __data__(self):
+        return dict(self.__dict__.get('__rawdata__', {}))
+
+    def __contains__(self, name):
+        return name in self.__dict__.get('__rawdata__', {})
+
+
 class ArrayParser(object):
     def __init__(self, cls):
         self.item_type = MultiType(*cls.item_type) if isinstance(cls.item_type, (list, tuple)) else cls.item_type

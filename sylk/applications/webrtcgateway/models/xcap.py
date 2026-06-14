@@ -1,12 +1,12 @@
-from .jsonobjects import (ArrayProperty, BooleanProperty, JSONArray,
-                          JSONObject, ObjectProperty, StringProperty)
+from .jsonobjects import (ArrayProperty, BooleanProperty, DictObject,
+                          JSONArray, JSONObject, ObjectProperty, StringProperty)
 
 
 class ContactURI(JSONObject):
     id = StringProperty()
     uri = StringProperty()
     type = StringProperty(optional=True)
-    attributes = ObjectProperty(JSONObject, optional=True)
+    attributes = ObjectProperty(DictObject, optional=True)
     default = BooleanProperty(optional=True)
 
 
@@ -25,7 +25,7 @@ class Contact(JSONObject):
     uris = ArrayProperty(ContactURIs)
     dialog = ObjectProperty(EventHandling)
     presence = ObjectProperty(EventHandling)
-    attributes = ObjectProperty(JSONObject, optional=True)
+    attributes = ObjectProperty(DictObject, optional=True)
     defaultUri = ObjectProperty(ContactURI, optional=True)
 
     def __init__(self, **data):
@@ -44,7 +44,7 @@ class Contacts(JSONArray):
 class Group(JSONObject):
     id = StringProperty()
     name = StringProperty()
-    attributes = ObjectProperty(JSONObject, optional=True)
+    attributes = ObjectProperty(DictObject, optional=True)
     contacts = ArrayProperty(Contacts)
 
 
@@ -54,7 +54,7 @@ class Policy(JSONObject):
     uri = StringProperty()
     dialog = ObjectProperty(EventHandling)
     presence = ObjectProperty(EventHandling)
-    attributes = ObjectProperty(JSONObject, optional=True)
+    attributes = ObjectProperty(DictObject, optional=True)
 
 
 class Policies(JSONArray):
