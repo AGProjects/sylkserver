@@ -763,7 +763,17 @@ class AccountUpdateAddressBookRequest(AccountRequestBase):
     data = AbstractObjectProperty()
 
     def __init__(self, **kwargs):
-        kwargs["data"] = XCAPMapper.from_payload(kwargs["data"], kwargs["type"])
+        data = kwargs.get("data")
+        # A contact DELETE only needs the id — the name is irrelevant when
+        # removing a row. Clients legitimately send {id} alone (e.g. dedup
+        # cleanup), but the required-name Contact model would reject that with
+        # "Mandatory property 'name'". For a delete, inject an empty name so an
+        # id-only payload validates and routes purely by contact_id.
+        if (kwargs.get("action") == "delete" and kwargs.get("type") == "contact"
+                and isinstance(data, dict) and not data.get("name")):
+            data = dict(data)
+            data["name"] = ""
+        kwargs["data"] = XCAPMapper.from_payload(data, kwargs["type"])
         super().__init__(**kwargs)
 
 # Session request models
