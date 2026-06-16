@@ -746,6 +746,10 @@ class AccountMessageRemoveRequest(AccountRequestBase):
 class AccountConversationRemoveRequest(AccountRequestBase):
     sylkrtc = FixedValueProperty('account-remove-conversation')
     contact = StringProperty(validator=AORValidator())
+    # The moment the client performed the remove. Optional for backward
+    # compatibility; when present it is recorded and relayed so a replayed or
+    # late-delivered remove never deletes data created after this time.
+    timestamp = StringProperty(optional=True, default=None)
 
 
 class AccountFetchAddressbookRequest(AccountRequestBase):

@@ -2070,7 +2070,10 @@ class ConnectionHandler(object):
         storage = MessageStorage()
         storage.removeChat(account=account_info.id, contact=contact)
 
-        timestamp = str(ISOTimestamp.now())
+        # Prefer the action time the client performed the remove at; fall back to
+        # now for older clients. This timestamp is recorded and relayed so a
+        # replayed or late-delivered remove never deletes data created after it.
+        timestamp = getattr(request, 'timestamp', None) or str(ISOTimestamp.now())
         storage.add(account=account_info.id,
                     contact=contact,
                     direction='',
