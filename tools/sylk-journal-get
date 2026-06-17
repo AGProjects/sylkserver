@@ -1,0 +1,210 @@
+#!/usr/bin/env python3
+"""Fetch an account's message journal straight from the SylkServer Cassandra
+database — simulating what a client does when it syncs history, but locally
+(root on the same server) instead of over the replication HTTP API.
+
+  sylk-journal-get <account> [--id MESSAGE_ID] [--timestamp ISO8601]
+
+The start point is resolved like the server (storage.py), except the default
+window is the WHOLE journal rather than the server's 3-day default:
+  * --id        -> start right after that message's created_at
+                   (looked up in the chat_message_created_at_by_id table)
+  * --timestamp -> start right after this ISO timestamp
+  * --last-days -> start at now minus N days
+  * none        -> no lower bound (the entire journal)
+
+It then returns the messages with created_at greater than the start point
+(unlimited by default; cap with --limit) and prints a summary of how many
+messages there are per contact and per content type.
+"""
+import argparse
+import datetime
+import logging
+import os
+import sys
+from collections import Counter
+
+# Allow running from the tools/ subdirectory: make the parent SylkServer
+# directory (which holds the `sylk` package) importable.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from application import log
+from application.process import process
+
+logging.getLogger('cassandra').setLevel(logging.WARNING)
+
+CASSANDRA_MODULES_AVAILABLE = False
+try:
+    from cassandra.cqlengine import connection
+except ImportError:
+    pass
+else:
+    try:
+        from cassandra.cqlengine.models import Model
+    except ImportError:
+        pass
+    else:
+        CASSANDRA_MODULES_AVAILABLE = True
+        from cassandra import InvalidRequest
+        from cassandra.cluster import (EXEC_PROFILE_DEFAULT, Cluster,
+                                       ExecutionProfile, NoHostAvailable)
+        from cassandra.policies import DCAwareRoundRobinPolicy
+
+
+class colors:
+    if sys.stdout.isatty():
+        ENDC = '\033[m'
+        BOLD = '\033[1m'
+    else:
+        ENDC = ''
+        BOLD = ''
+
+
+def bold(string):
+    return colors.BOLD + str(string) + colors.ENDC
+
+
+def _cassandra_connect(tables=()):
+    from sylk.applications.webrtcgateway.configuration import CassandraConfig
+    profile = ExecutionProfile(load_balancing_policy=DCAwareRoundRobinPolicy(), request_timeout=60)
+    cluster = Cluster(CassandraConfig.cluster_contact_points, protocol_version=4,
+                      execution_profiles={EXEC_PROFILE_DEFAULT: profile})
+    try:
+        session = cluster.connect()
+    except NoHostAvailable:
+        log.warning("Can't connect to Cassandra cluster")
+        sys.exit()
+    connection.set_session(session)
+    for table in tables:
+        table.__keyspace__ = CassandraConfig.keyspace
+    return cluster
+
+
+def _resolve_start(message_id, since, last_days, ChatMessageIdMapping):
+    """Reproduce storage.py's journal start-point resolution. Unlike the server
+    (which defaults to a 3-day window), the default here is unbounded — return
+    None to mean 'no lower bound, fetch the whole journal'. --last-days narrows
+    it to a window when given."""
+    from sipsimple.util import ISOTimestamp
+    window = (datetime.datetime.now() - datetime.timedelta(days=last_days)) if last_days else None
+    if message_id:
+        try:
+            timestamp = ChatMessageIdMapping.objects(
+                ChatMessageIdMapping.message_id == message_id)[0].created_at
+        except (IndexError, InvalidRequest):
+            timestamp = ISOTimestamp(since) if since else window
+    elif since:
+        timestamp = ISOTimestamp(since)
+    else:
+        timestamp = window
+    return timestamp
+
+
+def _msg_dt(message):
+    return message.msg_timestamp or message.created_at
+
+
+def get_journal(account, message_id=None, since=None, last_days=None, contact=None,
+                limit=None, verbose=False):
+    print(f"\n{' SylkServer - Journal fetch ':*^80s}\n")
+    from sylk.applications.webrtcgateway.configuration import CassandraConfig
+    from sylk.applications.webrtcgateway.models.storage.cassandra import (
+        ChatMessage, ChatMessageIdMapping)
+    if not (CASSANDRA_MODULES_AVAILABLE and CassandraConfig.cluster_contact_points):
+        log.warning('Cassandra is not available — this tool only supports the Cassandra backend')
+        sys.exit()
+    _cassandra_connect([ChatMessage, ChatMessageIdMapping])
+
+    start = _resolve_start(message_id, since, last_days, ChatMessageIdMapping)
+    if message_id:
+        print(f'Fetching journal for {bold(account)} after message {bold(message_id)}')
+    elif since:
+        print(f'Fetching journal for {bold(account)} since {bold(since)}')
+    elif last_days:
+        print(f'Fetching journal for {bold(account)} (window: last {last_days} day(s))')
+    else:
+        print(f'Fetching journal for {bold(account)} (window: all messages)')
+    if contact:
+        print(f'Filtering to contact {bold(contact)}')
+    print(f'Start point (created_at >): {bold(str(start) if start is not None else "beginning")}   '
+          f'limit: {limit if limit is not None else "unlimited"}\n')
+
+    if start is not None:
+        query = ChatMessage.objects(ChatMessage.account == account,
+                                    ChatMessage.created_at > start)
+    else:
+        query = ChatMessage.objects(ChatMessage.account == account)
+    messages = list(query.limit(limit))
+    if contact:
+        messages = [m for m in messages if m.contact == contact]
+
+    if verbose and messages:
+        print(f'{"timestamp":<26} {"direction":<9} {"msg_id":<36} '
+              f'{"content_type":<34} contact')
+        print('-' * 140)
+        for m in messages:
+            dt = _msg_dt(m)
+            print(f'{(dt.isoformat() if dt else "?"):<26} {str(m.direction):<9} '
+                  f'{str(m.message_id):<36} {str(m.content_type):<34} {m.contact}')
+        print()
+
+    per_contact = Counter()
+    per_type = Counter()
+    for m in messages:
+        per_contact[m.contact] += 1
+        per_type[m.content_type] += 1
+
+    total = len(messages)
+    print(f'{bold(str(total))} message(s) in the journal'
+          + (f' (capped at {limit})' if total == limit else ''))
+
+    print(f'\n{bold("Per contact")}:')
+    for contact, n in per_contact.most_common():
+        print(f'  {n:>8}  {contact}')
+    print(f'\n{bold("Per content type")}:')
+    for ctype, n in per_type.most_common():
+        print(f'  {n:>8}  {ctype}')
+    if not messages:
+        print('  (no messages)')
+
+
+if __name__ == '__main__':
+    process.configuration.subdirectory = 'sylkserver'
+
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument('-h', '--help', action='help', default=argparse.SUPPRESS,
+                        help='Show this help message and exit.')
+    parser.add_argument('--config-dir', '--config-folder', dest='config_directory',
+                        default=None, metavar='PATH', help='Set a config directory.')
+    parser.add_argument('account', help='Account')
+    parser.add_argument('--contact', metavar='URI',
+                        help='only show journal entries with this contact')
+    parser.add_argument('--id', dest='message_id', metavar='MESSAGE_ID',
+                        help='start right after this message id (as a client resuming sync would)')
+    parser.add_argument('--timestamp', dest='since', metavar='ISO8601',
+                        help='start right after this ISO timestamp (e.g. 2026-05-01T00:00:00Z)')
+    parser.add_argument('--last-days', type=int, default=None, metavar='N',
+                        help='narrow the journal window to the last N days (default: all messages)')
+    parser.add_argument('--limit', type=int, default=None,
+                        help='maximum messages to fetch (default: unlimited)')
+    parser.add_argument('-v', '--verbose', action='store_true',
+                        help='also list every journal message (table of contents) before the summary')
+
+    options = parser.parse_args()
+
+    if options.config_directory is not None:
+        process.configuration.local_directory = options.config_directory
+
+    from sylk.server import ServerConfig
+    ServerConfig.__cfgtype__(ServerConfig.__cfgfile__)
+
+    cfg_dir = os.path.abspath(options.config_directory) if options.config_directory else os.getcwd()
+    print(f'Configuration directory: {bold(cfg_dir)}')
+    from application.configuration import ConfigFile
+    cfg_files = ConfigFile('config.ini').files + ConfigFile('webrtcgateway.ini').files
+    if cfg_files:
+        print(f'Reading configuration from: {", ".join(cfg_files)}')
+
+    get_journal(options.account, message_id=options.message_id,
+                since=options.since, last_days=options.last_days,
+                contact=options.contact, limit=options.limit, verbose=options.verbose)
