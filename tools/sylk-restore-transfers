@@ -1,0 +1,463 @@
+#!/usr/bin/env python3
+"""
+sylk-restore-transfers
+
+Rebuild Sylk webrtcgateway file-transfer files on the server filesystem from
+metadata recovered on a device's sylk.db.
+
+Background
+----------
+The webrtcgateway stores every uploaded file at a deterministic location:
+
+    <file_transfer_dir>/<H[0]>/<H_sender>/<H_receiver>/<transfer_id>/<filename>
+
+where H_x = base64.urlsafe_b64encode(md5(uri.encode()).digest()).rstrip('=')
+and H[0] is the first character of the *sender* hash. The download URL stored
+in the client embeds exactly:
+
+    .../webrtcgateway/filetransfer/<H_sender>/<H_receiver>/<transfer_id>/<filename>
+
+So the path a client requests is fully determined by the URL in its database.
+
+When an account deletes a conversation, the server's removeMessage() removes
+the directory computed from (account-as-sender, contact-as-receiver) for every
+message id. That deletes the account's *outgoing* files but leaves the
+*incoming* ones (which live under the contact's sender-hash tree) untouched.
+
+This tool reads the surviving metadata from a copy of the device's sylk.db,
+and for every file transfer it:
+
+  1. Computes the canonical on-disk destination from the stored URL.
+  2. If the file is already present -> reports OK, does nothing.
+  3. If missing -> searches the whole storage tree for a surviving copy
+     (a directory named exactly <transfer_id>), and copies it into place.
+  4. Optionally verifies the copy against the sha-1 hash from the metadata.
+  5. Regenerates the meta-<filename> sidecar if absent.
+
+It NEVER deletes anything and by default runs as a dry-run.
+
+Usage (mirrors the other sylk tools' syntax)
+--------------------------------------------
+    # dry run (default) - shows what would happen, changes nothing
+    python3 sylk-restore-transfers --config-dir=configuration ag@sylk.link
+
+    # actually copy files
+    python3 sylk-restore-transfers --config-dir=configuration ag@sylk.link --apply
+
+    # restrict to one contact instead of all of the account's transfers
+    python3 sylk-restore-transfers --config-dir=configuration ag@sylk.link mi@sylk.link
+
+    # write a CSV report of every transfer and its outcome
+    python3 sylk-restore-transfers ... --report /tmp/restore_report.csv
+
+The mobile database defaults to ./sylk.db (override with --db PATH). The storage
+root is taken from the webrtcgateway config (GeneralConfig.file_transfer_dir,
+honouring --config-dir); override it with --storage-root PATH.
+
+Run it as the user that owns the file_transfers tree (e.g. sylkserver) so the
+restored files get the correct ownership/permissions.
+"""
+
+import argparse
+import base64
+import csv
+import hashlib
+import json
+import os
+import shutil
+import sqlite3
+import sys
+import urllib.parse
+from collections import Counter
+
+# Allow running from the tools/ subdirectory: make the parent SylkServer
+# directory (which holds the `sylk` package) importable.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+FT_CONTENT_TYPE = 'application/sylk-file-transfer'
+
+
+# --------------------------------------------------------------------------- #
+# helpers
+# --------------------------------------------------------------------------- #
+def hash_uri(uri):
+    """Reproduce FileTransferData._encode_and_hash_uri()."""
+    return base64.urlsafe_b64encode(
+        hashlib.md5(uri.encode('utf-8')).digest()
+    ).rstrip(b'=\n').decode('utf-8')
+
+
+def parse_url_path(url):
+    """
+    Extract the storage-relative segments from a transfer URL.
+
+    Returns (h_sender, h_receiver, transfer_id, filename) with each segment
+    percent-decoded, or None if the URL is not a filetransfer URL.
+    """
+    if not url:
+        return None
+    marker = '/filetransfer/'
+    idx = url.find(marker)
+    if idx == -1:
+        return None
+    tail = url[idx + len(marker):]
+    # strip any query string / fragment
+    tail = tail.split('?', 1)[0].split('#', 1)[0]
+    parts = [p for p in tail.split('/') if p != '']
+    if len(parts) < 4:
+        return None
+    h_sender = urllib.parse.unquote(parts[0])
+    h_receiver = urllib.parse.unquote(parts[1])
+    transfer_id = urllib.parse.unquote(parts[2])
+    # filename may itself contain encoded slashes; rejoin the remainder
+    filename = urllib.parse.unquote('/'.join(parts[3:]))
+    return h_sender, h_receiver, transfer_id, filename
+
+
+def load_metadata(row):
+    """Return the parsed JSON metadata for a message row, or None."""
+    for raw in (row['metadata'], row['content']):
+        if not raw:
+            continue
+        if isinstance(raw, (bytes, bytearray)):
+            try:
+                raw = raw.decode('utf-8')
+            except UnicodeDecodeError:
+                continue
+        try:
+            data = json.loads(raw)
+        except (ValueError, TypeError):
+            continue
+        if isinstance(data, dict) and data.get('url'):
+            return data
+    return None
+
+
+def sha1_of(path, chunk=64 * 1024):
+    h = hashlib.sha1()
+    with open(path, 'rb') as f:
+        while True:
+            b = f.read(chunk)
+            if not b:
+                break
+            h.update(b)
+    return h
+
+
+def normalize_hash(meta_hash):
+    """
+    Metadata hash looks like 'sha-1:25:14:4D:...'. Return lowercase hex digest
+    or None if not a usable sha-1.
+    """
+    if not meta_hash:
+        return None
+    s = str(meta_hash)
+    if ':' not in s:
+        return None
+    algo, _, rest = s.partition(':')
+    if 'sha' not in algo.lower():
+        return None
+    hexdigest = rest.replace(':', '').strip().lower()
+    return hexdigest or None
+
+
+def build_transfer_id_index(storage_root):
+    """
+    Map every directory whose name looks like a transfer id to its full path.
+    A transfer id can in principle appear in more than one place, so values are
+    lists. We index by directory name == transfer_id.
+    """
+    index = {}
+    for dirpath, dirnames, _filenames in os.walk(storage_root):
+        for d in dirnames:
+            index.setdefault(d, []).append(os.path.join(dirpath, d))
+    return index
+
+
+def dir_has_payload(path, filename):
+    """True if the directory holds the expected file (non-empty), ignoring meta."""
+    target = os.path.join(path, filename)
+    if os.path.isfile(target) and os.path.getsize(target) > 0:
+        return True
+    # fall back: any non-meta, non-empty file
+    try:
+        for name in os.listdir(path):
+            if name.startswith('meta-'):
+                continue
+            fp = os.path.join(path, name)
+            if os.path.isfile(fp) and os.path.getsize(fp) > 0:
+                return True
+    except OSError:
+        pass
+    return False
+
+
+# --------------------------------------------------------------------------- #
+# core
+# --------------------------------------------------------------------------- #
+def collect_transfers(db_path, account, contact):
+    con = sqlite3.connect(db_path)
+    con.row_factory = sqlite3.Row
+    cur = con.cursor()
+    sql = ("SELECT msg_id, account, from_uri, to_uri, direction, content, "
+           "metadata FROM messages WHERE content_type = ? AND account = ?")
+    params = [FT_CONTENT_TYPE, account]
+    if contact:
+        sql += " AND (from_uri = ? OR to_uri = ?)"
+        params += [contact, contact]
+    rows = cur.execute(sql, params).fetchall()
+    con.close()
+
+    transfers = {}  # transfer_id -> dict
+    for row in rows:
+        meta = load_metadata(row)
+        if meta is None:
+            transfers.setdefault('__nometa__:' + row['msg_id'], {
+                'transfer_id': None, 'msg_id': row['msg_id'],
+                'error': 'no usable metadata/url', 'meta': None,
+            })
+            continue
+        parsed = parse_url_path(meta.get('url'))
+        if parsed is None:
+            transfers.setdefault('__badurl__:' + row['msg_id'], {
+                'transfer_id': meta.get('transfer_id'), 'msg_id': row['msg_id'],
+                'error': 'unparseable url', 'meta': meta,
+            })
+            continue
+        h_sender, h_receiver, transfer_id, filename = parsed
+        # de-dupe: same transfer can show up once per account row
+        transfers[transfer_id] = {
+            'transfer_id': transfer_id,
+            'msg_id': row['msg_id'],
+            'direction': row['direction'],
+            'from_uri': row['from_uri'],
+            'to_uri': row['to_uri'],
+            'h_sender': h_sender,
+            'h_receiver': h_receiver,
+            'filename': filename,
+            'meta': meta,
+            'error': None,
+        }
+    return list(transfers.values())
+
+
+def canonical_dir(storage_root, h_sender, h_receiver, transfer_id):
+    prefix = h_sender[:1]
+    return os.path.join(storage_root, prefix, h_sender, h_receiver, transfer_id)
+
+
+def restore(args, storage_root):
+    storage_root = os.path.abspath(storage_root)
+    if not os.path.isdir(storage_root):
+        sys.exit("ERROR: storage root does not exist: %s" % storage_root)
+    if not os.path.isfile(args.db):
+        sys.exit("ERROR: sylk.db not found: %s" % args.db)
+    print("File transfer storage: %s" % storage_root)
+
+    transfers = collect_transfers(args.db, args.account, args.contact)
+    print("Found %d distinct file transfers for %s%s" % (
+        len([t for t in transfers if t.get('transfer_id')]),
+        args.account,
+        (" with %s" % args.contact) if args.contact else " (all contacts)",
+    ))
+
+    print("Indexing existing transfer directories under %s ..." % storage_root)
+    tid_index = build_transfer_id_index(storage_root)
+    print("  indexed %d directory names\n" % len(tid_index))
+
+    mode = "APPLY" if args.apply else "DRY-RUN"
+    outcomes = Counter()
+    report_rows = []
+
+    for t in transfers:
+        tid = t.get('transfer_id')
+        if not tid:
+            outcomes['skipped_no_metadata'] += 1
+            report_rows.append({
+                'transfer_id': '', 'filename': '', 'direction': '',
+                'outcome': 'skipped_no_metadata', 'detail': t.get('error', ''),
+                'dest': '', 'source': '',
+            })
+            continue
+
+        filename = t['filename']
+        dest_dir = canonical_dir(storage_root, t['h_sender'], t['h_receiver'], tid)
+        dest_file = os.path.join(dest_dir, filename)
+        want_hash = normalize_hash(t['meta'].get('hash'))
+
+        # 1) already present?
+        if dir_has_payload(dest_dir, filename):
+            ok = True
+            detail = 'already present'
+            if args.verify_hash and want_hash and os.path.isfile(dest_file):
+                if sha1_of(dest_file).hexdigest() != want_hash:
+                    ok = False
+                    detail = 'present but hash mismatch'
+            outcomes['ok_present' if ok else 'present_hash_mismatch'] += 1
+            report_rows.append({
+                'transfer_id': tid, 'filename': filename,
+                'direction': t['direction'],
+                'outcome': 'ok_present' if ok else 'present_hash_mismatch',
+                'detail': detail, 'dest': dest_dir, 'source': '',
+            })
+            continue
+
+        # 2) locate a surviving copy somewhere in the tree
+        candidates = [
+            p for p in tid_index.get(tid, [])
+            if os.path.abspath(p) != os.path.abspath(dest_dir)
+            and dir_has_payload(p, filename)
+        ]
+        if not candidates:
+            outcomes['missing_no_source'] += 1
+            report_rows.append({
+                'transfer_id': tid, 'filename': filename,
+                'direction': t['direction'], 'outcome': 'missing_no_source',
+                'detail': 'no surviving copy found anywhere; needs re-upload',
+                'dest': dest_dir, 'source': '',
+            })
+            print("[MISSING] %s  (%s)  no source on disk -> needs re-upload"
+                  % (tid, filename))
+            continue
+
+        source_dir = candidates[0]
+
+        # optional integrity check of the source before copying
+        if args.verify_hash and want_hash:
+            src_file = os.path.join(source_dir, filename)
+            if os.path.isfile(src_file):
+                if sha1_of(src_file).hexdigest() != want_hash:
+                    outcomes['source_hash_mismatch'] += 1
+                    report_rows.append({
+                        'transfer_id': tid, 'filename': filename,
+                        'direction': t['direction'],
+                        'outcome': 'source_hash_mismatch',
+                        'detail': 'source hash != metadata hash; skipped',
+                        'dest': dest_dir, 'source': source_dir,
+                    })
+                    print("[HASH!]   %s  source hash mismatch -> skipped" % tid)
+                    continue
+
+        # 3) copy the whole transfer directory contents into place
+        print("[%s] %s  (%s)\n         from %s\n           to %s"
+              % (mode, tid, filename, source_dir, dest_dir))
+        if args.apply:
+            try:
+                os.makedirs(dest_dir, exist_ok=True)
+                for name in os.listdir(source_dir):
+                    src = os.path.join(source_dir, name)
+                    dst = os.path.join(dest_dir, name)
+                    if os.path.isfile(src) and not os.path.exists(dst):
+                        shutil.copy2(src, dst)
+                # ensure meta sidecar exists
+                ensure_meta(dest_dir, filename, t['meta'])
+                ok = True
+                if args.verify_hash and want_hash and os.path.isfile(dest_file):
+                    ok = sha1_of(dest_file).hexdigest() == want_hash
+                outcomes['restored' if ok else 'restored_hash_mismatch'] += 1
+                report_rows.append({
+                    'transfer_id': tid, 'filename': filename,
+                    'direction': t['direction'],
+                    'outcome': 'restored' if ok else 'restored_hash_mismatch',
+                    'detail': 'copied', 'dest': dest_dir, 'source': source_dir,
+                })
+            except OSError as ex:
+                outcomes['error'] += 1
+                report_rows.append({
+                    'transfer_id': tid, 'filename': filename,
+                    'direction': t['direction'], 'outcome': 'error',
+                    'detail': str(ex), 'dest': dest_dir, 'source': source_dir,
+                })
+                print("    ERROR: %s" % ex)
+        else:
+            outcomes['would_restore'] += 1
+            report_rows.append({
+                'transfer_id': tid, 'filename': filename,
+                'direction': t['direction'], 'outcome': 'would_restore',
+                'detail': 'dry-run', 'dest': dest_dir, 'source': source_dir,
+            })
+
+    # ----------------------------------------------------------------- #
+    print("\n================ SUMMARY (%s) ================" % mode)
+    for key in sorted(outcomes):
+        print("  %-24s %d" % (key, outcomes[key]))
+    print("  %-24s %d" % ('total', sum(outcomes.values())))
+
+    if args.report:
+        with open(args.report, 'w', newline='') as fh:
+            w = csv.DictWriter(fh, fieldnames=[
+                'transfer_id', 'filename', 'direction', 'outcome',
+                'detail', 'dest', 'source'])
+            w.writeheader()
+            w.writerows(report_rows)
+        print("\nWrote report: %s" % args.report)
+
+    if not args.apply:
+        print("\nThis was a DRY RUN. Re-run with --apply to copy files.")
+
+
+def ensure_meta(dest_dir, filename, meta):
+    """Recreate the meta-<filename> sidecar the server writes, if missing."""
+    meta_path = os.path.join(dest_dir, 'meta-%s' % filename)
+    if os.path.exists(meta_path):
+        return
+    try:
+        with open(meta_path, 'w') as fh:
+            json.dump(meta, fh)
+    except OSError:
+        pass
+
+
+def resolve_storage_root(args):
+    """Return the file_transfer_dir. Uses --storage-root when given, otherwise
+    reads it from the SylkServer webrtcgateway config (honouring --config-dir)."""
+    if args.storage_root:
+        return args.storage_root
+
+    from application.process import process
+    process.configuration.subdirectory = 'sylkserver'
+    if args.config_directory is not None:
+        process.configuration.local_directory = args.config_directory
+
+    from sylk.server import ServerConfig
+    ServerConfig.__cfgtype__(ServerConfig.__cfgfile__)
+
+    cfg_dir = os.path.abspath(args.config_directory) if args.config_directory else os.getcwd()
+    print("Configuration directory: %s" % cfg_dir)
+    from application.configuration import ConfigFile
+    cfg_files = ConfigFile('config.ini').files + ConfigFile('webrtcgateway.ini').files
+    if cfg_files:
+        print("Reading configuration from: %s" % ', '.join(cfg_files))
+
+    from sylk.applications.webrtcgateway.configuration import GeneralConfig
+    return GeneralConfig.file_transfer_dir.normalized
+
+
+def main():
+    ap = argparse.ArgumentParser(
+        add_help=False,
+        description="Rebuild Sylk file-transfer files from sylk.db metadata.")
+    ap.add_argument('-h', '--help', action='help', default=argparse.SUPPRESS,
+                    help='Show this help message and exit.')
+    ap.add_argument('--config-dir', '--config-folder', dest='config_directory',
+                    default=None, metavar='PATH', help="Set a config directory.")
+    ap.add_argument('account', help="account whose transfers to restore, e.g. ag@sylk.link")
+    ap.add_argument('contact', nargs='?', default=None,
+                    help="optional contact to restrict the restore to")
+    ap.add_argument('--db', default='sylk.db', metavar='PATH',
+                    help="path to the mobile sylk.db (default: sylk.db in the current folder)")
+    ap.add_argument('--storage-root', default=None, metavar='PATH',
+                    help="override the file_transfer_dir (default: taken from the server config)")
+    ap.add_argument('--apply', action='store_true',
+                    help="actually copy files (default is dry-run)")
+    ap.add_argument('--verify-hash', action='store_true',
+                    help="verify files against the sha-1 hash in the metadata")
+    ap.add_argument('--report', default=None,
+                    help="write a CSV report to this path")
+    args = ap.parse_args()
+    storage_root = resolve_storage_root(args)
+    restore(args, storage_root)
+
+
+if __name__ == '__main__':
+    main()

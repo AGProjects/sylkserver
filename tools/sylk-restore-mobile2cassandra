@@ -1,0 +1,518 @@
+#!/usr/bin/env python3
+"""Restore SylkServer Cassandra journal entries from a mobile sylk.db backup.
+
+This is a standalone companion to the `sylk-db` maintenance tool. It is kept
+separate on purpose so the classic database script stays focused on
+create/maintenance/remove operations.
+
+Usage (mirrors sylk-dump-message-mobile's syntax):
+
+  sylk-restore-mobile2cassandra <account> [contact] [--type T] [--date YYYYMMDD]
+
+  --db       path to the mobile sylk.db backup (default: sylk.db in the current folder)
+  <contact>  limit the import to one conversation peer
+  --type     limit to a content-type (exact or prefix, e.g. text)
+  --date     limit to a single day in YYYYMMDD format
+
+Defaults to a dry-run; pass --apply to actually write the changes.
+"""
+import argparse
+import base64
+import hashlib
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+from collections import Counter
+
+# Allow running from the tools/ subdirectory: make the parent SylkServer
+# directory (which holds the `sylk` package) importable.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from application import log
+from application.process import process
+
+FT_CONTENT_TYPE = 'application/sylk-file-transfer'
+TEXT_CONTENT_TYPES = ('text/plain', 'text/html')
+
+CASSANDRA_MODULES_AVAILABLE = False
+try:
+    from cassandra.cqlengine import connection
+except ImportError:
+    pass
+else:
+    try:
+        from cassandra.cqlengine.models import Model
+    except ImportError:
+        pass
+    else:
+        CASSANDRA_MODULES_AVAILABLE = True
+        from cassandra.cluster import (EXEC_PROFILE_DEFAULT, Cluster,
+                                       ExecutionProfile, NoHostAvailable)
+        from cassandra.policies import DCAwareRoundRobinPolicy
+
+
+class colors:
+    if sys.stdout.isatty():
+        TGREEN = '\033[32m'
+        ENDC = '\033[m'
+        BOLD = '\033[1m'
+    else:
+        TGREEN = ''
+        ENDC = ''
+        BOLD = ''
+
+
+class parse_level:
+    def format(record):
+        if record.levelname != 'INFO':
+            return f'{record.levelname:<8s} '
+        else:
+            return ''
+
+
+def ask(question):
+    try:
+        while (res := input(colors.TGREEN + f"{'>>':>8s} {question} (Enter y/n) " + colors.ENDC).lower()) not in {"y", "n"}:pass
+    except KeyboardInterrupt:
+        sys.exit(1)
+    if res == "y":
+        return True
+    return False
+
+
+def bold(string):
+    return colors.BOLD + string + colors.ENDC
+
+
+def _cassandra_connect(tables=()):
+    """Open a blocking Cassandra session for the CLI and register the keyspace on
+    the given cqlengine table models.
+
+    The running server connects through the Twisted reactor (storage.py's
+    CassandraConnection); this one-shot tool has no reactor, so it connects
+    synchronously with Cluster.connect(). Returns the Cluster.
+    """
+    from sylk.applications.webrtcgateway.configuration import CassandraConfig
+    profile = ExecutionProfile(load_balancing_policy=DCAwareRoundRobinPolicy(), request_timeout=60)
+    cluster = Cluster(CassandraConfig.cluster_contact_points, protocol_version=4,
+                      execution_profiles={EXEC_PROFILE_DEFAULT: profile})
+    try:
+        session = cluster.connect()
+    except NoHostAvailable:
+        log.warning("Can't connect to Cassandra cluster")
+        sys.exit()
+    connection.set_session(session)
+    try:
+        keyspace = cluster.metadata.keyspaces[CassandraConfig.keyspace]
+        log.info(f'Server has keyspace {bold(keyspace.name)} with replication strategy: {keyspace.replication_strategy.name}')
+    except KeyError:
+        pass
+    for table in tables:
+        table.__keyspace__ = CassandraConfig.keyspace
+    return cluster
+
+
+def _parse_iso(ts, unix_ts=None):
+    import datetime
+    if ts:
+        s = ts.decode() if isinstance(ts, (bytes, bytearray)) else str(ts)
+        s = s.strip().strip('"')
+        try:
+            d = datetime.datetime.fromisoformat(s.replace('Z', '+00:00'))
+            if d.tzinfo is None:
+                d = d.replace(tzinfo=datetime.timezone.utc)
+            return d
+        except ValueError:
+            pass
+    if unix_ts:
+        try:
+            return datetime.datetime.fromtimestamp(float(unix_ts), tz=datetime.timezone.utc)
+        except (ValueError, OSError):
+            pass
+    return None
+
+
+def _type_matches(content_type, wanted):
+    if not wanted:
+        return True
+    if not content_type:
+        return False
+    return content_type == wanted or content_type.startswith(wanted)
+
+
+def _hash_uri(uri):
+    """Reproduce the on-disk folder hash SylkServer uses for a SIP URI
+    (see webrtcgateway.datatypes.FileTransferData._encode_and_hash_uri)."""
+    digest = hashlib.md5(uri.encode('utf-8')).digest()
+    return base64.urlsafe_b64encode(digest).rstrip(b'=\n').decode('utf-8')
+
+
+def _ft_transfer_dir(ft_dir, first_uri, second_uri, transfer_id):
+    """Folder holding a transfer's bytes, keyed by `first_uri`:
+    {ft_dir}/{H(first)[:1]}/{H(first)}/{H(second)}/{transfer_id}"""
+    h1 = _hash_uri(first_uri)
+    h2 = _hash_uri(second_uri)
+    return os.path.join(ft_dir, h1[:1], h1, h2, transfer_id)
+
+
+def _restore_file_transfer(ft_dir, account, content, dry_run, stats, show_files=False,
+                           hide_peer=False):
+    """For a single file-transfer message, make sure the bytes live in the
+    restoring user's own file_transfers folder. SylkServer stores each transfer
+    only once — keyed by whichever party was local when it was uploaded — so a
+    file the user sent/received may currently sit only under the peer's
+    (recipient's) folder. Copy the data file (+ its meta- sidecar) from the
+    peer-keyed folder into the account-keyed folder so the user can download it."""
+    if not ft_dir:
+        return
+    try:
+        meta = json.loads(content) if content else {}
+    except (ValueError, TypeError):
+        return
+    transfer_id = meta.get('transfer_id')
+    sender = (meta.get('sender') or {}).get('uri')
+    receiver = (meta.get('receiver') or {}).get('uri')
+    if not (transfer_id and sender and receiver):
+        return
+    filename = meta.get('filename') or '?'
+
+    peer = receiver if sender == account else sender
+    dst = _ft_transfer_dir(ft_dir, account, peer, transfer_id)   # the user's own folder
+    src = _ft_transfer_dir(ft_dir, peer, account, transfer_id)   # the recipient/peer folder
+
+    def has_data(path):
+        return os.path.isdir(path) and any(
+            not n.startswith('meta-') and os.path.isfile(os.path.join(path, n))
+            for n in os.listdir(path))
+
+    def report(status):
+        if not show_files:
+            return
+        if hide_peer:
+            log.info(f'  {status:<9} {str(transfer_id):<36} {filename}')
+        else:
+            log.info(f'  {status:<9} {str(transfer_id):<36} {str(peer):<28} {filename}')
+
+    if has_data(dst):
+        stats['ft_present'] += 1
+        report('present')
+        return
+    if not has_data(src):
+        stats['ft_missing'] += 1
+        report('missing')
+        return
+
+    if not dry_run:
+        os.makedirs(dst, exist_ok=True)
+        for name in os.listdir(src):
+            s = os.path.join(src, name)
+            if os.path.isfile(s):
+                shutil.copy2(s, os.path.join(dst, name))
+    stats['ft_copied'] += 1
+    report('copy')
+
+
+def _is_pgp_encrypted(content):
+    return bool(content) and 'BEGIN PGP MESSAGE' in content
+
+
+def _setup_pgp_recipient(public_key):
+    """Write the account's armored public key into a throwaway GnuPG home so it
+    can be used as an encryption recipient. Returns (gpg_home, recipient_file)
+    or (None, None) if there is no key."""
+    if not public_key:
+        return None, None
+    gpg_home = tempfile.mkdtemp(prefix='sylk-restore-gpg-')
+    os.chmod(gpg_home, 0o700)
+    recipient_file = os.path.join(gpg_home, 'recipient.asc')
+    with open(recipient_file, 'w') as f:
+        f.write(public_key)
+    return gpg_home, recipient_file
+
+
+def _pgp_encrypt(gpg_home, recipient_file, plaintext):
+    """Encrypt text to the account's public key, returning ASCII-armored
+    ciphertext (or None on failure)."""
+    data = plaintext.encode('utf-8') if isinstance(plaintext, str) else bytes(plaintext)
+    p = subprocess.run(['gpg', '--homedir', gpg_home, '--batch', '--yes', '--armor',
+                        '--trust-model', 'always', '--recipient-file', recipient_file,
+                        '--encrypt'], input=data, capture_output=True)
+    if p.returncode == 0 and p.stdout:
+        return p.stdout.decode('utf-8', 'replace')
+    return None
+
+
+def rebuild_messages(account, db_path, contact=None, dry_run=False, verbose=False,
+                     show_transfer_files=False, mtype=None, day=None, month=None,
+                     storage_root=None):
+    """Rebuild deleted Cassandra journal entries for an account from a mobile
+    sylk.db backup. Re-creates ChatMessage (+ ChatMessageIdMapping) rows,
+    preserving each message's original timestamp for correct sync ordering and
+    skipping any message_id that already exists. Only real conversation content
+    is restored (text / file-transfer / metadata); ephemeral control messages
+    (imdn, conversation-remove/read) are deliberately NOT restored.
+
+    In addition, for every restored file-transfer message the on-disk file bytes
+    are re-populated into the user's own file_transfers folder (configured via the
+    webrtcgateway *.ini files): SylkServer keeps a single copy keyed by whichever
+    party was local at upload time, so a transfer may only exist under the peer's
+    (recipient's) folder — its data file and meta- sidecar are copied across so
+    the user can download it again.
+
+    Text messages (text/plain, text/html) coming from the mobile backup are
+    plaintext; before they are written to Cassandra they are PGP-encrypted with
+    the account's public key so the client can decrypt them on sync (matching how
+    the server stores end-to-end encrypted history). Content that is already PGP
+    ciphertext is left untouched."""
+    import sqlite3
+
+    log.info(f"\n{' SylkServer - Rebuild journal from mobile backup ':*^80s}\n")
+    log.warn(f'Will rebuild Cassandra journal entries for {bold(account)} from {db_path}'
+             + (f' (contact {contact})' if contact else '')
+             + (f' (type {mtype})' if mtype else '')
+             + (f' (date {day})' if day else '')
+             + (f' (month {month})' if month else ''))
+    if not os.path.isfile(db_path):
+        log.warning(f'Backup DB not found: {db_path}')
+        sys.exit()
+    if not dry_run and not ask("Would you like to continue?"):
+        sys.exit()
+
+    from sylk.applications.webrtcgateway.configuration import (CassandraConfig,
+                                                               GeneralConfig)
+    from sylk.applications.webrtcgateway.models.storage.cassandra import (
+        ChatMessage, ChatMessageIdMapping, PublicKey)
+    log.Formatter.prefix_format = parse_level
+    log.Formatter.prefix_length = 0
+
+    if not (CASSANDRA_MODULES_AVAILABLE and CassandraConfig.cluster_contact_points):
+        log.warning('Cassandra is not available — rebuild only supports the Cassandra backend')
+        sys.exit()
+    _cassandra_connect([ChatMessage, ChatMessageIdMapping, PublicKey])
+
+    # Account public key — used to (re)encrypt plaintext text/* messages before
+    # they are written to Cassandra.
+    try:
+        account_pubkey = PublicKey.objects(PublicKey.account == account)[0].public_key
+    except IndexError:
+        account_pubkey = None
+    gpg_home, pgp_recipient = _setup_pgp_recipient(account_pubkey)
+    if pgp_recipient:
+        log.info(f'Loaded public key for {bold(account)} — text messages will be encrypted')
+    else:
+        log.warning(f'No public key stored for {account} — plaintext text messages '
+                    'cannot be encrypted and will be skipped')
+
+    # File-transfer bytes live on this same server under the storage folder
+    # configured in the webrtcgateway *.ini files (GeneralConfig.file_transfer_dir).
+    # NOTE: when that path is relative (the dev default 'var/...'), it resolves
+    # against the current working directory — pass --storage-root to override.
+    ft_dir = os.path.abspath(storage_root) if storage_root else GeneralConfig.file_transfer_dir.normalized
+    log.info(f'File transfer storage: {bold(ft_dir)}')
+    ft_stats = {'ft_copied': 0, 'ft_present': 0, 'ft_missing': 0}
+
+    # How many messages are already in Cassandra (scoped to the contact if given).
+    if contact:
+        in_cassandra = ChatMessage.objects(ChatMessage.account == account,
+                                            ChatMessage.contact == contact).allow_filtering().count()
+        log.info(f'Already in Cassandra for {bold(account)} (contact {contact}): '
+                 f'{bold(str(in_cassandra))} message(s)')
+    else:
+        in_cassandra = ChatMessage.objects(ChatMessage.account == account).count()
+        log.info(f'Already in Cassandra for {bold(account)}: {bold(str(in_cassandra))} message(s)')
+
+    keep = ('text/plain', 'text/html', 'application/sylk-file-transfer',
+            'application/sylk-message-metadata')
+    query = ("SELECT msg_id, from_uri, to_uri, direction, content, content_type, "
+             "timestamp, unix_timestamp, state, disposition_notification "
+             "FROM messages WHERE account=? AND content_type IN ({})"
+             .format(','.join('?' * len(keep))))
+    params = [account, *keep]
+    if contact:
+        query += " AND (from_uri=? OR to_uri=?)"
+        params += [contact, contact]
+
+    con = sqlite3.connect(db_path)
+    created = existing = skipped = filtered = 0
+    by_type = Counter()          # found messages per content_type
+    enc_stats = {'encrypted': 0, 'already': 0, 'failed': 0}
+    if show_transfer_files:
+        if contact:
+            log.info(f'\nFile transfers:\n  {"status":<9} {"transfer_id":<36} filename')
+        else:
+            log.info(f'\nFile transfers:\n  {"status":<9} {"transfer_id":<36} {"peer":<28} filename')
+        log.info('  ' + '-' * 100)
+    if verbose:
+        log.info(f'\n{"timestamp":<26} {"direction":<9} {"msg_id":<36} '
+                 f'{"content_type":<34} {"from":<28} to')
+        log.info('-' * 165)
+    for row in con.execute(query, params):
+        (mid, frm, to, direction, content, ctype, ts, uts, state, dn) = row
+        if not mid:
+            skipped += 1
+            continue
+        if isinstance(content, (bytes, bytearray)):
+            content = content.decode('utf-8', 'ignore')
+        # Optional content-type / date / month filters limit what gets imported.
+        if not _type_matches(ctype, mtype):
+            filtered += 1
+            continue
+        msg_ts = _parse_iso(ts, uts)
+        if day and (msg_ts is None or msg_ts.strftime('%Y%m%d') != day):
+            filtered += 1
+            continue
+        if month and (msg_ts is None or msg_ts.strftime('%Y%m') != month):
+            filtered += 1
+            continue
+        # Restore the file bytes into the user's own folder (independent of
+        # whether the journal row below is new or already present).
+        if ctype == FT_CONTENT_TYPE:
+            _restore_file_transfer(ft_dir, account, content, dry_run, ft_stats,
+                                   show_files=show_transfer_files, hide_peer=bool(contact))
+        if msg_ts is None:
+            skipped += 1
+            continue
+        peer = to if frm == account else frm
+        if not direction:
+            direction = 'outgoing' if frm == account else 'incoming'
+        by_type[ctype] += 1
+        if verbose:
+            log.info(f'{msg_ts.isoformat():<26} {direction:<9} {str(mid):<36} '
+                     f'{str(ctype):<34} {str(frm):<28} {to}')
+        dispo = [x.strip() for x in str(dn).split(',') if x.strip()] if dn else []
+
+        # Text messages must be stored encrypted to the account's public key.
+        if ctype in TEXT_CONTENT_TYPES and content:
+            if _is_pgp_encrypted(content):
+                enc_stats['already'] += 1
+            elif not dry_run:
+                if not pgp_recipient:
+                    skipped += 1
+                    continue                       # never write plaintext text
+                enc = _pgp_encrypt(gpg_home, pgp_recipient, content)
+                if enc is None:
+                    log.warning(f'Could not encrypt message {mid} — skipping')
+                    enc_stats['failed'] += 1
+                    skipped += 1
+                    continue
+                content = enc
+                enc_stats['encrypted'] += 1
+            else:
+                enc_stats['encrypted'] += 1         # would encrypt (dry-run)
+
+        # Preserve original created_at if the id-mapping survived; else use the
+        # message timestamp (keeps clients' sync ordering correct).
+        try:
+            mapping = ChatMessageIdMapping.objects(ChatMessageIdMapping.message_id == mid)[0]
+            created_at = mapping.created_at
+            have_mapping = True
+        except IndexError:
+            created_at = msg_ts
+            have_mapping = False
+
+        if ChatMessage.objects(ChatMessage.account == account,
+                               ChatMessage.created_at == created_at,
+                               ChatMessage.message_id == mid).count() != 0:
+            existing += 1
+            continue
+
+        if not dry_run:
+            ChatMessage.create(account=account, direction=direction, contact=peer,
+                               content_type=ctype, content=content or '', created_at=created_at,
+                               message_id=mid, disposition=dispo, state=state, msg_timestamp=msg_ts)
+            if not have_mapping:
+                ChatMessageIdMapping.create(created_at=created_at, message_id=mid)
+        created += 1
+        if created % 500 == 0:
+            log.info(f'  ... {created} rebuilt')
+    con.close()
+    if gpg_home:
+        shutil.rmtree(gpg_home, ignore_errors=True)
+
+    # Summary: how many messages were found, per content type.
+    log.info(f'\nFound {bold(str(sum(by_type.values())))} message(s) by content type:')
+    for ctype, n in by_type.most_common():
+        log.info(f'  {n:>8}  {ctype}')
+
+    verb = 'would rebuild' if dry_run else 'rebuilt'
+    log.info(f'\n{bold(str(created))} message(s) {verb}; {existing} already present; {skipped} skipped'
+             + (f'; {filtered} filtered out' if filtered else ''))
+
+    everb = 'would encrypt' if dry_run else 'encrypted'
+    log.info(f'Text encryption: {bold(str(enc_stats["encrypted"]))} {everb} with the account key; '
+             f'{enc_stats["already"]} already encrypted; {enc_stats["failed"]} failed')
+
+    fverb = 'would copy' if dry_run else 'copied'
+    log.info(f'File transfers: {bold(str(ft_stats["ft_copied"]))} {fverb} into the user folder; '
+             f'{ft_stats["ft_present"]} already present; {ft_stats["ft_missing"]} not found on server')
+
+
+if __name__ == '__main__':
+    process.configuration.subdirectory = 'sylkserver'
+
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument('-h', '--help',
+                        action='help',
+                        default=argparse.SUPPRESS,
+                        help='Show this help message and exit.')
+
+    parser.add_argument("--config-dir",
+                        dest='config_directory',
+                        default=None,
+                        metavar='PATH',
+                        help="Set a config directory.")
+
+    parser.add_argument('account', help='Account')
+    parser.add_argument('contact', nargs='?', help='optional contact to limit the rebuild to')
+    parser.add_argument('--db', default='sylk.db', metavar='PATH',
+                        help='path to the mobile sylk.db backup (default: sylk.db in the current folder)')
+    parser.add_argument('--type', dest='mtype', metavar='CONTENT_TYPE',
+                        help='only import messages of this content-type (exact or prefix, e.g. text)')
+    parser.add_argument('--date', metavar='YYYYMMDD',
+                        help='only import messages from this day (YYYYMMDD)')
+    parser.add_argument('--month', metavar='YYYYMM',
+                        help='only import messages from this month (YYYYMM)')
+    parser.add_argument('--storage-root', default=None, metavar='PATH',
+                        help='file-transfer storage root (default: from server config; note the '
+                             'config default is relative and resolves against the current directory)')
+    parser.add_argument('--apply', action='store_true',
+                        help='actually write the changes (default is a dry-run that only reports)')
+    parser.add_argument('-v', '--verbose', action='store_true',
+                        help='dump every individual message (otherwise only a per-content-type summary)')
+    parser.add_argument('--show-transfer-files', action='store_true',
+                        help='list each file transfer and its status (copy / present / missing)')
+
+    options = parser.parse_args()
+
+    if options.config_directory is not None:
+        process.configuration.local_directory = options.config_directory
+
+    log.Formatter.prefix_format = parse_level
+    log.Formatter.prefix_length = 0
+
+    from sylk.server import ServerConfig
+
+    log.Formatter.prefix_format = parse_level
+    log.Formatter.prefix_length = 0
+
+    ServerConfig.__cfgtype__(ServerConfig.__cfgfile__)
+
+    cfg_dir = os.path.abspath(options.config_directory) if options.config_directory else os.getcwd()
+    log.info(f'Configuration directory: {bold(cfg_dir)}')
+    from application.configuration import ConfigFile
+    cfg_files = ConfigFile('config.ini').files + ConfigFile('webrtcgateway.ini').files
+    if cfg_files:
+        log.info('Reading configuration from: {}'.format(', '.join(cfg_files)))
+    else:
+        log.info('Not reading any configuration files (using internal defaults)')
+
+    if not options.apply:
+        log.info('Running in dry-run mode (no changes written). Pass --apply to write changes.')
+    rebuild_messages(options.account, options.db, options.contact,
+                     dry_run=not options.apply, verbose=options.verbose,
+                     show_transfer_files=options.show_transfer_files,
+                     mtype=options.mtype, day=options.date, month=options.month,
+                     storage_root=options.storage_root)

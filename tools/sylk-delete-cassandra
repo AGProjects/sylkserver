@@ -1,0 +1,219 @@
+#!/usr/bin/env python3
+"""Delete messages from the SylkServer Cassandra journal for an account.
+
+  sylk-delete-cassandra <account> [contact] [--type T] [--date YYYYMMDD] [--month YYYYMM]
+
+Mandatory:
+  <account>   the account whose messages to delete
+
+Optional selectors (narrow what gets deleted):
+  <contact>   limit to one conversation peer
+  --type      limit to a content-type (exact or prefix, e.g. text)
+  --date      limit to a single day (YYYYMMDD)
+  --month     limit to a single month (YYYYMM)
+
+Defaults to a DRY-RUN that only reports what would be deleted. Pass --apply to
+actually delete (it asks for confirmation first; use --yes to skip the prompt).
+Only ChatMessage rows are removed; this is a standalone companion to sylk-db and
+only supports the Cassandra backend.
+"""
+import argparse
+import logging
+import os
+import sys
+from collections import Counter
+
+# Allow running from the tools/ subdirectory: make the parent SylkServer
+# directory (which holds the `sylk` package) importable.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from application import log
+from application.process import process
+
+# Keep the output clean: silence the Cassandra driver's INFO chatter.
+logging.getLogger('cassandra').setLevel(logging.WARNING)
+
+CASSANDRA_MODULES_AVAILABLE = False
+try:
+    from cassandra.cqlengine import connection
+except ImportError:
+    pass
+else:
+    try:
+        from cassandra.cqlengine.models import Model
+    except ImportError:
+        pass
+    else:
+        CASSANDRA_MODULES_AVAILABLE = True
+        from cassandra.cluster import (EXEC_PROFILE_DEFAULT, Cluster,
+                                       ExecutionProfile, NoHostAvailable)
+        from cassandra.policies import DCAwareRoundRobinPolicy
+
+
+class colors:
+    if sys.stdout.isatty():
+        TGREEN = '\033[32m'
+        ENDC = '\033[m'
+        BOLD = '\033[1m'
+    else:
+        TGREEN = ''
+        ENDC = ''
+        BOLD = ''
+
+
+def bold(string):
+    return colors.BOLD + str(string) + colors.ENDC
+
+
+def ask(question):
+    try:
+        while (res := input(colors.TGREEN + f"{'>>':>8s} {question} (Enter y/n) " + colors.ENDC).lower()) not in {"y", "n"}:
+            pass
+    except (EOFError, KeyboardInterrupt):
+        sys.exit(1)
+    return res == "y"
+
+
+def _cassandra_connect(tables=()):
+    """Open a blocking Cassandra session for the CLI and register the keyspace on
+    the given cqlengine table models (see sylk-db for the rationale)."""
+    from sylk.applications.webrtcgateway.configuration import CassandraConfig
+    profile = ExecutionProfile(load_balancing_policy=DCAwareRoundRobinPolicy(), request_timeout=60)
+    cluster = Cluster(CassandraConfig.cluster_contact_points, protocol_version=4,
+                      execution_profiles={EXEC_PROFILE_DEFAULT: profile})
+    try:
+        session = cluster.connect()
+    except NoHostAvailable:
+        log.warning("Can't connect to Cassandra cluster")
+        sys.exit()
+    connection.set_session(session)
+    for table in tables:
+        table.__keyspace__ = CassandraConfig.keyspace
+    return cluster
+
+
+def _msg_datetime(message):
+    return message.msg_timestamp or message.created_at
+
+
+def _msg_day(message):
+    dt = _msg_datetime(message)
+    return dt.strftime('%Y%m%d') if dt else '????????'
+
+
+def _type_matches(content_type, wanted):
+    if not wanted:
+        return True
+    if not content_type:
+        return False
+    return content_type == wanted or content_type.startswith(wanted)
+
+
+def delete_messages(account, contact=None, mtype=None, day=None, month=None,
+                    dry_run=True, assume_yes=False, verbose=False):
+    print(f"\n{' SylkServer - Delete messages ':*^80s}\n")
+    selectors = []
+    if contact:
+        selectors.append(f'contact {contact}')
+    if mtype:
+        selectors.append(f'type {mtype}')
+    if day:
+        selectors.append(f'date {day}')
+    if month:
+        selectors.append(f'month {month}')
+    scope = (' (' + ', '.join(selectors) + ')') if selectors else ' (ALL messages)'
+    print(f'Target: messages for {bold(account)}{scope}')
+
+    from sylk.applications.webrtcgateway.configuration import CassandraConfig
+    from sylk.applications.webrtcgateway.models.storage.cassandra import ChatMessage
+    if not (CASSANDRA_MODULES_AVAILABLE and CassandraConfig.cluster_contact_points):
+        log.warning('Cassandra is not available — this tool only supports the Cassandra backend')
+        sys.exit()
+    _cassandra_connect([ChatMessage])
+
+    matched = []
+    by_type = Counter()
+    for m in ChatMessage.objects(ChatMessage.account == account).limit(None):
+        if contact and m.contact != contact:
+            continue
+        if not _type_matches(m.content_type, mtype):
+            continue
+        d = _msg_day(m)
+        if day and d != day:
+            continue
+        if month and not d.startswith(month):
+            continue
+        matched.append(m)
+        by_type[m.content_type] += 1
+        if verbose:
+            print(f'  {_msg_datetime(m).isoformat() if _msg_datetime(m) else "?":<26} '
+                  f'{str(m.message_id):<36} {m.content_type}')
+
+    total = len(matched)
+    print(f'\n{bold(str(total))} message(s) matched by content type:')
+    for ct, n in by_type.most_common():
+        print(f'  {n:>8}  {ct}')
+
+    if total == 0:
+        print('\nNothing to delete.')
+        return
+    if dry_run:
+        print(f'\n[dry-run] {bold(str(total))} message(s) would be deleted. Pass --apply to delete.')
+        return
+    if not assume_yes:
+        if not ask(f'Permanently delete {total} message(s) for {account}?'):
+            print('Aborted — nothing deleted.')
+            return
+
+    deleted = 0
+    for m in matched:
+        m.delete()
+        deleted += 1
+        if deleted % 500 == 0:
+            print(f'  ... {deleted} deleted')
+    print(f'\n{bold(str(deleted))} message(s) deleted.')
+
+
+if __name__ == '__main__':
+    process.configuration.subdirectory = 'sylkserver'
+
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument('-h', '--help', action='help', default=argparse.SUPPRESS,
+                        help='Show this help message and exit.')
+    parser.add_argument('--config-dir', '--config-folder', dest='config_directory',
+                        default=None, metavar='PATH', help='Set a config directory.')
+    parser.add_argument('account', help='Account')
+    parser.add_argument('contact', nargs='?', help='optional contact to limit the deletion to')
+    parser.add_argument('--type', dest='mtype', metavar='CONTENT_TYPE',
+                        help='only delete messages of this content-type (exact or prefix, e.g. text)')
+    parser.add_argument('--date', metavar='YYYYMMDD', help='only delete messages from this day')
+    parser.add_argument('--month', metavar='YYYYMM', help='only delete messages from this month')
+    parser.add_argument('--apply', action='store_true',
+                        help='actually delete (default is a dry-run that only reports)')
+    parser.add_argument('--yes', action='store_true',
+                        help='skip the confirmation prompt when applying')
+    parser.add_argument('-v', '--verbose', action='store_true',
+                        help='list every matched message')
+
+    options = parser.parse_args()
+
+    if options.config_directory is not None:
+        process.configuration.local_directory = options.config_directory
+
+    from sylk.server import ServerConfig
+    ServerConfig.__cfgtype__(ServerConfig.__cfgfile__)
+
+    cfg_dir = os.path.abspath(options.config_directory) if options.config_directory else os.getcwd()
+    print(f'Configuration directory: {bold(cfg_dir)}')
+    from application.configuration import ConfigFile
+    cfg_files = ConfigFile('config.ini').files + ConfigFile('webrtcgateway.ini').files
+    if cfg_files:
+        print(f'Reading configuration from: {", ".join(cfg_files)}')
+
+    if not options.apply:
+        print('Running in dry-run mode (nothing deleted). Pass --apply to delete.')
+
+    delete_messages(options.account, options.contact, mtype=options.mtype,
+                    day=options.date, month=options.month,
+                    dry_run=not options.apply, assume_yes=options.yes,
+                    verbose=options.verbose)
