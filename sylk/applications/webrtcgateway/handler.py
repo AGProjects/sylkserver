@@ -2067,6 +2067,19 @@ class ConnectionHandler(object):
 
         contact = request.contact
 
+        # Trace who issued the conversation-remove: which account requested it,
+        # over which websocket session (peer), and from which device. self.log
+        # already prefixes [account <id>/<device_id>]; we add the session peer
+        # and the client user-agent so a stray/looping remove can be traced back
+        # to the exact client that sent it.
+        self.log.info('removeConversation: contact={contact} requested by account={account} '
+                      'session={session} device={device!r} (device_id={device_id})'.format(
+                          contact=contact,
+                          account=account_info.id,
+                          session=self.protocol.peer,
+                          device=account_info.user_agent,
+                          device_id=self.device_id))
+
         storage = MessageStorage()
         storage.removeChat(account=account_info.id, contact=contact)
 
