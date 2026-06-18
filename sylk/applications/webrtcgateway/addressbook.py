@@ -162,7 +162,8 @@ def _send_update_addressbook(account, request, destination):
     if resp.code not in (200, 204):
         body = yield readBody(resp)
         body_text = body.decode('utf-8')
-        log.warning("Non-200 response (%s) updating addressbook to %s: %r", resp.code, destination, body_text)
+        log.warning("Non-200 response (%s) updating addressbook to %s for account %s, %s id %s: %r",
+                    resp.code, destination, account.id, request.type, getattr(request.data, 'id', None), body_text)
         try:
             detail = json.loads(body_text).get('detail', body_text)
             if isinstance(detail, list):
