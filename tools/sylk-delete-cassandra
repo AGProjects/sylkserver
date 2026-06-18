@@ -20,6 +20,7 @@ only supports the Cassandra backend.
 import argparse
 import logging
 import os
+import re
 import sys
 from collections import Counter
 
@@ -109,10 +110,21 @@ def _type_matches(content_type, wanted):
     return content_type == wanted or content_type.startswith(wanted)
 
 
+# A valid SIP address is user@domain.tld. Rows whose contact is not a valid
+# address (e.g. a bare phone number) are the ones that wedge journal replay.
+_SIP_URI_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+
+
+def _valid_sip_uri(uri):
+    return bool(uri) and bool(_SIP_URI_RE.match(uri.strip()))
+
+
 def delete_messages(account, contact=None, mtype=None, day=None, month=None,
-                    dry_run=True, assume_yes=False, verbose=False):
+                    invalid_contacts=False, dry_run=True, assume_yes=False, verbose=False):
     print(f"\n{' SylkServer - Delete messages ':*^80s}\n")
     selectors = []
+    if invalid_contacts:
+        selectors.append('invalid contact URI')
     if contact:
         selectors.append(f'contact {contact}')
     if mtype:
@@ -133,7 +145,10 @@ def delete_messages(account, contact=None, mtype=None, day=None, month=None,
 
     matched = []
     by_type = Counter()
+    bad_contacts = Counter()
     for m in ChatMessage.objects(ChatMessage.account == account).limit(None):
+        if invalid_contacts and _valid_sip_uri(m.contact):
+            continue
         if contact and m.contact != contact:
             continue
         if not _type_matches(m.content_type, mtype):
@@ -145,9 +160,16 @@ def delete_messages(account, contact=None, mtype=None, day=None, month=None,
             continue
         matched.append(m)
         by_type[m.content_type] += 1
+        if invalid_contacts:
+            bad_contacts[m.contact] += 1
         if verbose:
             print(f'  {_msg_datetime(m).isoformat() if _msg_datetime(m) else "?":<26} '
-                  f'{str(m.message_id):<36} {m.content_type}')
+                  f'{str(m.message_id):<36} {str(m.content_type):<34} contact={m.contact!r}')
+
+    if invalid_contacts and bad_contacts:
+        print('\nInvalid contact URIs found:')
+        for c, n in bad_contacts.most_common():
+            print(f'  {n:>8}  {c!r}')
 
     total = len(matched)
     print(f'\n{bold(str(total))} message(s) matched by content type:')
@@ -188,6 +210,9 @@ if __name__ == '__main__':
                         help='only delete messages of this content-type (exact or prefix, e.g. text)')
     parser.add_argument('--date', metavar='YYYYMMDD', help='only delete messages from this day')
     parser.add_argument('--month', metavar='YYYYMM', help='only delete messages from this month')
+    parser.add_argument('--invalid-contacts', action='store_true',
+                        help='only delete messages whose contact is not a valid SIP URI '
+                             '(user@domain) — e.g. bare phone numbers that wedge journal replay')
     parser.add_argument('--apply', action='store_true',
                         help='actually delete (default is a dry-run that only reports)')
     parser.add_argument('--yes', action='store_true',
@@ -215,5 +240,6 @@ if __name__ == '__main__':
 
     delete_messages(options.account, options.contact, mtype=options.mtype,
                     day=options.date, month=options.month,
+                    invalid_contacts=options.invalid_contacts,
                     dry_run=not options.apply, assume_yes=options.yes,
                     verbose=options.verbose)

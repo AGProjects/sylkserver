@@ -21,6 +21,7 @@ import base64
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -141,6 +142,16 @@ def _type_matches(content_type, wanted):
     if not content_type:
         return False
     return content_type == wanted or content_type.startswith(wanted)
+
+
+# A valid SIP address is user@domain.tld — anything without an '@domain' part
+# (e.g. a bare phone number '+34918034800') is rejected so it never gets stored
+# as a contact and wedges the journal replay.
+_SIP_URI_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+
+
+def _valid_sip_uri(uri):
+    return bool(uri) and bool(_SIP_URI_RE.match(uri.strip()))
 
 
 def _hash_uri(uri):
@@ -336,7 +347,7 @@ def rebuild_messages(account, db_path, contact=None, dry_run=False, verbose=Fals
         params += [contact, contact]
 
     con = sqlite3.connect(db_path)
-    created = existing = skipped = filtered = 0
+    created = existing = skipped = filtered = invalid = 0
     by_type = Counter()          # found messages per content_type
     enc_stats = {'encrypted': 0, 'already': 0, 'failed': 0}
     if show_transfer_files:
@@ -376,6 +387,14 @@ def rebuild_messages(account, db_path, contact=None, dry_run=False, verbose=Fals
             skipped += 1
             continue
         peer = to if frm == account else frm
+        # Never store a message whose contact is not a valid SIP address
+        # (user@domain). A bad contact (e.g. a bare phone number) wedges the
+        # journal replay on the clients.
+        if not _valid_sip_uri(peer):
+            invalid += 1
+            if verbose:
+                log.warning(f'Skipping {mid}: invalid contact URI {peer!r}')
+            continue
         if not direction:
             direction = 'outgoing' if frm == account else 'incoming'
         by_type[ctype] += 1
@@ -439,7 +458,8 @@ def rebuild_messages(account, db_path, contact=None, dry_run=False, verbose=Fals
 
     verb = 'would rebuild' if dry_run else 'rebuilt'
     log.info(f'\n{bold(str(created))} message(s) {verb}; {existing} already present; {skipped} skipped'
-             + (f'; {filtered} filtered out' if filtered else ''))
+             + (f'; {filtered} filtered out' if filtered else '')
+             + (f'; {bold(str(invalid))} skipped (invalid contact URI)' if invalid else ''))
 
     everb = 'would encrypt' if dry_run else 'encrypted'
     log.info(f'Text encryption: {bold(str(enc_stats["encrypted"]))} {everb} with the account key; '

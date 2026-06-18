@@ -132,11 +132,13 @@ def list_contacts(account):
         print('No messages found')
 
 
-def counts_per_type(account, contact=None):
+def counts_per_type(account, contact=None, mtype=None):
     print(f"\n{' SylkServer - Message types ':*^80s}\n")
     counts = Counter()
     for m in _account_messages(account):
         if contact and m.contact != contact:
+            continue
+        if not _type_matches(m.content_type, mtype):
             continue
         counts[m.content_type] += 1
     total = sum(counts.values())
@@ -148,11 +150,13 @@ def counts_per_type(account, contact=None):
         print('No messages found')
 
 
-def counts_per_day(account, contact, mtype=None, month=None):
+def counts_per_day(account, contact=None, mtype=None, month=None):
     print(f"\n{' SylkServer - Messages per day ':*^80s}\n")
     counts = Counter()
     for m in _account_messages(account):
-        if m.contact != contact or not _type_matches(m.content_type, mtype):
+        if contact and m.contact != contact:
+            continue
+        if not _type_matches(m.content_type, mtype):
             continue
         d = _msg_day(m)
         if month and not d.startswith(month):
@@ -160,34 +164,41 @@ def counts_per_day(account, contact, mtype=None, month=None):
         counts[d] += 1
     total = sum(counts.values())
     label = f'{bold(mtype)} message(s)' if mtype else 'message(s)'
+    who = f'with {bold(contact)}' if contact else f'for {bold(account)}'
     scope = f' in {bold(month)}' if month else ''
-    print(f'{bold(str(total))} {label} with {bold(contact)}{scope} across {bold(str(len(counts)))} day(s)\n')
+    print(f'{bold(str(total))} {label} {who}{scope} across {bold(str(len(counts)))} day(s)\n')
     for day in sorted(counts):
         print(f'{day}  {counts[day]:>8}')
     if not counts:
         print('No messages found')
 
 
-def counts_per_month(account, contact, mtype=None):
+def counts_per_month(account, contact=None, mtype=None):
     print(f"\n{' SylkServer - Messages per month ':*^80s}\n")
     counts = Counter()
     for m in _account_messages(account):
-        if m.contact == contact and _type_matches(m.content_type, mtype):
-            counts[_msg_day(m)[:6]] += 1
+        if contact and m.contact != contact:
+            continue
+        if not _type_matches(m.content_type, mtype):
+            continue
+        counts[_msg_day(m)[:6]] += 1
     total = sum(counts.values())
     label = f'{bold(mtype)} message(s)' if mtype else 'message(s)'
-    print(f'{bold(str(total))} {label} with {bold(contact)} across {bold(str(len(counts)))} month(s)\n')
+    who = f'with {bold(contact)}' if contact else f'for {bold(account)}'
+    print(f'{bold(str(total))} {label} {who} across {bold(str(len(counts)))} month(s)\n')
     for month in sorted(counts):
         print(f'{month}  {counts[month]:>8}')
     if not counts:
         print('No messages found')
 
 
-def dump_messages(account, contact, mtype, day=None, month=None):
+def dump_messages(account, contact=None, mtype=None, day=None, month=None):
     print(f"\n{' SylkServer - Message dump ':*^80s}\n")
     rows = []
     for m in _account_messages(account):
-        if m.contact != contact or not _type_matches(m.content_type, mtype):
+        if contact and m.contact != contact:
+            continue
+        if not _type_matches(m.content_type, mtype):
             continue
         d = _msg_day(m)
         if day is not None and d != day:
@@ -197,8 +208,9 @@ def dump_messages(account, contact, mtype, day=None, month=None):
         rows.append(m)
     rows.sort(key=lambda m: (_msg_datetime(m) or m.created_at))
     label = f'{bold(mtype)} message(s)' if mtype else 'message(s)'
-    period = f'on {bold(day)}' if day else f'in {bold(month)}'
-    print(f'{bold(str(len(rows)))} {label} with {bold(contact)} {period}\n')
+    who = f'with {bold(contact)}' if contact else f'for {bold(account)}'
+    period = f' on {bold(day)}' if day else (f' in {bold(month)}' if month else '')
+    print(f'{bold(str(len(rows)))} {label} {who}{period}\n')
     for m in rows:
         dt = _msg_datetime(m)
         ts = dt.isoformat() if dt else '?'
@@ -208,6 +220,7 @@ def dump_messages(account, contact, mtype, day=None, month=None):
         print(f"{'-' * 80}")
         print(f'{"timestamp:":>14} {ts}')
         print(f'{"direction:":>14} {m.direction}')
+        print(f'{"contact:":>14} {m.contact}')
         print(f'{"message_id:":>14} {m.message_id}')
         print(f'{"content_type:":>14} {m.content_type}')
         print(f'{"state:":>14} {m.state}')
@@ -266,27 +279,20 @@ if __name__ == '__main__':
     if cfg_files:
         print(f'Reading configuration from: {", ".join(cfg_files)}')
 
+    # The contact (positional), --type, --date and --month act as filters and
+    # combine with whichever view is selected. The view flags are mutually
+    # exclusive; none of them requires a contact.
     if options.types:
-        counts_per_type(options.account, options.contact)
+        counts_per_type(options.account, options.contact, options.mtype)
     elif options.days:
-        if not options.contact:
-            parser.error('--days requires a contact')
         counts_per_day(options.account, options.contact, options.mtype, month=options.month)
     elif options.months:
-        if not options.contact:
-            parser.error('--months requires a contact')
         counts_per_month(options.account, options.contact, options.mtype)
     elif options.date is not None:
-        if not options.contact:
-            parser.error('--date requires a contact')
         dump_messages(options.account, options.contact, options.mtype, day=options.date)
     elif options.month is not None:
-        if not options.contact:
-            parser.error('--month requires a contact')
         dump_messages(options.account, options.contact, options.mtype, month=options.month)
     elif options.mtype is not None:
-        if not options.contact:
-            parser.error('--type requires a contact')
         counts_per_day(options.account, options.contact, options.mtype)
     elif options.contact is not None:
         counts_per_type(options.account, options.contact)

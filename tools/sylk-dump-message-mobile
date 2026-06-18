@@ -90,32 +90,37 @@ def list_contacts(con, account):
         print('No messages found')
 
 
-def counts_per_type(con, account, contact=None):
-    print(f"\n{' Mobile sylk.db - Message types ':*^80s}\n")
+def _account_rows(con, account, contact, columns):
+    """Iterate the given columns for an account, optionally scoped to a contact
+    (matched on from_uri/to_uri)."""
     if contact:
-        rows = con.execute(
-            "SELECT content_type, COUNT(*) FROM messages "
-            "WHERE account=? AND (from_uri=? OR to_uri=?) GROUP BY content_type",
-            (account, contact, contact)).fetchall()
-    else:
-        rows = con.execute(
-            "SELECT content_type, COUNT(*) FROM messages "
-            "WHERE account=? GROUP BY content_type", (account,)).fetchall()
-    total = sum(n for _c, n in rows)
+        sql = (f"SELECT {columns} FROM messages "
+               "WHERE account=? AND (from_uri=? OR to_uri=?)")
+        return con.execute(sql, (account, contact, contact))
+    return con.execute(f"SELECT {columns} FROM messages WHERE account=?", (account,))
+
+
+def counts_per_type(con, account, contact=None, mtype=None):
+    print(f"\n{' Mobile sylk.db - Message types ':*^80s}\n")
+    counts = Counter()
+    for (ctype,) in _account_rows(con, account, contact, "content_type"):
+        if not _type_matches(ctype, mtype):
+            continue
+        counts[ctype] += 1
+    total = sum(counts.values())
     who = f'with {bold(contact)}' if contact else f'for {bold(account)}'
     print(f'{bold(total)} message(s) {who}\n')
-    for ct, n in sorted(rows, key=lambda r: r[1], reverse=True):
+    for ct, n in counts.most_common():
         print(f'{n:>8}  {ct}')
-    if not rows:
+    if not counts:
         print('No messages found')
 
 
-def counts_per_day(con, account, contact, mtype=None, month=None):
+def counts_per_day(con, account, contact=None, mtype=None, month=None):
     print(f"\n{' Mobile sylk.db - Messages per day ':*^80s}\n")
     counts = Counter()
-    for ctype, ts, uts in con.execute(
-            "SELECT content_type, timestamp, unix_timestamp FROM messages "
-            "WHERE account=? AND (from_uri=? OR to_uri=?)", (account, contact, contact)):
+    for ctype, ts, uts in _account_rows(con, account, contact,
+                                        "content_type, timestamp, unix_timestamp"):
         if not _type_matches(ctype, mtype):
             continue
         d = _day(ts, uts)
@@ -124,38 +129,39 @@ def counts_per_day(con, account, contact, mtype=None, month=None):
         counts[d] += 1
     total = sum(counts.values())
     label = f'{bold(mtype)} message(s)' if mtype else 'message(s)'
+    who = f'with {bold(contact)}' if contact else f'for {bold(account)}'
     scope = f' in {bold(month)}' if month else ''
-    print(f'{bold(total)} {label} with {bold(contact)}{scope} across {bold(len(counts))} day(s)\n')
+    print(f'{bold(total)} {label} {who}{scope} across {bold(len(counts))} day(s)\n')
     for day in sorted(counts):
         print(f'{day}  {counts[day]:>8}')
     if not counts:
         print('No messages found')
 
 
-def counts_per_month(con, account, contact, mtype=None):
+def counts_per_month(con, account, contact=None, mtype=None):
     print(f"\n{' Mobile sylk.db - Messages per month ':*^80s}\n")
     counts = Counter()
-    for ctype, ts, uts in con.execute(
-            "SELECT content_type, timestamp, unix_timestamp FROM messages "
-            "WHERE account=? AND (from_uri=? OR to_uri=?)", (account, contact, contact)):
+    for ctype, ts, uts in _account_rows(con, account, contact,
+                                        "content_type, timestamp, unix_timestamp"):
         if _type_matches(ctype, mtype):
             counts[_day(ts, uts)[:6]] += 1
     total = sum(counts.values())
     label = f'{bold(mtype)} message(s)' if mtype else 'message(s)'
-    print(f'{bold(total)} {label} with {bold(contact)} across {bold(len(counts))} month(s)\n')
+    who = f'with {bold(contact)}' if contact else f'for {bold(account)}'
+    print(f'{bold(total)} {label} {who} across {bold(len(counts))} month(s)\n')
     for month in sorted(counts):
         print(f'{month}  {counts[month]:>8}')
     if not counts:
         print('No messages found')
 
 
-def dump_messages(con, account, contact, mtype, day=None, month=None):
+def dump_messages(con, account, contact=None, mtype=None, day=None, month=None):
     print(f"\n{' Mobile sylk.db - Message dump ':*^80s}\n")
     rows = []
-    for (msg_id, frm, to, direction, content, ctype, ts, uts, state) in con.execute(
-            "SELECT msg_id, from_uri, to_uri, direction, content, content_type, "
-            "timestamp, unix_timestamp, state FROM messages "
-            "WHERE account=? AND (from_uri=? OR to_uri=?)", (account, contact, contact)):
+    for (msg_id, frm, to, direction, content, ctype, ts, uts, state) in _account_rows(
+            con, account, contact,
+            "msg_id, from_uri, to_uri, direction, content, content_type, "
+            "timestamp, unix_timestamp, state"):
         if not _type_matches(ctype, mtype):
             continue
         d = _day(ts, uts)
@@ -166,16 +172,19 @@ def dump_messages(con, account, contact, mtype, day=None, month=None):
         rows.append((_parse_iso(ts, uts), msg_id, frm, to, direction, content, ctype, state))
     rows.sort(key=lambda r: (r[0] is None, r[0]))
     label = f'{bold(mtype)} message(s)' if mtype else 'message(s)'
-    period = f'on {bold(day)}' if day else f'in {bold(month)}'
-    print(f'{bold(len(rows))} {label} with {bold(contact)} {period}\n')
+    who = f'with {bold(contact)}' if contact else f'for {bold(account)}'
+    period = f' on {bold(day)}' if day else (f' in {bold(month)}' if month else '')
+    print(f'{bold(len(rows))} {label} {who}{period}\n')
     for dt, msg_id, frm, to, direction, content, ctype, state in rows:
         if isinstance(content, (bytes, bytearray)):
             content = content.decode('utf-8', 'ignore')
         if not direction:
             direction = 'outgoing' if frm == account else 'incoming'
+        peer = to if frm == account else frm
         print('-' * 80)
         print(f'{"timestamp:":>14} {dt.isoformat() if dt else "?"}')
         print(f'{"direction:":>14} {direction}')
+        print(f'{"contact:":>14} {peer}')
         print(f'{"message_id:":>14} {msg_id}')
         print(f'{"content_type:":>14} {ctype}')
         print(f'{"state:":>14} {state}')
@@ -206,27 +215,19 @@ if __name__ == '__main__':
     options = parser.parse_args()
     con = _connect(options.db)
 
+    # contact (positional), --type, --date, --month are filters that combine
+    # with the selected view; none requires a contact.
     if options.types:
-        counts_per_type(con, options.account, options.contact)
+        counts_per_type(con, options.account, options.contact, options.mtype)
     elif options.days:
-        if not options.contact:
-            parser.error('--days requires a contact')
         counts_per_day(con, options.account, options.contact, options.mtype, month=options.month)
     elif options.months:
-        if not options.contact:
-            parser.error('--months requires a contact')
         counts_per_month(con, options.account, options.contact, options.mtype)
     elif options.date is not None:
-        if not options.contact:
-            parser.error('--date requires a contact')
         dump_messages(con, options.account, options.contact, options.mtype, day=options.date)
     elif options.month is not None:
-        if not options.contact:
-            parser.error('--month requires a contact')
         dump_messages(con, options.account, options.contact, options.mtype, month=options.month)
     elif options.mtype is not None:
-        if not options.contact:
-            parser.error('--type requires a contact')
         counts_per_day(con, options.account, options.contact, options.mtype)
     elif options.contact is not None:
         counts_per_type(con, options.account, options.contact)
