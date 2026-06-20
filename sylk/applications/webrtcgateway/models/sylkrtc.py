@@ -764,12 +764,13 @@ class AccountUpdateAddressBookRequest(AccountRequestBase):
 
     def __init__(self, **kwargs):
         data = kwargs.get("data")
-        # A contact DELETE only needs the id — the name is irrelevant when
-        # removing a row. Clients legitimately send {id} alone (e.g. dedup
-        # cleanup), but the required-name Contact model would reject that with
-        # "Mandatory property 'name'". For a delete, inject an empty name so an
-        # id-only payload validates and routes purely by contact_id.
-        if (kwargs.get("action") == "delete" and kwargs.get("type") == "contact"
+        # A contact or group DELETE only needs the id — the name is irrelevant
+        # when removing a row. Clients legitimately send {id} alone (e.g. dedup
+        # cleanup, duplicate-group fold), but the required-name Contact/Group
+        # models would reject that with "Mandatory property 'name'". For a
+        # delete, inject an empty name so an id-only payload validates and routes
+        # purely by id.
+        if (kwargs.get("action") == "delete" and kwargs.get("type") in ("contact", "group")
                 and isinstance(data, dict) and not data.get("name")):
             data = dict(data)
             data["name"] = ""
