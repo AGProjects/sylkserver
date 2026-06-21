@@ -7,6 +7,7 @@ Progressive drill-down:
   sylk-dump-message-cassandra <account> <contact>                        counts per message content-type
   sylk-dump-message-cassandra <account> <contact> --type T               counts per day (YYYYMMDD) for that type
   sylk-dump-message-cassandra <account> <contact> --type T --date D      dump the actual messages for that day
+  sylk-dump-message-cassandra <account> --id ID                          dump a specific message by its message_id
 
 --type matches a content-type exactly or by prefix (e.g. 'text' matches text/plain
 and text/html). --date is YYYYMMDD. This is a standalone companion to sylk-db; it
@@ -192,10 +193,12 @@ def counts_per_month(account, contact=None, mtype=None):
         print('No messages found')
 
 
-def dump_messages(account, contact=None, mtype=None, day=None, month=None):
+def dump_messages(account, contact=None, mtype=None, day=None, month=None, message_id=None):
     print(f"\n{' SylkServer - Message dump ':*^80s}\n")
     rows = []
     for m in _account_messages(account):
+        if message_id is not None and m.message_id != message_id:
+            continue
         if contact and m.contact != contact:
             continue
         if not _type_matches(m.content_type, mtype):
@@ -209,7 +212,10 @@ def dump_messages(account, contact=None, mtype=None, day=None, month=None):
     rows.sort(key=lambda m: (_msg_datetime(m) or m.created_at))
     label = f'{bold(mtype)} message(s)' if mtype else 'message(s)'
     who = f'with {bold(contact)}' if contact else f'for {bold(account)}'
-    period = f' on {bold(day)}' if day else (f' in {bold(month)}' if month else '')
+    if message_id is not None:
+        period = f' with message_id {bold(message_id)}'
+    else:
+        period = f' on {bold(day)}' if day else (f' in {bold(month)}' if month else '')
     print(f'{bold(str(len(rows)))} {label} {who}{period}\n')
     for m in rows:
         dt = _msg_datetime(m)
@@ -256,6 +262,8 @@ if __name__ == '__main__':
                         help='list the months that have messages (with counts)')
     parser.add_argument('--date', metavar='YYYYMMDD', help='day in YYYYMMDD format')
     parser.add_argument('--month', metavar='YYYYMM', help='month in YYYYMM format')
+    parser.add_argument('--id', dest='message_id', metavar='MESSAGE_ID',
+                        help='dump a specific message by its message_id')
 
     options = parser.parse_args()
 
@@ -282,7 +290,9 @@ if __name__ == '__main__':
     # The contact (positional), --type, --date and --month act as filters and
     # combine with whichever view is selected. The view flags are mutually
     # exclusive; none of them requires a contact.
-    if options.types:
+    if options.message_id is not None:
+        dump_messages(options.account, options.contact, options.mtype, message_id=options.message_id)
+    elif options.types:
         counts_per_type(options.account, options.contact, options.mtype)
     elif options.days:
         counts_per_day(options.account, options.contact, options.mtype, month=options.month)
