@@ -85,14 +85,52 @@ def message(originator, destination, call_id, badge, message):
             _construct_and_send(user_tokens, request, destination)
 
 
+# Signals that the push provider (APNs/FCM, surfaced through the Sylk push
+# server) rejected the request because the payload exceeded the platform size
+# cap (FCM data: 4096 bytes; APNs alert: 4096; VoIP: 5120). APNs answers a clean
+# 413/PayloadTooLarge; FCM phrases it as a size error inside a 400. We match the
+# explicit 413 plus any response whose text mentions a size overflow.
+_TOO_LARGE_MARKERS = ('too large', 'payloadtoolarge', 'payload too large',
+                      'message_too_big', 'messagetoobig', 'entity too large',
+                      'request entity too large', 'maximum payload', 'payload size',
+                      'exceeds the maximum', 'message is too big', 'body is too long')
+
+
+def _is_payload_too_large(code, *texts):
+    # APNs answers HTTP 413 PayloadTooLarge; accept the code as int or str, and
+    # whether it arrives as the HTTP status or inside the relay's body.
+    try:
+        if int(code) == 413:
+            return True
+    except (TypeError, ValueError):
+        pass
+    blob = ' '.join(str(t) for t in texts if t).lower()
+    return any(marker in blob for marker in _TOO_LARGE_MARKERS)
+
+
+def _message_payload_without_content(payload):
+    # Rebuild the MessageEvent WITHOUT the body. content is optional in the
+    # model, so we omit it entirely (no 'content' key on the wire) rather than
+    # sending an empty string. Explicit reconstruction avoids mutating the shared
+    # request object that _construct_and_send reuses across devices. The
+    # notification still carries sender/badge/type; the app fetches the real
+    # content from the journal/WS sync.
+    return sylkpush.MessageEvent(token=payload.token, app_id=payload.app_id,
+                                 platform=payload.platform, device_id=payload.device_id,
+                                 originator=payload.originator, from_display_name=payload.from_display_name,
+                                 to=payload.to, call_id=payload.call_id, media_type=payload.media_type,
+                                 badge=payload.badge, content_type=payload.content_type)
+
+
 @defer.inlineCallbacks
-def _send_push_notification(payload, destination, token):
+def _send_push_notification(payload, destination, token, allow_strip_retry=True):
     if GeneralConfig.sylk_push_url:
         try:
+            body_bytes = json.dumps(payload.__data__).encode()
             r = yield agent.request(b'POST',
                                     GeneralConfig.sylk_push_url.encode(),
                                     headers,
-                                    BytesProducer(json.dumps(payload.__data__).encode())
+                                    BytesProducer(body_bytes)
                                     )
         except Exception as e:
             log.info('Error sending push notification to %s: %s', GeneralConfig.sylk_push_url, e)
@@ -108,22 +146,42 @@ def _send_push_notification(payload, destination, token):
                     log.warning('Error parsing response body: %s', e)
                     body = {}
 
+            # Pull the provider status/reason out of the relay envelope. The Sylk
+            # push server forwards the APNs/FCM result inside body['data'], so a
+            # 413 PayloadTooLarge can show up EITHER as the HTTP status (r.code)
+            # OR as data['code']/data['status']/data['reason'] while the relay
+            # itself answers 200. We read both so detection works regardless.
+            data = body.get('data', {}) if isinstance(body, dict) else {}
+            if not isinstance(data, dict):
+                data = {}
+            platform = data.get('platform', 'Unknown platform')
+            reason = data.get('reason')
+            provider_code = data.get('code', data.get('status'))
             try:
-                platform = body['data']['platform']
-            except KeyError:
-                platform = 'Unknown platform'
+                details = data['body']['_content']['error']['message']
+            except (KeyError, TypeError):
+                details = None
+            if provider_code is None:
+                try:
+                    provider_code = data['body']['code']
+                except (KeyError, TypeError):
+                    provider_code = None
+
+            too_large = (_is_payload_too_large(r.code, reason, details,
+                                               raw_body.decode('utf-8', 'replace') if raw_body else '')
+                         or _is_payload_too_large(provider_code, reason, details))
+
+            # Payload too large: retry ONCE without the message body. Only for
+            # MessageEvents that actually carried content (conference invites
+            # etc. have none). allow_strip_retry guards against loops.
+            if too_large and allow_strip_retry and getattr(payload, 'content', ''):
+                log.info('Push payload too large for %s/%s (http=%s provider=%s) — retrying without message body' %
+                         (payload.to, destination, r.code, provider_code))
+                stripped = _message_payload_without_content(payload)
+                yield _send_push_notification(stripped, destination, token, allow_strip_retry=False)
+                return
 
             if r.code != 200:
-                try:
-                    reason = body['data']['reason']
-                except KeyError:
-                    reason = None
-
-                try:
-                    details = body['data']['body']['_content']['error']['message']
-                except  KeyError:
-                    details = None
-
                 if reason and details:
                     error_description = "%s %s" % (reason, details)
                 elif reason:
