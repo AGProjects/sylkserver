@@ -431,9 +431,9 @@ class X2SMucHandler(object):
             return
         if content_type == 'text/plain':
             html_body = None
-            body = message.content
+            body = content
         else:
-            html_body = message.content
+            html_body = content
             body = None
         resource = message.sender.display_name or str(message.sender.uri)
         sender = Identity(FrozenURI(self.sip_identity.uri.user, self.sip_identity.uri.host, resource))
