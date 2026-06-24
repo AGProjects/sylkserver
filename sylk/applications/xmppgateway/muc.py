@@ -415,6 +415,20 @@ class X2SMucHandler(object):
         content_type = message.content_type.lower()
         if content_type not in ('text/plain', 'text/html'):
             return
+        content = message.content
+        if isinstance(content, bytes):
+            try:
+                content = content.decode('utf-8')
+            except UnicodeDecodeError:
+                # Not forwardable text; acknowledge and drop.
+                self._msrp_stream.msrp_session.send_report(notification.data.chunk, 200, 'OK')
+                return
+        # Ignore OTR negotiation/query messages (?OTR?, ?OTRv2?, ?OTRv3?, ?OTR:...).
+        # They are meaningless in an XMPP MUC and must not be relayed (and would
+        # otherwise crash on bytes content). Acknowledge them so MSRP is happy.
+        if content.startswith('?OTR'):
+            self._msrp_stream.msrp_session.send_report(notification.data.chunk, 200, 'OK')
+            return
         if content_type == 'text/plain':
             html_body = None
             body = message.content
