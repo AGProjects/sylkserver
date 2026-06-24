@@ -137,12 +137,26 @@ class ChatStream(_MSRPStreamBase):
     def chatroom_capabilities(self):
         try:
             if self.session.local_focus:
-                return ' '.join(self.local_media.attributes.getall('chatroom')).split()
+                media = self.local_media
             elif self.session.remote_focus:
-                return ' '.join(self.remote_media.attributes.getall('chatroom')).split()
+                media = self.remote_media
+            else:
+                return []
         except AttributeError:
-            pass
-        return []
+            return []
+        if media is None:
+            return []
+        # On parsed (remote) SDP under Python 3 the attribute name and values
+        # are bytes, while locally-built media may use str. Query both keys and
+        # normalize the values to str, so tokens like 'nickname' and
+        # 'private-messages' match regardless of how the SDP was produced.
+        capabilities = media.attributes.getall(b'chatroom') or media.attributes.getall('chatroom')
+        result = []
+        for capability in capabilities:
+            if isinstance(capability, bytes):
+                capability = capability.decode()
+            result.extend(capability.split())
+        return result
 
     def _NH_MediaStreamDidStart(self, notification):
         self.message_queue_thread = spawn(self._message_queue_handler)
