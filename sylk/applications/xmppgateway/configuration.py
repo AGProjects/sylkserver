@@ -19,6 +19,10 @@ class XMPPGatewayConfig(ConfigSection):
     transport = ConfigSetting(type=str, value='tls')
     ca_file = ConfigSetting(type=Path, value=Path('/etc/sylkserver/tls/ca.crt'))
     certificate = ConfigSetting(type=Path, value=Path('/etc/sylkserver/tls/default.crt'))
+    # Optional directory holding per-domain certificates named '<domain>.pem'
+    # (key + fullchain), selected by TLS SNI. When unset, only 'certificate' is
+    # used for every S2S connection.
+    certificates_directory = ConfigSetting(type=Path, value=None)
     domains = ConfigSetting(type=StringList, value=[])
     muc_prefix = 'conference'
     sip_session_timeout = ConfigSetting(type=NonNegativeInteger, value=86400)

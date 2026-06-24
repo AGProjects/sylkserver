@@ -30,6 +30,27 @@ domains = example.com
 ; ca_file = /etc/sylkserver/tls/ca.crt
 ; certificate = /etc/sylkserver/tls/default.crt
 
+; Optional directory holding multiple certificates, used to present the correct
+; certificate per connection based on the TLS SNI name sent by the remote
+; server. Each certificate is indexed by the DNS names it actually contains
+; (Subject Alternative Name, or Common Name if no SAN), so selection reflects
+; what the certificate covers regardless of file naming. Two layouts work:
+;
+;   - Let's Encrypt native layout: point this at /etc/letsencrypt/live and each
+;     lineage subdirectory containing 'privkey.pem' and 'fullchain.pem' is
+;     loaded directly, e.g. /etc/letsencrypt/live/sip2sip.info/. The SylkServer
+;     process must be able to read the private keys there (root-only by default).
+;
+;   - Flat layout: one '<name>.pem' file per certificate, each containing the
+;     unencrypted private key followed by the certificate and any intermediate
+;     CA certificates (key + fullchain concatenated).
+;
+; A request for 'conference.<domain>' matches a certificate carrying a
+; '*.<domain>' wildcard. Connections with no SNI or an unmatched name fall back
+; to the 'certificate' setting above. When unset, 'certificate' is used for
+; every connection.
+; certificates_directory = /etc/letsencrypt/live
+
 ; If set to True (default) MSRP will be used to translate XMPP Instant Messaging, else SIP MESSAGE will be used
 ; Note: XMPP 'normal' messages (not chat messages) are always translated to SIP MESSAGE requests
 ; use_msrp_for_chat = True

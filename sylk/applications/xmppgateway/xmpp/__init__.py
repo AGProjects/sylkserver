@@ -20,7 +20,7 @@ from sylk.applications.xmppgateway.xmpp.session import XMPPChatSessionManager, X
 from sylk.applications.xmppgateway.xmpp.subscription import XMPPSubscriptionManager
 
 import os
-from twisted.internet.ssl import DefaultOpenSSLContextFactory
+from sylk.applications.xmppgateway.xmpp.sni import SNIContextFactory
 
 
 @implementer(IObserver)
@@ -106,26 +106,20 @@ class XMPPManager(object, metaclass=Singleton):
         port = XMPPGatewayConfig.local_port
         cert_path = XMPPGatewayConfig.certificate.normalized if XMPPGatewayConfig.certificate else None
         cert_chain_path = XMPPGatewayConfig.ca_file.normalized if XMPPGatewayConfig.ca_file else None
+        certs_dir = XMPPGatewayConfig.certificates_directory.normalized if XMPPGatewayConfig.certificates_directory else None
         if XMPPGatewayConfig.transport == 'tls':
             if cert_path is not None:
                 if not os.path.isfile(cert_path):
                     log.error('Certificate file %s could not be found' % cert_path)
                     return
+                if cert_chain_path is not None and not os.path.isfile(cert_chain_path):
+                    log.error('Certificate chain file %s could not be found' % cert_chain_path)
+                    return
                 try:
-                    ssl_ctx_factory = DefaultOpenSSLContextFactory(cert_path, cert_path)
+                    ssl_ctx_factory = SNIContextFactory(cert_path, certificates_directory=certs_dir, chain_path=cert_chain_path)
                 except Exception:
                     log.exception('Creating TLS context')
                     return
-                if cert_chain_path is not None:
-                    if not os.path.isfile(cert_chain_path):
-                        log.error('Certificate chain file %s could not be found' % cert_chain_path)
-                        return
-                    ssl_ctx = ssl_ctx_factory.getContext()
-                    try:
-                        ssl_ctx.use_certificate_chain_file(cert_chain_path)
-                    except Exception:
-                        log.exception('Setting TLS certificate chain file')
-                        return
                 self._s2s_listener = reactor.listenSSL(port, self._s2s_factory, ssl_ctx_factory, interface=interface)
         else:
             self._s2s_listener = reactor.listenTCP(port, self._s2s_factory, interface=interface)
