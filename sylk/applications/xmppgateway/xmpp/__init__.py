@@ -6,7 +6,7 @@ from twisted.internet import reactor
 from wokkel.disco import DiscoClientProtocol
 from wokkel.generic import FallbackHandler, VersionHandler
 from wokkel.ping import PingHandler
-from wokkel.server import ServerService, XMPPS2SServerFactory
+from wokkel.server import XMPPS2SServerFactory
 from zope.interface import implementer
 
 from sylk import __version__ as SYLK_VERSION
@@ -15,7 +15,7 @@ from sylk.applications.xmppgateway.datatypes import FrozenURI
 from sylk.applications.xmppgateway.logger import log
 from sylk.applications.xmppgateway.xmpp.jingle.session import JingleSession, JingleSessionManager
 from sylk.applications.xmppgateway.xmpp.protocols import DiscoProtocol, JingleProtocol, MessageProtocol, MUCServerProtocol, MUCPresenceProtocol, PresenceProtocol
-from sylk.applications.xmppgateway.xmpp.server import SylkInternalComponent, SylkRouter
+from sylk.applications.xmppgateway.xmpp.server import SylkInternalComponent, SylkRouter, SylkServerService
 from sylk.applications.xmppgateway.xmpp.session import XMPPChatSessionManager, XMPPMucSessionManager
 from sylk.applications.xmppgateway.xmpp.subscription import XMPPSubscriptionManager
 
@@ -35,7 +35,7 @@ class XMPPManager(object, metaclass=Singleton):
         self.muc_domains = set('%s.%s' % (config.muc_prefix, domain) for domain in self.domains)
 
         router = SylkRouter()
-        self._server_service = ServerService(router)
+        self._server_service = SylkServerService(router)
         self._server_service.domains = self.domains | self.muc_domains
         self._server_service.logTraffic = False    # done manually
 
@@ -120,6 +120,9 @@ class XMPPManager(object, metaclass=Singleton):
                 except Exception:
                     log.exception('Creating TLS context')
                     return
+                # Let outgoing S2S connections present the certificate matching
+                # the originating domain, so peers can validate our identity.
+                self._server_service.ssl_context_factory = ssl_ctx_factory
                 self._s2s_listener = reactor.listenSSL(port, self._s2s_factory, ssl_ctx_factory, interface=interface)
         else:
             self._s2s_listener = reactor.listenTCP(port, self._s2s_factory, interface=interface)

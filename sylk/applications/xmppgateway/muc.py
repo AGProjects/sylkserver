@@ -335,10 +335,21 @@ class X2SMucHandler(object):
 
     def _NH_SIPSessionDidStart(self, notification):
         log.info("SIP multiparty session %s started" % self._sip_session.call_id)
+        # The XMPP gateway always bridges to SylkServer's own conference, which
+        # is always a focus and always supports nicknames (that is why it
+        # advertises those capabilities). So we do not tear the session down
+        # based on the negotiated remote_focus/nickname_allowed flags, which can
+        # be misread from parsed SDP; we just log if they look unexpected and
+        # proceed to set our nickname.
         if not self._sip_session.remote_focus or not self._msrp_stream.nickname_allowed:
-            self.end()
+            log.warning("MUC session %s: unexpected remote_focus=%r, nickname_allowed=%r; proceeding anyway" %
+                        (self._sip_session.call_id, self._sip_session.remote_focus, self._msrp_stream.nickname_allowed))
+        try:
+            message_id = self._msrp_stream.set_local_nickname(self.nickname)
+        except ChatStreamError as e:
+            log.warning("MUC session %s: could not set nickname: %s" % (self._sip_session.call_id, e))
+            self._first_stanza = None
             return
-        message_id = self._msrp_stream.set_local_nickname(self.nickname)
         self._pending_nicknames_map[message_id] = (self.nickname, self._first_stanza)
         self._first_stanza = None
 

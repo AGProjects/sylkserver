@@ -8,6 +8,20 @@ from OpenSSL import SSL, crypto
 from sylk.applications.xmppgateway.logger import log
 
 
+class _StaticContextFactory(object):
+    """
+    Minimal IOpenSSLContextFactory wrapper returning a fixed, pre-built context.
+    Used to present a specific server certificate when initiating an outgoing
+    S2S connection, so the peer can validate our identity.
+    """
+
+    def __init__(self, context):
+        self._context = context
+
+    def getContext(self):
+        return self._context
+
+
 class SNIContextFactory(object):
     """
     OpenSSL context factory that selects the server certificate based on the
@@ -155,6 +169,22 @@ class SNIContextFactory(object):
             context = self._wildcards.get(name.split('.', 1)[1])
         if context is not None:
             connection.set_context(context)
+
+    def _context_for_name(self, name):
+        name = (name or '').lower()
+        context = self._contexts.get(name)
+        if context is None and '.' in name:
+            context = self._wildcards.get(name.split('.', 1)[1])
+        return context or self._default_context
+
+    def client_context_factory(self, name):
+        """
+        Return an IOpenSSLContextFactory presenting the certificate that covers
+        `name`, for use when initiating an outgoing S2S connection as `name`
+        (so the remote server can validate our certificate). Falls back to the
+        default certificate when no specific match exists.
+        """
+        return _StaticContextFactory(self._context_for_name(name))
 
     def getContext(self):
         return self._default_context
