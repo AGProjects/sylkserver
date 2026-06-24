@@ -6,6 +6,7 @@ import urllib.request, urllib.parse, urllib.error
 import urllib.parse
 
 from application import log
+from application.configuration.datatypes import NetworkRange
 from application.system import host
 from sipsimple.configuration.datatypes import AudioCodecList, Hostname, SIPTransport
 
@@ -206,3 +207,57 @@ class VideoCodec(str):
         if value not in cls.valid_values:
             raise ValueError('value must be one of: {!s}'.format(', '.join(cls.valid_values)))
         return str.__new__(cls, value)
+
+
+class TrustedPeerList(list):
+    """
+    A list of network ranges using the same syntax as the standard
+    NetworkRangeList (comma separated IP addresses or CIDR networks, plus
+    the special keywords 'any' and 'none'), extended with one extra keyword:
+    'thor_network'.
+
+    When 'thor_network' is present the live members of the Thor network are
+    trusted (only meaningful when Thor is enabled). It may be used on its own
+    or combined with explicit ranges, e.g.:
+
+        trusted_peers = thor_network
+        trusted_peers = thor_network, 10.0.0.0/8, 192.168.1.5
+
+    The presence of the keyword is exposed through the .include_thor
+    attribute so the authorization layer can decide whether to fold the
+    current Thor topology into the trusted set.
+
+    Unlike NetworkRangeList this never returns None: an empty or 'none'
+    value yields an empty list (matching nothing), so callers can always
+    iterate over the result without a None check.
+    """
+
+    include_thor = False
+
+    def __init__(self, description):
+        include_thor = False
+        if description is None:
+            items = []
+        elif isinstance(description, (list, tuple)):
+            items = list(description)
+        elif isinstance(description, str):
+            stripped = description.strip()
+            if not stripped or stripped.lower() == 'none':
+                items = []
+            else:
+                items = [s for s in re.split(r'\s*,\s*', stripped) if s]
+        else:
+            raise TypeError("value must be a string, list, tuple or None")
+        ranges = []
+        for item in items:
+            if isinstance(item, str) and item.lower() == 'thor_network':
+                include_thor = True
+                continue
+            try:
+                ranges.append(NetworkRange(item))
+            except NameError:
+                log.warning('Could not resolve hostname: %r (ignored)' % item)
+            except ValueError:
+                log.warning('Invalid network specification: %r (ignored)' % item)
+        super().__init__(ranges)
+        self.include_thor = include_thor

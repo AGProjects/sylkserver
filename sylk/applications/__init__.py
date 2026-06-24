@@ -385,17 +385,26 @@ class AuthorizationHandler(object):
         self.thor_nodes = []
 
     @property
+    def include_thor(self):
+        # True when [SIP] trusted_peers contains the 'thor_network' keyword.
+        return getattr(self.trusted_peers, 'include_thor', False)
+
+    @property
     def trusted_parties(self):
-        # When Thor is enabled we still honour the statically configured
-        # [SIP] trusted_peers: a local sylk-janus-audio-bridge (or any
-        # other on-LAN peer) is typically a trusted peer rather than a
-        # full Thor node, and silently dropping those the moment Thor is
-        # turned on is a footgun that has already cost real time to
-        # diagnose. So the set is the union of the two when Thor is on,
-        # and just trusted_peers when it isn't.
-        if ThorNodeConfig.enabled:
+        # The live Thor topology is folded into the trusted set only when
+        # the operator explicitly asks for it via the 'thor_network' keyword
+        # in [SIP] trusted_peers (and Thor is actually enabled). Statically
+        # configured peers are always honoured, so 'thor_network' can be
+        # combined with explicit ranges, e.g. a local
+        # sylk-janus-audio-bridge or any other on-LAN peer:
+        #
+        #     trusted_peers = thor_network, 10.0.0.0/8
+        #
+        # Without the keyword, Thor nodes are not trusted even when Thor is
+        # enabled — only the explicit ranges apply.
+        if ThorNodeConfig.enabled and self.include_thor:
             return list(self.thor_nodes) + list(self.trusted_peers)
-        return self.trusted_peers
+        return list(self.trusted_peers)
 
     def start(self):
         NotificationCenter().add_observer(self, name='ThorNetworkGotUpdate')
@@ -413,7 +422,7 @@ class AuthorizationHandler(object):
         for range in self.trusted_parties:
             if addr_long & range[1] == range[0]:
                 return True
-        if ThorNodeConfig.enabled:
+        if ThorNodeConfig.enabled and self.include_thor:
             raise UnauthorizedRequest(
                 'source IP %s not in any of %d thor_nodes or %d trusted_peers' %
                 (ip_str, len(self.thor_nodes), len(self.trusted_peers)))

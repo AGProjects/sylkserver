@@ -6,7 +6,8 @@ from sipsimple.configuration.datatypes import NonNegativeInteger, SampleRate
 
 from sylk.configuration.datatypes import (AudioCodecs, IPAddress, LogLevel,
                                           Path, Port, PortRange,
-                                          SIPProxyAddress, SRTPEncryption)
+                                          SIPProxyAddress, SRTPEncryption,
+                                          TrustedPeerList)
 from sylk.resources import Resources, VarResources
 from sylk.tls import Certificate, PrivateKey
 
@@ -43,7 +44,13 @@ class SIPConfig(ConfigSection):
     local_tls_port = ConfigSetting(type=Port, value=5061)
     advertised_ip = ConfigSetting(type=IPAddress, value=None)
     outbound_proxy = ConfigSetting(type=SIPProxyAddress, value=None)
-    trusted_peers = ConfigSetting(type=NetworkRangeList, value=NetworkRangeList('any'))
+    # [SIP] trusted_peers: an ACL of source IP ranges allowed to send SIP
+    # requests to the server. Same syntax as a network range list (comma
+    # separated IPs/CIDRs plus 'any'/'none') with one extra keyword:
+    # 'thor_network', which trusts the live members of the Thor network
+    # (only meaningful when Thor is enabled). The keyword can be combined
+    # with explicit ranges, e.g. 'thor_network, 10.0.0.0/8'.
+    trusted_peers = ConfigSetting(type=TrustedPeerList, value=TrustedPeerList('any'))
     enable_ice = False
 
     # DoS / call-flood mitigation. These limits cap the number of

@@ -77,6 +77,14 @@ certificate = /etc/sylkserver/tls/default.crt
 ; is assumed), or the special keywords 'any' and 'none'
 ; (being equivalent to 0.0.0.0/0 and 0.0.0.0/32
 ; respectively). It defaults to 'any'.
+;
+; An additional keyword 'thor_network' is accepted: when present (and
+; Thor is enabled) the live members of the Thor network are trusted. It
+; can be used on its own or combined with explicit ranges, e.g.:
+;   trusted_peers = thor_network
+;   trusted_peers = thor_network, 10.0.0.0/8, 192.168.1.5
+; Without this keyword, Thor nodes are NOT trusted even when Thor is
+; enabled; only the explicit ranges listed here apply.
 ; trusted_peers =
 
 ; Toggle ICE support (RFC 5245)
