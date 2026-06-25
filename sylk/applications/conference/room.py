@@ -1190,8 +1190,8 @@ class Room(object):
         for subscription in (subscription for subscription in self.subscriptions if subscription.state.lower() == 'active'):
             sub_uri = self._subscription_uris.get(subscription)
             is_videoroom = self._is_videoroom_subscriber(sub_uri)
-            log.info('Room %s - NOTIFY to %s: videoroom=%s variant=%s' %
-                     (self.uri, sub_uri, is_videoroom, 'full' if is_videoroom else 'sip-only'))
+            #log.info('Room %s - NOTIFY to %s: videoroom=%s variant=%s' %
+            #         (self.uri, sub_uri, is_videoroom, 'full' if is_videoroom else 'sip-only'))
             if is_videoroom:
                 data = full_data
             else:
