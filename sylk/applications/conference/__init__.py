@@ -268,6 +268,7 @@ class ConferenceApplication(SylkApplication):
             if create:
                 room = Room(room_uri)
                 self._rooms[room_uri] = room
+                log.info('Active conferences: %d' % len(self._rooms))
                 return room
             else:
                 raise RoomNotFoundError
@@ -277,6 +278,7 @@ class ConferenceApplication(SylkApplication):
     def remove_room(self, uri):
         room_uri = '%s@%s' % (uri.user, uri.host)
         self._rooms.pop(room_uri, None)
+        log.info('Active conferences: %d' % len(self._rooms))
 
     # --- per-room call limit ------------------------------------------------
 

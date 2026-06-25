@@ -535,16 +535,24 @@ class CallLimitHandler(object):
             return
         self.active_calls.discard(key)
         ip_str = getattr(session, '_sylk_call_limit_ip', None)
+        ip_current = 0
         if ip_str is not None:
             self.calls_per_ip[ip_str] -= 1
+            ip_current = self.calls_per_ip[ip_str]
             if self.calls_per_ip[ip_str] <= 0:
                 self.calls_per_ip.pop(ip_str, None)
+                ip_current = 0
         notification_center = NotificationCenter()
         for name in ('SIPSessionDidEnd', 'SIPSessionDidFail'):
             try:
                 notification_center.remove_observer(self, sender=session, name=name)
             except KeyError:
                 pass
+        # Log the updated totals once a call ends, mirroring track().
+        log.info('Active calls: %s total, %s from %s' % (
+            self._format_count(len(self.active_calls), SIPConfig.maximum_call_count),
+            self._format_count(ip_current, SIPConfig.maximum_call_count_per_ip),
+            ip_str if ip_str is not None else '?'))
 
     @run_in_twisted_thread
     def handle_notification(self, notification):
