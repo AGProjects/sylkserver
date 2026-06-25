@@ -235,9 +235,57 @@ def start():
         # now=False: skip the t=0 sample, let the process settle first.
         lc.start(interval, now=False)
         emit('memdiag scheduled on reactor (first report in %ss)' % interval)
+        # Start the tcmalloc heap profiler now -- AFTER all native dlopen()s
+        # are done -- to dodge the profiler-vs-dynamic-linker deadlock that
+        # bites when HEAPPROFILE is set at launch.
+        _tcmalloc_profiler_setup(emit)
 
     reactor.callWhenRunning(arm)
     _state['loopingcall'] = lc
+
+
+def _tcmalloc_profiler_setup(emit):
+    """If SYLK_TCMALLOC_PROFILE is set, start tcmalloc's heap profiler via its
+    C API (HeapProfilerStart) now that the process is fully up, and dump on a
+    timer. Requires libtcmalloc(_and_profiler).so to be LD_PRELOADed, but with
+    HEAPPROFILE *unset* so it doesn't auto-start during dlopen and hang."""
+    prefix = os.environ.get('SYLK_TCMALLOC_PROFILE', '').strip()
+    if not prefix:
+        return
+    import ctypes
+    try:
+        lib = ctypes.CDLL(None)          # global syms incl. the preloaded tcmalloc
+        start_fn = lib.HeapProfilerStart
+        dump_fn = lib.HeapProfilerDump
+    except AttributeError:
+        emit('tcmalloc: HeapProfilerStart not found -- LD_PRELOAD '
+             'libtcmalloc_and_profiler.so.4 (the profiler build), not _minimal')
+        return
+    start_fn.argtypes = [ctypes.c_char_p]
+    dump_fn.argtypes = [ctypes.c_char_p]
+    try:
+        start_fn(prefix.encode())
+    except Exception as e:
+        emit('tcmalloc: HeapProfilerStart failed: %r' % e)
+        return
+    emit('tcmalloc: heap profiler started AFTER startup (prefix=%s) '
+         '-- dlopen deadlock avoided' % prefix)
+
+    interval = float(os.environ.get('SYLK_TCMALLOC_DUMP_INTERVAL', '300'))
+    n = {'i': 0}
+    from twisted.internet.task import LoopingCall
+
+    def dump():
+        n['i'] += 1
+        try:
+            dump_fn(('periodic-%d' % n['i']).encode())
+            emit('tcmalloc: heap dump #%d written (%s.NNNN.heap)' % (n['i'], prefix))
+        except Exception as e:
+            emit('tcmalloc: dump failed: %r' % e)
+
+    lc = LoopingCall(dump)
+    lc.start(interval, now=False)
+    _state['tcmalloc_lc'] = lc
 
 
 def _deferred_autostart():
