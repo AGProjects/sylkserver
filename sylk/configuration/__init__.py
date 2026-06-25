@@ -82,11 +82,20 @@ class RTPConfig(ConfigSection):
     __cfgfile__ = 'config.ini'
     __section__ = 'RTP'
 
-    audio_codecs = ConfigSetting(type=AudioCodecs, value=['opus', 'G722', 'PCMA', 'PCMU'])
+    audio_codecs = ConfigSetting(type=AudioCodecs, value=['G722', 'opus', 'PCMA', 'PCMU'])
     port_range = ConfigSetting(type=PortRange, value=PortRange('50000:50500'))
-    srtp_encryption = ConfigSetting(type=SRTPEncryption, value='opportunistic')
+    srtp_encryption = ConfigSetting(type=SRTPEncryption, value='sdes')
     timeout = ConfigSetting(type=NonNegativeInteger, value=30)
-    sample_rate = ConfigSetting(type=SampleRate, value=48000)
+    sample_rate = ConfigSetting(type=SampleRate, value=16000)
+    # Number of audio mixers to run. Each AudioMixer drives its own pjmedia
+    # clock thread (with the GIL released), so N mixers spread the media work
+    # (mixing + codec) across N CPU cores within this single process.
+    #   1 = original behaviour (one mixer, one core)
+    #   0 = auto (one mixer per CPU core)
+    # Calls and conference rooms are distributed across the pool; a single
+    # conference room always stays on one mixer (its participants must share
+    # mixer slots to hear each other).
+    mixer_pool_size = ConfigSetting(type=NonNegativeInteger, value=1)
 
 
 class WebServerConfig(ConfigSection):

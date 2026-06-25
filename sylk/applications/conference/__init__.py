@@ -268,7 +268,6 @@ class ConferenceApplication(SylkApplication):
             if create:
                 room = Room(room_uri)
                 self._rooms[room_uri] = room
-                log.info('Active conferences: %d' % len(self._rooms))
                 return room
             else:
                 raise RoomNotFoundError
@@ -278,7 +277,6 @@ class ConferenceApplication(SylkApplication):
     def remove_room(self, uri):
         room_uri = '%s@%s' % (uri.user, uri.host)
         self._rooms.pop(room_uri, None)
-        log.info('Active conferences: %d' % len(self._rooms))
 
     # --- per-room call limit ------------------------------------------------
 
@@ -808,6 +806,7 @@ class ConferenceApplication(SylkApplication):
             room.config.disable_music_on_hold = True
         room.start()
         room.add_session(session)
+        log.info('Room %s - session %s from %s started' % (room.uri, session.call_id, session.remote_identity.uri))
         # The call is now a live room session; drop it from the pending set so
         # it isn't double-counted against the per-room limit.
         self._clear_pending_room_join(session)
@@ -839,6 +838,7 @@ class ConferenceApplication(SylkApplication):
             return
         if session in room.sessions:
             room.remove_session(session)
+        log.info('Room %s - session %s from %s ended' % (room.uri, session.call_id, session.remote_identity.uri))
         if not room.stopping and room.empty:
             self.remove_room(room_uri)
             room.stop()
@@ -847,7 +847,9 @@ class ConferenceApplication(SylkApplication):
         session = notification.sender
         notification.center.remove_observer(self, sender=session)
         self._clear_pending_room_join(session)
-        log.info('Session from %s failed: %s (%s)' % (session.remote_identity.uri, notification.data.reason, notification.data.failure_reason))
+        room_uri = getattr(session, '_sylk_conference_target_uri', None) or session.request_uri
+        room_uri_str = '%s@%s' % (room_uri.user, room_uri.host)
+        log.info('Room %s - session from %s failed: %s (%s)' % (room_uri_str, session.remote_identity.uri, notification.data.reason, notification.data.failure_reason))
 
 
 @implementer(IObserver)

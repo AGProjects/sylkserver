@@ -516,10 +516,10 @@ class CallLimitHandler(object):
         notification_center = NotificationCenter()
         notification_center.add_observer(self, sender=session, name='SIPSessionDidEnd')
         notification_center.add_observer(self, sender=session, name='SIPSessionDidFail')
-        log.info('Active calls: %s total, %s from %s' % (
+        log.info('Usage: %s calls, %s from %s%s' % (
             self._format_count(len(self.active_calls), SIPConfig.maximum_call_count),
             self._format_count(self.calls_per_ip[ip_str], SIPConfig.maximum_call_count_per_ip),
-            ip_str))
+            ip_str, self._status_suffix()))
 
     @staticmethod
     def _format_count(current, limit):
@@ -528,6 +528,25 @@ class CallLimitHandler(object):
         if limit:
             return '%d/%d' % (current, limit)
         return '%d (no limit)' % current
+
+    @staticmethod
+    def _status_suffix():
+        """Suffix for the 'Active calls' line: active conference count, and
+        per-mixer slot usage when the mixer pool is active."""
+        parts = []
+        try:
+            if 'conference' in ApplicationRegistry():
+                from sylk.applications.conference import ConferenceApplication
+                parts.append('conferences: %d' % len(ConferenceApplication()._rooms))
+        except Exception:
+            pass
+        try:
+            from sylk.audio import mixer_pool
+            if mixer_pool.size > 1:
+                parts.append('mixer slots: %s' % mixer_pool.load_summary())
+        except Exception:
+            pass
+        return (', ' + ', '.join(parts)) if parts else ''
 
     def _untrack(self, session):
         key = id(session)
@@ -549,10 +568,10 @@ class CallLimitHandler(object):
             except KeyError:
                 pass
         # Log the updated totals once a call ends, mirroring track().
-        log.info('Active calls: %s total, %s from %s' % (
+        log.info('Active calls: %s total, %s from %s%s' % (
             self._format_count(len(self.active_calls), SIPConfig.maximum_call_count),
             self._format_count(ip_current, SIPConfig.maximum_call_count_per_ip),
-            ip_str if ip_str is not None else '?'))
+            ip_str if ip_str is not None else '?', self._status_suffix()))
 
     @run_in_twisted_thread
     def handle_notification(self, notification):

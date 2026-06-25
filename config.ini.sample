@@ -124,19 +124,29 @@ certificate = /etc/sylkserver/tls/default.crt
 ; RTP transport settings
 
 ; Allowed codec list, valid values: opus, G722, speex, PCMU, PCMA, iLBC, GSM
-; audio_codecs = opus,G722,speex,PCMU,PCMA
+; audio_codecs = G722,opus,PCMU,PCMA
 
 ; Port range used for RTP
 ; port_range = 50000:50500
 
 ; SRTP valid values: disabled, sdes, zrtp, opportunistic
-; srtp_encryption = opportunistic
+; srtp_encryption = sdes
 
 ; RTP stream timeout, session will be disconnected after this value
 ; timeout = 30
 
 ; Audio sampling rate
-; sample_rate = 48000
+; sample_rate = 16000
+
+; Number of audio mixers to run. Each AudioMixer drives its own media (pjmedia)
+; clock thread with the GIL released, so N mixers spread the audio work (mixing
+; and codec) across N CPU cores within the single SylkServer process. Calls and
+; conference rooms are distributed across the pool; a single conference room
+; always stays on one mixer (its participants must share mixer slots to hear
+; each other).
+;   1 = original behaviour (one mixer, one core)
+;   0 = auto (one mixer per CPU core)
+; mixer_pool_size = 1
 
 
 [WebServer]

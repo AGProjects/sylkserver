@@ -409,6 +409,17 @@ class Session(object):
             invitation.send_response(488)
             return
         self.proposed_streams = []
+        # Choose the audio mixer this call's streams are born on (set per-thread,
+        # read by AudioStream.__init__ so the bridge is built on the right mixer
+        # with no later, race-prone move). NOTE: SylkServer uses THIS Session
+        # (sylk/session.py), not sipsimple's, so the hook must live here.
+        # Cleared right after the stream loop.
+        from sipsimple.streams.rtp import RTPStream, stream_creation_context
+        _mixer_factory = RTPStream.mixer_factory
+        try:
+            stream_creation_context.mixer = _mixer_factory(invitation.request_uri, getattr(data, 'headers', None)) if _mixer_factory is not None else None
+        except Exception:
+            stream_creation_context.mixer = None
         for index, media_stream in enumerate(remote_sdp.media):
             if media_stream.port != 0:
                 for stream_type in MediaStreamRegistry:
@@ -426,6 +437,7 @@ class Session(object):
                         stream.index = index
                         self.proposed_streams.append(stream)
                         break
+        stream_creation_context.mixer = None
         if not self.proposed_streams:
             invitation.send_response(488)
             return

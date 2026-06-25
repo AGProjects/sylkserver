@@ -550,7 +550,15 @@ class Room(object):
             self.bonjour_services = BonjourService(service='sipuri', name='Conference Room %s' % room_user, uri_user=room_user)
             self.bonjour_services.start()
         self.message_dispatcher = proc.spawn(self._message_dispatcher)
-        self.audio_conference = AudioConference()
+        # Pin this room to one pool mixer, hashed on the room URI. Participants
+        # are born on the same mixer (the stream mixer factory hashes the
+        # incoming Request-URI with the identical key), so the whole room mixes
+        # together on one core while different rooms spread across cores. self.uri
+        # is the decoded 'user@host' that conference_room_key() reproduces.
+        # Falls back to the voice mixer when the pool is disabled.
+        from sylk.audio import mixer_pool, PooledAudioConference, conference_room_key
+        self.audio_mixer = mixer_pool.by_key(conference_room_key(self.uri)) or SIPApplication.voice_audio_mixer
+        self.audio_conference = PooledAudioConference(self.audio_mixer)
         self.audio_conference.hold()
         self.moh_player = MoHPlayer(self.audio_conference)
         self.moh_player.start()
@@ -1947,7 +1955,7 @@ class MoHPlayer(object):
             return
         random.shuffle(files)
         self.files = cycle(files)
-        self._player = WavePlayer(SIPApplication.voice_audio_mixer, '', pause_time=1, initial_delay=1, volume=20)
+        self._player = WavePlayer(self.conference.bridge.mixer, '', pause_time=1, initial_delay=1, volume=20)
         self.paused = True
         self.conference.bridge.add(self._player)
         NotificationCenter().add_observer(self, sender=self._player)
@@ -2062,12 +2070,26 @@ class WelcomeHandler(object):
             pass
         else:
             stream.bridge.remove(player)
-            self.room.audio_conference.add(stream)
-            self.room.audio_conference.unhold()
-            if len(self.room.audio_conference.streams) == 1 and not self.room.config.disable_music_on_hold:
-                self.room.moh_player.play()
+            try:
+                self.room.audio_conference.add(stream)
+            except ValueError:
+                # The stream is on a different mixer than the room's conference
+                # bridge. This only happens on the select_conference IVR path,
+                # where audio is accepted before the room (hence its mixer) is
+                # known, so it can't be pre-assigned to this room's pool mixer.
+                # Re-add the stream's own device so it isn't left dangling and
+                # skip mixing it here rather than crashing the welcome proc.
+                log.warning('Room %s - participant audio is on a different mixer (IVR path); not bridged into the conference. Disable the mixer pool or avoid the conference selector to mix these calls.' % self.uri)
+                try:
+                    stream.bridge.add(stream.device)
+                except Exception:
+                    pass
             else:
-                self.room.moh_player.pause()
+                self.room.audio_conference.unhold()
+                if len(self.room.audio_conference.streams) == 1 and not self.room.config.disable_music_on_hold:
+                    self.room.moh_player.play()
+                else:
+                    self.room.moh_player.pause()
         finally:
             player.stop()
 

@@ -164,6 +164,22 @@ class SylkServer(SIPApplication):
         self.voice_audio_bridge = RootAudioBridge(voice_mixer)
         self.voice_audio_bridge.add(self.voice_audio_device)
 
+        # Build the multi-core mixer pool. The voice mixer above becomes
+        # mixers[0]; any extra mixers each run their own pjmedia clock thread,
+        # so media (mixing + codec) spreads across CPU cores. Applications pick
+        # a mixer per call/room and redirect streams onto it before accept.
+        from sylk.audio import mixer_pool, stream_mixer_factory
+        from sylk.configuration import RTPConfig
+        from sipsimple.streams.rtp import RTPStream
+        mixer_pool.prime(voice_mixer)
+        mixer_pool.build(RTPConfig.mixer_pool_size, settings.audio.sample_rate)
+        # Streams are born on the right mixer via this factory (consulted in
+        # Session.init_incoming) -- no post-creation bridge moves.
+        RTPStream.mixer_factory = staticmethod(stream_mixer_factory)
+        log.info('Audio mixer pool: %d mixer(s) at %d Hz; stream mixer factory %s' %
+                 (mixer_pool.size, settings.audio.sample_rate,
+                  'ENABLED' if RTPStream.mixer_factory is not None else 'DISABLED'))
+
         # initialize video objects
         self.video_device = VideoDevice('Colorbar generator', settings.video.resolution, settings.video.framerate)
 
