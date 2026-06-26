@@ -554,6 +554,7 @@ class AccountSyncConversationsRequest(AccountRequestBase):
     sylkrtc = FixedValueProperty('account-sync-conversations')
     message_id = StringProperty(optional=True)
     since = StringProperty(optional=True)
+    limit = IntegerProperty(optional=True, default=5000)
 
 
 class AccountMarkConversationReadRequest(AccountRequestBase):

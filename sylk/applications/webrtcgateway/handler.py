@@ -1121,7 +1121,7 @@ class ConnectionHandler(object):
         messages = storage[[account_info.id, request.message_id, since]]
 
         if isinstance(messages, defer.Deferred):
-            messages.addCallback(lambda result: self.send(sylkrtc.AccountSyncConversationsEvent(account=account_info.id, messages=result)))
+            messages.addCallback(lambda result: self.send(sylkrtc.AccountSyncConversationsEvent(account=account_info.id, messages=result[:request.limit])))
 
     def _RH_account_mark_conversation_read(self, request):
         try:

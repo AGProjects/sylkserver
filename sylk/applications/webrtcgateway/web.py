@@ -280,7 +280,7 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
         request.setHeader('Content-Type', 'application/json')
         if isinstance(messages, defer.Deferred):
             return messages.addCallback(lambda result:
-                                        json.dumps(sylkrtc.MessageHistoryData(account=account, messages=result).__data__))
+                                        json.dumps(sylkrtc.MessageHistoryData(account=account, messages=result[:5000]).__data__))
 
     @app.handle_errors(ApiTokenAuthError)
     def auth_error(self, request, failure):
