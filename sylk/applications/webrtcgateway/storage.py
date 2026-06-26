@@ -632,7 +632,7 @@ class CassandraMessageStorage(object):
             if since and not message_id:
                 timestamp = ISOTimestamp(since)
 
-            for message in ChatMessage.objects(ChatMessage.account == key, ChatMessage.created_at > timestamp).limit(5000):
+            for message in ChatMessage.objects(ChatMessage.account == key, ChatMessage.created_at > timestamp).limit(None):
                 timestamp_naive = message.msg_timestamp
                 try:
                     timestamp_utc = timestamp_naive.replace(tzinfo=datetime.timezone.utc)

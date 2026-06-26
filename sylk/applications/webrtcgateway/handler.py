@@ -1183,19 +1183,18 @@ class ConnectionHandler(object):
 
         # Delete from receiver
         def receiver_remove_message(msg_id, messages):
-            for message in messages:
+            for message in reversed(messages):
                 is_dict = isinstance(message, dict)
 
-                msg_id_val = message["message_id"] if is_dict else message.message_id
+                message_id = message["message_id"] if is_dict else message.message_id
                 direction = message["direction"] if is_dict else message.direction
                 account = message["account"] if is_dict else message.account
                 contact = message["contact"] if is_dict else message.contact
-
-                if msg_id_val == msg_id and direction == 'incoming':
+                if message_id == msg_id and direction == 'incoming':
                     storage = MessageStorage()
                     storage.removeMessage(account=account, message_id=message_id)
 
-                    content = sylkrtc.AccountMessageRemoveEventData(contact=message.contact, message_id=message_id, direction="incoming")
+                    content = sylkrtc.AccountMessageRemoveEventData(contact=contact, message_id=message_id, direction="incoming")
                     storage.add(account=account,
                                 contact=contact,
                                 direction='incoming',
@@ -1210,7 +1209,6 @@ class ConnectionHandler(object):
                     self._fork_event_to_online_accounts(account_object, event)
                     self.log.info("Removed receiver message")
                     break
-
         messages = storage[[contact, '']]
         if isinstance(messages, defer.Deferred):
             messages.addCallback(lambda result: receiver_remove_message(msg_id=request.message_id, messages=result))
