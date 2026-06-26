@@ -5,7 +5,7 @@ import random
 
 from application.notification import IObserver, NotificationCenter
 from application.python import Null
-from eventlib import proc
+from eventlib import api, proc
 from sipsimple.account.bonjour import BonjourPresenceState
 from sipsimple.audio import WavePlayer, WavePlayerError
 from sipsimple.streams.msrp.chat import CPIMParserError, CPIMPayload
@@ -40,7 +40,12 @@ class PlaybackApplication(SylkApplication):
                     config = get_config('%s' % uri)
                     if config is None:
                         continue
-                    if os.path.isfile(config.file) and os.access(config.file, os.R_OK):
+                    if config.file is None:
+                        service = BonjourService(service='sipuri', name='Playback Test', uri_user=uri, is_focus=False)
+                        service.start()
+                        service.presence_state = BonjourPresenceState('available', 'Silence')
+                        self.bonjour_services.append(service)
+                    elif os.path.isfile(config.file) and os.access(config.file, os.R_OK):
                         service = BonjourService(service='sipuri', name='Playback Test', uri_user=uri, is_focus=False)
                         service.start()
                         service.presence_state = BonjourPresenceState('available', 'File: %s' % os.path.basename(config.file))
@@ -153,6 +158,27 @@ class PlaybackHandler(object):
             audio_stream = next(stream for stream in self.session.streams if stream.type=='audio')
         except StopIteration:
             self.proc = None
+            return
+        if config.file is None:
+            # No file configured: play silence by keeping the audio stream
+            # open with nothing on the bridge. With timeout == 0 the call
+            # stays up until the caller hangs up; otherwise SylkServer ends
+            # it after `timeout` seconds.
+            timeout = config.timeout
+            if not timeout or timeout <= 0:
+                log.info('Playing silence for session %s to %s (until caller hangs up)' % (self.session.call_id, self.caller))
+                self.proc = None
+                return
+            log.info('Playing silence for session %s to %s (timeout %ss)' % (self.session.call_id, self.caller, timeout))
+            try:
+                api.sleep(timeout)
+            except proc.ProcExit:
+                return
+            log.info('Silence timeout reached for session %s to %s' % (self.session.call_id, self.caller))
+            self.proc = None
+            if self.session is not None:
+                self.session.end()
+                self.session = None
             return
         player = WavePlayer(audio_stream.mixer, config.file)
         audio_stream.bridge.add(player)

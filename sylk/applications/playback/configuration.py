@@ -16,6 +16,7 @@ class GeneralConfig(ConfigSection):
     files_dir = ConfigSetting(type=Path, value=Path(Resources.get('sounds')))
     enable_video = False
     answer_delay = 1
+    timeout = 60
     enable_chuck_norris_reply = True
 
 
@@ -25,6 +26,7 @@ class PlaybackConfig(ConfigSection):
     file = ConfigSetting(type=Path, value=None)
     enable_video = GeneralConfig.enable_video
     answer_delay = GeneralConfig.answer_delay
+    timeout = GeneralConfig.timeout
     enable_chuck_norris_reply = GeneralConfig.enable_chuck_norris_reply
 
 
@@ -39,7 +41,8 @@ def get_config(uri):
     section = config_file.get_section(uri)
     if section is not None:
         PlaybackConfig.read(section=uri)
-        if not os.path.isabs(PlaybackConfig.file):
+        # file is optional: when unset, the session plays silence
+        if PlaybackConfig.file is not None and not os.path.isabs(PlaybackConfig.file):
             PlaybackConfig.file = os.path.join(GeneralConfig.files_dir, PlaybackConfig.file)
         config = Configuration(dict(PlaybackConfig))
         PlaybackConfig.reset()

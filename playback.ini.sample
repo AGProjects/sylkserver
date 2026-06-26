@@ -11,12 +11,19 @@
 ; Delay for answering sessions
 ; answer_delay = 1
 
+; Max seconds to play silence when no file is set (0 = until caller hangs up)
+; timeout = 60
+
 ; Enable replies from Chuck Norris on SIP Message
 ; enable_chuck_norris_reply = True
 
 ; [test@conference.example.com]
 ; file = test.wav
-; enable_videom, answer_delay and enable_chuck_norris_reply can be overridden here
+; enable_video, answer_delay, timeout and enable_chuck_norris_reply can be overridden here
+
+; Leave 'file' unset to play silence instead of a wav file:
+; [silence@conference.example.com]
+; timeout = 30
 
 [playback]
 file = moh/Cool_Grass_vbr.wav
