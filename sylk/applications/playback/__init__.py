@@ -17,6 +17,7 @@ from zope.interface import implementer
 
 from sylk.applications import ApplicationLogger, SylkApplication
 from sylk.applications.echo import MessageHandler as EchoMessageHandler
+from sylk.applications.echo import format_user_agent
 from sylk.applications.playback.configuration import get_config
 from sylk.bonjour import BonjourService
 from sylk.configuration import ServerConfig
@@ -58,7 +59,8 @@ class PlaybackApplication(SylkApplication):
 
     def incoming_session(self, session):
         caller = '%s@%s' % (session.remote_identity.uri.user, session.remote_identity.uri.host)
-        log.info('Session %s from %s to %s' % (session.call_id, caller, session.local_identity.uri))
+        user_agent = format_user_agent(session.remote_user_agent)
+        log.info('Session %s from %s (user agent: %s) to %s' % (session.call_id, caller, user_agent, session.local_identity.uri))
         config = get_config('%s@%s' % (session.request_uri.user, session.request_uri.host))
         if config is None:
             config = get_config('%s' % session.request_uri.user)

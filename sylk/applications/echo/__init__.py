@@ -29,6 +29,12 @@ def format_identity(identity):
         return 'sip:%s@%s' % (identity.uri.user, identity.uri.host)
 
 
+def format_user_agent(user_agent):
+    if isinstance(user_agent, bytes):
+        user_agent = user_agent.decode(errors='replace')
+    return str(user_agent).strip() if user_agent else 'unknown'
+
+
 class EchoApplication(SylkApplication):
     def __init__(self):
         self.bonjour_services = set()
@@ -51,7 +57,9 @@ class EchoApplication(SylkApplication):
     def incoming_session(self, session):
         peer = '%s:%s' % (session.transport, session.peer_address)
         caller = '%s@%s' % (session.remote_identity.uri.user, session.remote_identity.uri.host)
-        log.info('Session %s from %s (%s) to %s' % (session.call_id, caller, peer, format_identity(session.remote_identity)))
+        user_agent = format_user_agent(session.remote_user_agent)
+        destination = '%s@%s' % (session.local_identity.uri.user, session.local_identity.uri.host)
+        log.info('Session %s from %s (%s) (user agent: %s) to %s' % (session.call_id, caller, peer, user_agent, destination))
         audio_streams = [stream for stream in session.proposed_streams if stream.type=='audio']
         chat_streams = [stream for stream in session.proposed_streams if stream.type=='chat']
         if not audio_streams and not chat_streams:
