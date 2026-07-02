@@ -2079,7 +2079,7 @@ class WelcomeHandler(object):
                 # known, so it can't be pre-assigned to this room's pool mixer.
                 # Re-add the stream's own device so it isn't left dangling and
                 # skip mixing it here rather than crashing the welcome proc.
-                log.warning('Room %s - participant audio is on a different mixer (IVR path); not bridged into the conference. Disable the mixer pool or avoid the conference selector to mix these calls.' % self.uri)
+                log.warning('Room %s - participant audio is on a different mixer (IVR path); not bridged into the conference. Disable the mixer pool or avoid the conference selector to mix these calls.' % self.room.uri)
                 try:
                     stream.bridge.add(stream.device)
                 except Exception:

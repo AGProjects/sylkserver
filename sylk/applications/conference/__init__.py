@@ -614,7 +614,7 @@ class ConferenceApplication(SylkApplication):
             return
 
         if subscribe_request.event != b'conference':
-            log.info('Subscription for event %s rejected: only conference event is supported' % subscribe_request.event)
+            log.info('Subscription for event %s rejected: only conference event is supported' % subscribe_request.event.decode())
             subscribe_request.reject(489)
             return
 
