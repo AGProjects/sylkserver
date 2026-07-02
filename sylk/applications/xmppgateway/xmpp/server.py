@@ -50,10 +50,16 @@ class SylkInternalComponent(InternalComponent):
         self._iqDeferreds[element['id']] = d
 
         timeout = getattr(request, 'timeout', None)
+        # Always arm a timeout so the deferred (and the IQ element it holds) is
+        # guaranteed to be removed from _iqDeferreds even if the remote peer
+        # never answers -- otherwise unanswered S2S IQs (dead/slow federated
+        # servers) accumulate in the dict forever and leak.
+        if timeout is None:
+            timeout = 60
 
         if timeout is not None:
             def onTimeout():
-                del self._iqDeferreds[element['id']]
+                self._iqDeferreds.pop(element['id'], None)
                 d.errback(xmlstream.TimeoutError("IQ timed out"))
 
             call = reactor.callLater(timeout, onTimeout)
