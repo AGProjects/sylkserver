@@ -224,7 +224,7 @@ class SIPTraceFormatter(logging.Formatter):
         self._packet += 1
         notification = record.notification
         direction = 'INCOMING' if notification.data.received else 'OUTGOING'
-        return self._format.format(time=notification.datetime, packet=self._packet, direction=direction, data=notification.data, sip_packet=notification.data.data.decode())
+        return self._format.format(time=notification.datetime, packet=self._packet, direction=direction, data=notification.data, sip_packet=notification.data.data.decode(errors='replace'))
 
 
 # noinspection PyPep8Naming,PyMethodMayBeStatic
