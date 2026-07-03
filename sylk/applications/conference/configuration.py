@@ -217,8 +217,9 @@ class ConferenceConfig(ConfigSection):
     # [room@host] section.
     maximum_call_count_per_room = 10
 
-    # Music on hold. Global default for rooms; overridable per room via the
-    # same `disable_music_on_hold` setting in RoomConfig. If `moh_disable_header`
+    # Music on hold. Global default for rooms; a per-room
+    # `disable_music_on_hold` setting in the room's [room@host] section
+    # always overrides this default (in either direction). If `moh_disable_header`
     # is set to a header name, every incoming INVITE is inspected — if that
     # header is present with value 'Yes' (case-insensitive) the room's MoH is
     # disabled for the rest of the room's lifetime. When `moh_disable_header`

@@ -51,9 +51,10 @@ screensharing_images_dir = /var/spool/sylkserver/conference/screensharing
 ; allow = all
 ; deny = none
 ;
-; Disable music on hold globally. When set to True it forces MoH off for
-; every conference room and overrides any per-room disable_music_on_hold
-; setting (which is otherwise honored). Default: False.
+; Disable music on hold by default. This is the default for all conference
+; rooms; a per-room disable_music_on_hold setting in a [room@host] section
+; overrides it in either direction (e.g. global True with a per-room False
+; re-enables MoH for that room). Default: False.
 ; disable_music_on_hold = False
 
 ; If set, every incoming INVITE is inspected for this header; when present

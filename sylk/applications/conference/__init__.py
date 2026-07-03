@@ -799,10 +799,12 @@ class ConferenceApplication(SylkApplication):
         session = notification.sender
         room_uri = getattr(session, '_sylk_conference_target_uri', None) or session.request_uri
         room = self.get_room(room_uri, True)
-        # The global ConferenceConfig.disable_music_on_hold overrides any
-        # per-room setting; an INVITE carrying the configured MoH-disable
-        # header also forces MoH off for the room's lifetime.
-        if ConferenceConfig.disable_music_on_hold or getattr(session, '_sylk_disable_moh', False):
+        # The global ConferenceConfig.disable_music_on_hold is only the
+        # default for RoomConfig; a per-room disable_music_on_hold setting
+        # overrides it. An INVITE carrying the configured MoH-disable header
+        # (or coming from the audio bridge) still forces MoH off for the
+        # room's lifetime.
+        if getattr(session, '_sylk_disable_moh', False):
             room.config.disable_music_on_hold = True
         room.start()
         room.add_session(session)
@@ -1070,9 +1072,10 @@ class SelectConferenceHandler(object):
         # Mirror what _NH_SIPSessionDidStart does for a normal incoming session.
         notification_center.add_observer(self.application, sender=session)
         room = self.application.get_room(target_uri, create=True)
-        # Honor the same global override + per-INVITE header as the direct-dial
-        # path (see ConferenceApplication._NH_SIPSessionDidStart).
-        if ConferenceConfig.disable_music_on_hold or getattr(session, '_sylk_disable_moh', False):
+        # Honor the same per-INVITE header force as the direct-dial path
+        # (see ConferenceApplication._NH_SIPSessionDidStart). The global
+        # disable_music_on_hold is only a default, overridable per room.
+        if getattr(session, '_sylk_disable_moh', False):
             room.config.disable_music_on_hold = True
         room.start()
         room.add_session(session)
