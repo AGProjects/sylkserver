@@ -3348,6 +3348,9 @@ class ConnectionHandler(object):
         if not event.plugindata.data.call_id:
             return
 
+        if not data.content:
+            return
+
         cpim_message = None
         if data.content_type in ("application/im-iscomposing+xml", "text/pgp-public-key"):
             return
