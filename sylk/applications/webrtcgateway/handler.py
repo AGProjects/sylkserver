@@ -4443,9 +4443,7 @@ class VideoroomChatHandler(object):
         # gate the forward anymore.
         self._last_emitted_participants = combined_set
         self._last_emitted_state = state_signature
-        self.room.log.info('conference-info forward (dedup disabled): roster_size={} endpoints_total={}'.format(
-            len(combined_set),
-            sum(len(p[1]) for p in state_signature)))
+        self.room.log.debug('conference-info forward (dedup disabled): roster_size={} endpoints_total={}'.format(len(combined_set),sum(len(p[1]) for p in state_signature)))
 
         # Rebuild the participant_id → label cache for this room from
         # the current NOTIFY. Audio-level UDP datagrams arrive keyed by
@@ -4570,9 +4568,7 @@ class VideoroomChatHandler(object):
                 # some reason (e.g. optional=True with a falsey check)
                 # we want to see it in the log rather than silently
                 # shipping null to the mobile.
-                self.room.log.info(
-                    'endpoint payload pid={} input_muted={!r} stored_muted={!r} user_agent={!r}'.format(
-                        participant_id, muted_value, getattr(_vce, 'muted', '<missing>'), user_agent))
+                self.room.log.debug('endpoint payload pid={} input_muted={!r} stored_muted={!r} user_agent={!r}'.format(participant_id, muted_value, getattr(_vce, 'muted', '<missing>'), user_agent))
                 endpoints.append(_vce)
             participant_aor = _aor(user.entity)
             # Learn whether this User is the audio bridge from the

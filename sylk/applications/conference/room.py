@@ -495,8 +495,7 @@ class Room(object):
             files = conference.FileResources(conference.FileResource(os.path.basename(file.name), file.hash, file.size, file.sender, 'OK') for file in self.files)
             self.conference_info_payload.conference_description.resources = conference.Resources(files=files)
         try:
-            log.info('Room %s - conference-info built (%s)' %
-                     (self.uri, self._conference_info_summary(users, hide_bridges)))
+            log.debug('Room %s - conference-info built (%s)' % (self.uri, self._conference_info_summary(users, hide_bridges)))
         except Exception as e:
             log.debug('Room %s - conference-info summary failed: %s' % (self.uri, e))
         return self.conference_info_payload.toxml()
