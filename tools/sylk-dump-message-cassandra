@@ -3,6 +3,7 @@
 
 Progressive drill-down:
 
+  sylk-dump-message-cassandra --accounts                                 list all accounts (+ message counts)
   sylk-dump-message-cassandra <account>                                  list contacts we have messages with (+ counts)
   sylk-dump-message-cassandra <account> <contact>                        counts per message content-type
   sylk-dump-message-cassandra <account> <contact> --type T               counts per day (YYYYMMDD) for that type
@@ -107,7 +108,7 @@ def _type_matches(content_type, wanted):
     return content_type == wanted or content_type.startswith(wanted)
 
 
-def _account_messages(account):
+def _chat_message_model():
     from sylk.applications.webrtcgateway.configuration import CassandraConfig
     from sylk.applications.webrtcgateway.models.storage.cassandra import ChatMessage
     log.Formatter.prefix_format = parse_level
@@ -116,7 +117,26 @@ def _account_messages(account):
         log.warning('Cassandra is not available — this tool only supports the Cassandra backend')
         sys.exit()
     _cassandra_connect([ChatMessage])
+    return ChatMessage
+
+
+def _account_messages(account):
+    ChatMessage = _chat_message_model()
     return ChatMessage.objects(ChatMessage.account == account).limit(None)
+
+
+def list_accounts():
+    print(f"\n{' SylkServer - Message accounts ':*^80s}\n")
+    ChatMessage = _chat_message_model()
+    counts = Counter()
+    for account in ChatMessage.objects().limit(None).values_list('account', flat=True):
+        counts[account] += 1
+    total = sum(counts.values())
+    print(f'{bold(str(total))} message(s) stored across {bold(str(len(counts)))} account(s)\n')
+    for account, n in counts.most_common():
+        print(f'{n:>8}  {account}')
+    if not counts:
+        print('No messages found')
 
 
 def list_contacts(account):
@@ -250,8 +270,10 @@ if __name__ == '__main__':
                         metavar='PATH',
                         help="Set a config directory.")
 
-    parser.add_argument('account', help='Account')
+    parser.add_argument('account', nargs='?', help='Account')
     parser.add_argument('contact', nargs='?', help='contact to inspect')
+    parser.add_argument('--accounts', action='store_true',
+                        help='list all accounts (with message counts, sorted desc)')
     parser.add_argument('--type', dest='mtype', metavar='CONTENT_TYPE',
                         help='message content-type (exact or prefix, e.g. text)')
     parser.add_argument('--types', action='store_true',
@@ -290,6 +312,13 @@ if __name__ == '__main__':
     # The contact (positional), --type, --date and --month act as filters and
     # combine with whichever view is selected. The view flags are mutually
     # exclusive; none of them requires a contact.
+    if options.accounts:
+        list_accounts()
+        sys.exit()
+
+    if options.account is None:
+        parser.error('account is required unless --accounts is given')
+
     if options.message_id is not None:
         dump_messages(options.account, options.contact, options.mtype, message_id=options.message_id)
     elif options.types:
