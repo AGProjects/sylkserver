@@ -96,6 +96,13 @@ _TOO_LARGE_MARKERS = ('too large', 'payloadtoolarge', 'payload too large',
                       'exceeds the maximum', 'message is too big', 'body is too long')
 
 
+# APNs caps alert payloads at 4096 bytes (VoIP: 5120; FCM data: 4096). The push
+# server adds its own envelope (aps dict etc.) on top of what we send it, so a
+# request already at/over the cap is guaranteed to be rejected. Strip the body
+# preemptively instead of burning a round-trip on a doomed request.
+_MAX_PAYLOAD_SIZE = 4096
+
+
 def _is_payload_too_large(code, *texts):
     # APNs answers HTTP 413 PayloadTooLarge; accept the code as int or str, and
     # whether it arrives as the HTTP status or inside the relay's body.
@@ -127,6 +134,14 @@ def _send_push_notification(payload, destination, token, allow_strip_retry=True)
     if GeneralConfig.sylk_push_url:
         try:
             body_bytes = json.dumps(payload.__data__).encode()
+            # Preflight: if the payload already exceeds the provider size cap,
+            # don't even try sending it with the message body — strip it now.
+            if allow_strip_retry and getattr(payload, 'content', '') and len(body_bytes) > _MAX_PAYLOAD_SIZE:
+                log.info('Push payload for %s/%s is %d bytes (limit %d) — sending without message body' %
+                         (payload.to, destination, len(body_bytes), _MAX_PAYLOAD_SIZE))
+                payload = _message_payload_without_content(payload)
+                body_bytes = json.dumps(payload.__data__).encode()
+                allow_strip_retry = False  # already stripped; nothing left to retry with
             r = yield agent.request(b'POST',
                                     GeneralConfig.sylk_push_url.encode(),
                                     headers,
