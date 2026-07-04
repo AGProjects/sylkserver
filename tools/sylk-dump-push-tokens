@@ -1,0 +1,212 @@
+#!/usr/bin/env python3
+"""Inspect the SylkServer Cassandra push_tokens table.
+
+Progressive drill-down:
+
+  sylk-dump-push-tokens                                  list all accounts (+ token counts, sorted desc)
+  sylk-dump-push-tokens <account>                        counts per platform for that account
+  sylk-dump-push-tokens <account> --dump                 dump the actual tokens
+  sylk-dump-push-tokens <account> --platform P           dump the tokens for that platform
+
+--platform matches exactly or by prefix (e.g. 'and' matches android). This is a
+standalone companion to sylk-db; it only reads from the Cassandra backend.
+"""
+import argparse
+import logging
+import os
+import sys
+from collections import Counter
+
+# Allow running from the tools/ subdirectory: make the parent SylkServer
+# directory (which holds the `sylk` package) importable.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from application import log
+from application.process import process
+
+# Keep the output clean: silence the Cassandra driver's INFO chatter
+# (datacenter / host-discovery messages).
+logging.getLogger('cassandra').setLevel(logging.WARNING)
+
+CASSANDRA_MODULES_AVAILABLE = False
+try:
+    from cassandra.cqlengine import connection
+except ImportError:
+    pass
+else:
+    try:
+        from cassandra.cqlengine.models import Model
+    except ImportError:
+        pass
+    else:
+        CASSANDRA_MODULES_AVAILABLE = True
+        from cassandra.cluster import (EXEC_PROFILE_DEFAULT, Cluster,
+                                       ExecutionProfile, NoHostAvailable)
+        from cassandra.policies import DCAwareRoundRobinPolicy
+
+
+class colors:
+    if sys.stdout.isatty():
+        TGREEN = '\033[32m'
+        ENDC = '\033[m'
+        BOLD = '\033[1m'
+    else:
+        TGREEN = ''
+        ENDC = ''
+        BOLD = ''
+
+
+class parse_level:
+    def format(record):
+        if record.levelname != 'INFO':
+            return f'{record.levelname:<8s} '
+        else:
+            return f"{'  ......':<8s} "
+
+
+def bold(string):
+    return colors.BOLD + string + colors.ENDC
+
+
+def _cassandra_connect(tables=()):
+    """Open a blocking Cassandra session for the CLI and register the keyspace on
+    the given cqlengine table models (see sylk-db for the rationale)."""
+    from sylk.applications.webrtcgateway.configuration import CassandraConfig
+    profile = ExecutionProfile(load_balancing_policy=DCAwareRoundRobinPolicy(), request_timeout=60)
+    cluster = Cluster(CassandraConfig.cluster_contact_points, protocol_version=4,
+                      execution_profiles={EXEC_PROFILE_DEFAULT: profile})
+    try:
+        session = cluster.connect()
+    except NoHostAvailable:
+        log.warning("Can't connect to Cassandra cluster")
+        sys.exit()
+    connection.set_session(session)
+    for table in tables:
+        table.__keyspace__ = CassandraConfig.keyspace
+    return cluster
+
+
+def _push_tokens_model():
+    from sylk.applications.webrtcgateway.configuration import CassandraConfig
+    from sylk.applications.webrtcgateway.models.storage.cassandra import PushTokens
+    log.Formatter.prefix_format = parse_level
+    log.Formatter.prefix_length = 0
+    if not (CASSANDRA_MODULES_AVAILABLE and CassandraConfig.cluster_contact_points):
+        log.warning('Cassandra is not available — this tool only supports the Cassandra backend')
+        sys.exit()
+    _cassandra_connect([PushTokens])
+    return PushTokens
+
+
+def _account_tokens(account):
+    PushTokens = _push_tokens_model()
+    try:
+        username, domain = account.split('@', 1)
+    except ValueError:
+        log.warning('Account must be in user@domain format')
+        sys.exit(1)
+    return PushTokens.objects(PushTokens.username == username, PushTokens.domain == domain).limit(None)
+
+
+def _platform_matches(platform, wanted):
+    if not wanted:
+        return True
+    if not platform:
+        return False
+    return platform == wanted or platform.startswith(wanted)
+
+
+def list_accounts():
+    print(f"\n{' SylkServer - Push token accounts ':*^80s}\n")
+    PushTokens = _push_tokens_model()
+    counts = Counter()
+    for username, domain in PushTokens.objects().limit(None).values_list('username', 'domain'):
+        counts[f'{username}@{domain}'] += 1
+    total = sum(counts.values())
+    print(f'{bold(str(total))} token(s) stored across {bold(str(len(counts)))} account(s)\n')
+    for account, n in counts.most_common():
+        print(f'{n:>8}  {account}')
+    if not counts:
+        print('No tokens found')
+
+
+def counts_per_platform(account):
+    print(f"\n{' SylkServer - Push tokens per platform ':*^80s}\n")
+    counts = Counter()
+    for t in _account_tokens(account):
+        counts[t.platform or '?'] += 1
+    total = sum(counts.values())
+    print(f'{bold(str(total))} token(s) stored for {bold(account)} across '
+          f'{bold(str(len(counts)))} platform(s)\n')
+    for platform, n in counts.most_common():
+        print(f'{n:>8}  {platform}')
+    if not counts:
+        print('No tokens found')
+
+
+def dump_tokens(account, platform=None):
+    print(f"\n{' SylkServer - Push token dump ':*^80s}\n")
+    rows = [t for t in _account_tokens(account) if _platform_matches(t.platform, platform)]
+    scope = f' on {bold(platform)}' if platform else ''
+    print(f'{bold(str(len(rows)))} token(s) for {bold(account)}{scope}\n')
+    for t in sorted(rows, key=lambda t: (t.platform or '', t.device_id or '')):
+        print(f"{'-' * 80}")
+        print(f'{"platform:":>18} {t.platform}')
+        print(f'{"device_id:":>18} {t.device_id}')
+        print(f'{"app_id:":>18} {t.app_id}')
+        print(f'{"device_token:":>18} {t.device_token}')
+        print(f'{"background_token:":>18} {t.background_token}')
+        print(f'{"silent:":>18} {t.silent}')
+        print(f'{"user_agent:":>18} {t.user_agent}')
+    if not rows:
+        print('No tokens found')
+
+
+if __name__ == '__main__':
+    process.configuration.subdirectory = 'sylkserver'
+
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument('-h', '--help',
+                        action='help',
+                        default=argparse.SUPPRESS,
+                        help='Show this help message and exit.')
+
+    parser.add_argument("--config-dir",
+                        dest='config_directory',
+                        default=None,
+                        metavar='PATH',
+                        help="Set a config directory.")
+
+    parser.add_argument('account', nargs='?', help='account (user@domain); omit to list all accounts')
+    parser.add_argument('--accounts', action='store_true',
+                        help='list all accounts (with token counts, sorted desc)')
+    parser.add_argument('--platform', metavar='PLATFORM',
+                        help='dump tokens for this platform (exact or prefix)')
+    parser.add_argument('--dump', action='store_true',
+                        help='dump the actual tokens')
+
+    options = parser.parse_args()
+
+    if options.config_directory is not None:
+        process.configuration.local_directory = options.config_directory
+
+    log.Formatter.prefix_format = parse_level
+    log.Formatter.prefix_length = 0
+
+    from sylk.server import ServerConfig
+
+    ServerConfig.__cfgtype__(ServerConfig.__cfgfile__)
+
+    cfg_dir = os.path.abspath(options.config_directory) if options.config_directory else os.getcwd()
+    print(f'Configuration directory: {bold(cfg_dir)}')
+    from application.configuration import ConfigFile
+    cfg_files = ConfigFile('config.ini').files + ConfigFile('webrtcgateway.ini').files
+    if cfg_files:
+        print(f'Reading configuration from: {", ".join(cfg_files)}')
+
+    if options.accounts or options.account is None:
+        list_accounts()
+    elif options.dump or options.platform is not None:
+        dump_tokens(options.account, options.platform)
+    else:
+        counts_per_platform(options.account)
