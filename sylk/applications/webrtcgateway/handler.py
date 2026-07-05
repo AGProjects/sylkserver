@@ -1986,7 +1986,7 @@ class ConnectionHandler(object):
         storage.update(account=account_info.id,
                        state=state,
                        message_id=message_id)
-        self.log.info('sending IMDN message ({status}) to: {uri}'.format(status=state, uri=uri))
+        self.log.info('sending IMDN {status} message {message_id} to {uri}'.format(status=state, message_id=message_id, uri=uri))
         self._send_sip_message(account_info, uri, str(uuid.uuid4()), content, IMDNDocument.content_type, add_disposition=False)
 
     def _RH_account_sync_conversations(self, request):
