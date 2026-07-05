@@ -682,7 +682,15 @@ class ConferenceApplication(SylkApplication):
         referral_handler.start()
 
     def incoming_message(self, message_request, data):
-        log.info('SIP MESSAGE is not supported, use MSRP media instead')
+        try:
+            from_uri = data.headers['From'].uri
+        except Exception:
+            from_uri = 'unknown'
+        try:
+            content_type = data.headers['Content-Type'].content_type
+        except Exception:
+            content_type = 'unknown'
+        log.info('SIP MESSAGE (%s) from %s is not supported, use MSRP media instead' % (content_type, from_uri))
         message_request.answer(405)
 
     def incoming_publish(self, publish_request, data):
