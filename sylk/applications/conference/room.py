@@ -2031,7 +2031,12 @@ class WelcomeHandler(object):
             if self.initial:
                 file = Resources.get('sounds/co_welcome_conference.wav')
                 self.play_file_in_player(player, file, 1)
-            user_count = len({str(s.remote_identity.uri) for s in self.room.sessions if s.remote_identity.uri != self.session.remote_identity.uri and any(stream for stream in s.streams if stream.type == 'audio')})
+            # do not count the audio bridge legs: they are gateway plumbing,
+            # not user visible participants
+            user_count = len({str(s.remote_identity.uri) for s in self.room.sessions
+                              if s.remote_identity.uri != self.session.remote_identity.uri
+                              and not getattr(s, '_sylk_audio_bridge', False)
+                              and any(stream for stream in s.streams if stream.type == 'audio')})
             if user_count == 0:
                 file = Resources.get('sounds/co_only_one.wav')
                 self.play_file_in_player(player, file, 0.5)
@@ -2082,7 +2087,11 @@ class WelcomeHandler(object):
             player.stop()
 
     def chat_welcome(self, stream):
-        user_count = len({str(s.remote_identity.uri) for s in self.room.sessions if s.remote_identity.uri != self.session.remote_identity.uri})
+        # do not count the audio bridge legs: they are gateway plumbing, not
+        # user visible participants
+        user_count = len({str(s.remote_identity.uri) for s in self.room.sessions
+                          if s.remote_identity.uri != self.session.remote_identity.uri
+                          and not getattr(s, '_sylk_audio_bridge', False)})
         if user_count == 0:
             participant_message = 'You are the first participant'
         elif user_count == 1:
