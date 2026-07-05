@@ -60,7 +60,7 @@ class PlaybackApplication(SylkApplication):
     def incoming_session(self, session):
         caller = '%s@%s' % (session.remote_identity.uri.user, session.remote_identity.uri.host)
         user_agent = format_user_agent(session.remote_user_agent)
-        log.info('Session %s from %s (user agent: %s) to %s' % (session.call_id, caller, user_agent, session.local_identity.uri))
+        log.info('Session %s from %s (%s) to %s' % (session.call_id, caller, user_agent, session.local_identity.uri))
         config = get_config('%s@%s' % (session.request_uri.user, session.request_uri.host))
         if config is None:
             config = get_config('%s' % session.request_uri.user)
