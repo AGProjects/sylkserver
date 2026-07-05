@@ -817,6 +817,13 @@ class ConferenceApplication(SylkApplication):
                 log.info('Room %s - %s session %s %s %s:%s <-> %s:%s' % (room.uri, stream.type, session.call_id, scheme, local.host, local.port, remote.host, remote.port))
             except Exception:
                 pass
+        for stream in (stream for stream in session.streams or [] if stream.type == 'audio'):
+            try:
+                encryption = stream.encryption
+                cipher = encryption.type if encryption is not None and encryption.active else 'unencrypted'
+                log.info('Room %s - audio session %s RTP %s:%s <-> %s:%s (%s)' % (room.uri, session.call_id, stream.local_rtp_address, stream.local_rtp_port, stream.remote_rtp_address, stream.remote_rtp_port, cipher))
+            except Exception:
+                pass
         # The call is now a live room session; drop it from the pending set so
         # it isn't double-counted against the per-room limit.
         self._clear_pending_room_join(session)
