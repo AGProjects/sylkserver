@@ -2,6 +2,7 @@
 import json
 import os
 import random
+import re
 import secrets
 import uuid
 import zlib
@@ -33,6 +34,11 @@ from .datatypes import FileTransferData
 from .logger import log
 from .models import sylkrtc
 from .storage import MessageStorage
+
+
+def log_uri(uri):
+    """Strip the sip:/sips: scheme from URIs for cleaner log lines"""
+    return re.sub(r'sips?:', '', str(uri))
 
 
 class ParsedSIPMessage(SIPMessage):
@@ -330,7 +336,7 @@ class MessageHandler(object):
 
         message = None
 
-        log.info('storing {content_type} message for account {originator} to {destination.uri}'.format(content_type=self.parsed_message.content_type, originator=account.account, destination=self.parsed_message.destination))
+        log.info('storing {content_type} message {message_id} for account {originator} to {destination.uri}'.format(content_type=self.parsed_message.content_type, message_id=self.parsed_message.message_id, originator=account.account, destination=self.parsed_message.destination))
 
         self.message_storage.add(account=account.account,
                                  contact=f'{self.to_header.uri.user}@{self.to_header.uri.host}',
@@ -368,7 +374,7 @@ class MessageHandler(object):
             log.debug('not storing %s message from %s to non-existent account %s' % (self.parsed_message.content_type, self.from_header.uri, '%s@%s' % (self.to_header.uri.user, self.to_header.uri.host)))
             return
 
-        log.debug(f'processing message from {self.from_header.uri} for account {account.account}')
+        log.debug(f'processing message for account {account.account} from {self.from_header.uri}')
 
         message = None
         notification_center = NotificationCenter()
@@ -378,7 +384,7 @@ class MessageHandler(object):
             imdn_message_id = document.message_id.value
             imdn_status = document.notification.status.__str__()
             imdn_datetime = document.datetime.__str__()
-            log.info('storing IMDN message ({status}) from {originator.uri}'.format(status=imdn_status, originator=self.parsed_message.sender))
+            log.info('storing IMDN {status} for message {message_id} from {originator.uri}'.format(status=imdn_status, message_id=imdn_message_id, originator=self.parsed_message.sender))
             self.message_storage.update(account=account.account,
                                         state=imdn_status,
                                         message_id=imdn_message_id)
@@ -411,7 +417,7 @@ class MessageHandler(object):
                                                   sender=account.account,
                                                   data=NotificationData(message=message, sender=self.parsed_message.sender))
         else:
-            log.info('storing {content_type} message from {originator.uri} for account {account}'.format(content_type=self.parsed_message.content_type, originator=self.parsed_message.sender, account=account.account))
+            log.info('storing {content_type} message {message_id} for account {account} from {originator.uri}'.format(content_type=self.parsed_message.content_type, message_id=self.parsed_message.message_id, originator=self.parsed_message.sender, account=account.account))
             self.message_storage.add(account=account.account,
                                      contact=str(self.parsed_message.sender.uri),
                                      direction='incoming',
@@ -537,10 +543,10 @@ class MessageHandler(object):
             # sender is the local sylkserver identity — these are the messages
             # that come straight back to us and re-trigger the same handler.
             if str(identity) == str(uri) and 'sylkserver@' in str(identity):
-                log.warning("refusing to send self-addressed %s message from '%s' to '%s' (loop suppression)" % (content_type, identity, uri))
+                log.warning("refusing to send self-addressed %s message from '%s' to '%s' (loop suppression)" % (content_type, log_uri(identity), log_uri(uri)))
                 return
 
-            log.info("sending %s message from '%s' to '%s' using proxy %s" % (content_type, identity, uri, route))
+            log.info("sending %s message from %s to %s via %s" % (content_type, log_uri(identity), log_uri(uri), log_uri(route)))
             headers = [Header('X-Sylk-To-Sip', 'yes')] + extra_headers
             self._outgoing_message(uri, identity, content, content_type, headers=headers, route=route)
 
@@ -551,7 +557,7 @@ class MessageHandler(object):
             if identity is None:
                 identity = f'sip:sylkserver@{SIPConfig.local_ip}'
 
-            log.debug("sending %s message from '%s' to '%s' to self %s" % (content_type, identity, uri, route))
+            log.debug("sending %s message from '%s' to '%s' to self %s" % (content_type, log_uri(identity), log_uri(uri), log_uri(route)))
             headers = [Header('X-Sylk-From-Sip', 'yes'), Header('X-Sylk-App', 'webrtcgateway')] + extra_headers
             self._outgoing_message(uri, identity, content, content_type, headers=headers, route=route, subscribe=False)
 
@@ -562,7 +568,7 @@ class MessageHandler(object):
             if identity is None:
                 identity = f'sip:sylkserver@{SIPConfig.local_ip}'
 
-            log.info("sending replicated %s message from '%s' to '%s' using proxy %s" % (content_type, identity, uri, route))
+            log.info("sending replicated %s message from %s to %s via %s" % (content_type, log_uri(identity), log_uri(uri), log_uri(route)))
             headers = [Header('X-Sylk-To-Sip', 'yes'), Header('X-Replicated-Message', 'yes')] + extra_headers
             self._outgoing_message(uri, identity, content, content_type, headers=headers, route=route, message_type=ReplicatedMessage)
 
@@ -573,8 +579,7 @@ class MessageHandler(object):
     def _NH_SIPMessageDidSucceed(self, notification):
         notification_center = NotificationCenter()
         notification_center.remove_observer(self, sender=notification.sender)
-
-        log.info('outgoing message was accepted by remote party')
+        #log.info('outgoing message was accepted')
 
     def _NH_SIPMessageDidFail(self, notification):
         notification_center = NotificationCenter()

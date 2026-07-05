@@ -217,6 +217,6 @@ def _send_push_notification(payload, destination, token, allow_strip_retry=True)
                 else:
                     log.warning('Error sending %s push notification to %s/%s: %s (%s) %s %s' % (platform.title(), payload.to, destination, token[:15], r.phrase.decode(), r.code, error_description))
             else:
-                log.info('Sent %s push notify for %s to %s/%s' % (platform.title(), payload.to, destination, token[:15]))
+                log.info('Sent %s push notify %s for %s to %s/%s' % (platform.title(), payload.call_id, payload.to, destination, token[:15]))
     else:
         log.warning('Cannot send push notification: no Sylk push server configured')

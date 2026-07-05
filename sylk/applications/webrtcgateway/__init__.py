@@ -273,6 +273,7 @@ class WebRTCGatewayApplication(SylkApplication):
             message_request.answer(400)
             return
 
+        message_id = None
         if content_type == 'message/cpim':
             try:
                 cpim_message = CPIMPayload.decode(data.body)
@@ -282,6 +283,7 @@ class WebRTCGatewayApplication(SylkApplication):
                 return
             else:
                 content_type = cpim_message.content_type
+                message_id = next((header.value for header in cpim_message.additional_headers if header.name == 'Message-ID'), None)
 
         # Loop mitigation: drop self-addressed control messages where From == To
         # and the originator is the local sylkserver identity. These happen
@@ -294,7 +296,13 @@ class WebRTCGatewayApplication(SylkApplication):
             message_request.answer(200)
             return
 
-        log.info('received SIP message (%s) from %s to %s' % (content_type, from_account, to_account))
+        if message_id is not None:
+            if content_type in ('message/imdn+xml'):
+                log.debug('received SIP %s message %s from %s to %s' % (content_type, message_id, from_account, to_account))
+            else:
+                log.info('received SIP %s message %s from %s to %s' % (content_type, message_id, from_account, to_account))
+        else:
+            log.info('received SIP %s message from %s to %s' % (content_type, from_account, to_account))
 
         message_request.answer(200)
 

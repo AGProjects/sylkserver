@@ -56,6 +56,7 @@ from .janus import (JanusBackend, JanusError, JanusSession, SIPPluginHandle,
                     VideoroomPluginHandle)
 from .logger import ConnectionLogger, VideoroomLogger
 from .models import janus, sylkrtc
+from .sip_handlers import log_uri
 from .storage import MessageStorage, TokenStorage
 
 
@@ -1675,7 +1676,7 @@ class ConnectionHandler(object):
             identity = str(account.uri)
             if account.display_name:
                 identity = '"%s" <%s>' % (account.display_name, identity)
-            self.log.debug("sending message from '%s' to '%s' using proxy %s" % (identity, uri, route))
+            self.log.debug("sending %s message %s from %s to %s via %s" % (content_type, message_id, log_uri(identity), log_uri(uri), log_uri(route)))
 
             from_uri = SIPURI.parse(account.uri)
             content = content if isinstance(content, bytes) else content.encode()
@@ -1713,10 +1714,10 @@ class ConnectionHandler(object):
         sip_uri = SIPURI.parse('sip:%s' % uri)
         if route:
             identity = str(account)
-            self.log.info("sending simple message from '%s' to '%s' using proxy %s" % (identity, uri, route))
-
             from_uri = SIPURI.parse(f'sip:{identity}')
             content = content if isinstance(content, bytes) else content.encode()
+            if content_type not in ('application/sylk-conversation-read'):
+                self.log.info("sending %s message from %s to %s via %s" % (content_type, log_uri(identity), log_uri(uri), log_uri(route)))
 
             message_request = Message(FromHeader(from_uri),
                                       ToHeader(sip_uri),
@@ -1955,7 +1956,7 @@ class ConnectionHandler(object):
                     message_id=message_id,
                     state='pending')
 
-        self.log.info('sending message ({content_type}) to: {uri}'.format(content_type=content_type, uri=uri))
+        self.log.info('sending {content_type} message {message_id} to {uri}'.format(message_id=message_id, content_type=content_type, uri=uri))
         self._send_sip_message(account_info, uri, message_id, content, content_type, timestamp=timestamp)
 
         event = sylkrtc.AccountSyncEvent(account=account_info.id, type='message', action='add', content=request)
@@ -3870,7 +3871,7 @@ class ConnectionHandler(object):
             return
 
         message = notification.data.message
-        self.log.info('received IMDN message ({status}) from: {originator.uri}'.format(status=message.state, originator=notification.data.sender))
+        self.log.info('received IMDN {status} message {message_id} from {originator.uri}'.format(message_id=message.message_id, status=message.state, originator=notification.data.sender))
         self.send(message)
 
     def _NH_SIPApplicationGotAccountMessage(self, notification):
@@ -3883,7 +3884,7 @@ class ConnectionHandler(object):
             return
 
         message = notification.data
-        self.log.info('received message ({content_type}) from: {originator.uri}'.format(content_type=message.content_type, originator=message.sender))
+        self.log.info('received {content_type} message {message_id} from {originator.uri}'.format(message_id=message.message_id, content_type=message.content_type, originator=message.sender))
         self.send(message)
 
     def _NH_SIPApplicationGotOutgoingAccountMessage(self, notification):
@@ -3896,7 +3897,7 @@ class ConnectionHandler(object):
             return
 
         message = notification.data
-        self.log.info('received outgoing message ({content_type}) to {destination}'.format(content_type=message.content.content_type, destination=message.content.uri))
+        self.log.info('received outgoing {content_type} message {message_id} to {destination}'.format(message_id=message.content.message_id, content_type=message.content.content_type, destination=message.content.uri))
         self.send(message)
 
     def _NH_SIPApplicationGotAccountRemoveMessage(self, notification):
@@ -3966,11 +3967,11 @@ class ConnectionHandler(object):
         notification_center = NotificationCenter()
         notification_center.remove_observer(self, sender=notification.sender)
 
-        self.log.info('message was accepted by remote party')
         data = notification.data
 
         body = CPIMPayload.decode(notification.sender.body)
         message_id = next((header.value for header in body.additional_headers if header.name == 'Message-ID'), None)
+        self.log.info('message %s was accepted' % message_id)
         account_info = self.accounts_map['{}@{}'.format(body.sender.uri.user.decode('utf-8'), body.sender.uri.host.decode('utf-8'))]
         timestamp = body.timestamp
 
