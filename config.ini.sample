@@ -181,3 +181,23 @@ certificate = /etc/sylkserver/tls/default.crt
 ; warning. If not set the listening IP address will be used
 ; hostname =
 
+
+[ThorNetwork]
+
+; SIP Thor network settings
+
+; enabled = False
+; domain = sipthor.net
+; multiply = 1000
+; certificate =
+; private_key =
+; ca =
+
+; Used when looking up a SIP proxy for a user. If enabled, the configured
+; outbound proxy (e.g. outbound_sip_proxy in webrtcgateway.ini) is bypassed
+; and the proxy is found per-user by looking up the responsible node in the
+; Thor network, reached using the port and transport (tcp or tls) below
+; outbound_proxy_enabled = False
+; outbound_proxy_port = 5060
+; outbound_proxy_transport = tcp
+

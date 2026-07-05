@@ -14,7 +14,8 @@
 ; * (the default) means any
 ; web_origins = *
 
-; Proxy used for outbound SIP traffic
+; Proxy used for outbound SIP traffic. Bypassed when outbound_proxy_enabled
+; is set in the [ThorNetwork] section of config.ini
 ; outbound_sip_proxy =
 
 ; List of allowed SIP domains for managing accounts

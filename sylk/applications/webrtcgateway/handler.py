@@ -44,7 +44,7 @@ from werkzeug.exceptions import InternalServerError
 from zope.interface import implementer
 
 from sylk.accounts import DefaultAccount
-from sylk.configuration import SIPConfig
+from sylk.configuration import SIPConfig, ThorNodeConfig
 from sylk.session import Session
 
 from . import push
@@ -1577,11 +1577,19 @@ class ConnectionHandler(object):
 
             videoroom.log.info('destroyed')
 
-    def _lookup_sip_proxy(self, uri):
+    def _lookup_sip_proxy(self, uri, sender=None):
         # The proxy dance: Sofia-SIP seems to do a DNS lookup per SIP message when a domain is passed
         # as the proxy, so do the resolution ourselves and give it pre-resolver proxy URL. Since we use
         # caching to avoid long delays, we randomize the results matching the highest priority route's
         # transport.
+
+        if ThorNodeConfig.outbound_proxy_enabled:
+            # route through the Thor node responsible for the sender (caller/registering account)
+            key = sender or uri
+            thor_proxy = self._thor_lookup_sip_proxy(key)
+            if thor_proxy is not None:
+                return thor_proxy
+            self.log.warning('SIP Thor lookup for {} yielded no node, falling back to DNS'.format(key))
 
         proxy = GeneralConfig.outbound_sip_proxy
         if proxy is not None:
@@ -1603,14 +1611,46 @@ class ConnectionHandler(object):
         # Build a proxy URI Sofia-SIP likes
         return 'sips:{route.address}:{route.port}'.format(route=route) if route.transport == 'tls' else str(route.uri)
 
+    def _thor_lookup_sip_proxy(self, uri):
+        # Find the sip_proxy node responsible for the SIP address using the
+        # SIP Thor consistent hash network instead of DNS. The lookup key is
+        # the address of record (user@domain), same as thor-lookup uses.
+        node = self._thor_lookup_sip_proxy_node(uri)
+        if node is None:
+            return None
+        port = ThorNodeConfig.outbound_proxy_port
+        transport = str(ThorNodeConfig.outbound_proxy_transport)
+        return 'sip:{}:{};transport={}'.format(node, port, transport)
+
+    def _thor_lookup_sip_proxy_node(self, uri):
+        # Return the IP of the sip_proxy Thor node responsible for uri, or None
+        if not ThorNodeConfig.enabled:
+            self.log.warning('[ThorNetwork] outbound_proxy_enabled is set, but the Thor network is not enabled')
+            return None
+        from sylk.interfaces.sipthor import ConferenceNode
+        sip_uri = SIPURI.parse('sip:%s' % uri)
+        key = '{}@{}'.format(sip_uri.user.decode('utf-8'), sip_uri.host.decode('utf-8'))
+        node = ConferenceNode().lookup_sip_proxy(key)
+        if node is not None:
+            self.log.debug('SIP Thor lookup for {} yielded {}'.format(key, node))
+        return node
+
     def _callid_to_uuid(self, callid):
         hexa = hashlib.md5(callid.encode()).hexdigest()
         uuidv4 = '%s-%s-%s-%s-%s' % (hexa[:8], hexa[8:12], hexa[12:16], hexa[16:20], hexa[20:])
         return uuidv4
 
-    def _lookup_sip_target_route(self, uri):
+    def _lookup_sip_target_route(self, uri, sender=None):
         if GeneralConfig.local_sip_messages:
             return Route(address=SIPConfig.local_ip, port=SIPConfig.local_tcp_port, transport='tcp')
+        if ThorNodeConfig.outbound_proxy_enabled:
+            # route outgoing messages through the Thor node responsible for the sender
+            key = sender or uri
+            node = self._thor_lookup_sip_proxy_node(key)
+            if node is not None:
+                return Route(address=node, port=ThorNodeConfig.outbound_proxy_port, transport=str(ThorNodeConfig.outbound_proxy_transport))
+            self.log.warning('SIP Thor lookup for {} yielded no node, falling back to DNS'.format(key))
+
         proxy = GeneralConfig.outbound_sip_proxy
         if proxy is not None:
             sip_uri = SIPURI(host=proxy.host, port=proxy.port, parameters={'transport': proxy.transport})
@@ -1629,7 +1669,7 @@ class ConnectionHandler(object):
         return route
 
     def _send_sip_message(self, account, uri, message_id, content, content_type='text/plain', timestamp=None, add_disposition=True):
-        route = self._lookup_sip_target_route(uri)
+        route = self._lookup_sip_target_route(uri, sender=account.id)
         sip_uri = SIPURI.parse('sip:%s' % uri)
         if route:
             identity = str(account.uri)
@@ -1669,7 +1709,7 @@ class ConnectionHandler(object):
             message_request.send()
 
     def _send_simple_sip_message(self, account, uri, content, content_type='text/plain'):
-        route = self._lookup_sip_target_route(uri)
+        route = self._lookup_sip_target_route(uri, sender=str(account))
         sip_uri = SIPURI.parse('sip:%s' % uri)
         if route:
             identity = str(account)
@@ -1846,7 +1886,8 @@ class ConnectionHandler(object):
             account_info.auth_handle.authenticate(proxy)
         else:
             account_info.janus_handle.register(account_info, proxy=proxy)
-            self.log.info('registering to SIP Proxy {proxy}...'.format(proxy=proxy))
+            proxy_type = 'SIP Thor node' if ThorNodeConfig.outbound_proxy_enabled else 'SIP Proxy'
+            self.log.info('registering to {proxy_type} {proxy}...'.format(proxy_type=proxy_type, proxy=proxy))
 
     def _RH_account_unregister(self, request):
         try:
@@ -2169,7 +2210,7 @@ class ConnectionHandler(object):
         except KeyError:
             raise APIError('Unknown account specified: {request.account}'.format(request=request))
 
-        proxy = self._lookup_sip_proxy(request.uri)
+        proxy = self._lookup_sip_proxy(request.uri, sender=request.account)
 
         # Create a new plugin handle and 'register' it, without actually doing so
         janus_handle = SIPPluginHandle(self.janus_session, event_handler=self._handle_janus_sip_event)

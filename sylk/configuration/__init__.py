@@ -2,7 +2,7 @@
 from application.configuration import ConfigSection, ConfigSetting
 from application.configuration.datatypes import NetworkRangeList, StringList
 from application.system import host
-from sipsimple.configuration.datatypes import NonNegativeInteger, SampleRate
+from sipsimple.configuration.datatypes import NonNegativeInteger, SampleRate, SIPTransport
 
 from sylk.configuration.datatypes import (AudioCodecs, IPAddress, LogLevel,
                                           Path, Port, PortRange,
@@ -121,3 +121,10 @@ class ThorNodeConfig(ConfigSection):
     certificate = ConfigSetting(type=Certificate, value=None)
     private_key = ConfigSetting(type=PrivateKey, value=None)
     ca = ConfigSetting(type=Certificate, value=None)
+    # Used when looking up the SIP proxy for a user in the Thor network.
+    # If enabled, the configured outbound proxy setting is bypassed and the
+    # proxy is found per-user by looking up the responsible Thor node,
+    # reached using the port and transport (tcp or tls) below
+    outbound_proxy_enabled = False
+    outbound_proxy_port = ConfigSetting(type=Port, value=5060)
+    outbound_proxy_transport = ConfigSetting(type=SIPTransport, value='tcp')

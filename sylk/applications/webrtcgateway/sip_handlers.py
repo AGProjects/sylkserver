@@ -24,7 +24,7 @@ from sipsimple.util import ISOTimestamp
 from twisted.internet import defer, reactor
 from zope.interface import implementer
 
-from sylk.configuration import SIPConfig
+from sylk.configuration import SIPConfig, ThorNodeConfig
 from sylk.web import server
 
 from . import push
@@ -65,7 +65,29 @@ class MessageHandler(object):
         self.body = None
         self.parsed_message = None
 
-    def _lookup_sip_target_route(self, uri):
+    def _thor_lookup_sip_proxy_node(self, uri):
+        # Return the IP of the sip_proxy Thor node responsible for uri, or None
+        if not ThorNodeConfig.enabled:
+            log.warning('[ThorNetwork] outbound_proxy_enabled is set, but the Thor network is not enabled')
+            return None
+        from sylk.interfaces.sipthor import ConferenceNode
+        uri = str(uri)
+        sip_uri = SIPURI.parse(uri if uri.startswith(('sip:', 'sips:')) else 'sip:%s' % uri)
+        key = '{}@{}'.format(sip_uri.user.decode('utf-8'), sip_uri.host.decode('utf-8'))
+        node = ConferenceNode().lookup_sip_proxy(key)
+        if node is not None:
+            log.debug('SIP Thor lookup for {} yielded {}'.format(key, node))
+        return node
+
+    def _lookup_sip_target_route(self, uri, sender=None):
+        if ThorNodeConfig.outbound_proxy_enabled:
+            # route through the Thor node responsible for the sender
+            key = sender or uri
+            node = self._thor_lookup_sip_proxy_node(key)
+            if node is not None:
+                return Route(address=node, port=ThorNodeConfig.outbound_proxy_port, transport=str(ThorNodeConfig.outbound_proxy_transport))
+            log.warning('SIP Thor lookup for {} yielded no node, falling back to DNS'.format(key))
+
         proxy = GeneralConfig.outbound_sip_proxy
         if proxy is not None:
             sip_uri = SIPURI(host=proxy.host, port=proxy.port, parameters={'transport': proxy.transport})
@@ -506,7 +528,7 @@ class MessageHandler(object):
 
     @run_in_green_thread
     def outgoing_message(self, uri, content, content_type='text/plain', identity=None, extra_headers=[]):
-        route = self._lookup_sip_target_route(uri)
+        route = self._lookup_sip_target_route(uri, sender=identity)
         if route:
             if identity is None:
                 identity = f'sip:sylkserver@{SIPConfig.local_ip}'

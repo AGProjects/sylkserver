@@ -50,6 +50,18 @@ class ConferenceNode(EventServiceClient, metaclass=Singleton):
         # Needs to be called from a green thread
         self._shutdown()
 
+    def lookup_sip_proxy(self, key):
+        """Return the IP of the sip_proxy node responsible for key (the SIP address of record), or None"""
+        network = getattr(self, 'networks', {}).get('sip_proxy')
+        if network is None:
+            return None
+        try:
+            node = network.lookup_node(key)
+        except Exception:
+            log.exception('SIP Thor sip_proxy lookup failed for %s' % key)
+            return None
+        return node.decode() if isinstance(node, bytes) else node
+
     def _monitor_event_servers(self):
         def wrapped_func():
             servers = self._get_event_servers()
