@@ -809,6 +809,14 @@ class ConferenceApplication(SylkApplication):
         room.start()
         room.add_session(session)
         log.info('Room %s - session %s from %s started' % (room.uri, session.call_id, session.remote_identity.uri))
+        for stream in (stream for stream in session.streams or [] if getattr(stream, 'msrp', None) is not None):
+            try:
+                local = stream.msrp.getHost()
+                remote = stream.msrp.getPeer()
+                scheme = 'MSRPS' if stream.transport == 'tls' else 'MSRP'
+                log.info('Room %s - %s session %s %s %s:%s <-> %s:%s' % (room.uri, stream.type, session.call_id, scheme, local.host, local.port, remote.host, remote.port))
+            except Exception:
+                pass
         # The call is now a live room session; drop it from the pending set so
         # it isn't double-counted against the per-room limit.
         self._clear_pending_room_join(session)
