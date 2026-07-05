@@ -318,8 +318,8 @@ class ConferenceApplication(SylkApplication):
         from_key = str(session.remote_identity.uri)
         target_key = self._uri_key(target_uri)
         self._selector_redirects[(selector_key, from_key)] = target_key
-        log.info('select_conference: redirect registered %s/%s -> %s' %
-                 (selector_key, from_key, target_key))
+        log.info('select_conference: session %s redirect registered %s/%s -> %s' %
+                 (session.call_id, selector_key, from_key, target_key))
 
     def unregister_selector_redirect(self, session):
         selector_key = self._uri_key(session.request_uri)
@@ -487,7 +487,7 @@ class ConferenceApplication(SylkApplication):
         for stream in chat_streams:
             stream.start_otr = False
         if not audio_streams and not chat_streams and not transfer_streams:
-            log.info(u'Session rejected: invalid media')
+            log.info('Session %s rejected: invalid media' % session.call_id)
             session.reject(488)
             return
         audio_stream = audio_streams[0] if audio_streams else None
@@ -521,7 +521,7 @@ class ConferenceApplication(SylkApplication):
         if (getattr(session, '_sylk_conference_target_uri', None) is None and
                 _uri_field(session.request_uri.user) == ConferenceConfig.default_conference_selector):
             if audio_stream is None:
-                log.info('Session rejected: conference selector requires an audio stream')
+                log.info('Session %s rejected: conference selector requires an audio stream' % session.call_id)
                 session.reject(488)
                 return
             # ACL is validated later, against the actual room URI chosen by
@@ -540,7 +540,7 @@ class ConferenceApplication(SylkApplication):
         try:
             self.validate_acl(routing_uri, session.remote_identity.uri)
         except ACLValidationError:
-            log.info('Session rejected: unauthorized by access list')
+            log.info('Session %s rejected: unauthorized by access list' % session.call_id)
             session.reject(403)
             return
 
@@ -548,7 +548,7 @@ class ConferenceApplication(SylkApplication):
             try:
                 room = self.get_room(routing_uri)
             except RoomNotFoundError:
-                log.info('Session rejected: room not found')
+                log.info('Session %s rejected: room not found' % session.call_id)
                 session.reject(404)
                 return
             if transfer_stream.direction == 'sendonly':
@@ -556,13 +556,13 @@ class ConferenceApplication(SylkApplication):
                 try:
                     file = next(file for file in room.files if file.hash == transfer_stream.file_selector.hash)
                 except StopIteration:
-                    log.info('Session rejected: requested file not found')
+                    log.info('Session %s rejected: requested file not found' % session.call_id)
                     session.reject(404)
                     return
                 try:
                     transfer_stream.file_selector = file.file_selector
                 except EnvironmentError as e:
-                    log.info('Session rejected: error opening requested file: %s' % e)
+                    log.info('Session %s rejected: error opening requested file: %s' % (session.call_id, e))
                     session.reject(404)
                     return
             else:
@@ -580,16 +580,16 @@ class ConferenceApplication(SylkApplication):
         max_room_calls = getattr(room_config, 'maximum_call_count_per_room',
                                  ConferenceConfig.maximum_call_count_per_room)
         if max_room_calls and self._room_call_count(room_uri_str) >= max_room_calls:
-            log.info('Session rejected: room %s call limit reached (%d)' % (room_uri_str, max_room_calls))
+            log.info('Session %s rejected: room %s call limit reached (%d)' % (session.call_id, room_uri_str, max_room_calls))
             session.reject(603, 'Maximum conference calls exceeded')
             return
 
         NotificationCenter().add_observer(self, sender=session)
         self._track_pending_room_join(session, room_uri_str)
         if max_room_calls:
-            log.info('Room %s active calls: %d/%d' % (room_uri_str, self._room_call_count(room_uri_str), max_room_calls))
+            log.info('Room %s - session %s active calls: %d/%d' % (room_uri_str.partition('@')[0], session.call_id, self._room_call_count(room_uri_str), max_room_calls))
         else:
-            log.info('Room %s active calls: %d (no limit)' % (room_uri_str, self._room_call_count(room_uri_str)))
+            log.info('Room %s - session %s active calls: %d (no limit)' % (room_uri_str.partition('@')[0], session.call_id, self._room_call_count(room_uri_str)))
         is_bridge = getattr(session, '_sylk_audio_bridge', False)
         # Skip the 180 Ringing for bridge calls — there's no human on the
         # other end to comfort with ringback. The trace collapses to
@@ -670,12 +670,12 @@ class ConferenceApplication(SylkApplication):
             refer_request.reject(400)
             return
 
-        log.info('Room %s - join request from %s to %s' % ('%s@%s' % (to_header.uri.user, to_header.uri.host), from_header.uri, refer_to_header.uri))
+        log.info('Room %s - join request from %s to %s' % (_uri_field(to_header.uri.user), from_header.uri, refer_to_header.uri))
 
         try:
             self.validate_acl(data.request_uri, from_header.uri)
         except ACLValidationError:
-            log.info('Room %s - invite participant request rejected: unauthorized by access list' % data.request_uri)
+            log.info('Room %s - invite participant request rejected: unauthorized by access list' % _uri_field(data.request_uri.user))
             refer_request.reject(403)
             return
         referral_handler = IncomingReferralHandler(refer_request, data)
@@ -709,13 +709,13 @@ class ConferenceApplication(SylkApplication):
         event_header = headers.get('Event')
         event = getattr(event_header, 'event', None) or (_hval(event_header) or '').split(';', 1)[0].strip() or None
         if event != 'conference':
-            log.info('Room %s - PUBLISH rejected: unsupported event %r' % (room_uri_str, event))
+            log.info('Room %s - PUBLISH rejected: unsupported event %r' % (room_uri_str.partition('@')[0], event))
             publish_request.answer(489)  # Bad Event
             return
         try:
             room = self.get_room(request_uri)
         except RoomNotFoundError:
-            log.info('Room %s - PUBLISH rejected: room not found' % room_uri_str)
+            log.info('Room %s - PUBLISH rejected: room not found' % room_uri_str.partition('@')[0])
             publish_request.answer(404)
             return
 
@@ -729,20 +729,20 @@ class ConferenceApplication(SylkApplication):
 
         # Conditional request: the referenced state must still exist and match.
         if if_match is not None and (current is None or current.get('etag') != if_match):
-            log.info('Room %s - PUBLISH rejected: SIP-If-Match %r does not match current state' % (room_uri_str, if_match))
+            log.info('Room %s - PUBLISH rejected: SIP-If-Match %r does not match current state' % (room_uri_str.partition('@')[0], if_match))
             publish_request.answer(412)  # Conditional Request Failed
             return
 
         if expires == 0:
             room.set_videoroom_roster(None)
-            log.info('Room %s - videoroom roster removed via PUBLISH' % room_uri_str)
+            log.info('Room %s - videoroom roster removed via PUBLISH' % room_uri_str.partition('@')[0])
             publish_request.answer(200, extra_headers=[Header('Expires', '0')])
             return
 
         body = data.body or None
         if if_match is None and body is None:
             # Initial publication must carry the state document.
-            log.info('Room %s - PUBLISH rejected: initial publication without a body' % room_uri_str)
+            log.info('Room %s - PUBLISH rejected: initial publication without a body' % room_uri_str.partition('@')[0])
             publish_request.answer(400)
             return
 
@@ -759,7 +759,7 @@ class ConferenceApplication(SylkApplication):
         etag = os.urandom(8).hex()
         room.set_videoroom_roster(body, content_type, etag=etag)
         log.info('Room %s - videoroom roster %s via PUBLISH (%s, %d bytes, etag=%s, expires=%d)' % (
-            room_uri_str, action, content_type, len(body or ''), etag, expires))
+            room_uri_str.partition('@')[0], action, content_type, len(body or ''), etag, expires))
         publish_request.answer(200, extra_headers=[Header('SIP-ETag', etag), Header('Expires', str(expires))])
 
     def accept_session(self, session, streams):
@@ -773,7 +773,7 @@ class ConferenceApplication(SylkApplication):
         # Keep track of the invited participants, we must skip ACL policy
         # for SUBSCRIBE requests
         room_uri_str = '%s@%s' % (room_uri.user, room_uri.host)
-        log.info('Room %s - outgoing session to %s started' % (room_uri_str, session.remote_identity.uri))
+        log.info('Room %s - outgoing session %s to %s started' % (room_uri_str.partition('@')[0], session.call_id, session.remote_identity.uri))
         d = self.invited_participants_map.setdefault(room_uri_str, {})
         d.setdefault(str(session.remote_identity.uri), 0)
         d[str(session.remote_identity.uri)] += 1
@@ -788,7 +788,7 @@ class ConferenceApplication(SylkApplication):
         except RoomNotFoundError:
             pass
         else:
-            log.info('Room %s - %s removed from conference' % (room_uri, participant_uri))
+            log.info('Room %s - %s removed from conference' % (_uri_field(room_uri.user), participant_uri))
             room.terminate_sessions(participant_uri, participant_id=participant_id)
 
     def handle_notification(self, notification):
@@ -808,20 +808,13 @@ class ConferenceApplication(SylkApplication):
             room.config.disable_music_on_hold = True
         room.start()
         room.add_session(session)
-        log.info('Room %s - session %s from %s started' % (room.uri, session.call_id, session.remote_identity.uri))
+        # session start is logged by Room.add_session (started by/joined)
         for stream in (stream for stream in session.streams or [] if getattr(stream, 'msrp', None) is not None):
             try:
                 local = stream.msrp.getHost()
                 remote = stream.msrp.getPeer()
                 scheme = 'MSRPS' if stream.transport == 'tls' else 'MSRP'
-                log.info('Room %s - %s session %s %s %s:%s <-> %s:%s' % (room.uri, stream.type, session.call_id, scheme, local.host, local.port, remote.host, remote.port))
-            except Exception:
-                pass
-        for stream in (stream for stream in session.streams or [] if stream.type == 'audio'):
-            try:
-                encryption = stream.encryption
-                cipher = encryption.type if encryption is not None and encryption.active else 'unencrypted'
-                log.info('Room %s - audio session %s RTP %s:%s <-> %s:%s (%s)' % (room.uri, session.call_id, stream.local_rtp_address, stream.local_rtp_port, stream.remote_rtp_address, stream.remote_rtp_port, cipher))
+                log.info('Room %s - session %s %s stream %s %s:%s <-> %s:%s' % (room.name, session.call_id, stream.type, scheme, local.host, local.port, remote.host, remote.port))
             except Exception:
                 pass
         # The call is now a live room session; drop it from the pending set so
@@ -855,7 +848,7 @@ class ConferenceApplication(SylkApplication):
             return
         if session in room.sessions:
             room.remove_session(session)
-        log.info('Room %s - session %s from %s ended' % (room.uri, session.call_id, session.remote_identity.uri))
+        log.info('Room %s - session %s from %s ended' % (room.name, session.call_id, session.remote_identity.uri))
         if not room.stopping and room.empty:
             self.remove_room(room_uri)
             room.stop()
@@ -866,7 +859,7 @@ class ConferenceApplication(SylkApplication):
         self._clear_pending_room_join(session)
         room_uri = getattr(session, '_sylk_conference_target_uri', None) or session.request_uri
         room_uri_str = '%s@%s' % (room_uri.user, room_uri.host)
-        log.info('Room %s - session from %s failed: %s (%s)' % (room_uri_str, session.remote_identity.uri, notification.data.reason, notification.data.failure_reason))
+        log.info('Room %s - session %s from %s failed: %s (%s)' % (room_uri_str.partition('@')[0], session.call_id, session.remote_identity.uri, notification.data.reason, notification.data.failure_reason))
 
 
 @implementer(IObserver)
@@ -1007,7 +1000,7 @@ class SelectConferenceHandler(object):
         if self.finalized:
             return
         if not self.digits:
-            log.info('select_conference: no input from %s, hanging up' % self.session.remote_identity.uri)
+            log.info('select_conference: session %s no input from %s, hanging up' % (self.session.call_id, self.session.remote_identity.uri))
             self._abort('no input')
         else:
             self._finalize()
@@ -1015,7 +1008,7 @@ class SelectConferenceHandler(object):
     def _on_overall_timeout(self):
         if self.finalized:
             return
-        log.info('select_conference: overall timeout for %s' % self.session.remote_identity.uri)
+        log.info('select_conference: session %s overall timeout for %s' % (self.session.call_id, self.session.remote_identity.uri))
         if self.digits:
             self._finalize()
         else:
@@ -1032,7 +1025,7 @@ class SelectConferenceHandler(object):
 
         # Sanity-check the collected digits: must be non-empty and digits-only.
         if not digits or not re.match(r'^[0-9]+$', digits):
-            log.info('select_conference: invalid input %r' % digits)
+            log.info('select_conference: session %s invalid input %r' % (self.session.call_id, digits))
             self._play_invalid_and_hangup()
             return
 
@@ -1047,13 +1040,13 @@ class SelectConferenceHandler(object):
         try:
             self.application.validate_acl(target_uri, self.session.remote_identity.uri)
         except ACLValidationError:
-            log.info('select_conference: %s denied access to %s@%s by ACL' %
-                     (self.session.remote_identity.uri, digits, host))
+            log.info('select_conference: session %s %s denied access to %s@%s by ACL' %
+                     (self.session.call_id, self.session.remote_identity.uri, digits, host))
             self._play_invalid_and_hangup()
             return
 
-        log.info('select_conference: %s selected room %s@%s' %
-                 (self.session.remote_identity.uri, digits, host))
+        log.info('select_conference: session %s %s selected room %s@%s' %
+                 (self.session.call_id, self.session.remote_identity.uri, digits, host))
 
         # Stop the prompt if it is still running, then hand off ownership of
         # the session to the conference application.
@@ -1115,7 +1108,7 @@ class SelectConferenceHandler(object):
             return
         self.finalized = True
         self._cancel_timers()
-        log.info('select_conference: aborting (%s)' % reason)
+        log.info('select_conference: session %s aborting (%s)' % (self.session.call_id, reason))
 
         @run_in_green_thread
         def run():
@@ -1146,7 +1139,7 @@ class SelectConferenceHandler(object):
         try:
             audio_stream = next(s for s in session.streams if s.type == 'audio')
         except StopIteration:
-            log.warning('select_conference: no audio stream after start, aborting')
+            log.warning('select_conference: session %s no audio stream after start, aborting' % session.call_id)
             self._abort('no audio')
             return
         self.audio_stream = audio_stream
@@ -1155,12 +1148,12 @@ class SelectConferenceHandler(object):
         self.play_proc = self._spawn_prompt(ConferenceConfig.select_conference_prompt)
 
     def _NH_SIPSessionDidFail(self, notification):
-        log.info('select_conference: session failed: %s' % notification.data.reason)
+        log.info('select_conference: session %s session failed: %s' % (notification.sender.call_id, notification.data.reason))
         self._cleanup()
 
     def _NH_SIPSessionDidEnd(self, notification):
         if not self.handed_off:
-            log.info('select_conference: session ended before selection')
+            log.info('select_conference: session %s session ended before selection' % notification.sender.call_id)
         self._cleanup()
 
     def _NH_SIPSessionTransferNewIncoming(self, notification):
@@ -1177,7 +1170,7 @@ class SelectConferenceHandler(object):
         digit = notification.data.digit
         if isinstance(digit, bytes):
             digit = digit.decode()
-        log.info('select_conference: got DTMF %r (collected so far: %r)' % (digit, self.digits))
+        log.info('select_conference: session %s got DTMF %r (collected so far: %r)' % (self.session.call_id, digit, self.digits))
 
         if digit == '#':
             # Terminator: submit what we have.
@@ -1269,8 +1262,8 @@ class IncomingReferralHandler(object):
                 handler.session.end()
                 cancelled += 1
             except Exception as e:
-                log.warning('Room %s - cancel_pending_invites: session.end() raised for %s: %s' %
-                            (room_uri_str, handler_aor, e))
+                log.warning('Room %s - session %s cancel_pending_invites: session.end() raised for %s: %s' %
+                            (room_uri_str.partition('@')[0], handler.session.call_id, handler_aor, e))
         return cancelled
 
     def __init__(self, refer_request, data):
@@ -1318,7 +1311,7 @@ class IncomingReferralHandler(object):
         try:
             self.refer_to_uri = SIPURI.parse(self.refer_to_uri)
         except SIPCoreError:
-            log.info('Room %s - failed to add %s' % (self.room_uri_str, self.refer_to_uri))
+            log.info('Room %s - failed to add %s' % (self.room_uri_str.partition('@')[0], self.refer_to_uri))
             self._refer_request.reject(488)
             return
         notification_center = NotificationCenter()
@@ -1350,7 +1343,7 @@ class IncomingReferralHandler(object):
                     pid_param = pid_param.decode()
                 except Exception:
                     pid_param = None
-            log.info('Room %s - %s removed %s (pid=%s) from the room' % (self.room_uri_str, self._refer_headers.get('From').uri, self.refer_to_uri, pid_param or '-'))
+            log.info('Room %s - %s removed %s (pid=%s) from the room' % (self.room_uri_str.partition('@')[0], self._refer_headers.get('From').uri, self.refer_to_uri, pid_param or '-'))
             self._refer_request.accept()
             conference_application = ConferenceApplication()
             conference_application.remove_participant(self.refer_to_uri, self.room_uri, participant_id=pid_param or None)
@@ -1409,7 +1402,7 @@ class IncomingReferralHandler(object):
                     _u = _h = ''
                 if not _u or not _h:
                     log.info('Room %s - %s REFER ;method=%s rejected: cannot derive AoR from %s' % (
-                        self.room_uri_str, self._refer_headers.get('From').uri, self.method, self.refer_to_uri))
+                        self.room_uri_str.partition('@')[0], self._refer_headers.get('From').uri, self.method, self.refer_to_uri))
                     self._refer_request.reject(488)
                     return
                 identifier = '{}@{}'.format(_u, _h)
@@ -1419,23 +1412,23 @@ class IncomingReferralHandler(object):
                 room = conference_application.get_room(self.room_uri)
             except RoomNotFoundError:
                 log.info('Room %s - %s REFER ;method=%s failed: no such room' % (
-                    self.room_uri_str, self._refer_headers.get('From').uri, self.method))
+                    self.room_uri_str.partition('@')[0], self._refer_headers.get('From').uri, self.method))
                 self._refer_request.end(500)
                 return
             try:
                 applied = room.set_participant_muted(identifier, target_muted)
             except Exception as e:
                 log.warning('Room %s - %s REFER ;method=%s on %s raised: %s' % (
-                    self.room_uri_str, self._refer_headers.get('From').uri, self.method, identifier, e))
+                    self.room_uri_str.partition('@')[0], self._refer_headers.get('From').uri, self.method, identifier, e))
                 self._refer_request.end(500)
                 return
             if not applied:
                 log.info('Room %s - %s REFER ;method=%s on %s: no matching participant' % (
-                    self.room_uri_str, self._refer_headers.get('From').uri, self.method, identifier))
+                    self.room_uri_str.partition('@')[0], self._refer_headers.get('From').uri, self.method, identifier))
                 self._refer_request.end(404)
                 return
             log.info('Room %s - %s %smuted %s via REFER' % (
-                self.room_uri_str, self._refer_headers.get('From').uri,
+                self.room_uri_str.partition('@')[0], self._refer_headers.get('From').uri,
                 '' if target_muted else 'un', identifier))
             self._refer_request.end(200)
         else:
@@ -1456,14 +1449,14 @@ class IncomingReferralHandler(object):
         # further NOTIFY.
         if self._cancelled:
             log.info('Room %s - DNS lookup for %s completed but REFER was cancelled by referrer; not inviting' %
-                     (self.room_uri_str, self.refer_to_uri))
+                     (self.room_uri_str.partition('@')[0], self.refer_to_uri))
             return
         account = DefaultAccount()
         conference_application = ConferenceApplication()
         try:
             room = conference_application.get_room(self.room_uri)
         except RoomNotFoundError:
-            log.info('Room %s - failed to add %s' % (self.room_uri_str, self.refer_to_uri))
+            log.info('Room %s - failed to add %s' % (self.room_uri_str.partition('@')[0], self.refer_to_uri))
             if self._refer_request is not None:
                 self._refer_request.end(500)
             return
@@ -1497,11 +1490,11 @@ class IncomingReferralHandler(object):
                 offer_source = "room's active media %s" % sorted(offer_media)
         if not offer_media:
             log.info('Room %s - failed to add %s: no usable media (%s yielded empty set)' %
-                     (self.room_uri_str, self.refer_to_uri, offer_source))
+                     (self.room_uri_str.partition('@')[0], self.refer_to_uri, offer_source))
             self._refer_request.end(500)
             return
         log.info('Room %s - inviting %s with media %s (from %s)' %
-                 (self.room_uri_str, self.refer_to_uri, sorted(offer_media), offer_source))
+                 (self.room_uri_str.partition('@')[0], self.refer_to_uri, sorted(offer_media), offer_source))
         for stream_type in offer_media:
             stream = MediaStreamRegistry.get(stream_type)()
             if stream_type == 'chat':
@@ -1547,11 +1540,11 @@ class IncomingReferralHandler(object):
                 if _u and _h:
                     self.session._sylk_inviter_aor = '{}@{}'.format(_u, _h).lower()
                     log.info('Room %s - tagging invitee %s with inviter AoR %s for anti-fraud eviction (pattern=%s)' %
-                             (self.room_uri_str, self.refer_to_uri, self.session._sylk_inviter_aor,
+                             (self.room_uri_str.partition('@')[0], self.refer_to_uri, self.session._sylk_inviter_aor,
                               str(getattr(ConferenceConfig, 'inviter_eviction_destinations', 'pstn') or 'pstn').strip().lower() or 'pstn'))
             except Exception as e:
                 log.warning('Room %s - could not derive inviter AoR for invitee %s: %s' %
-                            (self.room_uri_str, self.refer_to_uri, e))
+                            (self.room_uri_str.partition('@')[0], self.refer_to_uri, e))
         # Publish ourselves in the pending-invites registry BEFORE
         # firing the INVITE. Doing it before .connect() means a
         # REFER ;method=BYE that races with the outgoing INVITE
@@ -1599,12 +1592,12 @@ class IncomingReferralHandler(object):
             self._refer_request.end(200)
         conference_application = ConferenceApplication()
         conference_application.add_participant(self.session, self.room_uri)
-        log.info('Room %s - %s added %s' % (self.room_uri_str, self._refer_headers.get('From').uri, self.refer_to_uri))
+        log.info('Room %s - session %s %s added %s' % (self.room_uri_str.partition('@')[0], self.session.call_id, self._refer_headers.get('From').uri, self.refer_to_uri))
         self.session = None
         self.streams = []
 
     def _NH_SIPSessionDidFail(self, notification):
-        log.info('Room %s - failed to add %s: %s' % (self.room_uri_str, self.refer_to_uri, notification.data.reason))
+        log.info('Room %s - session %s failed to add %s: %s' % (self.room_uri_str.partition('@')[0], notification.sender.call_id, self.refer_to_uri, notification.data.reason))
         notification.center.remove_observer(self, sender=notification.sender)
         IncomingReferralHandler._unregister_pending(self)
         if self._refer_request is not None:
@@ -1624,7 +1617,7 @@ class IncomingReferralHandler(object):
 
     def _NH_SIPSessionDidEnd(self, notification):
         # If any stream fails to start we won't get SIPSessionDidFail, we'll get here instead
-        log.info('Room %s - failed to add %s' % (self.room_uri_str, self.refer_to_uri))
+        log.info('Room %s - session %s failed to add %s' % (self.room_uri_str.partition('@')[0], notification.sender.call_id, self.refer_to_uri))
         notification.center.remove_observer(self, sender=notification.sender)
         IncomingReferralHandler._unregister_pending(self)
         if self._refer_request is not None:
@@ -1662,13 +1655,13 @@ class IncomingReferralHandler(object):
         # ;method=BYE.
         self._cancelled = True
         log.info('Room %s - %s cancelled REFER (subscription terminated); aborting invite to %s' %
-                 (self.room_uri_str, self._refer_headers.get('From').uri, self.refer_to_uri))
+                 (self.room_uri_str.partition('@')[0], self._refer_headers.get('From').uri, self.refer_to_uri))
         if self.session is not None and self.session.state in (None, 'outgoing', 'connecting', 'received_proposal', 'sending_proposal'):
             try:
                 self.session.end()
             except Exception as e:
-                log.warning('Room %s - failed to cancel pending session to %s on REFER unsubscribe: %s' %
-                            (self.room_uri_str, self.refer_to_uri, e))
+                log.warning('Room %s - session %s failed to cancel pending session to %s on REFER unsubscribe: %s' %
+                            (self.room_uri_str.partition('@')[0], self.session.call_id, self.refer_to_uri, e))
 
     def _NH_SIPIncomingReferralDidEnd(self, notification):
         notification.center.remove_observer(self, sender=notification.sender)
