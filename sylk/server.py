@@ -26,7 +26,7 @@ from twisted.internet import reactor
 
 from sylk.accounts import DefaultAccount
 from sylk.applications import IncomingRequestHandler
-from sylk.configuration import ServerConfig, SIPConfig, ThorNodeConfig
+from sylk.configuration import MSRPConfig, ServerConfig, SIPConfig, ThorNodeConfig
 from sylk.configuration.settings import (AccountExtension,
                                          BonjourAccountExtension,
                                          SylkServerSettingsExtension)
@@ -82,6 +82,8 @@ class SylkServer(SIPApplication):
         log.info('TLS CA list: %s' % settings.tls.ca_list)
         log.info('TLS Certificate: %s' % settings.tls.certificate)
         log.info('TLS verify server: %s' % settings.tls.verify_server)
+        from sylk.streams import msrp_hostname
+        log.info('MSRP hostname (%s): %s' % ('configured' if MSRPConfig.msrp_hostname else 'detected', msrp_hostname))
         contents = open(settings.tls.certificate, 'rb').read()
         if (contents):
             try:

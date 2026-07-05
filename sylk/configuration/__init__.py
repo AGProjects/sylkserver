@@ -76,6 +76,10 @@ class MSRPConfig(ConfigSection):
     __section__ = 'MSRP'
 
     use_tls = True
+    # The hostname advertised in the MSRP URIs put in the SDP, so that clients
+    # can match it against the TLS certificate. When not set, the fully
+    # qualified hostname of the system is used.
+    msrp_hostname = ConfigSetting(type=str, value=None)
 
 
 class RTPConfig(ConfigSection):

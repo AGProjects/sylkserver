@@ -21,7 +21,13 @@ from sipsimple.threading import run_in_twisted_thread
 from sipsimple.threading.green import run_in_green_thread
 from sipsimple.util import ISOTimestamp
 
-from sylk.configuration import SIPConfig
+from application.system import host
+
+from sylk.configuration import MSRPConfig, SIPConfig
+
+
+# the hostname advertised in MSRP URIs: configured, or detected from the system
+msrp_hostname = MSRPConfig.msrp_hostname or host.fqdn
 
 
 @run_in_green_thread
@@ -58,7 +64,14 @@ def MSRPStreamBase_initialize(self, session, direction):
                     raise MSRPStreamError("Cannot accept MSRP connection without a TLS certificate")
                 self.msrp_connector = DirectAcceptor(logger=logger, use_sessmatch=True)
                 self.local_role = 'actpass' if outgoing else 'passive'
-        full_local_path = self.msrp_connector.prepare(local_uri=URI(host=SIPConfig.local_ip.normalized, port=0, use_tls=self.transport=='tls', credentials=self.session.account.tls_credentials))
+        local_uri = URI(host=SIPConfig.local_ip.normalized, port=0, use_tls=self.transport=='tls', credentials=self.session.account.tls_credentials)
+        full_local_path = self.msrp_connector.prepare(local_uri=local_uri)
+        if self.transport == 'tls' and msrp_hostname and isinstance(self.msrp_connector, DirectAcceptor):
+            # advertise the hostname instead of the local IP in the MSRP URI
+            # put in the SDP, so that clients connecting to us can match the
+            # TLS certificate against it (RFC 4975 section 14.4). The
+            # listening socket is already bound to the IP at this point.
+            local_uri.host = msrp_hostname
         self.local_media = self._create_local_media(full_local_path)
     except Exception as e:
         notification_center.post_notification('MediaStreamDidNotInitialize', self, NotificationData(reason=str(e)))

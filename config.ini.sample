@@ -118,6 +118,11 @@ certificate = /etc/sylkserver/tls/default.crt
 ; TLS is enabled by default, a default TLS certificate is provided with SylkServer.
 ; use_tls = True
 
+; The hostname advertised in the MSRP URIs put in the SDP, so that clients
+; can match it against the TLS certificate. By default the fully qualified
+; hostname of the system is used
+; msrp_hostname =
+
 
 [RTP]
 
