@@ -14,6 +14,12 @@
 ; application_map = echo:echo,123:conference,test:ircconference,gmail.com:xmppgateway
 application_map = echo:echo,playback:playback
 
+; Map the Content-Type of SIP MESSAGE requests to a specific application,
+; used as a fallback when the Request URI did not match anything in
+; application_map. Content types are matched by prefix, so the example below
+; matches application/sylk-api-token, application/sylk-api-anything, etc.
+; application_map_by_content_type = application/sylk-api:webrtcgateway
+
 ; Disable the specified applications
 disabled_applications = ircconference, xmppgateway
 

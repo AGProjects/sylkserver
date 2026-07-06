@@ -22,6 +22,10 @@ class ServerConfig(ConfigSection):
     enable_bonjour = False
     default_application = 'conference'
     application_map = ConfigSetting(type=StringList, value=['echo:echo'])
+    # Map MESSAGE Content-Type to an application, used as a fallback when the
+    # Request-URI did not match anything in application_map. Format:
+    # application_map_by_content_type = application/sylk-api-token:webrtcgateway
+    application_map_by_content_type = ConfigSetting(type=StringList, value='')
     disabled_applications = ConfigSetting(type=StringList, value='')
     extra_applications_dir = ConfigSetting(type=Path, value=None)
     trace_dir = ConfigSetting(type=Path, value=Path(VarResources.get('log/sylkserver')))

@@ -172,6 +172,12 @@ class IncomingRequestHandler(object, metaclass=Singleton):
             for app, urls in inverted_app_map.items():
                 txt += '  {}: {}\n'.format(app, ', '.join(urls))
             log.info(txt[:-1])
+        self.application_map_by_content_type = dict(item.split(':', 1) for item in ServerConfig.application_map_by_content_type if ':' in item)
+        if self.application_map_by_content_type:
+            txt = 'Application map by content type:\n'
+            for content_type, app in self.application_map_by_content_type.items():
+                txt += '  {}: {}\n'.format(content_type, app)
+            log.info(txt[:-1])
         self.authorization_handler = AuthorizationHandler()
         self.call_limit_handler = CallLimitHandler()
 
@@ -212,12 +218,28 @@ class IncomingRequestHandler(object, metaclass=Singleton):
             log.debug('Application %r selected by %s header for %s' % (application_name, SYLK_APP_HEADER, ruri))
         else:
             application_name = ServerConfig.default_application
+            uri_matched = False
             if self.application_map:
                 prefixes = ("%s@%s" % (ruri.user, ruri.host), ruri.host, ruri.user)
                 for prefix in prefixes:
                     if prefix in self.application_map:
                         application_name = self.application_map[prefix]
+                        uri_matched = True
                         break
+            if not uri_matched and self.application_map_by_content_type:
+                # No URI match: fall back to selecting the application by the
+                # request's Content-Type (prefix match, e.g. a map entry for
+                # 'application/sylk-api' matches 'application/sylk-api-token').
+                try:
+                    content_type = headers['Content-Type'].content_type
+                except (KeyError, AttributeError):
+                    content_type = None
+                if content_type:
+                    for prefix, app in self.application_map_by_content_type.items():
+                        if content_type.startswith(prefix):
+                            application_name = app
+                            log.debug('Application %r selected by content type %s for %s' % (application_name, content_type, ruri))
+                            break
         try:
             return self.application_registry[application_name]
         except KeyError:
