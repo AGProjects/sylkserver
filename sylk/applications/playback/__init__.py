@@ -152,6 +152,13 @@ class PlaybackHandler(object):
         if session.state == 'incoming':
             session.accept(streams)
 
+    def _log_audio_stream(self, stream):
+        encryption = stream.encryption.type if stream.encryption.active else 'unencrypted'
+        log.info('Session %s audio stream codec %s: %s:%d <-> %s:%d (%s)' % (self.session.call_id, stream.codec,
+                                                                             stream.local_rtp_address, stream.local_rtp_port,
+                                                                             stream.remote_rtp_address, stream.remote_rtp_port,
+                                                                             encryption))
+
     def _play(self):
         config = get_config('%s@%s' % (self.session.request_uri.user, self.session.request_uri.host))
         if config is None:
@@ -230,6 +237,8 @@ class PlaybackHandler(object):
 
         for stream in notification.data.added_streams:
             log.info('Session %s from %s added %s' % (session.call_id, self.caller, stream.type))
+            if stream.type == 'audio':
+                self._log_audio_stream(stream)
 
         for stream in notification.data.removed_streams:
             log.info('Session %s from %s removed %s' % (session.call_id, self.caller, stream.type))
@@ -243,6 +252,12 @@ class PlaybackHandler(object):
     def _NH_SIPSessionDidStart(self, notification):
         session = notification.sender
         log.info('Session %s from %s started' % (session.call_id, self.caller))
+        try:
+            audio_stream = next(stream for stream in session.streams if stream.type == 'audio')
+        except StopIteration:
+            pass
+        else:
+            self._log_audio_stream(audio_stream)
         self.proc = proc.spawn(self._play)
 
     def _NH_SIPSessionDidFail(self, notification):
