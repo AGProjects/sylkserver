@@ -137,6 +137,13 @@ class EchoHandler(object):
         if session.state == 'incoming':
             session.accept(streams)
 
+    def _log_audio_stream(self, stream):
+        encryption = stream.encryption.type if stream.encryption.active else 'unencrypted'
+        log.info('Session %s audio stream codec %s: %s:%d <-> %s:%d (%s)' % (self.session.call_id, stream.codec,
+                                                                             stream.local_rtp_address, stream.local_rtp_port,
+                                                                             stream.remote_rtp_address, stream.remote_rtp_port,
+                                                                             encryption))
+
     def _make_audio_stream_echo(self, stream):
         if stream.producer_slot is not None and stream.consumer_slot is not None:
             # TODO: handle slot changes
@@ -177,6 +184,7 @@ class EchoHandler(object):
             chat_stream = None
         log.info('Session %s from %s started' % (session.call_id, self.caller))
         if audio_stream is not None:
+            self._log_audio_stream(audio_stream)
             self._make_audio_stream_echo(audio_stream)
             notification.center.add_observer(self, sender=audio_stream)
         self.audio_stream = audio_stream
@@ -212,6 +220,7 @@ class EchoHandler(object):
             notification.center.add_observer(self, sender=stream)
             log.info('Session %s from %s has added %s' % (session.call_id, self.caller, stream.type))
             if stream.type == 'audio':
+                self._log_audio_stream(stream)
                 self._make_audio_stream_echo(stream)
                 self.audio_stream = stream
             elif stream.type == 'chat':
