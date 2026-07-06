@@ -2107,9 +2107,13 @@ class WelcomeHandler(object):
             message += 'Phones: {}\n'.format(' or '.join(', '.join(sorted(self.room.config.pstn_access_numbers)).rsplit(', ', 1)))
         if self.room.config.webrtc_gateway_url:
             message += 'WEB: {}\n'.format(str(self.room.config.webrtc_gateway_url).replace('$room', self.room.uri))
-        stream.send_message(message.rstrip(), 'text/plain', sender=self.room.identity, recipients=[self.room.identity])
+        
+        ns = CPIMNamespace('urn:ag-projects:xml:ns:cpim', prefix='agp')
+        message_type = CPIMHeader('Message-Type', ns, 'status')
+            
+        stream.send_message(message.rstrip(), 'text/plain', sender=self.room.identity, recipients=[self.room.identity], additional_headers=[message_type])
         for msg in self.room.history:
-            stream.send_message(msg.content, msg.content_type, sender=msg.sender, recipients=[self.room.identity], timestamp=msg.timestamp)
+            stream.send_message(msg.content, msg.content_type, sender=msg.sender, recipients=[self.room.identity], timestamp=msg.timestamp, additional_headers=[message_type])
 
         # Send ZRTP SAS over the chat stream, if applicable
         if self.room.config.zrtp_auto_verify:
