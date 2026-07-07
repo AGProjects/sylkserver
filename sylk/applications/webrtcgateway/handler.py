@@ -2192,15 +2192,21 @@ class ConnectionHandler(object):
 
         return update
 
-    def _client_ip(self):
-        # IP address of the WebRTC endpoint on the signalling socket.
+    def _client_addr(self):
+        # (ip, port) of the WebRTC endpoint on the signalling socket.
         # autobahn's protocol.peer is a string like 'tcp4:1.2.3.4:54321'
         # or 'tcp6:2001:db8::1:54321'; strip the transport prefix and the
         # trailing :port (host is everything in between, so IPv6 with
-        # embedded colons survives).
+        # embedded colons survives). Returns (peer, None) if the peer
+        # string doesn't match the expected format.
         peer = getattr(self.protocol, 'peer', None) or ''
         match = re.match(r'^tcp[46]?:(?P<host>.+):(?P<port>\d+)$', peer)
-        return match.group('host') if match else peer
+        if match:
+            return match.group('host'), match.group('port')
+        return peer, None
+
+    def _client_ip(self):
+        return self._client_addr()[0]
 
     def _RH_session_create(self, request):
         if request.session in self.sip_sessions:
@@ -2224,9 +2230,13 @@ class ConnectionHandler(object):
         # calling/ringing/proceeding — see _EH_janus_sip_event_*).
         extra_headers = list(request.headers.__data__) if request.headers is not None else []
         extra_headers.append({'name': 'X-Sylk-Session-Id', 'value': request.session})
-        # IP address of the WebRTC endpoint placing the call, so it
-        # surfaces in the server-side SIP trace / CDR.
-        extra_headers.append({'name': 'X-Sylk-Client-Ip', 'value': self._client_ip()})
+        # Source IP and port of the WebRTC endpoint placing the call
+        # (its signalling socket), so it surfaces in the server-side
+        # SIP trace / CDR.
+        client_ip, client_port = self._client_addr()
+        extra_headers.append({'name': 'X-Sylk-Client-Ip', 'value': client_ip})
+        if client_port is not None:
+            extra_headers.append({'name': 'X-Sylk-Client-Port', 'value': client_port})
         headers = {'headers': extra_headers}
         try:
             janus_handle.call(account_info, uri=request.uri, sdp=request.sdp, proxy=proxy, **headers)
@@ -2253,10 +2263,13 @@ class ConnectionHandler(object):
             raise APIError('Invalid state for answering session {session.id}: {session.state}'.format(session=session_info))
 
         # Add extra headers to the 200 OK answering the incoming call,
-        # mirroring the outgoing INVITE: the WebRTC endpoint IP (here,
-        # the answering party) surfaces in the server-side SIP trace.
+        # mirroring the outgoing INVITE: the WebRTC endpoint IP and port
+        # (here, the answering party) surface in the server-side SIP trace.
         extra_headers = list(request.headers.__data__) if request.headers is not None else []
-        extra_headers.append({'name': 'X-Sylk-Client-Ip', 'value': self._client_ip()})
+        client_ip, client_port = self._client_addr()
+        extra_headers.append({'name': 'X-Sylk-Client-Ip', 'value': client_ip})
+        if client_port is not None:
+            extra_headers.append({'name': 'X-Sylk-Client-Port', 'value': client_port})
         session_info.janus_handle.accept(sdp=request.sdp, headers=extra_headers)
         self.log.info('incoming session {session.id} answered'.format(session=session_info))
 
