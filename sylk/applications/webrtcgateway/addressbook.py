@@ -30,8 +30,19 @@ class AddressbookUpdateError(Exception):
 
 
 agent = Agent(reactor)
-headers = Headers({'User-Agent': ['SylkServer'],
-                   'Content-Type': ['application/json']})
+
+
+def _make_headers(account):
+    # Use the original device's user agent (captured from the client's
+    # account add request) so the XCAP server logs show who really made
+    # the change, falling back to SylkServer when it is unknown.
+    user_agent = getattr(account, 'user_agent', None) or 'SylkServer'
+    try:
+        user_agent.encode('latin-1')  # header values must be latin-1 safe
+    except (UnicodeEncodeError, AttributeError):
+        user_agent = 'SylkServer'
+    return Headers({'User-Agent': [user_agent],
+                    'Content-Type': ['application/json']})
 
 class XCAPRoutes:
     """
@@ -148,7 +159,7 @@ def _send_update_addressbook(account, request, destination):
     try:
         resp = yield agent.request(routes.method.encode('utf-8'),
                                    url.encode('utf-8'),
-                                   headers,
+                                   _make_headers(account),
                                    BytesProducer(json.dumps(request.data.__data__).encode())
                                    )
     except defer.CancelledError:
@@ -207,7 +218,7 @@ def _send_fetch_addressbook(account, destination, raise_on_error=False):
     routes = XCAPRoutes(destination)
     url = routes.resolve("addressbook", user=account.id)
     try:
-        resp = yield agent.request(b'GET', url.encode('utf-8'), headers=headers)
+        resp = yield agent.request(b'GET', url.encode('utf-8'), headers=_make_headers(account))
     except defer.CancelledError:
         raise
     except Exception as e:
