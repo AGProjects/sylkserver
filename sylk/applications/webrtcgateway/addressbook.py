@@ -238,7 +238,10 @@ def _send_fetch_addressbook(account, destination, raise_on_error=False):
     try:
         body = yield readBody(resp)
         payload = json.loads(body)
-        return xcap.XCAPMapper.from_payload(payload)
+        addressbook = xcap.XCAPMapper.from_payload(payload)
+        log.info('Fetched addressbook for %s from %s: %d contacts',
+                 account.id, destination, len(addressbook.contacts or []))
+        return addressbook
     except (ValueError, TypeError) as e:
         log.warning("Invalid JSON from %s: %s", destination, e)
         if raise_on_error:
