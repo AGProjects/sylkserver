@@ -222,7 +222,7 @@ def _send_fetch_addressbook(account, destination, raise_on_error=False):
     except defer.CancelledError:
         raise
     except Exception as e:
-        log.warning("Error fetching addressbook from %s: %s", destination, e)
+        log.warning("Error fetching addressbook for account %s from %s: %s", account.id, url, e)
         if raise_on_error:
             raise
         return xcap.AddressBook(contacts=[], groups=[], policies=[])
@@ -230,7 +230,7 @@ def _send_fetch_addressbook(account, destination, raise_on_error=False):
     if resp.code != 200:
         body = yield readBody(resp)
         body_text = body.decode('utf-8')
-        log.warning("Non-200 response (%s) fetching addressbook from %s: %r", resp.code, destination, body_text)
+        log.warning("Non-200 response (%s) fetching addressbook for account %s from %s: %r", resp.code, account.id, url, body_text)
         if raise_on_error:
             raise Exception("Non-200 response (%s) fetching addressbook" % resp.code)
         return xcap.AddressBook(contacts=[], groups=[], policies=[])
