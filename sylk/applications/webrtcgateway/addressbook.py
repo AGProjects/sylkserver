@@ -227,6 +227,13 @@ def _send_fetch_addressbook(account, destination, raise_on_error=False):
             raise
         return xcap.AddressBook(contacts=[], groups=[], policies=[])
 
+    if resp.code == 404:
+        yield readBody(resp)
+        log.info("No addressbook found for account %s", account.id)
+        if raise_on_error:
+            raise Exception("No addressbook found for account %s" % account.id)
+        return xcap.AddressBook(contacts=[], groups=[], policies=[])
+
     if resp.code != 200:
         body = yield readBody(resp)
         body_text = body.decode('utf-8')
