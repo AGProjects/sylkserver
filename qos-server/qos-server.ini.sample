@@ -60,6 +60,20 @@
 ; per-call from Janus ICE. Leave unset to skip this leg.
 ; ip =
 
+; Optional PEER PROBE — a second sylk-qos-server running ON the MediaProxy
+; host (same daemon, install with [Janus] mode = off there). When set, every
+; call is also registered on the peer, which counts the same Janus<->MediaProxy
+; RTP tuple at the MediaProxy NIC. The finalized summary then contains a
+; hop-by-hop loss analysis that can tell apart:
+;   - loss ON THE WIRE between MediaProxy and this host (per direction),
+;   - loss INSIDE this host (arrived at the NIC, never relayed),
+;   - loss AT/BEYOND MediaProxy (far end -> MediaProxy),
+; plus kernel counters (buffer overflows, NIC drops) from BOTH hosts.
+; probe_url is the peer's HTTP(S) API, probe_token its [Server] auth_token.
+; probe_url =
+; probe_token =
+; probe_timeout = 4
+
 
 [Janus]
 

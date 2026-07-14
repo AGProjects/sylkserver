@@ -157,6 +157,22 @@ def janus_handle_info(admin_url, admin_secret, session_id, handle_id, timeout=4)
     return data.get('info', {}) or {}
 
 
+def http_json(url, method='GET', body=None, token=None, timeout=4):
+    """Small JSON-over-HTTP(S) helper for talking to a PEER sylk-qos-server
+    (the MediaProxy-side probe). Token goes out as a Bearer header. TLS is
+    accepted unverified: the peer may serve a cert for its public hostname
+    while we address it by IP — this is token-authenticated internal
+    measurement traffic, not user data."""
+    data = json.dumps(body).encode() if body is not None else None
+    headers = {'Content-Type': 'application/json'}
+    if token:
+        headers['Authorization'] = 'Bearer ' + token
+    req = urllib.request.Request(url, data=data, headers=headers, method=method)
+    ctx = ssl._create_unverified_context()
+    with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+        return json.loads(resp.read())
+
+
 _IPPORT_RE = re.compile(r'(\d{1,3}(?:\.\d{1,3}){3}):(\d+)')
 
 
@@ -442,6 +458,15 @@ def load_config(config_dir):
         # ports the call uses. The WebRTC leg's exact 5-tuple comes per-call from
         # Janus ICE, never from config.
         'mediaproxy_ip': get('MediaProxy', 'ip', '') or None,
+        # Optional PEER PROBE: a second sylk-qos-server running ON the
+        # MediaProxy host. When set, every call is also registered there so the
+        # SIP leg is measured at BOTH ends (Janus NIC and MediaProxy NIC),
+        # which splits "lost on the wire between the hosts" from "lost inside/
+        # beyond MediaProxy". The peer needs no special config — it's the same
+        # daemon with [Janus] mode = off.
+        'mediaproxy_probe_url': get('MediaProxy', 'probe_url', '').rstrip('/') or None,
+        'mediaproxy_probe_token': get('MediaProxy', 'probe_token', '') or None,
+        'mediaproxy_probe_timeout': max(1, getint('MediaProxy', 'probe_timeout', 4)),
         'janus_config_dir': janus_dir,
         'janus_mode': janus_mode,
         'janus_admin_url': janus_admin_url,
@@ -616,9 +641,21 @@ class CallCapture(object):
 
         self.in_count = 0      # phone -> server (WebRTC leg)
         self.out_count = 0     # server -> phone
-        self.rtp_out = 0       # Janus -> MediaProxy
-        self.rtp_in = 0        # MediaProxy -> Janus
+        self.rtp_out = 0       # Janus -> MediaProxy (RTP + RTCP)
+        self.rtp_in = 0        # MediaProxy -> Janus (RTP + RTCP)
+        self.rtcp_out = 0      # RTCP subset of rtp_out (MediaProxy port+1)
+        self.rtcp_in = 0       # RTCP subset of rtp_in
         self._flow_seen = set()  # flows we've already logged "media flowing" for
+
+        # MediaProxy-side PEER PROBE: a second sylk-qos-server on the
+        # MediaProxy host measuring the same SIP leg at ITS NIC. A capture
+        # that IS a probe (params['probe']) never probes further and never
+        # watches a MediaProxy leg of its own.
+        self.is_probe = bool(params.get('probe'))
+        if self.is_probe:
+            self.mediaproxy_ip = None
+        self.peer_registered = False
+        self.peer_error = None
 
     # -- helpers ----------------------------------------------------------
     def _event(self, msg):
@@ -632,10 +669,19 @@ class CallCapture(object):
 
     def _build_bpf(self):
         p = self.params
-        # WebRTC leg: the exact per-call 5-tuple from Janus ICE (client <-> Janus).
-        bpf = ('(src host {cip} and src port {cp} and dst port {sp}) or '
-               '(dst host {cip} and dst port {cp} and src port {sp})').format(
-            cip=p['client_ip'], cp=p['client_port'], sp=p['server_port'])
+        if p.get('with_rtcp'):
+            # Probe registrations watch the negotiated RTP port AND port+1
+            # (RTCP) on both sides, so the counts are comparable with the
+            # Janus-side SIP-leg counts (which also include RTCP).
+            cp, sp = int(p['client_port']), int(p['server_port'])
+            bpf = ('(src host {cip} and src portrange {cp}-{cp1} and dst portrange {sp}-{sp1}) or '
+                   '(dst host {cip} and dst portrange {cp}-{cp1} and src portrange {sp}-{sp1})').format(
+                cip=p['client_ip'], cp=cp, cp1=cp + 1, sp=sp, sp1=sp + 1)
+        else:
+            # WebRTC leg: the exact per-call 5-tuple from Janus ICE (client <-> Janus).
+            bpf = ('(src host {cip} and src port {cp} and dst port {sp}) or '
+                   '(dst host {cip} and dst port {cp} and src port {sp})').format(
+                cip=p['client_ip'], cp=p['client_port'], sp=p['server_port'])
         # Downstream (SIP) leg: Janus <-> MediaProxy. We learn each MediaProxy
         # RTP port from the SIP answer SDP and filter to those exact host+ports
         # (and +1 for each RTCP). A video call has one port pair PER stream
@@ -719,9 +765,66 @@ class CallCapture(object):
         else:
             self._spawn_captures(bpf)
 
+        # MediaProxy-side peer probe (no-op unless configured; runs on its own
+        # thread so a slow/unreachable peer never delays the local capture).
+        self._spawn(self._register_peer_probe)
+
         # Watchdog: hard cap so a call that never gets a stop can't capture forever.
         self._threads.append(self._spawn(self._watchdog))
         return meta
+
+    # -- MediaProxy-side peer probe ----------------------------------------
+    def _register_peer_probe(self):
+        url = self.defaults.get('mediaproxy_probe_url')
+        if not url or self.is_probe:
+            return
+        if not (self.mediaproxy_ip and self.sip_remote_port
+                and self.sip_local_ip and self.sip_local_port):
+            self._event('mediaproxy-probe: skipped — SIP leg tuple incomplete '
+                        '(mediaproxy={}:{} janus={}:{})'.format(
+                            self.mediaproxy_ip, self.sip_remote_port,
+                            self.sip_local_ip, self.sip_local_port))
+            return
+        body = {
+            'call_id': self.call_id,
+            'probe': True,          # tells the peer: don't probe further
+            # On the MediaProxy host the "client" is Janus and the "server"
+            # is the MediaProxy relay — same tuple, observed from the far end.
+            'client_ip': self.sip_local_ip, 'client_port': self.sip_local_port,
+            'server_ip': self.mediaproxy_ip, 'server_port': self.sip_remote_port,
+            'with_rtcp': True,      # count RTP+RTCP like the Janus-side tally
+            'expected_pps': self.expected_pps,
+            'media_types': self.media_types,
+            'sip_call_id': self.sip_call_id,
+            'sylk_session_id': self.sylk_session_id,
+        }
+        try:
+            resp = http_json(url + '/calls', 'POST', body,
+                             self.defaults.get('mediaproxy_probe_token'),
+                             self.defaults.get('mediaproxy_probe_timeout') or 4)
+            self.peer_registered = True
+            self._event('mediaproxy-probe: registered on {} (dir {})'.format(url, resp.get('dir')))
+            log_line('call {} mediaproxy-probe registered on {}'.format(self.call_id, url))
+        except Exception as e:
+            self.peer_error = 'register failed: {}'.format(e)
+            self._event('mediaproxy-probe: ' + self.peer_error)
+            log_line('call {} mediaproxy-probe {}'.format(self.call_id, self.peer_error))
+
+    def _stop_peer_probe(self):
+        """Stop the peer capture and return its summary dict (or None)."""
+        if not self.peer_registered:
+            return None
+        self.peer_registered = False
+        url = self.defaults.get('mediaproxy_probe_url')
+        try:
+            resp = http_json('{}/calls/{}/stop'.format(url, quote(self.call_id, safe='')),
+                             'POST', {}, self.defaults.get('mediaproxy_probe_token'),
+                             self.defaults.get('mediaproxy_probe_timeout') or 4)
+            return resp.get('summary')
+        except Exception as e:
+            self.peer_error = 'stop failed: {}'.format(e)
+            self._event('mediaproxy-probe: ' + self.peer_error)
+            return None
 
     def _spawn(self, target):
         t = threading.Thread(target=target, daemon=True)
@@ -783,34 +886,61 @@ class CallCapture(object):
         log_line('call {} {}'.format(self.call_id, msg))
 
     def _packet_reader(self):
-        client_src_tag = '{}.{}'.format(self.params['client_ip'], self.params['client_port'])
+        p = self.params
+        client_ip = p['client_ip']
+        client_ports = {str(p['client_port'])}
+        if p.get('with_rtcp'):
+            # probe registrations also watch the RTCP port (RTP port + 1)
+            try:
+                client_ports.add(str(int(p['client_port']) + 1))
+            except (TypeError, ValueError):
+                pass
         mp_ip = self.mediaproxy_ip
+        # MediaProxy-side RTCP ports (negotiated RTP port + 1, per stream) so
+        # the SIP-leg tally can be split into RTP vs RTCP.
+        mp_rtcp_ports = set()
+        for s in self.sip_streams:
+            prt = s.get('remote_port')
+            if prt:
+                mp_rtcp_ports.add(str(int(prt) + 1))
+        if not mp_rtcp_ports and self.sip_remote_port:
+            try:
+                mp_rtcp_ports.add(str(int(self.sip_remote_port) + 1))
+            except (TypeError, ValueError):
+                pass
         for line in self._text_proc.stdout:
             if self._shutdown.is_set():
                 break
-            if '{} >'.format(client_src_tag) in line:
+            if ' IP ' not in line or ' > ' not in line:
+                continue
+            try:
+                seg = line.split(' IP ', 1)[1]
+                src, rest = seg.split(' > ', 1)
+                dst = rest.split(':', 1)[0]
+                src_ip, _, src_port = src.strip().rpartition('.')
+                dst_ip, _, dst_port = dst.strip().rpartition('.')
+            except Exception:
+                continue
+            if src_ip == client_ip and src_port in client_ports:
                 self.in_count += 1
                 if self.in_count == 1:
                     self._flow_started('in', 'client->server (phone RTP reaching Janus)')
-            elif '> {}'.format(client_src_tag) in line:
+            elif dst_ip == client_ip and dst_port in client_ports:
                 self.out_count += 1
                 if self.out_count == 1:
                     self._flow_started('out', 'server->client (Janus RTP to phone)')
-            if mp_ip and ' IP ' in line and ' > ' in line:
-                try:
-                    seg = line.split(' IP ', 1)[1]
-                    src, rest = seg.split(' > ', 1)
-                    dst = rest.split(':', 1)[0]
-                    if dst.strip().rsplit('.', 1)[0] == mp_ip:
-                        self.rtp_out += 1
-                        if self.rtp_out == 1:
-                            self._flow_started('rtp_out', 'Janus->MediaProxy')
-                    elif src.strip().rsplit('.', 1)[0] == mp_ip:
-                        self.rtp_in += 1
-                        if self.rtp_in == 1:
-                            self._flow_started('rtp_in', 'MediaProxy->Janus')
-                except Exception:
-                    pass
+            elif mp_ip and dst_ip == mp_ip:
+                self.rtp_out += 1
+                if dst_port in mp_rtcp_ports:
+                    self.rtcp_out += 1
+                if self.rtp_out == 1:
+                    self._flow_started('rtp_out', 'Janus->MediaProxy')
+            elif mp_ip and src_ip == mp_ip:
+                self.rtp_in += 1
+                if src_port in mp_rtcp_ports:
+                    self.rtcp_in += 1
+                if self.rtp_in == 1:
+                    self._flow_started('rtp_in', 'MediaProxy->Janus')
 
     def _sample_reporter(self):
         interval = self.defaults['sample_interval']
@@ -900,6 +1030,9 @@ class CallCapture(object):
 
         self.ended_at = time.time()
         duration = self.ended_at - (self.started_at or self.ended_at)
+        # Stop the MediaProxy-side peer probe FIRST so its counts are frozen
+        # over (almost) the same window and land in this summary.
+        peer_summary = self._stop_peer_probe()
         kb = self._read_json('kernel_before.json') or {}
         ka = {
             'net_dev': read_proc_net_dev(self.iface),
@@ -908,18 +1041,22 @@ class CallCapture(object):
             'at': now_iso(),
         }
         self._write_json('kernel_after.json', ka)
-        summary = self._build_summary(duration, kb, ka, reason)
+        summary = self._build_summary(duration, kb, ka, reason, peer_summary)
         self._write_json('summary.json', summary)
         self._maybe_drop_pcap(summary)
         self._event('end ' + summary['conclusion'])
         if summary.get('media_plane'):
             self._event('media_plane: ' + summary['media_plane'])
+        for f in (summary.get('loss_analysis') or {}).get('findings', []):
+            self._event('loss: ' + f)
         # End-of-call verdict: did media flow both ways?
         self._event('EVALUATION: ' + summary['evaluation_text'])
         log_line('call {} ENDED — {} (WebRTC client->server={} server->client={}{}) dur={:.0f}s — saved in {}'.format(
             self.call_id, summary['evaluation_text'], self.in_count, self.out_count,
             '; Janus->MP={} MP->Janus={}'.format(self.rtp_out, self.rtp_in) if self.mediaproxy_ip else '',
             duration, self.dir))
+        for f in (summary.get('loss_analysis') or {}).get('findings', []):
+            log_line('call {} loss: {}'.format(self.call_id, f))
         try:
             if self._events_fh:
                 self._events_fh.close()
@@ -928,7 +1065,7 @@ class CallCapture(object):
         with self._lock:
             self.status = 'finished'
 
-    def _build_summary(self, duration, kb, ka, reason):
+    def _build_summary(self, duration, kb, ka, reason, peer_summary=None):
         # NIC-loss heuristic is an AUDIO-ONLY model (constant ~expected_pps).
         # Video adds a large, bursty, variable-rate stream, so a duration x pps
         # "expected" is meaningless on a video call — don't compute it there.
@@ -939,19 +1076,14 @@ class CallCapture(object):
 
         def delta(group, key):
             try:
-                return (ka[group][key] - kb['net_dev' if group == 'net_dev' else group][key])
+                return ka[group][key] - kb[group][key]
             except Exception:
                 return None
-        rx_drop_d = None
-        udp_inerr_d = None
-        try:
-            rx_drop_d = ka['net_dev']['rx_drop'] - kb['net_dev']['rx_drop']
-        except Exception:
-            pass
-        try:
-            udp_inerr_d = ka['udp'].get('InErrors', 0) - kb['udp'].get('InErrors', 0)
-        except Exception:
-            pass
+        rx_drop_d = delta('net_dev', 'rx_drop')
+        tx_drop_d = delta('net_dev', 'tx_drop')
+        udp_inerr_d = delta('udp', 'InErrors')
+        udp_rcvbuf_d = delta('udp', 'RcvbufErrors')
+        udp_sndbuf_d = delta('udp', 'SndbufErrors')
 
         if self.capture_error:
             conclusion = 'capture incomplete: {}'.format(self.capture_error)
@@ -1082,7 +1214,29 @@ class CallCapture(object):
                 'streams': self.sip_streams,
                 'packets_janus_to_mediaproxy': self.rtp_out,
                 'packets_mediaproxy_to_janus': self.rtp_in,
+                # RTCP subset of the totals above (MediaProxy RTP port + 1),
+                # so RTP-only comparisons are possible.
+                'rtcp_janus_to_mediaproxy': self.rtcp_out,
+                'rtcp_mediaproxy_to_janus': self.rtcp_in,
             }
+        # Same SIP leg measured at the MediaProxy host's NIC (peer probe).
+        if peer_summary:
+            legs['mediaproxy_host'] = {
+                'description': 'Janus <-> MediaProxy, measured at the MediaProxy host NIC',
+                'probe_url': self.defaults.get('mediaproxy_probe_url'),
+                'packets_janus_to_mediaproxy_arrived': peer_summary.get('in_total'),
+                'packets_mediaproxy_to_janus_sent': peer_summary.get('out_total'),
+                'duration_s': peer_summary.get('duration_s'),
+                'capture_error': peer_summary.get('capture_error'),
+                'kernel': {k: peer_summary.get(k) for k in (
+                    'kernel_rx_drop_delta', 'kernel_tx_drop_delta',
+                    'kernel_udp_in_err_delta', 'kernel_udp_rcvbuf_err_delta',
+                    'kernel_udp_sndbuf_err_delta') if peer_summary.get(k) is not None},
+            }
+
+        kern = {'rx_drop': rx_drop_d, 'tx_drop': tx_drop_d, 'udp_in_err': udp_inerr_d,
+                'udp_rcvbuf_err': udp_rcvbuf_d, 'udp_sndbuf_err': udp_sndbuf_d}
+        loss_analysis = self._build_loss_analysis(kern, peer_summary)
 
         return {
             'call_id': self.call_id,
@@ -1106,7 +1260,12 @@ class CallCapture(object):
             'mediaproxy_ip': self.mediaproxy_ip,
             'nic_loss_pct': round(nic_loss, 1),
             'kernel_rx_drop_delta': rx_drop_d,
+            'kernel_tx_drop_delta': tx_drop_d,
             'kernel_udp_in_err_delta': udp_inerr_d,
+            'kernel_udp_rcvbuf_err_delta': udp_rcvbuf_d,
+            'kernel_udp_sndbuf_err_delta': udp_sndbuf_d,
+            'loss_analysis': loss_analysis,
+            'mediaproxy_probe_error': self.peer_error,
             'capture_error': self.capture_error,
             'evaluation': evaluation,
             'media_ok': media_ok,
@@ -1115,6 +1274,157 @@ class CallCapture(object):
             'conclusion': conclusion,
             'media_plane': media_plane,
             'ended_at': now_iso(),
+        }
+
+    def _build_loss_analysis(self, kern, peer):
+        """Localize packet loss to a hop, per direction, from the counts this
+        host (and, when the peer probe is configured, the MediaProxy host)
+        measured at their NICs.
+
+        Measurement points on the path  far end <-> MediaProxy <-> Janus <-> phone:
+
+            pi  Janus->MediaProxy, arriving at the MediaProxy NIC   (peer probe)
+            po  MediaProxy->Janus, leaving the MediaProxy NIC       (peer probe)
+            so  Janus->MediaProxy, leaving this NIC
+            si  MediaProxy->Janus, arriving at this NIC
+            wi  phone->Janus, arriving at this NIC
+            wo  Janus->phone, leaving this NIC
+
+        Comparing adjacent points isolates each hop:
+            inbound  (far end -> phone):  po vs si = MP->Janus wire
+                                          si vs wo = inside this host
+                                          wo vs client-received = last hop (client
+                                          reconciles; we can't see the phone's NIC)
+            outbound (phone -> far end):  wi vs so = inside this host
+                                          so vs pi = Janus->MP wire
+        All tallies include RTCP, so small (<2%) diffs are normal, and the
+        audio symmetry assumption doesn't hold for video — video calls only get
+        kernel-counter findings."""
+        if self.is_probe:
+            # A probe capture is one measurement point, not the analyst — the
+            # Janus-side daemon merges these counts into ITS loss analysis.
+            return {'probe': True,
+                    'findings': ['probe capture — analysed by the Janus-side qos server']}
+        wi, wo, so, si = self.in_count, self.out_count, self.rtp_out, self.rtp_in
+        pi = po = None
+        peer_kern = {}
+        if peer:
+            pi, po = peer.get('in_total'), peer.get('out_total')
+            peer_kern = {k: peer.get(k) for k in (
+                'kernel_rx_drop_delta', 'kernel_tx_drop_delta',
+                'kernel_udp_in_err_delta', 'kernel_udp_rcvbuf_err_delta',
+                'kernel_udp_sndbuf_err_delta') if peer.get(k) is not None}
+        have_sip = bool(self.mediaproxy_ip)
+
+        def pct(lost, ref):
+            return round(100.0 * lost / ref, 1) if ref else None
+
+        def significant(lost, ref):
+            # RTCP/timing noise floor: ignore diffs under 2% or under 50 packets.
+            return lost is not None and ref and lost > max(50, 0.02 * ref)
+
+        def hop(name, sent, received, note=None):
+            lost = (sent - received) if (sent is not None and received is not None) else None
+            h = {'hop': name, 'sent': sent, 'received': received,
+                 'lost': lost, 'lost_pct': pct(lost, sent) if lost and lost > 0 else 0}
+            if note:
+                h['note'] = note
+            return h
+
+        findings = []
+        grade = not self.is_video and not self.capture_error  # symmetry math is audio-only
+
+        # ---- inbound: far end -> ... -> phone --------------------------
+        hops_in = []
+        if have_sip and po is not None:
+            h = hop('MediaProxy -> Janus (wire)', po, si)
+            hops_in.append(h)
+            if grade and significant(h['lost'], po):
+                findings.append('INBOUND: MediaProxy emitted {} packets toward this host but only {} '
+                                'arrived — {}% lost ON THE NETWORK between {} and this host '
+                                '(check the path/underlay, not the applications)'.format(
+                                    po, si, h['lost_pct'], self.mediaproxy_ip))
+        if have_sip:
+            h = hop('inside Janus host (relay MP->phone)', si, wo,
+                    note='received-from-MediaProxy vs sent-to-client, both at this NIC')
+            hops_in.append(h)
+            if grade and significant(h['lost'], si):
+                findings.append('INBOUND: {} packets arrived from MediaProxy but only {} left toward '
+                                'the client — {}% dropped INSIDE this host (Janus/kernel: check CPU '
+                                'saturation and the buffer counters below)'.format(si, wo, h['lost_pct']))
+        hops_in.append(hop('Janus -> client (wire)', wo, None,
+                           note='needs the client-side received count — the client report/'
+                                'reconciliation completes this hop'))
+        # deficit upstream of MediaProxy (audio symmetry: what MP sends back
+        # should roughly match what it receives from us)
+        if grade and pi is not None and po is not None and significant(pi - po, pi):
+            findings.append('UPSTREAM: MediaProxy received {} packets from this host but sent only {} '
+                            'back ({}% short) — for symmetric audio the missing packets were lost '
+                            'AT OR BEYOND MediaProxy (far end -> MediaProxy path, or inside the '
+                            'relay)'.format(pi, po, pct(pi - po, pi)))
+        elif grade and have_sip and po is None and significant(so - si, so):
+            findings.append('UPSTREAM DEFICIT: this host sent {} packets to MediaProxy but received '
+                            'only {} back ({}% short) — loss is upstream of this host: on the '
+                            'MediaProxy->Janus path, inside MediaProxy, or beyond it. Configure '
+                            '[MediaProxy] probe_url (a sylk-qos-server on the MediaProxy host) to '
+                            'split those.'.format(so, si, pct(so - si, so)))
+
+        # ---- outbound: phone -> ... -> far end -------------------------
+        hops_out = []
+        if have_sip:
+            h = hop('inside Janus host (relay phone->MP)', wi, so,
+                    note='received-from-client vs sent-to-MediaProxy, both at this NIC')
+            hops_out.append(h)
+            if grade and significant(h['lost'], wi):
+                findings.append('OUTBOUND: {} packets arrived from the client but only {} left toward '
+                                'MediaProxy — {}% dropped INSIDE this host'.format(wi, so, h['lost_pct']))
+        if have_sip and pi is not None:
+            h = hop('Janus -> MediaProxy (wire)', so, pi)
+            hops_out.append(h)
+            if grade and significant(h['lost'], so):
+                findings.append('OUTBOUND: this host emitted {} packets toward MediaProxy but only {} '
+                                'arrived — {}% lost ON THE NETWORK between this host and {}'.format(
+                                    so, pi, h['lost_pct'], self.mediaproxy_ip))
+
+        # ---- kernel counter attribution (any media type) ----------------
+        def kern_findings(k, who):
+            out = []
+            if (k.get('udp_rcvbuf_err') or k.get('kernel_udp_rcvbuf_err_delta') or 0) > 10:
+                out.append('{}: UDP receive-buffer overflows grew by {} during the call — the '
+                           'receiving process is not draining its sockets fast enough (CPU '
+                           'saturation or too-small net.core.rmem buffers)'.format(
+                               who, k.get('udp_rcvbuf_err', k.get('kernel_udp_rcvbuf_err_delta'))))
+            if (k.get('udp_sndbuf_err') or k.get('kernel_udp_sndbuf_err_delta') or 0) > 10:
+                out.append('{}: UDP send-buffer errors grew by {} — egress congestion on the '
+                           'host'.format(who, k.get('udp_sndbuf_err', k.get('kernel_udp_sndbuf_err_delta'))))
+            if (k.get('rx_drop') or k.get('kernel_rx_drop_delta') or 0) > 10:
+                out.append('{}: NIC rx drops grew by {} — packets dropped at the interface/'
+                           'driver before reaching the stack'.format(
+                               who, k.get('rx_drop', k.get('kernel_rx_drop_delta'))))
+            if (k.get('tx_drop') or k.get('kernel_tx_drop_delta') or 0) > 10:
+                out.append('{}: NIC tx drops grew by {} — packets dropped on transmit'.format(
+                    who, k.get('tx_drop', k.get('kernel_tx_drop_delta'))))
+            return out
+        findings.extend(kern_findings(kern, 'this host'))
+        findings.extend(kern_findings(peer_kern, 'MediaProxy host'))
+
+        if not findings:
+            if self.is_video:
+                findings.append('video call — hop counts recorded, but the audio symmetry model does '
+                                'not apply; no automatic verdicts (kernel counters were clean)')
+            else:
+                findings.append('no loss localized at, between, or upstream of the measured hosts — '
+                                'any client-reported deficit is on the Janus->client last hop '
+                                '(the client\'s downlink/access network)')
+
+        return {
+            'confidence': 'low (video — directions are not symmetric)' if self.is_video else 'high',
+            'mediaproxy_probe': (self.defaults.get('mediaproxy_probe_url')
+                                 if not self.is_probe else None),
+            'mediaproxy_probe_error': self.peer_error,
+            'hops': {'inbound': hops_in, 'outbound': hops_out},
+            'kernel': {'janus_host': kern, 'mediaproxy_host': peer_kern or None},
+            'findings': findings,
         }
 
     # -- persistence helpers ---------------------------------------------
@@ -2082,6 +2392,9 @@ def main():
     defaults = {
         'interface': cfg['interface'] or primary_interface(),
         'mediaproxy_ip': cfg['mediaproxy_ip'],
+        'mediaproxy_probe_url': cfg['mediaproxy_probe_url'],
+        'mediaproxy_probe_token': cfg['mediaproxy_probe_token'],
+        'mediaproxy_probe_timeout': cfg['mediaproxy_probe_timeout'],
         'expected_pps': cfg['expected_pps'],
         'sample_interval': cfg['sample_interval'],
         'max_capture_seconds': cfg['max_capture_seconds'],
@@ -2191,6 +2504,10 @@ def main():
         ('keep_pcap', cfg['keep_pcap'] + {'no': ' (never write pcap — just count)',
                                           'problem': ' (keep pcap only for calls with a media problem)',
                                           'yes': ' (always keep pcap)'}[cfg['keep_pcap']]),
+        ('mediaproxy_ip', cfg['mediaproxy_ip'] or '- (SIP leg not captured)'),
+        ('mediaproxy_probe', (cfg['mediaproxy_probe_url'] + ' (peer qos server on the MediaProxy host)')
+                             if cfg['mediaproxy_probe_url'] else 'off (loss upstream of this host '
+                             'cannot be split — set [MediaProxy] probe_url)'),
         ('janus_config_dir', cfg['janus_config_dir']),
         ('janus_mode', cfg['janus_mode'] + (' (push)' if cfg['janus_mode'] == 'events'
                                             else ' (admin polling)' if cfg['janus_mode'] == 'poll' else '')),

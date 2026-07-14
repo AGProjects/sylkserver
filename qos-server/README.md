@@ -148,6 +148,50 @@ curl -H "Authorization: Bearer secret" http://janus.example.com:9810/calls/$CALL
 curl -H "Authorization: Bearer secret" http://janus.example.com:9810/calls/$CALLID/bundle -o call.tar.gz
 ```
 
+## Loss localization & the MediaProxy-side peer probe
+
+Every finalized summary now contains a `loss_analysis` section: hop-by-hop
+packet counts per direction plus plain-language `findings` that attribute loss
+to a specific hop:
+
+```
+far end <-> MediaProxy <-> Janus <-> phone
+            [peer NIC]    [this NIC]   (client report)
+```
+
+- **inside this host** — packets arrived at the NIC from MediaProxy but never
+  left toward the client (or vice versa): Janus/kernel drop. Cross-checked
+  against kernel counters (UDP `RcvbufErrors`/`SndbufErrors`, NIC rx/tx drops),
+  which are now part of the verdict, not just raw numbers.
+- **on the wire MediaProxy↔Janus** — needs the peer probe (below).
+- **at/beyond MediaProxy** — deficit between what MediaProxy receives and what
+  it sends back (audio symmetry).
+- **Janus→phone last hop** — the summary marks this hop as needing the
+  client-side count; the Sylk Mobile report fills it in and renders the whole
+  table (Loss localization section).
+
+To split "lost between the hosts" from "lost inside/beyond MediaProxy", run a
+second sylk-qos-server **on the MediaProxy host** (same deploy, but set
+`[Janus] mode = off` there — it never talks to Janus) and point this daemon at
+it:
+
+```
+[MediaProxy]
+ip = <mediaproxy-ip>
+probe_url = https://<mediaproxy-host>:9810
+probe_token = <the peer's [Server] auth_token>
+```
+
+For every call, the daemon registers the same Janus↔MediaProxy RTP tuple on
+the peer (with `probe: true` so the peer never probes further and `with_rtcp`
+so both tallies count RTP+RTCP alike). At call end the peer's counts and
+kernel counters are merged into this call's summary as the `mediaproxy_host`
+leg and reconciled per hop. Failures are soft: an unreachable peer only adds
+`mediaproxy_probe_error` to the summary.
+
+The SIP-leg counters are also now split RTP vs RTCP (`rtcp_janus_to_mediaproxy`,
+`rtcp_mediaproxy_to_janus` in the `sip` leg).
+
 ## Relationship to the SylkServer media-plane render
 
 This daemon captures at the NIC. SylkServer separately logs a `[media-plane]`
