@@ -17,7 +17,7 @@ from zope.interface import implementer
 
 from sylk.applications import ApplicationLogger, SylkApplication
 from sylk.applications.echo import MessageHandler as EchoMessageHandler
-from sylk.applications.echo import format_user_agent
+from sylk.applications.echo import format_user_agent, strip_sip_prefix
 from sylk.applications.playback.configuration import get_config
 from sylk.bonjour import BonjourService
 from sylk.configuration import ServerConfig
@@ -60,12 +60,12 @@ class PlaybackApplication(SylkApplication):
     def incoming_session(self, session):
         caller = '%s@%s' % (session.remote_identity.uri.user, session.remote_identity.uri.host)
         user_agent = format_user_agent(session.remote_user_agent)
-        log.info('Session %s from %s (%s) to %s' % (session.call_id, caller, user_agent, session.local_identity.uri))
+        log.info('Session %s from %s (%s) to %s' % (session.call_id, caller, user_agent, strip_sip_prefix(session.local_identity.uri)))
         config = get_config('%s@%s' % (session.request_uri.user, session.request_uri.host))
         if config is None:
             config = get_config('%s' % session.request_uri.user)
             if config is None:
-                log.info('Session %s from %s rejected: no configuration found for %s' % (session.call_id, caller, session.request_uri))
+                log.info('Session %s from %s rejected: no configuration found for %s' % (session.call_id, caller, strip_sip_prefix(session.request_uri)))
                 session.reject(488)
                 return
         stream_types = {'audio'}
@@ -95,7 +95,7 @@ class PlaybackApplication(SylkApplication):
             return
 
         if not data.body:
-            log.warning('SIP message from %s to %s rejected: empty body' % (from_header.uri, '%s@%s' % (to_header.uri.user, to_header.uri.host)))
+            log.warning('SIP message from %s to %s rejected: empty body' % (strip_sip_prefix(from_header.uri), '%s@%s' % (to_header.uri.user, to_header.uri.host)))
             request.answer(400)
             return
 
@@ -104,7 +104,7 @@ class PlaybackApplication(SylkApplication):
             try:
                 cpim_message = CPIMPayload.decode(data.body)
             except (CPIMParserError, UnicodeDecodeError):  # TODO: fix decoding in sipsimple
-                log.warning('SIP message from %s to %s rejected: CPIM parse error' % (from_header.uri, '%s@%s' % (to_header.uri.user, to_header.uri.host)))
+                log.warning('SIP message from %s to %s rejected: CPIM parse error' % (strip_sip_prefix(from_header.uri), '%s@%s' % (to_header.uri.user, to_header.uri.host)))
                 request.answer(400)
                 return
             else:
@@ -114,14 +114,14 @@ class PlaybackApplication(SylkApplication):
         if config is None:
             config = get_config('%s' % request_uri.user)
             if config is None:
-                log.info('Message rejected: no configuration found for %s' % (request_uri))
+                log.info('Message rejected: no configuration found for %s' % strip_sip_prefix(request_uri))
                 request.answer(404)
                 return
         if not config.enable_chuck_norris_reply:
-            log.info("Message rejected for %s: Chuck Norris reply is disabled. Even Chuck can't reply right now."  % (request_uri))
+            log.info("Message rejected for %s: Chuck Norris reply is disabled. Even Chuck can't reply right now."  % strip_sip_prefix(request_uri))
             request.answer(404)
 
-        log.info('received SIP message (%s) from %s to %s' % (content_type, from_header.uri, '%s@%s' % (to_header.uri.user, to_header.uri.host)))
+        log.info('received SIP message (%s) from %s to %s' % (content_type, strip_sip_prefix(from_header.uri), '%s@%s' % (to_header.uri.user, to_header.uri.host)))
 
         request.answer(200)
 
@@ -323,10 +323,10 @@ class ChuckNorrisMessageHandler(EchoMessageHandler):
         to_uri = self.from_header.uri
         route = self._lookup_sip_target_route(to_uri)
         if not route:
-            self.log.error("No route found for reply message to %s" % to_uri)
+            self.log.error("No route found for reply message to %s" % strip_sip_prefix(to_uri))
             return
 
-        self.log.info("Playack message to %s using proxy %s" % (to_uri, route))
+        self.log.info("Playback fact message to %s using proxy %s" % (strip_sip_prefix(to_uri), strip_sip_prefix(route)))
         self._send_message(self.from_header, self.to_header, content, 'text/plain', route)
 
     def _NH_SIPMessageDidSucceed(self, notification):
