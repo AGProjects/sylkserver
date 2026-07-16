@@ -3985,16 +3985,16 @@ class ConnectionHandler(object):
         body = CPIMPayload.decode(notification.sender.body)
         message_id = next((header.value for header in body.additional_headers if header.name == 'Message-ID'), None)
         self.log.info('message %s was accepted' % message_id)
-        account_info = self.accounts_map['{}@{}'.format(body.sender.uri.user.decode('utf-8'), body.sender.uri.host.decode('utf-8'))]
+        account = '{}@{}'.format(body.sender.uri.user.decode('utf-8'), body.sender.uri.host.decode('utf-8'))
         timestamp = body.timestamp
 
         if body.content_type != IMDNDocument.content_type:
             storage = MessageStorage()
-            storage.update(account=account_info.id,
+            storage.update(account=account,
                            state='accepted',
                            message_id=message_id)
 
-            event = sylkrtc.AccountDispositionNotificationEvent(account=account_info.id,
+            event = sylkrtc.AccountDispositionNotificationEvent(account=account,
                                                                 state='accepted',
                                                                 message_id=message_id,
                                                                 message_timestamp=str(timestamp),
@@ -4002,7 +4002,16 @@ class ConnectionHandler(object):
                                                                 reason=data.reason,
                                                                 timestamp=str(ISOTimestamp.now()))
             self.send(event)
-            self._fork_event_to_online_accounts(account_info, event)
+            # The account may no longer be on this connection (socket was
+            # replaced or the account was removed before the final response
+            # arrived) — mirror _NH_SIPMessageDidFail and skip the fork
+            # instead of raising KeyError.
+            try:
+                account_info = self.accounts_map[account]
+            except KeyError:
+                pass
+            else:
+                self._fork_event_to_online_accounts(account_info, event)
 
     def _NH_SIPMessageDidFail(self, notification):
         notification_center = NotificationCenter()
