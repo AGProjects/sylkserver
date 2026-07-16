@@ -121,7 +121,7 @@ class PlaybackApplication(SylkApplication):
             log.info("Message rejected for %s: Chuck Norris reply is disabled. Even Chuck can't reply right now."  % strip_sip_prefix(request_uri))
             request.answer(404)
 
-        log.info('received SIP message (%s) from %s to %s' % (content_type, strip_sip_prefix(from_header.uri), '%s@%s' % (to_header.uri.user, to_header.uri.host)))
+        log.info('received %s message from %s to %s' % (content_type, strip_sip_prefix(from_header.uri), '%s@%s' % (to_header.uri.user, to_header.uri.host)))
 
         request.answer(200)
 
@@ -332,7 +332,7 @@ class ChuckNorrisMessageHandler(EchoMessageHandler):
     def _NH_SIPMessageDidSucceed(self, notification):
         notification_center = NotificationCenter()
         notification_center.remove_observer(self, sender=notification.sender)
-        self.log.info('Message was accepted by remote party')
+        #self.log.info('Message was accepted by remote party')
 
     def _NH_SIPMessageDidFail(self, notification):
         notification_center = NotificationCenter()

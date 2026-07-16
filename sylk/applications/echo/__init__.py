@@ -35,6 +35,14 @@ def format_user_agent(user_agent):
     return str(user_agent).strip() if user_agent else 'unknown'
 
 
+def strip_sip_prefix(uri):
+    uri = str(uri)
+    for prefix in ('sip:', 'sips:'):
+        if uri.startswith(prefix):
+            return uri[len(prefix):]
+    return uri
+
+
 class EchoApplication(SylkApplication):
     def __init__(self):
         self.bonjour_services = set()
@@ -282,7 +290,7 @@ class MessageHandler(object):
             raise DNSLookupError('DNS lookup error: no results found')
 
         route = random.choice([r for r in routes if r.transport == routes[0].transport])
-        self.log.info('DNS lookup for SIP message proxy for {} yielded {}'.format(uri, route))
+        self.log.info('DNS lookup for SIP message proxy for {} yielded {}'.format(strip_sip_prefix(uri), strip_sip_prefix(route)))
         return route
 
     def handle_incoming_message(self):
@@ -305,7 +313,7 @@ class MessageHandler(object):
             self.content_type = content_type if content_type is not None else data.headers.get('Content-Type', Null).content_type
 
         self.timestamp = str(cpim_message.timestamp) if cpim_message is not None and cpim_message.timestamp is not None else str(ISOTimestamp.now())
-        self.log.info(f'Incoming {self.content_type} message from {self.from_header.uri} to {self.to_header.uri}')
+        self.log.info(f'Incoming {self.content_type} message from {strip_sip_prefix(self.from_header.uri)} to {strip_sip_prefix(self.to_header.uri)}')
         self.handle_incoming_message()
 
 
@@ -330,10 +338,10 @@ class MessageHandler(object):
         to_uri = self.from_header.uri
         route = self._lookup_sip_target_route(to_uri)
         if not route:
-            log.error("No route found for echo message to %s" % to_uri)
+            log.error("No route found for echo message to %s" % strip_sip_prefix(to_uri))
             return
 
-        self.log.info("Echo message to %s using proxy %s" % (to_uri, route))
+        self.log.info("Echo message to %s using proxy %s" % (strip_sip_prefix(to_uri), strip_sip_prefix(route)))
 
         content = self.body
         if self.content_type == 'text/plain':
@@ -356,10 +364,10 @@ class MessageHandler(object):
 
         route = self._lookup_sip_target_route(to_uri)
         if not route:
-            log.error("No route found for imdn message to %s" % to_uri)
+            log.error("No route found for imdn message to %s" % strip_sip_prefix(to_uri))
             return
 
-        self.log.info('sending IMDN delivered message to: {uri}'.format(uri=to_uri))
+        self.log.info('sending IMDN delivered message to: {uri}'.format(uri=strip_sip_prefix(to_uri)))
 
         # Swap from and to since it is a reply
         self._send_message(self.from_header, self.to_header, content, IMDNDocument.content_type, route, observe=False)
