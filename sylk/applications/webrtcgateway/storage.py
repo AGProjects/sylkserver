@@ -9,6 +9,7 @@ from types import SimpleNamespace
 
 from application.python.types import Singleton
 from application.system import makedirs
+from dateutil.tz import tzlocal
 from sipsimple.threading import run_in_thread
 from sipsimple.util import ISOTimestamp
 from twisted.internet import defer, reactor
@@ -377,7 +378,17 @@ class FileMessageStorage(object):
                 return
             else:
                 if timestamp is not None:
-                    messages = [message for message in messages if ISOTimestamp(message['created_at']) > timestamp]
+                    # stored created_at values are naive local time (datetime.now()),
+                    # while 'since' from the client may carry a timezone offset --
+                    # normalize both sides to aware datetimes before comparing
+                    if timestamp.tzinfo is None:
+                        timestamp = timestamp.replace(tzinfo=tzlocal())
+
+                    def _created_at(message):
+                        value = ISOTimestamp(message['created_at'])
+                        return value if value.tzinfo is not None else value.replace(tzinfo=tzlocal())
+
+                    messages = [message for message in messages if _created_at(message) > timestamp]
                     reactor.callFromThread(deferred.callback, messages)
                 else:
                     reactor.callFromThread(deferred.callback, messages)
