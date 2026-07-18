@@ -52,3 +52,18 @@ class ChatAccount(Model):
     account          = columns.Text(partition_key=True)
     api_token        = columns.Text()
     last_login       = columns.DateTime()
+
+
+class MetricsDaily(Model):
+    __table_name__   = 'metrics_daily'
+    metric           = columns.Text(partition_key=True)
+    day              = columns.Text(primary_key=True)
+    value            = columns.Counter()
+
+
+class MetricsDailySeen(Model):
+    __table_name__   = 'metrics_daily_seen'
+    __options__      = {'default_time_to_live': 7776000}
+    metric           = columns.Text(partition_key=True)
+    day              = columns.Text(partition_key=True)
+    item             = columns.Text(primary_key=True)

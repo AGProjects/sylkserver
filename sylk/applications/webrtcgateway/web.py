@@ -39,6 +39,7 @@ from .datatypes import FileTransferData
 from .factory import SylkWebSocketServerFactory
 from .janus import JanusBackend
 from .logger import log
+from .metrics import Metrics
 from .models import sylkrtc
 from .protocol import SYLK_WS_PROTOCOL
 from .sip_handlers import MessageHandler
@@ -343,6 +344,8 @@ class WebHandler(object):
         self.backend = JanusBackend()
         self.backend.start()
 
+        Metrics().start()
+
     def stop(self):
         if self.factory is not None:
             for conn in self.factory.connections.copy():
@@ -351,6 +354,7 @@ class WebHandler(object):
         if self.backend is not None:
             self.backend.stop()
             self.backend = None
+        Metrics().stop()
 
 
 ADMIN_UI_HTML = r"""<!doctype html>
@@ -554,6 +558,79 @@ function switchView(v) {
   else if (v === 'accounts') loadAccounts();
   else if (v === 'media') loadMedia();
   // 'messages' is fully on-demand (count / dump buttons), nothing to preload
+  loadCharts(v);
+}
+
+const CHARTS = {
+  endpoints: ['chart-endpoints', [['connections', '#2563eb', 'connections']], 'Connections per day'],
+  accounts: ['chart-accounts', [['registrations', '#2563eb', 'registrations'], ['accounts', '#16a34a', 'unique accounts']], 'Registrations / unique accounts per day'],
+  sessions: ['chart-sessions', [['sessions_audio', '#2563eb', 'audio'], ['sessions_video', '#7c3aed', 'video']], 'Sessions per day (audio / video)', 'sessions'],
+  conferences: ['chart-conferences', [['conferences', '#2563eb', 'conferences']], 'Conferences per day'],
+  messages: ['chart-messages', [['messages', '#2563eb', 'messages']], 'Messages per day'],
+};
+let metricsCache = { ts: 0, data: null };
+
+async function loadCharts(view) {
+  const cfg = CHARTS[view];
+  if (!cfg || !$(cfg[0])) return;
+  if (!metricsCache.data || Date.now() - metricsCache.ts > 60000) {
+    let j = null;
+    try {
+      const r = await api('metrics/daily?days=30');
+      if (r.status === 403) { boot(); return; }
+      j = await r.json();
+    } catch (e) {}
+    if (!j) return;
+    metricsCache = { ts: Date.now(), data: j };
+  }
+  const metrics = metricsCache.data.metrics || {};
+  const series = cfg[1].map(([metric, color, label]) => ({ label: label || metric, color, points: metrics[metric] || [] }));
+  const totalPoints = cfg[3] ? metrics[cfg[3]] : null;
+  renderBarChart($(cfg[0]), series, cfg[2], totalPoints);
+}
+
+function renderBarChart(el, series, title, totalPoints) {
+  const n = (series[0].points || []).length;
+  if (!n) { el.style.display = 'none'; return; }
+  el.style.display = '';
+  const max = Math.max(1, ...series.flatMap(s => s.points.map(p => p.value)));
+  const total = (totalPoints || series[0].points).reduce((a, p) => a + p.value, 0);
+  const compact = v => v >= 10000 ? Math.round(v / 1000) + 'k' : v >= 1000 ? (v / 1000).toFixed(1).replace(/\.0$/, '') + 'k' : String(v);
+  const groups = [];
+  for (let i = 0; i < n; i++) {
+    const day = series[0].points[i].day;
+    const label = day.slice(0, 4) + '-' + day.slice(4, 6) + '-' + day.slice(6);
+    const tip = label + ' — ' + series.map(s => `${s.points[i].value} ${s.label}`).join(', ');
+    const bars = series.map(s => {
+      const v = s.points[i].value;
+      const h = Math.round(v / max * 100);
+      return `<div style="flex:1;height:${v ? Math.max(3, h) : 0}%;background:${s.color};border-radius:2px 2px 0 0;min-height:${v ? '2px' : '0'}"></div>`;
+    }).join('');
+    const values = series.map(s => s.points[i].value);
+    const num = values.some(v => v)
+      ? values.map((v, si) => `<span style="color:${series.length > 1 ? series[si].color : '#64748b'}">${compact(v)}</span>`).join('<br>')
+      : '';
+    groups.push(`<div title="${esc(tip)}" style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;min-width:0">
+      <div style="font-size:9px;text-align:center;font-family:ui-monospace,Menlo,monospace;line-height:1.25;margin-bottom:2px;white-space:nowrap;overflow:hidden">${num}</div>
+      <div style="display:flex;align-items:flex-end;gap:1px;height:90px">${bars}</div>
+    </div>`);
+  }
+  const first = series[0].points[0].day, last = series[0].points[n - 1].day;
+  const fmtDay = d => d.slice(4, 6) + '/' + d.slice(6);
+  const legend = series.length > 1
+    ? '<span style="margin-left:auto">' + series.map(s =>
+        `<span style="font-size:11px;color:#64748b;margin-left:12px"><span style="display:inline-block;width:8px;height:8px;background:${s.color};border-radius:2px;margin-right:4px"></span>${esc(s.label)}</span>`).join('') + '</span>'
+    : '';
+  el.innerHTML = `
+    <div style="display:flex;align-items:baseline">
+      <div style="font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)">${esc(title)}</div>
+      <span style="font-size:11px;color:#94a3b8;margin-left:10px">${total.toLocaleString()} in 30 days</span>
+      ${legend}
+    </div>
+    <div style="display:flex;gap:2px;align-items:flex-end;margin-top:10px">${groups.join('')}</div>
+    <div style="display:flex;justify-content:space-between;font-size:10px;color:#94a3b8;margin-top:4px">
+      <span>${fmtDay(first)}</span><span>${fmtDay(last)}</span>
+    </div>`;
 }
 
 function showDashboard(username) {
@@ -581,6 +658,7 @@ function showDashboard(username) {
           <span class="spacer"></span>
           <button class="btn btn-accent" onclick="loadRooms()">Refresh</button>
         </div>
+        <div class="card" id="chart-conferences" style="margin-bottom:14px;padding:16px 20px"></div>
         <div class="card">
           <table>
             <thead><tr>
@@ -602,15 +680,16 @@ function showDashboard(username) {
           <span class="spacer"></span>
           <button class="btn btn-accent" onclick="loadSessions()">Refresh</button>
         </div>
+        <div class="card" id="chart-sessions" style="margin-bottom:14px;padding:16px 20px"></div>
         <div class="card">
           <table>
             <thead><tr>
               <th>Session</th>
+              <th class="hide" title="the client's signaling WebSocket (ip:port), not media">Signaling</th>
               <th>Media</th>
               <th>State</th>
               <th>Duration</th>
               <th class="hide">User agent</th>
-              <th class="hide">Connection</th>
             </tr></thead>
             <tbody id="sessBody">
               <tr><td colspan="6" class="empty">Loading…</td></tr>
@@ -625,6 +704,7 @@ function showDashboard(username) {
           <span class="spacer"></span>
           <button class="btn btn-accent" onclick="loadEndpoints()">Refresh</button>
         </div>
+        <div class="card" id="chart-endpoints" style="margin-bottom:14px;padding:16px 20px"></div>
         <div class="card">
           <table>
             <thead><tr>
@@ -646,6 +726,7 @@ function showDashboard(username) {
           <button class="pbtn" id="delReqBtn" onclick="findDeletionRequests()">Marked for deletion</button>
           <button class="btn btn-accent" onclick="loadAccounts()">Refresh</button>
         </div>
+        <div class="card" id="chart-accounts" style="margin-bottom:14px;padding:16px 20px"></div>
         <div id="delReqResult"></div>
         <div class="card" style="padding:16px;margin-bottom:14px">
           <form onsubmit="return lookupAccount(event)" style="display:flex;gap:10px;align-items:center">
@@ -665,6 +746,7 @@ function showDashboard(username) {
           <h2>Messages</h2>
           <span class="spacer"></span>
         </div>
+        <div class="card" id="chart-messages" style="margin-bottom:14px;padding:16px 20px"></div>
         <div class="stats-grid">
           <div class="card stat">
             <div class="lbl">Chat messages in database</div>
@@ -814,10 +896,14 @@ async function loadSessions() {
     body.innerHTML = `<tr><td colspan="6" class="empty">No active one-to-one sessions right now.</td></tr>`;
     return;
   }
+  // legs of the same call (both parties on this gateway) share a Call-ID —
+  // use that to show the peer's user agent on each leg
+  const legsByCall = {};
+  ss.forEach(s => { if (s.call_id) (legsByCall[s.call_id] = legsByCall[s.call_id] || []).push(s); });
   body.innerHTML = ss.map(s => {
+    const peer = s.call_id && (legsByCall[s.call_id] || []).length === 2
+      ? legsByCall[s.call_id].find(l => l !== s) : null;
     const incoming = s.direction === 'incoming';
-    const caller = incoming ? (s.remote_uri || '?') : (s.account || s.local_uri || '?');
-    const callee = incoming ? (s.account || s.local_uri || '?') : (s.remote_uri || '?');
     const stateColors = { established: ['#ecfdf5', '#047857'], accepted: ['#ecfdf5', '#047857'],
                           early_media: ['#fef3c7', '#92400e'], ringing: ['#fef3c7', '#92400e'],
                           progress: ['#fef3c7', '#92400e'], connecting: ['#eff6ff', '#1d4ed8'],
@@ -827,6 +913,8 @@ async function loadSessions() {
     const mediaBadges = { audio: '<span class="badge badge-sip">Audio</span>',
                           video: '<span class="badge badge-webrtc">Video</span>' };
     const media = (s.media || []).map(m => mediaBadges[m] || `<span class="badge" style="background:#f1f5f9;color:#475569">${esc(m)}</span>`).join(' ') || '—';
+    const rtp = Object.keys(s.media_ports || {}).map(m =>
+      `<div class="mono" style="font-size:11px;color:#64748b;margin-top:3px" title="far-end RTP endpoint (${esc(m)})">${esc(m)} ${esc(s.media_ports[m])}</div>`).join('');
     const dir = incoming ? '←' : '→';
     const slow = (s.slow_download ? ' <span style="color:#dc2626;font-size:11px">↓slow</span>' : '')
                + (s.slow_upload ? ' <span style="color:#dc2626;font-size:11px">↑slow</span>' : '');
@@ -838,11 +926,13 @@ async function loadSessions() {
         <div class="mono" style="font-size:12px">${esc(stripSip(s.account || ''))} ${dir} ${esc(stripSip(s.remote_uri || ''))}</div>
         ${s.call_id ? `<div class="mono" style="font-size:11px;color:#94a3b8">${esc(s.call_id)}</div>` : ''}
       </td>
-      <td>${media}</td>
+      <td class="mono hide">${esc(s.address || '—')}</td>
+      <td>${media}${rtp}</td>
       <td>${state}</td>
       <td class="mono">${fmtDuration(s.duration)}</td>
-      <td class="hide" style="font-size:13px;color:#475569">${esc(s.user_agent || '—')}</td>
-      <td class="mono hide">${esc(s.address || '—')}</td>
+      <td class="hide" style="font-size:13px;color:#475569">${esc(s.user_agent || '—')}
+        ${peer ? `<div style="font-size:11px;color:#94a3b8" title="user agent of the other party (its own leg is listed too)">peer: ${esc(peer.user_agent || '?')}</div>` : ''}
+      </td>
     </tr>`;
   }).join('');
 }
@@ -1763,6 +1853,7 @@ class AdminWebHandler(object, metaclass=Singleton):
                     'remote_display_name': getattr(remote, 'display_name', None),
                     'call_id': getattr(session, 'call_id', None),
                     'media': list(getattr(session, 'media', None) or []),
+                    'media_ports': dict(getattr(session, 'media_ports', None) or {}),
                     'duration': int(now - created) if created else None,
                     'address': address,
                     'slow_download': bool(getattr(session, 'slow_download', False)),
@@ -2892,6 +2983,29 @@ class AdminWebHandler(object, metaclass=Singleton):
         self._dispatch_moderation(room, moderator, '_RH_videoroom_mute_participant',
                                   req, '{} {}'.format('mute' if muted else 'unmute', target_id))
         return json.dumps({'ok': True, 'queued': True, 'muted': muted})
+
+    @app.route('/metrics/daily', methods=['GET'])
+    def metrics_daily(self, request):
+        self._check_auth(request)
+        request.setHeader('Content-Type', 'application/json')
+        try:
+            days = min(365, max(1, int(request.args.get(b'days', [b'30'])[0])))
+        except (ValueError, TypeError):
+            days = 30
+        deferred = Metrics().get_daily(days)
+
+        def fmt(result):
+            day_list = [(datetime.datetime.utcnow() - datetime.timedelta(days=i)).strftime('%Y%m%d')
+                        for i in range(days - 1, -1, -1)]
+            metrics = {metric: [{'day': day, 'value': int((result.get(metric) or {}).get(day, 0))}
+                                for day in day_list]
+                       for metric in ('connections', 'registrations', 'accounts', 'sessions', 'sessions_audio', 'sessions_video', 'conferences', 'messages')}
+            out = {'days': days, 'metrics': metrics}
+            if 'error' in result:
+                out['error'] = result['error']
+            return json.dumps(out)
+        deferred.addCallback(fmt)
+        return deferred
 
     @app.route('/rooms/events', methods=['GET'])
     def rooms_events(self, request):

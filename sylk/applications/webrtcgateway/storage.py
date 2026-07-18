@@ -20,6 +20,7 @@ from .configuration import CassandraConfig, FileStorageConfig
 from .datatypes import FileTransferData
 from .errors import StorageError
 from .logger import log
+from .metrics import Metrics
 from .models import xcap
 
 __all__ = 'TokenStorage',
@@ -500,6 +501,7 @@ class FileMessageStorage(object):
 
     @run_in_thread('file-io')
     def add(self, account, contact, direction, content, content_type, timestamp, disposition_notification, message_id, state=None):
+        Metrics().count_message(content_type)
         try:
             msg_timestamp = datetime.datetime.fromisoformat(timestamp)
         except ValueError:
@@ -799,6 +801,7 @@ class CassandraMessageStorage(object):
 
     @run_in_thread('cassandra')
     def add(self, account, contact, direction, content, content_type, timestamp, disposition_notification, message_id, state=None):
+        Metrics().count_message(content_type)
         try:
             msg_timestamp = datetime.datetime.fromisoformat(timestamp)
         except ValueError:

@@ -55,6 +55,7 @@ from .configuration import (ExternalAuthConfig, GeneralConfig, JanusConfig,
 from .janus import (JanusBackend, JanusError, JanusSession, SIPPluginHandle,
                     VideoroomPluginHandle)
 from .logger import ConnectionLogger, VideoroomLogger
+from .metrics import Metrics
 from .models import janus, sylkrtc
 from .sip_handlers import log_uri
 from .storage import MessageStorage, TokenStorage
@@ -240,23 +241,63 @@ class SIPSessionInfo(object):
         self.call_id = None            # SIP Call-ID, learned from the first event that carries it
         self.created = time.time()     # wall-clock creation time (admin UI shows it as session duration)
         self.media = []                # negotiated media types ('audio', 'video'), updated from SDP
+        self.media_ports = {}          # media type -> far-end RTP endpoint 'ip:port'
         self.slow_download = False
         self.slow_upload = False
         self._message_queue = deque()
 
-    def update_media(self, sdp):
+    def update_media(self, sdp, remote=False):
         """Refresh self.media from an SDP body. Counts only m-lines with a
         non-zero port (a zero port means the stream was declined), so an
-        answer that rejects video downgrades the session to audio-only."""
+        answer that rejects video downgrades the session to audio-only.
+        With remote=True the SDP is the far end's; its c=/m= lines are
+        recorded as the remote RTP endpoints per media type."""
         if not sdp:
             return
         media = []
+        endpoints = {}
+        session_address = None
+        current = None
         for line in sdp.splitlines():
-            if line.startswith('m='):
+            line = line.strip()
+            if line.startswith('c='):
+                parts = line.split()
+                if len(parts) >= 3:
+                    if current is None:
+                        session_address = parts[2]
+                    elif current in endpoints:
+                        endpoints[current]['address'] = parts[2]
+            elif line.startswith('m='):
                 parts = line[2:].split()
-                if len(parts) >= 2 and parts[1] != '0' and parts[0] not in media:
-                    media.append(parts[0])
+                if len(parts) >= 2:
+                    current = parts[0]
+                    if parts[1] != '0':
+                        if current not in media:
+                            media.append(current)
+                        endpoints.setdefault(current, {'address': None, 'port': parts[1], 'candidate': None, 'host_candidate': None})
+            elif line.startswith('a=candidate:') and current in endpoints:
+                # ICE-style SDP (Janus JSEP): the m-line port is the
+                # placeholder 9 and the real endpoint is in candidates.
+                parts = line[len('a=candidate:'):].split()
+                if len(parts) >= 6 and parts[1] == '1':   # component 1 = RTP
+                    candidate = (parts[4], parts[5])
+                    typ = parts[7] if len(parts) >= 8 and parts[6] == 'typ' else None
+                    info = endpoints[current]
+                    if info['candidate'] is None:
+                        info['candidate'] = candidate
+                    if typ == 'host' and info['host_candidate'] is None:
+                        info['host_candidate'] = candidate
         self.media = media
+        if remote:
+            ports = {}
+            for mtype, info in endpoints.items():
+                address, port = info['address'] or session_address, info['port']
+                if port in ('9',) or not address or address == '0.0.0.0':
+                    candidate = info['host_candidate'] or info['candidate']
+                    if candidate is not None:
+                        address, port = candidate
+                ports[mtype] = '{}:{}'.format(address or '?', port)
+            self.media_ports = ports
 
     def init_outgoing(self, account, destination):
         self.account = account
@@ -2264,6 +2305,8 @@ class ConnectionHandler(object):
         session_info.janus_handle = janus_handle
         session_info.init_outgoing(account_info, request.uri)
         session_info.update_media(request.sdp)
+        Metrics().increment('sessions')
+        Metrics().increment('sessions_video' if 'video' in session_info.media else 'sessions_audio')
         self.sip_sessions.add(session_info)
 
         self.log.info('outgoing session {request.session} to {request.uri}'.format(request=request))
@@ -2343,6 +2386,8 @@ class ConnectionHandler(object):
             if jsep_type == 'offer':
                 session_info.state = 'established'
             raise
+        if jsep_type == 'answer':
+            session_info.update_media(request.sdp)  # local answer = what got negotiated
 
         self.log.info('{direction} session {id} sent {jsep} update'.format(
             direction=session_info.direction, id=session_info.id, jsep=jsep_type))
@@ -3184,6 +3229,8 @@ class ConnectionHandler(object):
         if account_info.registration_state != 'registered':
             account_info.registration_state = 'registered'
             account_info.auth_state = True
+            Metrics().increment('registrations')
+            Metrics().mark('accounts', account_info.id)
 
 
             helper = SIPPluginHandle(self.janus_session, event_handler=self._handle_janus_sip_event)
@@ -3253,8 +3300,10 @@ class ConnectionHandler(object):
 
         session.init_incoming(account_info, originator.uri, originator.display_name)
         session.call_id = call_id
-        session.update_media(event.jsep.sdp)
+        session.update_media(event.jsep.sdp, remote=True)
         self.sip_sessions.add(session)
+        Metrics().increment('sessions')
+        Metrics().increment('sessions_video' if 'video' in session.media else 'sessions_audio')
         self.send(sylkrtc.AccountIncomingSessionEvent(account=account_info.id, session=session.id, originator=originator, sdp=event.jsep.sdp, call_id=call_id, **headers))
         self.log.info('incoming session {session.id} from {session.remote_identity.uri!s}'.format(session=session))
 
@@ -3293,7 +3342,7 @@ class ConnectionHandler(object):
             previous_state = session_info.state
             session_info.state = 'established'
             if event.jsep is not None:
-                session_info.update_media(event.jsep.sdp)
+                session_info.update_media(event.jsep.sdp, remote=True)
                 self.send(sylkrtc.SessionUpdateEvent(session=session_info.id, state='accepted', sdp=event.jsep.sdp))
                 self.log.info('{session.direction} session {session.id} update accepted ({prev}→established)'.format(
                     session=session_info, prev=previous_state))
@@ -3313,7 +3362,7 @@ class ConnectionHandler(object):
             assert event.jsep is not None
             data = event.plugindata.data.result  # type: janus.SIPResultAccepted
             headers = {'headers': data.headers} if data.headers else {}
-            session_info.update_media(event.jsep.sdp)  # the answer is what got negotiated
+            session_info.update_media(event.jsep.sdp, remote=True)  # the answer is what got negotiated
             self.send(sylkrtc.SessionAcceptedEvent(session=session_info.id, sdp=event.jsep.sdp, call_id=event.plugindata.data.call_id, **headers))
         else:
             self.send(sylkrtc.SessionAcceptedEvent(session=session_info.id))
@@ -3336,6 +3385,7 @@ class ConnectionHandler(object):
             self.log.warning('updatingcall event without JSEP for session {session.id}'.format(session=session_info))
             return
         session_info.state = 'remote-updating'
+        session_info.update_media(event.jsep.sdp, remote=True)
         self.send(sylkrtc.SessionUpdateEvent(session=session_info.id, state='received', sdp=event.jsep.sdp))
         self.log.info('{session.direction} session {session.id} got remote re-INVITE'.format(session=session_info))
 
@@ -3348,7 +3398,7 @@ class ConnectionHandler(object):
         previous_state = session_info.state
         session_info.state = 'established'
         if event.jsep is not None:
-            session_info.update_media(event.jsep.sdp)
+            session_info.update_media(event.jsep.sdp, remote=True)
             self.send(sylkrtc.SessionUpdateEvent(session=session_info.id, state='accepted', sdp=event.jsep.sdp))
             self.log.info('{session.direction} session {session.id} update accepted'.format(session=session_info))
         else:

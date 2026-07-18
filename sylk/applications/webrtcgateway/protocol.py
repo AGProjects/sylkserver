@@ -9,6 +9,7 @@ from autobahn.exception import Disconnected
 from .handler import ConnectionHandler
 from .janus import JanusBackend
 from .logger import log
+from .metrics import Metrics
 
 
 SYLK_WS_PROTOCOL = 'sylkRTC-2'
@@ -32,6 +33,7 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
 
     def onOpen(self):
         self.factory.connections.add(self)
+        Metrics().increment('connections')
         self.connection_handler = ConnectionHandler(self)
         self.connection_handler.start()
         self.connection_handler.log.info('websocket connected from: {address}'.format(address=self.peer))
