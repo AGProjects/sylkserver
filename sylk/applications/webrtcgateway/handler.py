@@ -238,9 +238,25 @@ class SIPSessionInfo(object):
         self.remote_identity = None    # type: Optional[SessionPartyIdentity]
         self.janus_handle = None       # type: Optional[SIPPluginHandle]
         self.call_id = None            # SIP Call-ID, learned from the first event that carries it
+        self.created = time.time()     # wall-clock creation time (admin UI shows it as session duration)
+        self.media = []                # negotiated media types ('audio', 'video'), updated from SDP
         self.slow_download = False
         self.slow_upload = False
         self._message_queue = deque()
+
+    def update_media(self, sdp):
+        """Refresh self.media from an SDP body. Counts only m-lines with a
+        non-zero port (a zero port means the stream was declined), so an
+        answer that rejects video downgrades the session to audio-only."""
+        if not sdp:
+            return
+        media = []
+        for line in sdp.splitlines():
+            if line.startswith('m='):
+                parts = line[2:].split()
+                if len(parts) >= 2 and parts[1] != '0' and parts[0] not in media:
+                    media.append(parts[0])
+        self.media = media
 
     def init_outgoing(self, account, destination):
         self.account = account
@@ -2247,6 +2263,7 @@ class ConnectionHandler(object):
         session_info = SIPSessionInfo(request.session)
         session_info.janus_handle = janus_handle
         session_info.init_outgoing(account_info, request.uri)
+        session_info.update_media(request.sdp)
         self.sip_sessions.add(session_info)
 
         self.log.info('outgoing session {request.session} to {request.uri}'.format(request=request))
@@ -2271,6 +2288,7 @@ class ConnectionHandler(object):
         if client_port is not None:
             extra_headers.append({'name': 'X-Sylk-Client-Port', 'value': client_port})
         session_info.janus_handle.accept(sdp=request.sdp, headers=extra_headers)
+        session_info.update_media(request.sdp)  # the answer is what got negotiated
         self.log.info('incoming session {session.id} answered'.format(session=session_info))
 
     def _RH_session_trickle(self, request):
@@ -3235,6 +3253,7 @@ class ConnectionHandler(object):
 
         session.init_incoming(account_info, originator.uri, originator.display_name)
         session.call_id = call_id
+        session.update_media(event.jsep.sdp)
         self.sip_sessions.add(session)
         self.send(sylkrtc.AccountIncomingSessionEvent(account=account_info.id, session=session.id, originator=originator, sdp=event.jsep.sdp, call_id=call_id, **headers))
         self.log.info('incoming session {session.id} from {session.remote_identity.uri!s}'.format(session=session))
@@ -3274,6 +3293,7 @@ class ConnectionHandler(object):
             previous_state = session_info.state
             session_info.state = 'established'
             if event.jsep is not None:
+                session_info.update_media(event.jsep.sdp)
                 self.send(sylkrtc.SessionUpdateEvent(session=session_info.id, state='accepted', sdp=event.jsep.sdp))
                 self.log.info('{session.direction} session {session.id} update accepted ({prev}→established)'.format(
                     session=session_info, prev=previous_state))
@@ -3293,6 +3313,7 @@ class ConnectionHandler(object):
             assert event.jsep is not None
             data = event.plugindata.data.result  # type: janus.SIPResultAccepted
             headers = {'headers': data.headers} if data.headers else {}
+            session_info.update_media(event.jsep.sdp)  # the answer is what got negotiated
             self.send(sylkrtc.SessionAcceptedEvent(session=session_info.id, sdp=event.jsep.sdp, call_id=event.plugindata.data.call_id, **headers))
         else:
             self.send(sylkrtc.SessionAcceptedEvent(session=session_info.id))
@@ -3327,6 +3348,7 @@ class ConnectionHandler(object):
         previous_state = session_info.state
         session_info.state = 'established'
         if event.jsep is not None:
+            session_info.update_media(event.jsep.sdp)
             self.send(sylkrtc.SessionUpdateEvent(session=session_info.id, state='accepted', sdp=event.jsep.sdp))
             self.log.info('{session.direction} session {session.id} update accepted'.format(session=session_info))
         else:

@@ -1,4 +1,6 @@
 
+import base64
+import datetime
 import hashlib
 import hmac
 import json
@@ -7,15 +9,16 @@ import mimetypes
 import os
 import secrets
 import time
-from shutil import copyfileobj
+from shutil import copyfileobj, rmtree
 
 from application.notification import IObserver, NotificationCenter
 from application.python.types import Singleton
 from application.system import makedirs
 from autobahn.twisted.resource import WebSocketResource
 from sipsimple.streams.msrp.filetransfer import FileSelector
+from sipsimple.threading import run_in_thread
 from sipsimple.threading.green import call_in_green_thread
-from twisted.internet import defer, reactor
+from twisted.internet import defer, reactor, threads
 from twisted.internet.ssl import DefaultOpenSSLContextFactory
 from twisted.python.failure import Failure
 from twisted.web.server import Site, NOT_DONE_YET
@@ -30,7 +33,8 @@ from sylk.web import (File, Klein, StaticFileResource,
                       TrackedUploadHTTPChannel, server)
 
 from .audio_level_udp import AudioLevelUDPClient
-from .configuration import GeneralConfig, JanusConfig
+from .configuration import (CassandraConfig, FileStorageConfig,
+                            GeneralConfig, JanusConfig)
 from .datatypes import FileTransferData
 from .factory import SylkWebSocketServerFactory
 from .janus import JanusBackend
@@ -38,7 +42,7 @@ from .logger import log
 from .models import sylkrtc
 from .protocol import SYLK_WS_PROTOCOL
 from .sip_handlers import MessageHandler
-from .storage import MessageStorage, TokenStorage
+from .storage import CASSANDRA_MODULES_AVAILABLE, MessageStorage, TokenStorage
 
 __all__ = 'WebHandler', 'AdminWebHandler'
 
@@ -354,7 +358,7 @@ ADMIN_UI_HTML = r"""<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SylkServer · Conferences</title>
+<title>SylkServer WebRTC Gateway Application Admin frontend</title>
 <style>
   :root {
     --bg: #0f172a; --panel: #ffffff; --muted: #64748b; --border: #e2e8f0;
@@ -368,6 +372,16 @@ ADMIN_UI_HTML = r"""<!doctype html>
   header.topbar .dot { width:9px; height:9px; border-radius:50%; background:var(--ok); box-shadow:0 0 0 3px rgba(22,163,74,.25); }
   header.topbar .spacer { flex:1; }
   header.topbar .who { font-size:13px; color:#cbd5e1; }
+  .stats-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(230px, 1fr)); gap:14px; margin-bottom:14px; }
+  .stat { padding:18px 20px; }
+  .stat .lbl { font-size:12px; text-transform:uppercase; letter-spacing:.5px; color:var(--muted); margin-bottom:8px; }
+  .stat .num { font-size:26px; font-weight:700; line-height:1.1; }
+  .stat .sub { font-size:12px; color:var(--muted); margin-top:8px; line-height:1.5; }
+  .stat .err { color:var(--danger); font-size:13px; }
+  nav.tabs { background:#1e293b; padding:0 22px; display:flex; gap:6px; }
+  nav.tabs button { background:none; border:0; color:#94a3b8; font-size:14px; font-weight:600; padding:12px 16px; cursor:pointer; border-bottom:3px solid transparent; }
+  nav.tabs button:hover { color:#e2e8f0; }
+  nav.tabs button.active { color:#fff; border-bottom-color:var(--accent); }
   .btn { border:0; border-radius:7px; padding:8px 14px; font-size:13px; font-weight:600; cursor:pointer; }
   .btn-light { background:#1e293b; color:#e2e8f0; }
   .btn-light:hover { background:#334155; }
@@ -479,8 +493,8 @@ function showLogin(configured) {
   $('app').innerHTML = `
     <div class="login-wrap">
       <div class="card login-card">
-        <h2>SylkServer Admin</h2>
-        <p>${configured ? 'Sign in to view live conferences.' : 'Admin login is not configured on this server.'}</p>
+        <h2>WebRTC Gateway</h2>
+        <p>${configured ? 'Sign in' : 'Admin login is not configured on this server.'}</p>
         <form id="loginForm" action="login" method="post" autocomplete="on" ${configured ? '' : 'style="opacity:.5;pointer-events:none"'}>
           <div class="field"><label>Username</label><input id="u" name="username" autocomplete="username" autofocus></div>
           <div class="field"><label>Password</label><input id="p" name="password" type="password" autocomplete="current-password"></div>
@@ -520,37 +534,188 @@ function showLogin(configured) {
   }
 }
 
+const VIEWS = ['accounts', 'endpoints', 'sessions', 'conferences', 'messages', 'media'];
+const DEFAULT_VIEW = VIEWS[0];
+let currentView = VIEWS.includes(location.hash.slice(1)) ? location.hash.slice(1) : DEFAULT_VIEW;
+
+function switchView(v) {
+  if (VIEWS.indexOf(v) === -1) v = DEFAULT_VIEW;
+  currentView = v;
+  try { history.replaceState(null, '', '#' + v); } catch (e) {}
+  if (!$('tab-conferences')) return;   // not on the dashboard (login view)
+  VIEWS.forEach(name => {
+    $('tab-' + name).classList.toggle('active', name === v);
+    $('view-' + name).style.display = name === v ? '' : 'none';
+  });
+  if (v !== 'conferences') closeDrawer();
+  if (v === 'conferences') loadRooms();
+  else if (v === 'sessions') loadSessions();
+  else if (v === 'endpoints') loadEndpoints();
+  else if (v === 'accounts') loadAccounts();
+  else if (v === 'media') loadMedia();
+  // 'messages' is fully on-demand (count / dump buttons), nothing to preload
+}
+
 function showDashboard(username) {
   $('app').innerHTML = `
     <header class="topbar">
       <span class="dot"></span>
-      <h1>SylkServer · Live Conferences</h1>
+      <h1>SylkServer WebRTC Gateway Application Admin frontend</h1>
       <span class="spacer"></span>
       <span class="who">${esc(username || '')}</span>
       <button class="btn btn-light" onclick="logout()">Sign out</button>
     </header>
+    <nav class="tabs">
+      <button id="tab-accounts" onclick="switchView('accounts')">Accounts</button>
+      <button id="tab-endpoints" onclick="switchView('endpoints')">End-points</button>
+      <button id="tab-sessions" onclick="switchView('sessions')">Sessions</button>
+      <button id="tab-conferences" onclick="switchView('conferences')">Conferences</button>
+      <button id="tab-messages" onclick="switchView('messages')">Messages</button>
+      <button id="tab-media" onclick="switchView('media')">File transfers</button>
+    </nav>
     <main>
-      <div class="toolbar">
-        <h2>Conferences</h2>
-        <span class="count" id="roomCount">—</span>
-        <span class="spacer"></span>
-        <button class="btn btn-accent" onclick="loadRooms()">Refresh</button>
-      </div>
-      <div class="card">
-        <table>
-          <thead><tr>
-            <th>Room URI</th>
-            <th class="hide">Janus Room ID</th>
-            <th>Sessions</th>
-            <th style="width:30px"></th>
-          </tr></thead>
-          <tbody id="roomsBody">
-            <tr><td colspan="4" class="empty">Loading…</td></tr>
-          </tbody>
-        </table>
-      </div>
+      <section id="view-conferences">
+        <div class="toolbar">
+          <h2>Conferences</h2>
+          <span class="count" id="roomCount">—</span>
+          <span class="spacer"></span>
+          <button class="btn btn-accent" onclick="loadRooms()">Refresh</button>
+        </div>
+        <div class="card">
+          <table>
+            <thead><tr>
+              <th>Room URI</th>
+              <th class="hide">Janus Room ID</th>
+              <th>Sessions</th>
+              <th style="width:30px"></th>
+            </tr></thead>
+            <tbody id="roomsBody">
+              <tr><td colspan="4" class="empty">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <section id="view-sessions" style="display:none">
+        <div class="toolbar">
+          <h2>Sessions</h2>
+          <span class="count" id="sessCount">—</span>
+          <span class="spacer"></span>
+          <button class="btn btn-accent" onclick="loadSessions()">Refresh</button>
+        </div>
+        <div class="card">
+          <table>
+            <thead><tr>
+              <th>Session</th>
+              <th>Media</th>
+              <th>State</th>
+              <th>Duration</th>
+              <th class="hide">User agent</th>
+              <th class="hide">Connection</th>
+            </tr></thead>
+            <tbody id="sessBody">
+              <tr><td colspan="6" class="empty">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <section id="view-endpoints" style="display:none">
+        <div class="toolbar">
+          <h2>End-points</h2>
+          <span class="count" id="epCount">—</span>
+          <span class="spacer"></span>
+          <button class="btn btn-accent" onclick="loadEndpoints()">Refresh</button>
+        </div>
+        <div class="card">
+          <table>
+            <thead><tr>
+              <th>URI</th>
+              <th class="hide">User agent</th>
+              <th>Connection</th>
+            </tr></thead>
+            <tbody id="epBody">
+              <tr><td colspan="3" class="empty">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <section id="view-accounts" style="display:none">
+        <div class="toolbar">
+          <h2>Accounts</h2>
+          <span class="count" id="stBackend">—</span>
+          <span class="spacer"></span>
+          <button class="pbtn" id="delReqBtn" onclick="findDeletionRequests()">Marked for deletion</button>
+          <button class="btn btn-accent" onclick="loadAccounts()">Refresh</button>
+        </div>
+        <div id="delReqResult"></div>
+        <div class="card" style="padding:16px;margin-bottom:14px">
+          <form onsubmit="return lookupAccount(event)" style="display:flex;gap:10px;align-items:center">
+            <input id="acctInput" placeholder="user@domain" autocomplete="off"
+                   style="flex:1;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px">
+            <button class="btn btn-accent" type="submit">Show account</button>
+          </form>
+          <div id="acctResult"></div>
+        </div>
+        <div class="stats-grid" id="stGrid">
+          <div class="card stat"><div class="lbl">Loading…</div></div>
+        </div>
+        <div class="hint" id="stHint" style="padding:0 4px"></div>
+      </section>
+      <section id="view-messages" style="display:none">
+        <div class="toolbar">
+          <h2>Messages</h2>
+          <span class="spacer"></span>
+        </div>
+        <div class="stats-grid">
+          <div class="card stat">
+            <div class="lbl">Chat messages in database</div>
+            <div class="num" id="msgCount">—</div>
+            <div class="sub">
+              <button class="pbtn" id="msgBtn" onclick="countMessages()">Count now</button>
+              <span style="display:block;margin-top:8px">full table scan — may take a while on a large database; messages expire after one year (table TTL)</span>
+            </div>
+          </div>
+        </div>
+        <div class="card" style="padding:16px;margin-bottom:14px">
+          <form onsubmit="return loadMessageTypes(event)" style="display:flex;gap:10px;align-items:center">
+            <input id="msgAcctInput" placeholder="account (user@domain)" autocomplete="off"
+                   style="flex:1;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px">
+            <button class="btn btn-accent" type="submit">Show messages</button>
+          </form>
+          <div id="msgTypesResult"></div>
+        </div>
+        <div class="card" style="padding:16px">
+          <form onsubmit="return dumpMessage(event)" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <input id="dumpAccount" placeholder="account (user@domain)" autocomplete="off"
+                   style="flex:1;min-width:200px;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px">
+            <input id="dumpId" placeholder="message id" autocomplete="off"
+                   style="flex:1.4;min-width:240px;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px">
+            <button class="btn btn-accent" type="submit">Dump message</button>
+          </form>
+          <div id="dumpResult"></div>
+        </div>
+      </section>
+      <section id="view-media" style="display:none">
+        <div class="toolbar">
+          <h2>File transfers</h2>
+          <span class="count" id="mediaTotal">—</span>
+          <span class="spacer"></span>
+          <button class="btn btn-accent" onclick="loadMedia()">Refresh</button>
+        </div>
+        <div class="stats-grid" id="mediaGrid">
+          <div class="card stat"><div class="lbl">Loading…</div></div>
+        </div>
+        <div class="card" style="padding:16px;margin-bottom:14px">
+          <form onsubmit="return loadFileTransfers(event)" style="display:flex;gap:10px;align-items:center">
+            <input id="ftAcctInput" placeholder="account (user@domain)" autocomplete="off"
+                   style="flex:1;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px">
+            <button class="btn btn-accent" type="submit">Show transfers</button>
+          </form>
+          <div id="ftResult"></div>
+        </div>
+        <div class="hint" style="padding:0 4px">Sizes are walked on the server and cached for two minutes.</div>
+      </section>
     </main>`;
-  loadRooms();
+  switchView(currentView);
   startLive();
 }
 
@@ -573,6 +738,503 @@ async function loadRooms() {
       <td><span class="pill">${esc(rm.sessions)}</span></td>
       <td class="chev">›</td>
     </tr>`).join('');
+}
+
+async function loadEndpoints() {
+  const r = await api('endpoints');
+  if (r.status === 403) { boot(); return; }
+  const j = await r.json().catch(() => ({ endpoints: [] }));
+  const eps = j.endpoints || [];
+  $('epCount').textContent = eps.length + (eps.length === 1 ? ' connection' : ' connections');
+  const body = $('epBody');
+  if (!body) return;
+  if (!eps.length) {
+    body.innerHTML = `<tr><td colspan="3" class="empty">No connected end-points right now.</td></tr>`;
+    return;
+  }
+  // One row per account; a connection with no account yet gets a
+  // placeholder row so it's still visible.
+  const rows = [];
+  eps.forEach(ep => {
+    if (ep.accounts && ep.accounts.length) {
+      ep.accounts.forEach(a => rows.push({
+        uri: a.uri, name: a.display_name, ua: a.user_agent,
+        reg: a.registration_state, addr: ep.address,
+      }));
+    } else {
+      rows.push({ uri: null, name: null, ua: null, reg: null, addr: ep.address });
+    }
+  });
+  body.innerHTML = rows.map(row => {
+    const reg = row.reg === 'registered'
+      ? '<span class="badge badge-sip">Registered</span>'
+      : row.reg === 'failed'
+      ? '<span class="badge badge-muted" style="margin-left:0">Failed</span>'
+      : row.reg
+      ? `<span class="badge" style="background:#f1f5f9;color:#475569">${esc(row.reg)}</span>`
+      : '';
+    const name = row.name ? `<div style="font-weight:600">${esc(row.name)} ${reg}</div>` : (reg ? `<div>${reg}</div>` : '');
+    const uri = row.uri
+      ? `${name}<div class="mono" style="font-size:12px;color:#64748b">${esc(stripSip(row.uri))}</div>`
+      : '<span style="color:#94a3b8">(no account yet)</span>';
+    return `
+    <tr style="cursor:default">
+      <td>${uri}</td>
+      <td class="hide" style="font-size:13px;color:#475569">${esc(row.ua || '—')}</td>
+      <td class="mono">${esc(row.addr || '—')}</td>
+    </tr>`;
+  }).join('');
+}
+
+function fmtDuration(s) {
+  if (s == null) return '—';
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  const mm = String(m).padStart(2, '0'), ss = String(sec).padStart(2, '0');
+  return h ? `${h}:${mm}:${ss}` : `${m}:${ss}`;
+}
+
+function fmtBytes(n) {
+  if (n == null) return '—';
+  if (n < 1024) return n + ' B';
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let i = -1;
+  do { n /= 1024; i++; } while (n >= 1024 && i < units.length - 1);
+  return n.toFixed(n >= 100 ? 0 : 1) + ' ' + units[i];
+}
+
+async function loadSessions() {
+  const r = await api('sessions');
+  if (r.status === 403) { boot(); return; }
+  const j = await r.json().catch(() => ({ sessions: [] }));
+  const ss = j.sessions || [];
+  $('sessCount').textContent = ss.length + (ss.length === 1 ? ' session' : ' sessions');
+  const body = $('sessBody');
+  if (!body) return;
+  if (!ss.length) {
+    body.innerHTML = `<tr><td colspan="6" class="empty">No active one-to-one sessions right now.</td></tr>`;
+    return;
+  }
+  body.innerHTML = ss.map(s => {
+    const incoming = s.direction === 'incoming';
+    const caller = incoming ? (s.remote_uri || '?') : (s.account || s.local_uri || '?');
+    const callee = incoming ? (s.account || s.local_uri || '?') : (s.remote_uri || '?');
+    const stateColors = { established: ['#ecfdf5', '#047857'], accepted: ['#ecfdf5', '#047857'],
+                          early_media: ['#fef3c7', '#92400e'], ringing: ['#fef3c7', '#92400e'],
+                          progress: ['#fef3c7', '#92400e'], connecting: ['#eff6ff', '#1d4ed8'],
+                          terminated: ['#fef2f2', '#b91c1c'] };
+    const c = stateColors[s.state] || ['#f1f5f9', '#475569'];
+    const state = `<span class="badge" style="background:${c[0]};color:${c[1]}">${esc(s.state || '?')}</span>`;
+    const mediaBadges = { audio: '<span class="badge badge-sip">Audio</span>',
+                          video: '<span class="badge badge-webrtc">Video</span>' };
+    const media = (s.media || []).map(m => mediaBadges[m] || `<span class="badge" style="background:#f1f5f9;color:#475569">${esc(m)}</span>`).join(' ') || '—';
+    const dir = incoming ? '←' : '→';
+    const slow = (s.slow_download ? ' <span style="color:#dc2626;font-size:11px">↓slow</span>' : '')
+               + (s.slow_upload ? ' <span style="color:#dc2626;font-size:11px">↑slow</span>' : '');
+    const name = s.remote_display_name ? `<div style="font-weight:600">${esc(s.remote_display_name)}${slow}</div>` : (slow ? `<div>${slow}</div>` : '');
+    return `
+    <tr style="cursor:default">
+      <td>
+        ${name}
+        <div class="mono" style="font-size:12px">${esc(stripSip(s.account || ''))} ${dir} ${esc(stripSip(s.remote_uri || ''))}</div>
+        ${s.call_id ? `<div class="mono" style="font-size:11px;color:#94a3b8">${esc(s.call_id)}</div>` : ''}
+      </td>
+      <td>${media}</td>
+      <td>${state}</td>
+      <td class="mono">${fmtDuration(s.duration)}</td>
+      <td class="hide" style="font-size:13px;color:#475569">${esc(s.user_agent || '—')}</td>
+      <td class="mono hide">${esc(s.address || '—')}</td>
+    </tr>`;
+  }).join('');
+}
+
+function statTile(label, value, subLines) {
+  const sub = (subLines || []).filter(Boolean).join('<br>');
+  return `<div class="card stat">
+    <div class="lbl">${label}</div>
+    <div class="num">${value}</div>
+    ${sub ? `<div class="sub">${sub}</div>` : ''}
+  </div>`;
+}
+
+async function loadAccounts() {
+  const grid = $('stGrid');
+  if (!grid) return;
+  const r = await api('storage');
+  if (r.status === 403) { boot(); return; }
+  const j = await r.json().catch(() => null);
+  if (!j) { grid.innerHTML = `<div class="card stat"><div class="err">Failed to load account statistics.</div></div>`; return; }
+  $('stBackend').textContent = j.backend === 'cassandra' ? 'Cassandra backend' : 'file backend';
+  const tiles = [];
+  const acc = j.accounts || {};
+  tiles.push(acc.error
+    ? statTile('Accounts', '—', [`<span class="err">${esc(acc.error)}</span>`])
+    : statTile('Accounts', acc.total != null ? acc.total : '—', [
+        acc.active_30d != null ? `${acc.active_30d} active last 30 days · ${acc.active_7d} last 7 days` : null,
+        acc.with_api_token != null ? `${acc.with_api_token} with history API token` : null,
+      ]));
+  const pt = j.push_tokens || {};
+  const platforms = pt.platforms
+    ? Object.keys(pt.platforms).sort().map(k => `${esc(k)}: ${pt.platforms[k]}`).join(' · ')
+    : '';
+  tiles.push(pt.error
+    ? statTile('Mobile push tokens', '—', [`<span class="err">${esc(pt.error)}</span>`])
+    : statTile('Mobile push tokens', pt.total != null ? pt.total : '—', [
+        pt.accounts != null ? `across ${pt.accounts} account${pt.accounts === 1 ? '' : 's'}` : null,
+        platforms,
+      ]));
+  if (j.public_keys) {
+    tiles.push(j.public_keys.error
+      ? statTile('PGP public keys', '—', [`<span class="err">${esc(j.public_keys.error)}</span>`])
+      : statTile('PGP public keys', j.public_keys.total != null ? j.public_keys.total : '—',
+                 ['accounts with an uploaded key']));
+  }
+  grid.innerHTML = tiles.join('');
+  const backend = j.backend === 'cassandra' && j.cassandra
+    ? `Cassandra keyspace <b>${esc(j.cassandra.keyspace || '?')}</b> @ ${esc((j.cassandra.contact_points || []).join(', '))} · tokens table: ${esc(j.cassandra.push_tokens_table)}`
+    : `File storage in <span class="mono">${esc(j.storage_dir || '?')}</span>`;
+  $('stHint').innerHTML = `${backend}<br>${esc(j.messages_note || '')}`;
+}
+
+function openAccount(encAccount) {
+  $('acctInput').value = decodeURIComponent(encAccount);
+  lookupAccount();
+  const el = document.getElementById('acctResult');
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+async function findDeletionRequests() {
+  const btn = $('delReqBtn'), el = $('delReqResult');
+  if (btn) { btn.disabled = true; btn.textContent = 'Scanning…'; }
+  el.innerHTML = `<div class="card" style="padding:16px;margin-bottom:14px"><div class="empty" style="padding:10px">Scanning message store for account deletion requests…</div></div>`;
+  let j = null;
+  try {
+    const r = await api('accounts/marked-for-deletion');
+    if (r.status === 403) { boot(); return; }
+    j = await r.json();
+  } catch (e) {}
+  if (btn) { btn.disabled = false; btn.textContent = 'Marked for deletion'; }
+  if (!j) { el.innerHTML = `<div class="card" style="padding:16px;margin-bottom:14px"><div class="err">Scan failed.</div></div>`; return; }
+  if (j.error) { el.innerHTML = `<div class="card" style="padding:16px;margin-bottom:14px"><div class="err">${esc(j.error)}</div></div>`; return; }
+  if (!j.total) {
+    el.innerHTML = `<div class="card" style="padding:16px;margin-bottom:14px">
+      <b style="font-size:14px">No accounts marked for deletion</b>
+      <div style="font-size:12px;color:#64748b;margin-top:4px">no <span class="mono">${esc(j.content_type)}</span> messages found · scanned in ${esc(j.elapsed)}s</div>
+    </div>`;
+    return;
+  }
+  const rows = j.accounts.map(a => `
+    <tr style="cursor:default">
+      <td class="mono" style="font-size:13px;padding:8px 16px 8px 0">
+        <a href="#" style="color:var(--accent)" onclick="openAccount('${encodeURIComponent(a.account)}');return false">${esc(a.account)}</a>
+      </td>
+      <td class="mono" style="font-size:13px;text-align:right;padding:8px 16px 8px 0">${a.requests}</td>
+      <td class="mono" style="font-size:12px;color:#64748b;white-space:nowrap;padding:8px 0">${esc(a.last_request || '—')}</td>
+    </tr>`).join('');
+  el.innerHTML = `
+    <div class="card" style="padding:16px;margin-bottom:14px">
+      <b style="font-size:14px">${j.total} account${j.total === 1 ? '' : 's'} marked for deletion</b>
+      <div style="font-size:12px;color:#64748b;margin-top:4px">accounts with <span class="mono">${esc(j.content_type)}</span> messages · scanned in ${esc(j.elapsed)}s · click an account to inspect it</div>
+      <table style="width:auto;margin-top:6px"><thead><tr>
+        <th style="padding:6px 16px 4px 0">Account</th>
+        <th style="padding:6px 16px 4px 0;text-align:right">Requests</th>
+        <th style="padding:6px 0 4px">Last request</th>
+      </tr></thead><tbody>${rows}</tbody></table>
+    </div>`;
+}
+
+async function lookupAccount(e) {
+  if (e) e.preventDefault();
+  const account = $('acctInput').value.trim().toLowerCase();
+  if (!account) return false;
+  $('acctResult').innerHTML = `<div class="empty" style="padding:18px">Looking up ${esc(account)}…</div>`;
+  const r = await api('accounts/' + encodeURIComponent(account) + '/info');
+  if (r.status === 403) { boot(); return false; }
+  const j = await r.json().catch(() => null);
+  renderAccount(j);
+  return false;
+}
+
+function renderAccount(j) {
+  const el = $('acctResult');
+  if (!j) { el.innerHTML = '<div class="err" style="padding:12px 4px">Lookup failed.</div>'; return; }
+  if (j.error) { el.innerHTML = `<div class="err" style="padding:12px 4px">${esc(j.error)}</div>`; return; }
+  const m = j.messages || {};
+  const tokens = (j.push_tokens || []).map(t => `<tr style="cursor:default">
+      <td class="mono" style="font-size:12px;padding:8px 14px 8px 0">${esc(t.app_id || '?')}</td>
+      <td class="mono" style="font-size:12px;padding:8px 14px 8px 0">${esc(t.device_id || '?')}</td>
+      <td style="font-size:12px;padding:8px 14px 8px 0">${esc(t.platform || '')}</td>
+      <td class="mono" style="font-size:12px;padding:8px 14px 8px 0;word-break:break-all">${esc(t.token || '')}</td>
+      <td style="padding:8px 0;text-align:right">
+        <button class="pbtn pbtn-kick" onclick="deleteToken('${encodeURIComponent(j.account)}','${encodeURIComponent(t.app_id || '')}','${encodeURIComponent(t.device_id || '')}',this)">Delete</button>
+      </td>
+    </tr>`).join('');
+  const keys = (j.public_keys || []).map(k => `<pre style="font-size:11px;line-height:1.45;background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:12px;overflow:auto;margin:8px 0 0">${esc(k)}</pre>`).join('');
+  el.innerHTML = `
+    <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:14px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <h3 style="margin:0;font-size:16px" class="mono">${esc(j.account)}</h3>
+        ${j.found ? '<span class="badge badge-sip">message storage enabled</span>'
+                  : '<span class="badge badge-muted" style="margin-left:0">message storage not enabled</span>'}
+        <span class="spacer" style="flex:1"></span>
+        <button class="pbtn pbtn-kick" onclick="purgeAccount('${encodeURIComponent(j.account)}')">Purge account</button>
+      </div>
+      ${j.found ? `
+      <div style="margin-top:10px;font-size:13px;color:#334155">
+        ${j.api_token ? `<div><b>API token:</b> <span class="mono" style="font-size:12px;word-break:break-all">${esc(j.api_token)}</span>${j.token_ttl != null ? ` <span style="color:#64748b">· TTL ${esc(j.token_ttl)}</span>` : ''}</div>` : ''}
+        ${j.last_login ? `<div style="margin-top:4px"><b>Last login:</b> ${esc(j.last_login)}</div>` : ''}
+      </div>` : ''}
+      <div style="margin-top:14px">
+        <b style="font-size:14px">${m.total != null ? Number(m.total).toLocaleString() : 0} messages stored</b>
+        ${m.unread_text != null ? `<span style="font-size:13px;color:#475569"> · ${m.unread_text} unread text message${m.unread_text === 1 ? '' : 's'}</span>` : ''}
+        ${m.total ? `<div style="font-size:12px;color:#64748b;margin-top:4px">
+          <a href="#messages" style="color:var(--accent)" onclick="openMessagesFor('${encodeURIComponent(j.account)}');return false">show breakdown by type in the Messages tab →</a>
+        </div>` : ''}
+      </div>
+      <div style="margin-top:14px">
+        <b style="font-size:14px">${(j.push_tokens || []).length} push token(s) stored</b>
+        ${tokens ? `<table style="width:auto;margin-top:2px"><thead><tr>
+            <th style="padding:6px 14px 4px 0">App</th><th style="padding:6px 14px 4px 0">Device ID</th>
+            <th style="padding:6px 14px 4px 0">Platform</th><th style="padding:6px 14px 4px 0">Token</th>
+            <th style="padding:6px 0 4px"></th>
+          </tr></thead><tbody>${tokens}</tbody></table>` : ''}
+      </div>
+      <div style="margin-top:14px">
+        <b style="font-size:14px">${(j.public_keys || []).length} public key(s) stored</b>
+        ${keys ? `<details style="margin-top:4px"><summary style="font-size:12px;color:#64748b;cursor:pointer">show key(s)</summary>${keys}</details>` : ''}
+      </div>
+    </div>`;
+}
+
+function openMessagesFor(encAccount) {
+  switchView('messages');
+  $('msgAcctInput').value = decodeURIComponent(encAccount);
+  loadMessageTypes();
+}
+
+async function loadMessageTypes(e) {
+  if (e) e.preventDefault();
+  const account = $('msgAcctInput').value.trim().toLowerCase();
+  if (!account) return false;
+  $('msgTypesResult').innerHTML = `<div class="empty" style="padding:18px">Loading message types for ${esc(account)}…</div>`;
+  const r = await api('messages/types/' + encodeURIComponent(account));
+  if (r.status === 403) { boot(); return false; }
+  const j = await r.json().catch(() => null);
+  const el = $('msgTypesResult');
+  if (!j) { el.innerHTML = '<div class="err" style="padding:12px 4px">Lookup failed.</div>'; return false; }
+  if (j.error) { el.innerHTML = `<div class="err" style="padding:12px 4px">${esc(j.error)}</div>`; return false; }
+  const byType = j.by_type || {};
+  const types = Object.keys(byType);
+  if (!types.length) {
+    el.innerHTML = `<div class="empty" style="padding:18px">No messages stored for ${esc(account)}.</div>`;
+    return false;
+  }
+  const rows = types.map(t => `
+    <tr style="cursor:default">
+      <td class="mono" style="font-size:13px;text-align:right;width:90px;padding:9px 16px 9px 0">${byType[t].toLocaleString()}</td>
+      <td class="mono" style="font-size:13px;padding:9px 16px 9px 0">${esc(t)}</td>
+      <td style="text-align:right;padding:9px 0">
+        ${j.can_delete ? `<button class="pbtn pbtn-kick" onclick="deleteMessageType('${encodeURIComponent(account)}','${encodeURIComponent(t)}',${byType[t]},this)">Delete</button>` : ''}
+      </td>
+    </tr>`).join('');
+  el.innerHTML = `
+    <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:14px">
+      <b style="font-size:14px">${Number(j.total).toLocaleString()} message(s) for <span class="mono">${esc(account)}</span></b>
+      ${j.oldest ? `<div style="font-size:12px;color:#64748b;margin-top:4px">oldest <span class="mono">${esc(j.oldest)}</span> · newest <span class="mono">${esc(j.newest)}</span></div>` : ''}
+      <table style="margin-top:8px"><thead><tr>
+        <th style="text-align:right;padding:6px 16px 4px 0">Count</th>
+        <th style="padding:6px 16px 4px 0">Content type</th>
+        <th style="padding:6px 0 4px"></th>
+      </tr></thead><tbody>${rows}</tbody></table>
+      ${j.can_delete ? '' : '<div class="hint" style="padding:8px 0 0">deletion is only available on the Cassandra backend</div>'}
+    </div>`;
+  return false;
+}
+
+async function deleteMessageType(encAccount, encType, count, btn) {
+  const account = decodeURIComponent(encAccount);
+  const type = decodeURIComponent(encType);
+  if (!confirm(`Permanently delete ${count} ${type} message(s) for ${account}?\n\nThis cannot be undone.`)) return;
+  btn.disabled = true;
+  btn.textContent = 'Deleting…';
+  let j = null;
+  try {
+    const r = await api('messages/delete/' + encodeURIComponent(account), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content_type: type }),
+    });
+    if (r.status === 403) { boot(); return; }
+    j = await r.json();
+  } catch (e) {}
+  if (j && j.ok) toast(`Deleted ${j.deleted} ${type} message(s)`);
+  else toast('Delete failed' + (j && j.error ? ': ' + j.error : ''));
+  loadMessageTypes();   // refresh the breakdown
+}
+
+async function purgeAccount(encAccount) {
+  const account = decodeURIComponent(encAccount);
+  const typed = prompt(
+    `This will PERMANENTLY delete all server-side data of ${account}:\n\n` +
+    `• all stored messages\n` +
+    `• the account entry and its API token\n` +
+    `• all push tokens\n` +
+    `• the PGP public key\n` +
+    `• all files shared by the account\n\n` +
+    `This cannot be undone. Type the account address to confirm:`);
+  if (typed === null) return;
+  if (typed.trim().toLowerCase() !== account) {
+    toast('Account address did not match — nothing was deleted');
+    return;
+  }
+  toast('Purging ' + account + '…');
+  let j = null;
+  try {
+    const r = await api('accounts/' + encAccount + '/purge', { method: 'POST' });
+    if (r.status === 403) { boot(); return; }
+    j = await r.json();
+  } catch (e) {}
+  if (j && j.ok) {
+    const parts = [];
+    if (j.messages != null && j.messages >= 0) parts.push(`${j.messages} messages`);
+    if (j.push_tokens != null && j.push_tokens >= 0) parts.push(`${j.push_tokens} push tokens`);
+    if (j.public_keys != null && j.public_keys >= 0) parts.push(`${j.public_keys} public keys`);
+    parts.push(`${j.transfer_files || 0} shared files (${fmtBytes(j.transfer_bytes || 0)})`);
+    toast(`Purged ${account}: ` + parts.join(', '));
+  } else {
+    toast('Purge failed' + (j && j.error ? ': ' + j.error : ''));
+  }
+  setTimeout(() => { $('acctInput').value = account; lookupAccount(); }, 1000);
+}
+
+async function deleteToken(encAccount, encApp, encDevice, btn) {
+  const account = decodeURIComponent(encAccount);
+  const app = decodeURIComponent(encApp);
+  const device = decodeURIComponent(encDevice);
+  if (!confirm(`Purge the push token for app ${app} on device ${device}?\n\n${account} will no longer receive push notifications on that device.`)) return;
+  btn.disabled = true;
+  btn.textContent = 'Deleting…';
+  let ok = false;
+  try {
+    const r = await api('tokens/' + encAccount + '/' + encApp + '/' + encDevice, { method: 'DELETE' });
+    if (r.status === 403) { boot(); return; }
+    ok = r.ok;
+  } catch (e) {}
+  toast(ok ? 'Push token purged' : 'Delete failed');
+  // the purge runs async in the storage thread — give it a moment,
+  // then refresh the account view
+  setTimeout(() => { $('acctInput').value = account; lookupAccount(); }, 1000);
+}
+
+async function dumpMessage(e) {
+  if (e) e.preventDefault();
+  const account = $('dumpAccount').value.trim().toLowerCase();
+  const id = $('dumpId').value.trim();
+  if (!account || !id) { toast('Enter both account and message id'); return false; }
+  $('dumpResult').innerHTML = `<div class="empty" style="padding:18px">Looking up message ${esc(id)}…</div>`;
+  const r = await api('messages/dump/' + encodeURIComponent(account) + '/' + encodeURIComponent(id));
+  if (r.status === 403) { boot(); return false; }
+  const j = await r.json().catch(() => null);
+  const el = $('dumpResult');
+  if (!j) { el.innerHTML = '<div class="err" style="padding:12px 4px">Lookup failed.</div>'; return false; }
+  if (j.error) { el.innerHTML = `<div class="err" style="padding:12px 4px">${esc(j.error)}</div>`; return false; }
+  if (!j.found) {
+    el.innerHTML = `<div class="empty" style="padding:18px">No message with id <span class="mono">${esc(j.message_id)}</span> for ${esc(j.account)}.</div>`;
+    return false;
+  }
+  el.innerHTML = (j.messages || []).map(msg => {
+    const fields = [['timestamp', msg.timestamp || msg.created_at], ['stored at', msg.created_at],
+                    ['direction', msg.direction], ['contact', msg.contact],
+                    ['content type', msg.content_type], ['state', msg.state],
+                    ['disposition', (msg.disposition || []).join(', ') || null]];
+    const rows = fields.filter(f => f[1]).map(f => `<tr style="cursor:default;border:0">
+        <td style="padding:3px 18px 3px 0;font-size:13px;color:#475569;white-space:nowrap">${f[0]}</td>
+        <td class="mono" style="padding:3px 0;font-size:13px;word-break:break-all">${esc(f[1])}</td>
+      </tr>`).join('');
+    return `
+    <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:14px">
+      <table style="width:auto"><tbody>${rows}</tbody></table>
+      <div style="font-size:12px;color:#64748b;margin-top:10px">content</div>
+      <pre style="font-size:12px;line-height:1.5;background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:12px;overflow:auto;margin:6px 0 0;white-space:pre-wrap;word-break:break-word">${esc(msg.content || '')}</pre>
+    </div>`;
+  }).join('') + (j.scanned ? '<div class="hint" style="padding:8px 0 0">found via account partition scan (id mapping expired)</div>' : '');
+  return false;
+}
+
+async function countMessages() {
+  const btn = $('msgBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Counting…'; }
+  let j = {};
+  try {
+    const r = await api('storage/messages');
+    if (r.status === 403) { boot(); return; }
+    j = await r.json();
+  } catch (e) {}
+  if ($('msgCount')) $('msgCount').textContent = j.total != null ? Number(j.total).toLocaleString() : '—';
+  if (btn) { btn.disabled = false; btn.textContent = 'Count again'; }
+  if (j.error) toast('Count failed: ' + j.error);
+  else if (j.elapsed != null) toast('Counted in ' + j.elapsed + 's');
+}
+
+async function loadMedia() {
+  const grid = $('mediaGrid');
+  if (!grid) return;
+  const r = await api('media');
+  if (r.status === 403) { boot(); return; }
+  const j = await r.json().catch(() => null);
+  if (!j) { grid.innerHTML = `<div class="card stat"><div class="err">Failed to load media usage.</div></div>`; return; }
+  const defs = [
+    ['file_transfers', 'File transfers'],
+    ['filesharing', 'Conference files'],
+    ['recordings', 'Recordings'],
+  ];
+  let total = 0, ok = false;
+  grid.innerHTML = defs.map(([key, label]) => {
+    const d = j[key] || {};
+    if (d.error) return statTile(label, '—', [`<span class="err">${esc(d.error)}</span>`]);
+    total += d.bytes || 0; ok = true;
+    return statTile(label, fmtBytes(d.bytes), [
+      d.files != null ? `${d.files} file${d.files === 1 ? '' : 's'} on disk` : null,
+      d.path ? `<span class="mono" style="font-size:11px">${esc(d.path)}</span>` : null,
+      d.note ? esc(d.note) : null,
+    ]);
+  }).join('');
+  $('mediaTotal').textContent = ok ? fmtBytes(total) + ' total' : '—';
+}
+
+async function loadFileTransfers(e) {
+  if (e) e.preventDefault();
+  const account = $('ftAcctInput').value.trim().toLowerCase();
+  if (!account) return false;
+  const el = $('ftResult');
+  el.innerHTML = `<div class="empty" style="padding:18px">Scanning file transfers for ${esc(account)}…</div>`;
+  const r = await api('media/file-transfers/' + encodeURIComponent(account));
+  if (r.status === 403) { boot(); return false; }
+  const j = await r.json().catch(() => null);
+  if (!j) { el.innerHTML = '<div class="err" style="padding:12px 4px">Lookup failed.</div>'; return false; }
+  if (j.error) { el.innerHTML = `<div class="err" style="padding:12px 4px">${esc(j.error)}</div>`; return false; }
+  if (!j.files) {
+    el.innerHTML = `<div class="empty" style="padding:18px">No file transfers on disk for ${esc(account)}.</div>`;
+    return false;
+  }
+  const rows = (j.transfers || []).map(t => `
+    <tr style="cursor:default">
+      <td class="mono" style="font-size:12px;color:#64748b;white-space:nowrap;padding:8px 16px 8px 0">${esc(t.date)}</td>
+      <td class="mono" style="font-size:12px;padding:8px 16px 8px 0${'@' === (t.receiver || '')[0] || (t.receiver || '').includes('@') ? '' : ';color:#94a3b8;font-style:italic'}">${esc(t.receiver)}</td>
+      <td class="mono" style="font-size:12px;padding:8px 16px 8px 0;word-break:break-all">${esc(t.filename)}</td>
+      <td class="mono" style="font-size:12px;text-align:right;white-space:nowrap;padding:8px 0">${fmtBytes(t.bytes)}</td>
+    </tr>`).join('');
+  el.innerHTML = `
+    <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:14px">
+      <b style="font-size:14px">${fmtBytes(j.bytes)} in ${j.files} file${j.files === 1 ? '' : 's'} for <span class="mono">${esc(j.account)}</span></b>
+      ${j.total_transfers > (j.transfers || []).length ? `<div style="font-size:12px;color:#64748b;margin-top:4px">showing the ${(j.transfers || []).length} most recent of ${j.total_transfers} transfers</div>` : ''}
+      <table style="margin-top:8px"><thead><tr>
+        <th style="padding:6px 16px 4px 0">Date</th>
+        <th style="padding:6px 16px 4px 0">Receiver</th>
+        <th style="padding:6px 16px 4px 0">File</th>
+        <th style="padding:6px 0 4px;text-align:right">Size</th>
+      </tr></thead><tbody>${rows}</tbody></table>
+    </div>`;
+  return false;
 }
 
 let currentRoomUri = null;
@@ -741,9 +1403,14 @@ function startLive() {
     evtSource.onmessage = () => scheduleRefresh();   // room created/destroyed
     evtSource.onerror = () => {};                     // browser auto-reconnects
   } catch (e) {}
-  // Poll for session-count changes (joins/leaves don't emit SSE events).
+  // Poll for room/session/end-point changes (none of these emit SSE
+  // events). Only the visible section is refreshed; switching tabs
+  // triggers an immediate load. The Storage tab is intentionally not
+  // polled — its backend scans are heavier, so it loads on demand.
   pollTimer = setInterval(() => {
-    loadRooms();
+    if (currentView === 'endpoints') loadEndpoints();
+    else if (currentView === 'sessions') loadSessions();
+    else if (currentView === 'conferences') loadRooms();
     if (currentRoom) renderParticipants();
   }, 7000);
   // Fast loop for live audio meters while a room panel is open.
@@ -1001,6 +1668,882 @@ class AdminWebHandler(object, metaclass=Singleton):
         if request.method == 'DELETE':
             storage.remove(account, device_token)
         return json.dumps({'success': True})
+
+    @app.route('/tokens/<string:account>/<string:app_id>/<string:device_id>', methods=['DELETE'])
+    def delete_token(self, request, account, app_id, device_id):
+        """Purge one push token (identified by app id + device id, the
+        primary key columns) from the token store. Used by the Delete
+        buttons in the admin UI's account view."""
+        self._check_auth(request)
+        request.setHeader('Content-Type', 'application/json')
+        account = account.strip().lower()
+        log.info('[admin] delete push token requested for {} (app={}, device={})'.format(
+            account, app_id, device_id))
+        storage = TokenStorage()
+        storage.remove(account, app_id, device_id)   # runs async in the storage thread
+        return json.dumps({'ok': True, 'queued': True})
+
+    # ------------------------------------------------------------------
+    # End-points — all active WebSocket connections to the gateway.
+    # One entry per connection; each connection lists the accounts added
+    # on it (usually one). Consumed by the admin UI's End-points section.
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _peer_address(connection):
+        """Split an autobahn peer string ('tcp4:1.2.3.4:56789',
+        'tcp6:2001:db8::1:56789', ...) into (host, port)."""
+        peer = getattr(connection, 'peer', '') or ''
+        if peer.startswith(('tcp4:', 'tcp6:', 'unix:')):
+            peer = peer.split(':', 1)[1]
+        host, sep, port = peer.rpartition(':')
+        if not sep:
+            return peer, None
+        return host, port
+
+    @app.route('/endpoints', methods=['GET'])
+    def list_endpoints(self, request):
+        self._check_auth(request)
+        request.setHeader('Content-Type', 'application/json')
+        endpoints = []
+        for connection in list(SylkWebSocketServerFactory.connections):
+            handler = connection.connection_handler
+            host, port = self._peer_address(connection)
+            accounts = []
+            if handler is not None:
+                for account in list(handler.accounts_map.values()):
+                    accounts.append({
+                        'uri': account.id,
+                        'display_name': account.display_name,
+                        'user_agent': account.user_agent,
+                        'registration_state': account.registration_state,
+                    })
+            endpoints.append({
+                'ip': host,
+                'port': port,
+                'address': '{}:{}'.format(host, port) if port else host,
+                'device_id': getattr(handler, 'device_id', None),
+                'state': getattr(handler, 'state', None),
+                'accounts': accounts,
+            })
+        endpoints.sort(key=lambda e: ((e['accounts'][0]['uri'] or '~') if e['accounts'] else '~', e['address']))
+        return json.dumps({'total': len(endpoints), 'endpoints': endpoints})
+
+    # ------------------------------------------------------------------
+    # Sessions — real-time one-to-one (SIP) sessions across all connected
+    # end-points. Consumed by the admin UI's Sessions section.
+    # ------------------------------------------------------------------
+
+    @app.route('/sessions', methods=['GET'])
+    def list_sessions(self, request):
+        self._check_auth(request)
+        request.setHeader('Content-Type', 'application/json')
+        now = time.time()
+        sessions = []
+        for connection in list(SylkWebSocketServerFactory.connections):
+            handler = connection.connection_handler
+            if handler is None:
+                continue
+            host, port = self._peer_address(connection)
+            address = '{}:{}'.format(host, port) if port else host
+            for session in list(handler.sip_sessions):
+                account = getattr(session, 'account', None)
+                local = getattr(session, 'local_identity', None)
+                remote = getattr(session, 'remote_identity', None)
+                created = getattr(session, 'created', None)
+                sessions.append({
+                    'id': session.id,
+                    'direction': session.direction,
+                    'state': session.state,
+                    'account': getattr(account, 'id', None),
+                    'display_name': getattr(account, 'display_name', None),
+                    'user_agent': getattr(account, 'user_agent', None),
+                    'local_uri': getattr(local, 'uri', None),
+                    'remote_uri': getattr(remote, 'uri', None),
+                    'remote_display_name': getattr(remote, 'display_name', None),
+                    'call_id': getattr(session, 'call_id', None),
+                    'media': list(getattr(session, 'media', None) or []),
+                    'duration': int(now - created) if created else None,
+                    'address': address,
+                    'slow_download': bool(getattr(session, 'slow_download', False)),
+                    'slow_upload': bool(getattr(session, 'slow_upload', False)),
+                })
+        sessions.sort(key=lambda s: (-(s['duration'] or 0), s['account'] or '~'))
+        return json.dumps({'total': len(sessions), 'sessions': sessions})
+
+    # ------------------------------------------------------------------
+    # Accounts — usage overview: account / push-token / public-key
+    # statistics from the storage backend (Cassandra when configured,
+    # otherwise the file backend). The Cassandra numbers come from
+    # full-partition scans of the small tables (chat_accounts,
+    # push_tokens, public_key_by_account) — fine on demand, which is why
+    # the UI only loads this tab when opened. The message table is only
+    # counted via the separate /storage/messages endpoint (it can be
+    # huge and rows expire via their one-year TTL).
+    # ------------------------------------------------------------------
+
+    _du_cache = {}      # path -> (timestamp, result), cached for 120 s
+    DU_CACHE_TTL = 120
+
+    def _dir_usage(self, path):
+        """Deferred -> {'path', 'bytes', 'files'}, walked in a thread."""
+        now = time.time()
+        ts, cached = self._du_cache.get(path, (0, None))
+        if cached is not None and now - ts < self.DU_CACHE_TTL:
+            return defer.succeed(cached)
+
+        def walk():
+            total, files = 0, 0
+            for dirpath, dirnames, filenames in os.walk(path):
+                for filename in filenames:
+                    try:
+                        total += os.path.getsize(os.path.join(dirpath, filename))
+                        files += 1
+                    except OSError:
+                        pass
+            return {'path': path, 'bytes': total, 'files': files}
+
+        d = threads.deferToThread(walk)
+
+        def cache(result):
+            self._du_cache[path] = (time.time(), result)
+            return result
+        d.addCallback(cache)
+        return d
+
+    @staticmethod
+    def _cassandra_usage():
+        """Deferred -> stats dict, gathered on the cassandra thread."""
+        deferred = defer.Deferred()
+
+        @run_in_thread('cassandra')
+        def query_stats():
+            from .models.storage.cassandra import (ChatAccount, PublicKey,
+                                                   PushTokens)
+            stats = {}
+            now = datetime.datetime.utcnow()
+            try:
+                total = with_token = active_7d = active_30d = 0
+                for acc in ChatAccount.objects.all():
+                    total += 1
+                    if acc.api_token:
+                        with_token += 1
+                    if acc.last_login is not None:
+                        age = (now - acc.last_login).days
+                        if age <= 7:
+                            active_7d += 1
+                        if age <= 30:
+                            active_30d += 1
+                stats['accounts'] = {'total': total, 'with_api_token': with_token,
+                                     'active_7d': active_7d, 'active_30d': active_30d}
+            except Exception as e:
+                stats['accounts'] = {'error': str(e)}
+            try:
+                total, platforms, accounts = 0, {}, set()
+                for token in PushTokens.objects.all():
+                    total += 1
+                    platform = token.platform or 'unknown'
+                    platforms[platform] = platforms.get(platform, 0) + 1
+                    accounts.add('{}@{}'.format(token.username, token.domain))
+                stats['push_tokens'] = {'total': total, 'accounts': len(accounts),
+                                        'platforms': platforms}
+            except Exception as e:
+                stats['push_tokens'] = {'error': str(e)}
+            try:
+                stats['public_keys'] = {'total': PublicKey.objects.count()}
+            except Exception as e:
+                stats['public_keys'] = {'error': str(e)}
+            reactor.callFromThread(deferred.callback, stats)
+
+        query_stats()
+        return deferred
+
+    @staticmethod
+    def _file_backend_usage():
+        """Stats dict for the pickle/json file backend."""
+        stats = {}
+        try:
+            tokens = getattr(TokenStorage(), '_tokens', {}) or {}
+            total = sum(len(devices) for devices in tokens.values())
+            platforms = {}
+            for devices in tokens.values():
+                for device in devices.values():
+                    platform = (device.get('platform') if isinstance(device, dict) else None) or 'unknown'
+                    platforms[platform] = platforms.get(platform, 0) + 1
+            stats['push_tokens'] = {'total': total, 'accounts': len(tokens),
+                                    'platforms': platforms}
+        except Exception as e:
+            stats['push_tokens'] = {'error': str(e)}
+        conversations_dir = os.path.join(FileStorageConfig.storage_dir.normalized, 'conversations')
+        try:
+            with open(os.path.join(conversations_dir, 'accounts.json')) as f:
+                stats['accounts'] = {'total': len(json.load(f))}
+        except (OSError, IOError, ValueError):
+            stats['accounts'] = {'total': 0}
+        try:
+            with open(os.path.join(conversations_dir, 'public_keys.json')) as f:
+                stats['public_keys'] = {'total': len(json.load(f))}
+        except (OSError, IOError, ValueError):
+            stats['public_keys'] = {'total': 0}
+        return stats
+
+    @app.route('/storage', methods=['GET'])
+    def storage_info(self, request):
+        self._check_auth(request)
+        request.setHeader('Content-Type', 'application/json')
+        use_cassandra = CASSANDRA_MODULES_AVAILABLE and CassandraConfig.cluster_contact_points
+        result = {
+            'backend': 'cassandra' if use_cassandra else 'file',
+            'cassandra': ({'contact_points': list(CassandraConfig.cluster_contact_points),
+                           'keyspace': CassandraConfig.keyspace,
+                           'push_tokens_table': CassandraConfig.push_tokens_table or 'push_tokens'}
+                          if use_cassandra else None),
+            'storage_dir': FileStorageConfig.storage_dir.normalized,
+            'messages_note': 'chat messages expire after one year (table TTL); not counted here',
+        }
+        stats_d = self._cassandra_usage() if use_cassandra else defer.succeed(self._file_backend_usage())
+
+        def assemble(st_value):
+            result.update(st_value)
+            return json.dumps(result)
+
+        def failed(failure):
+            result['error'] = str(failure.value)
+            return json.dumps(result)
+        stats_d.addCallbacks(assemble, failed)
+        return stats_d
+
+    # ------------------------------------------------------------------
+    # Media — disk usage of the media stores, one entry per directory:
+    # one-to-one file transfers, per-room conference shared files and
+    # conference recordings. Sizes are walked in a thread and cached for
+    # DU_CACHE_TTL seconds.
+    # ------------------------------------------------------------------
+
+    @app.route('/media', methods=['GET'])
+    def media_info(self, request):
+        self._check_auth(request)
+        request.setHeader('Content-Type', 'application/json')
+        dirs = [
+            ('file_transfers', GeneralConfig.file_transfer_dir.normalized,
+             'one-to-one file transfers'),
+            ('filesharing', GeneralConfig.filesharing_dir.normalized,
+             'conference shared files (kept per active room, removed when the room closes)'),
+            ('recordings', GeneralConfig.recording_dir.normalized,
+             'conference recordings'),
+        ]
+        dl = defer.DeferredList([self._dir_usage(path) for _, path, _ in dirs],
+                                consumeErrors=True)
+
+        def assemble(results):
+            out = {}
+            for (key, path, note), (ok, value) in zip(dirs, results):
+                entry = dict(value) if ok else {'path': path, 'error': str(value.value)}
+                entry['note'] = note
+                out[key] = entry
+            return json.dumps(out)
+        dl.addCallback(assemble)
+        return dl
+
+    @staticmethod
+    def _hash_uri(uri):
+        # Same encoding older FileTransferData versions used for
+        # directory names: urlsafe base64 of the uri's md5.
+        return base64.urlsafe_b64encode(hashlib.md5(uri.encode('utf-8')).digest()).rstrip(b'=\n').decode('utf-8')
+
+    @app.route('/media/file-transfers/<string:account>', methods=['GET'])
+    def file_transfers_account(self, request, account):
+        """File-transfer storage for one account (as sender). The store
+        is laid out <letter>/<sender>/<receiver>/<transfer_id>/; the
+        account's directory is looked up under its plain name and under
+        the legacy hashed names (urlsafe_b64(md5(uri))) older releases
+        used, so old transfers are included."""
+        self._check_auth(request)
+        request.setHeader('Content-Type', 'application/json')
+        account = account.strip().lower()
+        root = GeneralConfig.file_transfer_dir.normalized
+
+        def walk():
+            names = [account, self._hash_uri(account), self._hash_uri('sip:' + account)]
+            total, files = 0, 0
+            transfers = []
+            for name in names:
+                base = os.path.join(root, name[:1], name)
+                if not os.path.isdir(base):
+                    continue
+                for receiver in sorted(os.listdir(base)):
+                    receiver_path = os.path.join(base, receiver)
+                    if not os.path.isdir(receiver_path):
+                        continue
+                    for transfer_id in os.listdir(receiver_path):
+                        transfer_path = os.path.join(receiver_path, transfer_id)
+                        if not os.path.isdir(transfer_path):
+                            continue
+                        for dirpath, dirnames, filenames in os.walk(transfer_path):
+                            for filename in filenames:
+                                try:
+                                    stat = os.stat(os.path.join(dirpath, filename))
+                                except OSError:
+                                    continue
+                                total += stat.st_size
+                                files += 1
+                                if not filename.startswith('meta-'):
+                                    transfers.append({'receiver': receiver,
+                                                      'transfer_id': transfer_id,
+                                                      'filename': filename,
+                                                      'bytes': stat.st_size,
+                                                      'mtime': stat.st_mtime,
+                                                      'date': time.strftime('%Y-%m-%d %H:%M', time.localtime(stat.st_mtime)),
+                                                      'legacy': name != account})
+            transfers.sort(key=lambda transfer: -transfer['mtime'])
+            for transfer in transfers:
+                del transfer['mtime']
+            return json.dumps({'account': account, 'bytes': total, 'files': files,
+                               'total_transfers': len(transfers),
+                               'transfers': transfers[:50]})
+
+        return threads.deferToThread(walk)
+
+    # ------------------------------------------------------------------
+    # Account lookup — per-account storage details for the Accounts tab
+    # search box, modelled on the sylk-db 'show' and
+    # sylk-dump-message-cassandra --types CLI tools: storage state, API
+    # token (+TTL), last login, message counts by category and content
+    # type, unread count, push tokens and PGP public keys.
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _categorize_messages(messages, account, get=None):
+        get = get or (lambda m, k: getattr(m, k, None))
+        counters = {'total': 0, 'text': 0, 'imdn': 0, 'filetransfer': 0,
+                    'metadata': 0, 'other': 0, 'unread_text': 0}
+        by_type = {}
+        for message in messages:
+            content_type = get(message, 'content_type') or 'unknown'
+            counters['total'] += 1
+            by_type[content_type] = by_type.get(content_type, 0) + 1
+            if content_type.startswith('text'):
+                counters['text'] += 1
+            elif content_type.startswith('message/imdn'):
+                counters['imdn'] += 1
+            elif content_type.startswith('application/sylk-file-transfer'):
+                counters['filetransfer'] += 1
+            elif content_type.startswith('application/sylk-message-metadata'):
+                counters['metadata'] += 1
+            else:
+                counters['other'] += 1
+            if (content_type in ('text/plain', 'text/html')
+                    and get(message, 'direction') == 'incoming'
+                    and get(message, 'contact') != account
+                    and 'display' in (get(message, 'disposition') or [])):
+                counters['unread_text'] += 1
+        counters['by_type'] = dict(sorted(by_type.items(), key=lambda item: -item[1]))
+        return counters
+
+    def _account_info_file(self, account):
+        """Account details from the file backend (accounts.json etc)."""
+        storage = MessageStorage()
+        result = {'account': account, 'backend': 'file'}
+        info = (getattr(storage, '_accounts', None) or {}).get(account)
+        result['found'] = info is not None
+        if info is not None:
+            result['api_token'] = info.get('api_token')
+            result['token_ttl'] = info.get('token_expire')
+            result['last_login'] = info.get('last_login')
+        messages = []
+        try:
+            path = os.path.join(FileStorageConfig.storage_dir.normalized, 'conversations',
+                                account[0], '{}_messages.json'.format(account))
+            with open(path) as f:
+                messages = json.load(f)
+        except (OSError, IOError, ValueError):
+            pass
+        result['messages'] = self._categorize_messages(messages, account, get=lambda m, k: m.get(k))
+        devices = TokenStorage()[account] or {}
+        result['push_tokens'] = [{'app_id': device.get('app_id'), 'device_id': device.get('device_id'),
+                                  'platform': device.get('platform'),
+                                  'token': device.get('token') or ''}
+                                 for device in devices.values() if isinstance(device, dict)]
+        public_key = (getattr(storage, '_public_keys', None) or {}).get(account)
+        result['public_keys'] = [public_key] if public_key else []
+        return json.dumps(result)
+
+    # ------------------------------------------------------------------
+    # Accounts marked for deletion — sylk-mobile's delete-account flow
+    # stores an application/sylk-account-delete-request message on the
+    # account's own AOR (see confirm_account_deletion below, which
+    # correlates the email confirmation against it). This finds every
+    # account holding such a message. On Cassandra it is a server-side
+    # filtered scan of chat_messages_by_timestamp (ALLOW FILTERING) —
+    # on-demand only, like the message counter.
+    # ------------------------------------------------------------------
+
+    ACCOUNT_DELETE_REQUEST_TYPE = 'application/sylk-account-delete-request'
+
+    @app.route('/accounts/marked-for-deletion', methods=['GET'])
+    def accounts_marked_for_deletion(self, request):
+        self._check_auth(request)
+        request.setHeader('Content-Type', 'application/json')
+        use_cassandra = CASSANDRA_MODULES_AVAILABLE and CassandraConfig.cluster_contact_points
+        started = time.time()
+
+        def assemble(accounts, error=None):
+            entries = [dict(account=name, **usage) for name, usage in accounts.items()]
+            entries.sort(key=lambda entry: entry['last_request'] or '', reverse=True)
+            result = {'content_type': self.ACCOUNT_DELETE_REQUEST_TYPE,
+                      'total': len(entries), 'accounts': entries,
+                      'elapsed': round(time.time() - started, 1)}
+            if error:
+                result['error'] = error
+            return json.dumps(result)
+
+        if not use_cassandra:
+            def scan_files():
+                accounts = {}
+                conversations_dir = os.path.join(FileStorageConfig.storage_dir.normalized, 'conversations')
+                for dirpath, dirnames, filenames in os.walk(conversations_dir):
+                    for filename in filenames:
+                        if not filename.endswith('_messages.json'):
+                            continue
+                        try:
+                            with open(os.path.join(dirpath, filename)) as f:
+                                messages = json.load(f)
+                        except (OSError, IOError, ValueError):
+                            continue
+                        account = filename[:-len('_messages.json')]
+                        for message in messages:
+                            if message.get('content_type') == self.ACCOUNT_DELETE_REQUEST_TYPE:
+                                entry = accounts.setdefault(account, {'requests': 0, 'last_request': None})
+                                entry['requests'] += 1
+                                created = str(message.get('created_at') or message.get('timestamp') or '')
+                                if created and (entry['last_request'] is None or created > entry['last_request']):
+                                    entry['last_request'] = created
+                return assemble(accounts)
+            return threads.deferToThread(scan_files)
+
+        deferred = defer.Deferred()
+
+        @run_in_thread('cassandra')
+        def query_marked():
+            from cassandra.cqlengine import connection as cql_connection
+            from cassandra.query import SimpleStatement
+            from .models.storage.cassandra import ChatMessage
+            accounts = {}
+            error = None
+            try:
+                session = cql_connection.get_session()
+                statement = SimpleStatement(
+                    'SELECT account, created_at FROM {}.{} WHERE content_type=%s ALLOW FILTERING'.format(
+                        CassandraConfig.keyspace, ChatMessage.__table_name__),
+                    fetch_size=1000)
+                for row in session.execute(statement, [self.ACCOUNT_DELETE_REQUEST_TYPE], timeout=120):
+                    entry = accounts.setdefault(row['account'], {'requests': 0, 'last_request': None})
+                    entry['requests'] += 1
+                    created = str(row['created_at']) if row['created_at'] is not None else None
+                    if created and (entry['last_request'] is None or created > entry['last_request']):
+                        entry['last_request'] = created
+            except Exception as e:
+                error = str(e)
+            reactor.callFromThread(deferred.callback, assemble(accounts, error))
+
+        query_marked()
+        return deferred
+
+    @app.route('/accounts/<string:account>/info', methods=['GET'])
+    def account_info(self, request, account):
+        self._check_auth(request)
+        request.setHeader('Content-Type', 'application/json')
+        account = account.strip().lower()
+        use_cassandra = CASSANDRA_MODULES_AVAILABLE and CassandraConfig.cluster_contact_points
+        if not use_cassandra:
+            return self._account_info_file(account)
+
+        deferred = defer.Deferred()
+
+        @run_in_thread('cassandra')
+        def query_account():
+            from cassandra.cqlengine import connection as cql_connection
+            from .models.storage.cassandra import (ChatAccount, ChatMessage,
+                                                   PublicKey, PushTokens)
+            result = {'account': account, 'backend': 'cassandra'}
+            try:
+                accounts = list(ChatAccount.objects(ChatAccount.account == account))
+                result['found'] = bool(accounts)
+                if accounts:
+                    acc = accounts[0]
+                    result['api_token'] = acc.api_token
+                    result['last_login'] = str(acc.last_login) if acc.last_login is not None else None
+                    if acc.api_token:
+                        try:
+                            session = cql_connection.get_session()
+                            row = session.execute('SELECT TTL(api_token) AS ttl FROM {}.{} WHERE account=%s'.format(
+                                CassandraConfig.keyspace, ChatAccount.__table_name__), [account])
+                            result['token_ttl'] = row.one()['ttl']
+                        except Exception:
+                            result['token_ttl'] = None
+                    messages = ChatMessage.objects(ChatMessage.account == account).limit(None)
+                    result['messages'] = self._categorize_messages(messages, account)
+                username, _, domain = account.partition('@')
+                tokens = PushTokens.objects(PushTokens.username == username, PushTokens.domain == domain)
+                result['push_tokens'] = [{'app_id': token.app_id, 'device_id': token.device_id,
+                                          'platform': token.platform, 'user_agent': token.user_agent,
+                                          'token': token.device_token or ''}
+                                         for token in tokens]
+                keys = PublicKey.objects(PublicKey.account == account)
+                result['public_keys'] = [key.public_key for key in keys]
+            except Exception as e:
+                result['error'] = str(e)
+            reactor.callFromThread(deferred.callback, json.dumps(result))
+
+        query_account()
+        return deferred
+
+    # ------------------------------------------------------------------
+    # Message types — per-account breakdown by content type for the
+    # Messages tab (like sylk-dump-message-cassandra <account> --types),
+    # and per-type deletion (like sylk-delete-cassandra <account>
+    # --type T --apply, but matching the content type EXACTLY, never by
+    # prefix, so a delete button removes exactly what its row shows).
+    # Like the CLI, deletion only removes ChatMessage rows.
+    # ------------------------------------------------------------------
+
+    @app.route('/messages/types/<string:account>', methods=['GET'])
+    def message_types(self, request, account):
+        self._check_auth(request)
+        request.setHeader('Content-Type', 'application/json')
+        account = account.strip().lower()
+        use_cassandra = CASSANDRA_MODULES_AVAILABLE and CassandraConfig.cluster_contact_points
+
+        if not use_cassandra:
+            by_type = {}
+            oldest = newest = None
+            try:
+                path = os.path.join(FileStorageConfig.storage_dir.normalized, 'conversations',
+                                    account[0], '{}_messages.json'.format(account))
+                with open(path) as f:
+                    for message in json.load(f):
+                        content_type = message.get('content_type') or 'unknown'
+                        by_type[content_type] = by_type.get(content_type, 0) + 1
+                        created_at = message.get('created_at') or message.get('timestamp')
+                        if created_at:
+                            oldest = created_at if oldest is None or created_at < oldest else oldest
+                            newest = created_at if newest is None or created_at > newest else newest
+            except (OSError, IOError, ValueError):
+                pass
+            by_type = dict(sorted(by_type.items(), key=lambda item: -item[1]))
+            return json.dumps({'account': account, 'backend': 'file', 'can_delete': False,
+                               'total': sum(by_type.values()), 'by_type': by_type,
+                               'oldest': str(oldest) if oldest else None,
+                               'newest': str(newest) if newest else None})
+
+        deferred = defer.Deferred()
+
+        @run_in_thread('cassandra')
+        def query_types():
+            from .models.storage.cassandra import ChatMessage
+            result = {'account': account, 'backend': 'cassandra', 'can_delete': True}
+            by_type = {}
+            oldest = newest = None
+            try:
+                for message in ChatMessage.objects(ChatMessage.account == account).limit(None):
+                    content_type = message.content_type or 'unknown'
+                    by_type[content_type] = by_type.get(content_type, 0) + 1
+                    created_at = message.created_at
+                    if created_at is not None:
+                        oldest = created_at if oldest is None or created_at < oldest else oldest
+                        newest = created_at if newest is None or created_at > newest else newest
+            except Exception as e:
+                result['error'] = str(e)
+            result['by_type'] = dict(sorted(by_type.items(), key=lambda item: -item[1]))
+            result['total'] = sum(by_type.values())
+            result['oldest'] = str(oldest) if oldest is not None else None
+            result['newest'] = str(newest) if newest is not None else None
+            reactor.callFromThread(deferred.callback, json.dumps(result))
+
+        query_types()
+        return deferred
+
+    @app.route('/messages/delete/<string:account>', methods=['POST'])
+    def delete_messages_by_type(self, request, account):
+        self._check_auth(request)
+        request.setHeader('Content-Type', 'application/json')
+        account = account.strip().lower()
+        raw = request.content.read() if request.content else b''
+        try:
+            payload = json.loads(raw.decode('utf-8')) if raw else {}
+        except (UnicodeDecodeError, ValueError):
+            payload = {}
+        content_type = (payload.get('content_type') or '').strip()
+        if not content_type:
+            request.setResponseCode(400)
+            return json.dumps({'ok': False, 'error': 'content_type is required'})
+        use_cassandra = CASSANDRA_MODULES_AVAILABLE and CassandraConfig.cluster_contact_points
+        if not use_cassandra:
+            request.setResponseCode(501)
+            return json.dumps({'ok': False, 'error': 'deletion is only supported on the Cassandra backend'})
+
+        log.info('[admin] delete messages requested for {} with type {}'.format(account, content_type))
+        deferred = defer.Deferred()
+
+        @run_in_thread('cassandra')
+        def delete_matching():
+            from .models.storage.cassandra import ChatMessage
+            result = {'ok': True, 'account': account, 'content_type': content_type}
+            deleted = 0
+            try:
+                matched = [message for message in ChatMessage.objects(ChatMessage.account == account).limit(None)
+                           if message.content_type == content_type]
+                for message in matched:
+                    message.delete()
+                    deleted += 1
+            except Exception as e:
+                result['ok'] = False
+                result['error'] = str(e)
+            result['deleted'] = deleted
+            log.info('[admin] deleted {} {} message(s) for {}'.format(deleted, content_type, account))
+            reactor.callFromThread(deferred.callback, json.dumps(result))
+
+        delete_matching()
+        return deferred
+
+    # ------------------------------------------------------------------
+    # Account purge — permanently remove ALL server-side data of one
+    # account, like 'sylk-db remove all <account>': every ChatMessage
+    # row, the chat_accounts row (and its API token), all push tokens
+    # and the PGP public key. In addition the account's shared files are
+    # removed from the file-transfer store (both the plain-named sender
+    # directory and the legacy hashed ones older releases wrote).
+    # ------------------------------------------------------------------
+
+    @app.route('/accounts/<string:account>/purge', methods=['POST'])
+    def purge_account(self, request, account):
+        self._check_auth(request)
+        request.setHeader('Content-Type', 'application/json')
+        account = account.strip().lower()
+        if '@' not in account:
+            request.setResponseCode(400)
+            return json.dumps({'ok': False, 'error': 'invalid account'})
+        use_cassandra = CASSANDRA_MODULES_AVAILABLE and CassandraConfig.cluster_contact_points
+        log.info('[admin] PURGE requested for account {}'.format(account))
+
+        def purge_transfers():
+            """Remove the account's sender directories from the
+            file-transfer store; returns files/bytes removed."""
+            root = GeneralConfig.file_transfer_dir.normalized
+            removed_files, removed_bytes = 0, 0
+            for name in (account, self._hash_uri(account), self._hash_uri('sip:' + account)):
+                base = os.path.join(root, name[:1], name)
+                if not os.path.isdir(base):
+                    continue
+                for dirpath, dirnames, filenames in os.walk(base):
+                    for filename in filenames:
+                        try:
+                            removed_bytes += os.path.getsize(os.path.join(dirpath, filename))
+                            removed_files += 1
+                        except OSError:
+                            pass
+                rmtree(base, ignore_errors=True)
+            self._du_cache.pop(root, None)   # invalidate the cached tile size
+            return {'transfer_files': removed_files, 'transfer_bytes': removed_bytes}
+
+        if use_cassandra:
+            db_deferred = defer.Deferred()
+
+            @run_in_thread('cassandra')
+            def purge_db():
+                from .models.storage.cassandra import (ChatAccount, ChatMessage,
+                                                       PublicKey, PushTokens)
+                counts = {}
+                try:
+                    deleted = 0
+                    for message in ChatMessage.objects(ChatMessage.account == account).limit(None):
+                        message.delete()
+                        deleted += 1
+                    counts['messages'] = deleted
+                    deleted = 0
+                    for acc in ChatAccount.objects(ChatAccount.account == account):
+                        acc.delete()
+                        deleted += 1
+                    counts['account_rows'] = deleted
+                    username, _, domain = account.partition('@')
+                    deleted = 0
+                    for token in PushTokens.objects(PushTokens.username == username, PushTokens.domain == domain):
+                        token.delete()
+                        deleted += 1
+                    counts['push_tokens'] = deleted
+                    deleted = 0
+                    for key in PublicKey.objects(PublicKey.account == account):
+                        key.delete()
+                        deleted += 1
+                    counts['public_keys'] = deleted
+                except Exception as e:
+                    counts['error'] = str(e)
+                reactor.callFromThread(db_deferred.callback, counts)
+
+            purge_db()
+        else:
+            def purge_file_backend():
+                counts = {}
+                try:
+                    TokenStorage().removeAll(account)
+                    storage = MessageStorage()
+                    storage.remove_account(account)
+                    storage.remove_public_key(account)
+                    conversations_dir = os.path.join(FileStorageConfig.storage_dir.normalized, 'conversations')
+                    for suffix in ('_messages.json', '_id_timestamp.json'):
+                        path = os.path.join(conversations_dir, account[0], account + suffix)
+                        try:
+                            os.remove(path)
+                        except OSError:
+                            pass
+                    counts['messages'] = counts['account_rows'] = counts['push_tokens'] = counts['public_keys'] = -1
+                except Exception as e:
+                    counts['error'] = str(e)
+                return counts
+            db_deferred = threads.deferToThread(purge_file_backend)
+
+        dl = defer.DeferredList([db_deferred, threads.deferToThread(purge_transfers)],
+                                consumeErrors=True)
+
+        def assemble(results):
+            (db_ok, db_value), (ft_ok, ft_value) = results
+            result = {'ok': True, 'account': account}
+            if db_ok:
+                result.update(db_value)
+                if 'error' in db_value:
+                    result['ok'] = False
+            else:
+                result['ok'] = False
+                result['error'] = str(db_value.value)
+            if ft_ok:
+                result.update(ft_value)
+            else:
+                result['ok'] = False
+                result.setdefault('error', str(ft_value.value))
+            log.info('[admin] purged account {}: {}'.format(account, result))
+            return json.dumps(result)
+        dl.addCallback(assemble)
+        return dl
+
+    # ------------------------------------------------------------------
+    # Message dump — fetch a specific message by account + message id,
+    # like 'sylk-dump-message-cassandra <account> --id ID'. Fast path
+    # resolves created_at through chat_message_created_at_by_id and does
+    # a primary-key read; if the mapping is gone (expired TTL) it falls
+    # back to scanning the account partition like the CLI does.
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _dump_message_row(created_at, direction, contact, content_type, state, disposition, timestamp, content):
+        if isinstance(content, (bytes, bytearray)):
+            content = content.decode('utf-8', 'ignore')
+        return {'created_at': str(created_at) if created_at is not None else None,
+                'timestamp': str(timestamp) if timestamp is not None else None,
+                'direction': direction, 'contact': contact, 'content_type': content_type,
+                'state': state, 'disposition': list(disposition or []), 'content': content}
+
+    @app.route('/messages/dump/<string:account>/<string:message_id>', methods=['GET'])
+    def dump_message(self, request, account, message_id):
+        self._check_auth(request)
+        request.setHeader('Content-Type', 'application/json')
+        account = account.strip().lower()
+        message_id = message_id.strip()
+        use_cassandra = CASSANDRA_MODULES_AVAILABLE and CassandraConfig.cluster_contact_points
+
+        if not use_cassandra:
+            result = {'account': account, 'message_id': message_id, 'backend': 'file'}
+            messages = []
+            try:
+                path = os.path.join(FileStorageConfig.storage_dir.normalized, 'conversations',
+                                    account[0], '{}_messages.json'.format(account))
+                with open(path) as f:
+                    messages = json.load(f)
+            except (OSError, IOError, ValueError):
+                pass
+            rows = [self._dump_message_row(m.get('created_at'), m.get('direction'), m.get('contact'),
+                                           m.get('content_type'), m.get('state'), m.get('disposition'),
+                                           m.get('timestamp'), m.get('content'))
+                    for m in messages if m.get('message_id') == message_id]
+            result['found'] = bool(rows)
+            result['messages'] = rows[:10]
+            return json.dumps(result)
+
+        deferred = defer.Deferred()
+
+        @run_in_thread('cassandra')
+        def query_message():
+            from .models.storage.cassandra import ChatMessage, ChatMessageIdMapping
+            result = {'account': account, 'message_id': message_id, 'backend': 'cassandra'}
+            rows = []
+            try:
+                mappings = list(ChatMessageIdMapping.objects(ChatMessageIdMapping.message_id == message_id))
+                if mappings and mappings[0].created_at is not None:
+                    rows = list(ChatMessage.objects(ChatMessage.account == account,
+                                                    ChatMessage.created_at == mappings[0].created_at,
+                                                    ChatMessage.message_id == message_id))
+                if not rows:
+                    # mapping expired or missing — scan the account partition
+                    rows = [m for m in ChatMessage.objects(ChatMessage.account == account).limit(None)
+                            if m.message_id == message_id]
+                    result['scanned'] = True
+            except Exception as e:
+                result['error'] = str(e)
+            result['found'] = bool(rows)
+            result['messages'] = [self._dump_message_row(m.created_at, m.direction, m.contact,
+                                                         m.content_type, m.state, m.disposition,
+                                                         m.msg_timestamp, m.content)
+                                  for m in rows[:10]]
+            reactor.callFromThread(deferred.callback, json.dumps(result))
+
+        query_message()
+        return deferred
+
+    @app.route('/storage/messages', methods=['GET'])
+    def storage_messages_count(self, request):
+        """Total messages in the DB. Deliberately a separate endpoint,
+        triggered from the UI's 'Count' button rather than on every
+        Storage load: on Cassandra it is a full scan of
+        chat_messages_by_timestamp (SELECT COUNT(*)), which can take a
+        while on a big cluster. Rows expired by the one-year TTL are not
+        included. On the file backend it walks every *_messages.json."""
+        self._check_auth(request)
+        request.setHeader('Content-Type', 'application/json')
+        started = time.time()
+        use_cassandra = CASSANDRA_MODULES_AVAILABLE and CassandraConfig.cluster_contact_points
+
+        def finish(result):
+            result['elapsed'] = round(time.time() - started, 1)
+            return json.dumps(result)
+
+        if use_cassandra:
+            deferred = defer.Deferred()
+
+            @run_in_thread('cassandra')
+            def count_messages():
+                from .models.storage.cassandra import ChatMessage
+                try:
+                    total = ChatMessage.objects.timeout(120).count()
+                except Exception as e:
+                    reactor.callFromThread(deferred.callback, {'error': str(e)})
+                else:
+                    reactor.callFromThread(deferred.callback, {'total': total})
+
+            count_messages()
+            return deferred.addCallback(finish)
+        else:
+            def count_files():
+                conversations_dir = os.path.join(FileStorageConfig.storage_dir.normalized, 'conversations')
+                total = 0
+                for dirpath, dirnames, filenames in os.walk(conversations_dir):
+                    for filename in filenames:
+                        if filename.endswith('_messages.json'):
+                            try:
+                                with open(os.path.join(dirpath, filename)) as f:
+                                    total += len(json.load(f))
+                            except (OSError, IOError, ValueError):
+                                pass
+                return {'total': total}
+            return threads.deferToThread(count_files).addCallback(finish)
 
     # ------------------------------------------------------------------
     # Videoroom lookup — used by sip-janus-bridge and similar tooling to
