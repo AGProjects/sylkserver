@@ -788,10 +788,18 @@ function showDashboard(username) {
         </div>
         <div class="card" style="padding:16px;margin-bottom:14px">
           <form onsubmit="return loadFileTransfers(event)" style="display:flex;gap:10px;align-items:center">
+            <label for="ftAcctInput" style="font-size:13px;color:#64748b;white-space:nowrap">Account</label>
             <input id="ftAcctInput" placeholder="account (user@domain)" autocomplete="off"
                    style="flex:1;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px">
             <button class="btn btn-accent" type="submit">Show transfers</button>
           </form>
+          <div id="ftContactRow" style="display:none;gap:10px;align-items:center;margin-top:10px">
+            <label for="ftContactSelect" style="font-size:13px;color:#64748b;white-space:nowrap">Contact</label>
+            <select id="ftContactSelect" onchange="ftSetContact(this.value)"
+                    style="flex:1;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:#fff">
+              <option value="">All contacts</option>
+            </select>
+          </div>
           <div id="ftResult"></div>
         </div>
         <div class="hint" style="padding:0 4px">Sizes are walked on the server and cached for two minutes.</div>
@@ -1291,40 +1299,222 @@ async function loadMedia() {
   $('mediaTotal').textContent = ok ? fmtBytes(total) + ' total' : '—';
 }
 
+let ftFilters = { account: '', contact: '', type: '', sort: 'date', order: 'desc' };
+const FT_TYPES = [['audio', 'Audio'], ['image', 'Images'], ['video', 'Video'], ['file', 'Files']];
+
 async function loadFileTransfers(e) {
   if (e) e.preventDefault();
   const account = $('ftAcctInput').value.trim().toLowerCase();
   if (!account) return false;
-  const el = $('ftResult');
-  el.innerHTML = `<div class="empty" style="padding:18px">Scanning file transfers for ${esc(account)}…</div>`;
-  const r = await api('media/file-transfers/' + encodeURIComponent(account));
-  if (r.status === 403) { boot(); return false; }
-  const j = await r.json().catch(() => null);
-  if (!j) { el.innerHTML = '<div class="err" style="padding:12px 4px">Lookup failed.</div>'; return false; }
-  if (j.error) { el.innerHTML = `<div class="err" style="padding:12px 4px">${esc(j.error)}</div>`; return false; }
-  if (!j.files) {
-    el.innerHTML = `<div class="empty" style="padding:18px">No file transfers on disk for ${esc(account)}.</div>`;
-    return false;
+  ftFilters = { account: account, contact: '', type: '', sort: 'date', order: 'desc' };
+  const sel = $('ftContactSelect');
+  if (sel) sel.innerHTML = '<option value="">All contacts</option>';
+  const row = $('ftContactRow');
+  if (row) row.style.display = 'none';
+  ftFetch();
+  return false;
+}
+
+function ftSetType(type) {
+  ftFilters.type = type;
+  ftFetch();
+}
+
+function ftSetContact(contact) {
+  ftFilters.contact = contact;
+  ftFetch();
+}
+
+function ftSetSort(sort) {
+  ftFilters.sort = sort;
+  ftFetch();
+}
+
+function ftToggleOrder() {
+  ftFilters.order = ftFilters.order === 'asc' ? 'desc' : 'asc';
+  ftFetch();
+}
+
+function ftCopyId(encoded) {
+  const text = decodeURIComponent(encoded);
+  const done = () => toast('Message id copied');
+  const fail = () => toast('Copy failed');
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done, () => {
+      ftCopyIdFallback(text) ? done() : fail();
+    });
+  } else {
+    ftCopyIdFallback(text) ? done() : fail();
   }
-  const rows = (j.transfers || []).map(t => `
+}
+
+function ftCopyIdFallback(text) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.select();
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch (e) {}
+  document.body.removeChild(ta);
+  return ok;
+}
+
+async function ftDeleteTransfer(encId, encContact, btn) {
+  const id = decodeURIComponent(encId);
+  if (!confirm('Delete this file transfer — database entry and files?\n\n' + id)) return;
+  btn.disabled = true;
+  const r = await api('media/file-transfers/' + encodeURIComponent(ftFilters.account) + '/delete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ transfer_id: id, contact: decodeURIComponent(encContact) }),
+  });
+  if (r.status === 403) { boot(); return; }
+  const j = await r.json().catch(() => ({}));
+  if (j.ok) {
+    toast(`Deleted ${j.deleted_messages} message${j.deleted_messages === 1 ? '' : 's'}, ${j.deleted_dirs} folder${j.deleted_dirs === 1 ? '' : 's'} (${fmtBytes(j.bytes)})`);
+    ftFetch();
+  } else { btn.disabled = false; toast('Delete failed: ' + (j.error || r.status)); }
+}
+
+async function ftDeleteOrphanFiles(count, btn) {
+  if (!confirm(`Delete ${count} file-transfer folder${count === 1 ? '' : 's'} from disk that have no database entry?`)) return;
+  btn.disabled = true;
+  const r = await api('media/file-transfers/' + encodeURIComponent(ftFilters.account) + '/delete-orphan-files', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ contact: ftFilters.contact }),
+  });
+  if (r.status === 403) { boot(); return; }
+  const j = await r.json().catch(() => ({}));
+  if (j.ok) { toast(`Deleted ${j.deleted} folder${j.deleted === 1 ? '' : 's'} (${fmtBytes(j.bytes)})`); ftFetch(); }
+  else { btn.disabled = false; toast('Delete failed: ' + (j.error || r.status)); }
+}
+
+async function ftPurgeOrphaned(count, btn) {
+  if (!confirm(`Delete ${count} file-transfer message${count === 1 ? '' : 's'} whose files are no longer on disk?`)) return;
+  btn.disabled = true;
+  const r = await api('media/file-transfers/' + encodeURIComponent(ftFilters.account) + '/purge-orphaned', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ contact: ftFilters.contact, type: ftFilters.type }),
+  });
+  if (r.status === 403) { boot(); return; }
+  const j = await r.json().catch(() => ({}));
+  if (j.ok) { toast(`Purged ${j.deleted} message${j.deleted === 1 ? '' : 's'}`); ftFetch(); }
+  else { btn.disabled = false; toast('Purge failed: ' + (j.error || r.status)); }
+}
+
+async function ftFetch() {
+  const account = ftFilters.account;
+  const el = $('ftResult');
+  if (!el || !account) return;
+  el.innerHTML = `<div class="empty" style="padding:18px">Scanning file transfers for ${esc(account)}${ftFilters.contact ? ' to contact ' + esc(ftFilters.contact) : ''}…</div>`;
+  const params = [];
+  if (ftFilters.contact) params.push('contact=' + encodeURIComponent(ftFilters.contact));
+  if (ftFilters.type) params.push('type=' + encodeURIComponent(ftFilters.type));
+  if (ftFilters.sort !== 'date') params.push('sort=' + encodeURIComponent(ftFilters.sort));
+  if (ftFilters.order !== 'desc') params.push('order=' + encodeURIComponent(ftFilters.order));
+  const r = await api('media/file-transfers/' + encodeURIComponent(account) + (params.length ? '?' + params.join('&') : ''));
+  if (r.status === 403) { boot(); return; }
+  const j = await r.json().catch(() => null);
+  if (!j) { el.innerHTML = '<div class="err" style="padding:12px 4px">Lookup failed.</div>'; return; }
+  if (j.error) { el.innerHTML = `<div class="err" style="padding:12px 4px">${esc(j.error)}</div>`; return; }
+  const contacts = j.contacts || [];
+  const row = $('ftContactRow');
+  if (!contacts.length && !j.files) {
+    if (row) row.style.display = 'none';
+    el.innerHTML = `<div class="empty" style="padding:18px">No file-transfer messages in the database for ${esc(account)}.</div>`;
+    return;
+  }
+  // account found — show the contact filter and fill its options
+  const sel = $('ftContactSelect');
+  if (sel) {
+    sel.innerHTML = ['<option value="">All contacts</option>']
+      .concat(contacts.map(c => `<option value="${esc(c.name)}"${c.name === j.contact ? ' selected' : ''}>${esc(c.name)} (${c.count})</option>`))
+      .join('');
+  }
+  if (row) row.style.display = 'flex';
+  // Drill-down chips: transfer counts by media type, scoped to the
+  // selected contact (or the whole account when no contact is chosen).
+  const byType = j.by_type || {};
+  const allCount = FT_TYPES.reduce((s, t) => s + ((byType[t[0]] || {}).count || 0), 0);
+  const allBytes = FT_TYPES.reduce((s, t) => s + ((byType[t[0]] || {}).bytes || 0), 0);
+  const chips = [['', 'All', { count: allCount, bytes: allBytes }]]
+    .concat(FT_TYPES.map(([key, label]) => [key, label, byType[key] || { count: 0, bytes: 0 }]))
+    .concat([['missing', 'Missing file', byType.missing || { count: 0, bytes: 0 }],
+             ['nodb', 'Missing database', byType.nodb || { count: 0, bytes: 0 }]])
+    .map(([key, label, d]) => {
+      const active = (j.type || '') === key;
+      const style = active ? ' style="background:var(--accent);border-color:var(--accent);color:#fff"' : '';
+      const sub = d.count ? `${d.count} · ${fmtBytes(d.bytes)}` : '0';
+      return `<button class="pbtn" onclick="ftSetType('${key}')"${style}>${label} <span style="opacity:.7;font-weight:500">${sub}</span></button>`;
+    }).join('');
+  const shown = (j.transfers || []).length;
+  const typeLabel = j.type === 'missing' ? 'missing-file'
+    : (FT_TYPES.find(t => t[0] === j.type) || [null, 'matching'])[1].toLowerCase();
+  // a selected media category is implicit — hide the column (but keep
+  // it for missing/nodb, where the media type still varies); same for
+  // a selected contact
+  const showType = !j.type || j.type === 'missing' || j.type === 'nodb';
+  const showContact = !j.contact;
+  const cols = 6 + (showType ? 1 : 0) + (showContact ? 1 : 0);
+  // orphaned count within the current drill-down scope
+  const orphaned = j.type === 'missing'
+    ? ((byType.missing || {}).count || 0)
+    : j.type
+    ? ((byType[j.type] || {}).count || 0) - ((byType[j.type] || {}).on_disk || 0)
+    : j.files - j.on_disk;
+  const nodbCount = (byType.nodb || {}).count || 0;
+  const rows = shown ? (j.transfers || []).map(t => `
     <tr style="cursor:default">
       <td class="mono" style="font-size:12px;color:#64748b;white-space:nowrap;padding:8px 16px 8px 0">${esc(t.date)}</td>
-      <td class="mono" style="font-size:12px;padding:8px 16px 8px 0${'@' === (t.receiver || '')[0] || (t.receiver || '').includes('@') ? '' : ';color:#94a3b8;font-style:italic'}">${esc(t.receiver)}</td>
-      <td class="mono" style="font-size:12px;padding:8px 16px 8px 0;word-break:break-all">${esc(t.filename)}</td>
-      <td class="mono" style="font-size:12px;text-align:right;white-space:nowrap;padding:8px 0">${fmtBytes(t.bytes)}</td>
-    </tr>`).join('');
+      <td class="mono" style="font-size:11px;color:#94a3b8;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:8px 16px 8px 0;cursor:pointer" title="${esc(t.transfer_id)} — click to copy" onclick="ftCopyId('${encodeURIComponent(t.transfer_id || '')}')">${esc(t.transfer_id)}</td>
+      ${showType ? `<td style="font-size:12px;color:#64748b;padding:8px 16px 8px 0">${esc(t.type)}</td>` : ''}
+      ${showContact ? `<td class="mono" style="font-size:12px;padding:8px 16px 8px 0${(t.contact || '').includes('@') ? '' : ';color:#94a3b8;font-style:italic'}" title="${t.direction === 'outgoing' ? 'sent to' : t.direction === 'incoming' ? 'received from' : ''}">${t.direction === 'outgoing' ? '→' : t.direction === 'incoming' ? '←' : ''} ${esc(t.contact)}</td>` : ''}
+      <td class="mono" style="font-size:12px;padding:8px 16px 8px 0;word-break:break-all${t.filename ? '' : ';color:#94a3b8;font-style:italic'}">${esc(t.filename || 'unknown (encrypted metadata)')}</td>
+      <td class="mono" style="font-size:12px;text-align:right;white-space:nowrap;padding:8px 16px 8px 0">${fmtBytes(t.bytes)}</td>
+      <td style="font-size:12px;white-space:nowrap;padding:8px 16px 8px 0">${t.in_db === false ? `<span style="color:#d97706">✓ ${fmtBytes(t.disk_bytes)} · no db entry</span>` : t.on_disk ? `<span style="color:var(--ok)">✓ ${fmtBytes(t.disk_bytes)}</span>` : '<span style="color:#dc2626">missing</span>'}</td>
+      <td style="padding:8px 0;text-align:right"><button class="pbtn pbtn-kick" style="padding:3px 10px;font-size:12px"
+          title="Delete this transfer: the database entry and its files on disk"
+          onclick="ftDeleteTransfer('${encodeURIComponent(t.transfer_id || '')}','${encodeURIComponent(t.contact || '')}', this)">Delete</button></td>
+    </tr>`).join('')
+    : `<tr><td colspan="${cols}" class="empty">${j.type === 'nodb' ? 'No files without a database entry' : `No ${esc(j.type ? typeLabel : '')} transfers`}${j.contact ? ` for <span class="mono">${esc(j.contact)}</span>` : ''}.</td></tr>`;
   el.innerHTML = `
     <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:14px">
-      <b style="font-size:14px">${fmtBytes(j.bytes)} in ${j.files} file${j.files === 1 ? '' : 's'} for <span class="mono">${esc(j.account)}</span></b>
-      ${j.total_transfers > (j.transfers || []).length ? `<div style="font-size:12px;color:#64748b;margin-top:4px">showing the ${(j.transfers || []).length} most recent of ${j.total_transfers} transfers</div>` : ''}
+      <b style="font-size:14px">${j.files} transfer${j.files === 1 ? '' : 's'} (${fmtBytes(j.bytes)}) in the database for <span class="mono">${esc(j.account)}</span>${j.contact ? ` → <span class="mono">${esc(j.contact)}</span>` : ''}</b>
+      <div style="font-size:12px;color:#64748b;margin-top:4px">${j.on_disk} still on disk (${fmtBytes(j.disk_bytes)})${j.files > j.on_disk ? `, ${j.files - j.on_disk} expired or removed` : ''}</div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px">
+        ${chips}
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px;padding:8px 0;border-top:1px solid var(--border)">
+        ${j.type === 'nodb'
+          ? `<button class="pbtn pbtn-kick" ${nodbCount ? '' : 'disabled'} onclick="ftDeleteOrphanFiles(${nodbCount}, this)"
+                title="Delete the files on disk that have no file-transfer message in the database">Delete file${nodbCount === 1 ? '' : 's'} without database entry${nodbCount ? ` (${nodbCount})` : ''}</button>`
+          : `<button class="pbtn pbtn-kick" ${orphaned ? '' : 'disabled'} onclick="ftPurgeOrphaned(${orphaned}, this)"
+                title="Delete the file-transfer messages in the current view whose files are no longer on disk">Fix database for missing file${orphaned === 1 ? '' : 's'}${orphaned ? ` (${orphaned})` : ''}</button>`}
+        <span style="flex:1"></span>
+        <label style="font-size:12px;color:#64748b">Sort by</label>
+        <select onchange="ftSetSort(this.value)" style="padding:6px 10px;border:1px solid var(--border);border-radius:7px;font-size:13px;background:#fff">
+          <option value="date"${j.sort === 'date' ? ' selected' : ''}>Date</option>
+          <option value="size"${j.sort === 'size' ? ' selected' : ''}>Size</option>
+          <option value="name"${j.sort === 'name' ? ' selected' : ''}>Name</option>
+        </select>
+        <button class="pbtn" onclick="ftToggleOrder()" title="toggle sort order">${j.order === 'asc' ? '↑ ASC' : '↓ DESC'}</button>
+      </div>
+      ${j.total_transfers > shown ? `<div style="font-size:12px;color:#64748b;margin-top:4px">showing ${shown} of ${j.total_transfers} transfers</div>` : ''}
       <table style="margin-top:8px"><thead><tr>
         <th style="padding:6px 16px 4px 0">Date</th>
-        <th style="padding:6px 16px 4px 0">Receiver</th>
+        <th style="padding:6px 16px 4px 0">Message id</th>
+        ${showType ? '<th style="padding:6px 16px 4px 0">Type</th>' : ''}
+        <th style="padding:6px 16px 4px 0">Contact</th>
         <th style="padding:6px 16px 4px 0">File</th>
-        <th style="padding:6px 0 4px;text-align:right">Size</th>
+        <th style="padding:6px 16px 4px 0;text-align:right">Size</th>
+        <th style="padding:6px 16px 4px 0">On disk</th>
+        <th style="padding:6px 0 4px"></th>
       </tr></thead><tbody>${rows}</tbody></table>
     </div>`;
-  return false;
 }
 
 let currentRoomUri = null;
@@ -2042,58 +2232,539 @@ class AdminWebHandler(object, metaclass=Singleton):
         # directory names: urlsafe base64 of the uri's md5.
         return base64.urlsafe_b64encode(hashlib.md5(uri.encode('utf-8')).digest()).rstrip(b'=\n').decode('utf-8')
 
+    TRANSFER_TYPES = ('audio', 'image', 'video', 'file')
+    FILE_TRANSFER_CONTENT_TYPE = 'application/sylk-file-transfer'
+
+    # Explicit extension maps checked before any mime type: mime types
+    # coming from clients or from mimetypes.guess_type are unreliable
+    # for container formats (.m4a is audio, yet often typed video/mp4).
+    AUDIO_EXTENSIONS = {'.m4a', '.aac', '.mp3', '.ogg', '.oga', '.opus', '.wav',
+                        '.flac', '.amr', '.awb', '.caf', '.aif', '.aiff', '.wma', '.mka'}
+    IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.heic', '.heif',
+                        '.bmp', '.tif', '.tiff', '.svg', '.avif', '.ico'}
+    VIDEO_EXTENSIONS = {'.mp4', '.m4v', '.mov', '.webm', '.mkv', '.avi', '.wmv',
+                        '.mpg', '.mpeg', '.3gp', '.3g2', '.ts'}
+
+    @classmethod
+    def _transfer_type(cls, filetype, filename):
+        # Classify a transfer as audio, image, video or (generic) file.
+        # The filename extension wins (with the .asc suffix of
+        # PGP-encrypted files stripped), then the mime type stored in
+        # the message metadata, then a mimetypes guess on the filename.
+        name = filename or ''
+        if name.endswith('.asc'):
+            name = name[:-4]
+        extension = os.path.splitext(name)[1].lower()
+        if extension in cls.AUDIO_EXTENSIONS:
+            return 'audio'
+        if extension in cls.IMAGE_EXTENSIONS:
+            return 'image'
+        if extension in cls.VIDEO_EXTENSIONS:
+            return 'video'
+        candidates = []
+        if filetype:
+            candidates.append(filetype)
+        guessed = mimetypes.guess_type(name)[0] if name else None
+        if guessed:
+            candidates.append(guessed)
+        for mimetype in candidates:
+            category = mimetype.split('/', 1)[0]
+            if category in ('audio', 'image', 'video'):
+                return category
+        return 'file'
+
+    def _probe_transfer_file(self, root, account, contact, transfer_id, filename):
+        """Locate the file of a transfer in the file-transfer store.
+        The store is laid out <letter>/<sender>/<receiver>/<transfer_id>/
+        with directories named by plain account or by the legacy hashed
+        names (urlsafe_b64(md5(uri))), and the file may sit under either
+        party depending on which side stored it, so every combination is
+        probed. Returns (filename, size) of the stored file or None."""
+        pairs = []
+        for encode in (lambda u: u, self._hash_uri, lambda u: self._hash_uri('sip:' + u)):
+            one, two = encode(account), encode(contact)
+            pairs.append((one, two))
+            pairs.append((two, one))
+        for top, sub in pairs:
+            if not top or not sub:
+                continue
+            folder = os.path.join(root, top[:1], top, sub, transfer_id)
+            if not os.path.isdir(folder):
+                continue
+            fallback = None
+            try:
+                names = os.listdir(folder)
+            except OSError:
+                continue
+            for name in names:
+                if name.startswith('meta-'):
+                    continue
+                full = os.path.join(folder, name)
+                if not os.path.isfile(full):
+                    continue
+                try:
+                    size = os.path.getsize(full)
+                except OSError:
+                    continue
+                if filename and name in (filename, filename + '.asc'):
+                    return name, size
+                if fallback is None:
+                    fallback = (name, size)
+            if fallback is not None:
+                return fallback
+        return None
+
+    def _orphan_transfer_dirs(self, root, account, contact_filter, db_ids):
+        """Reverse search of the file-transfer store: transfer
+        directories under the account's own trees (plain and legacy
+        hashed names) whose transfer id has no file-transfer message in
+        the database. Yields (receiver, transfer_id, path, filename,
+        bytes, mtime) per orphan directory."""
+        contact_names = None
+        if contact_filter:
+            contact_names = {contact_filter, self._hash_uri(contact_filter),
+                             self._hash_uri('sip:' + contact_filter)}
+        for name in (account, self._hash_uri(account), self._hash_uri('sip:' + account)):
+            base = os.path.join(root, name[:1], name)
+            if not os.path.isdir(base):
+                continue
+            for receiver in sorted(os.listdir(base)):
+                receiver_path = os.path.join(base, receiver)
+                if not os.path.isdir(receiver_path):
+                    continue
+                if contact_names is not None and receiver not in contact_names:
+                    continue
+                for transfer_id in os.listdir(receiver_path):
+                    transfer_path = os.path.join(receiver_path, transfer_id)
+                    if not os.path.isdir(transfer_path) or transfer_id in db_ids:
+                        continue
+                    total, filename, mtime = 0, None, 0
+                    for dirpath, dirnames, filenames in os.walk(transfer_path):
+                        for entry in filenames:
+                            try:
+                                stat = os.stat(os.path.join(dirpath, entry))
+                            except OSError:
+                                continue
+                            total += stat.st_size
+                            mtime = max(mtime, stat.st_mtime)
+                            if filename is None and not entry.startswith('meta-'):
+                                filename = entry
+                    yield receiver, transfer_id, transfer_path, filename, total, mtime
+
     @app.route('/media/file-transfers/<string:account>', methods=['GET'])
     def file_transfers_account(self, request, account):
-        """File-transfer storage for one account (as sender). The store
-        is laid out <letter>/<sender>/<receiver>/<transfer_id>/; the
-        account's directory is looked up under its plain name and under
-        the legacy hashed names (urlsafe_b64(md5(uri))) older releases
-        used, so old transfers are included."""
+        """File transfers of one account, driven by the message database
+        — the source of truth: every stored message with the
+        application/sylk-file-transfer content type is one transfer,
+        its message id being the transfer id. The file-transfer store
+        on disk may or may not still hold the actual file, so after
+        walking the database each transfer is probed on disk and
+        reported with its on-disk status and size.
+
+        Optional query parameters drive the admin drill-down:
+        contact=<uri> narrows everything to messages with that contact
+        and type=audio|image|video|file narrows the transfer list to
+        one media type. The by_type breakdown reflects the contact
+        filter (so drilling into a contact re-computes the type counts)
+        while the contacts list always covers the whole account, so the
+        UI can switch between contacts."""
         self._check_auth(request)
         request.setHeader('Content-Type', 'application/json')
         account = account.strip().lower()
+        args = request.args or {}
+        contact_filter = args.get(b'contact', [b''])[0].decode('utf-8', 'replace').strip().lower()
+        type_filter = args.get(b'type', [b''])[0].decode('utf-8', 'replace').strip().lower()
+        if type_filter not in self.TRANSFER_TYPES and type_filter not in ('missing', 'nodb'):
+            type_filter = ''
+        sort = args.get(b'sort', [b'date'])[0].decode('utf-8', 'replace').strip().lower()
+        if sort not in ('date', 'size', 'name'):
+            sort = 'date'
+        order = args.get(b'order', [b''])[0].decode('utf-8', 'replace').strip().lower()
+        reverse = order != 'asc'
         root = GeneralConfig.file_transfer_dir.normalized
+        use_cassandra = CASSANDRA_MODULES_AVAILABLE and CassandraConfig.cluster_contact_points
 
-        def walk():
-            names = [account, self._hash_uri(account), self._hash_uri('sip:' + account)]
+        def assemble(messages, backend, get):
             total, files = 0, 0
+            on_disk, disk_bytes = 0, 0
             transfers = []
-            for name in names:
-                base = os.path.join(root, name[:1], name)
-                if not os.path.isdir(base):
+            by_type = {transfer_type: {'count': 0, 'bytes': 0, 'on_disk': 0, 'disk_bytes': 0}
+                       for transfer_type in self.TRANSFER_TYPES + ('missing', 'nodb')}
+            db_ids = set()
+            contacts = {}
+            for message in messages:
+                content_type = get(message, 'content_type') or ''
+                if not content_type.startswith(self.FILE_TRANSFER_CONTENT_TYPE):
                     continue
-                for receiver in sorted(os.listdir(base)):
-                    receiver_path = os.path.join(base, receiver)
-                    if not os.path.isdir(receiver_path):
+                contact = (get(message, 'contact') or '').strip().lower()
+                metadata = {}
+                try:
+                    metadata = json.loads(get(message, 'content') or '')
+                except (TypeError, ValueError):
+                    pass
+                if not isinstance(metadata, dict):
+                    metadata = {}
+                filename = metadata.get('filename')
+                try:
+                    filesize = int(metadata.get('filesize'))
+                except (TypeError, ValueError):
+                    filesize = 0
+                transfer_type = self._transfer_type(metadata.get('filetype'), filename)
+                for candidate in (get(message, 'message_id'), metadata.get('transfer_id')):
+                    if candidate:
+                        db_ids.add(candidate)
+                entry = contacts.setdefault(contact, {'count': 0, 'bytes': 0})
+                entry['count'] += 1
+                entry['bytes'] += filesize
+                if contact_filter and contact != contact_filter:
+                    continue
+                transfer_id = get(message, 'message_id') or metadata.get('transfer_id') or ''
+                stored = self._probe_transfer_file(root, account, contact, transfer_id, filename) if transfer_id else None
+                if filename is None and stored is not None:
+                    # metadata was encrypted or unparseable — classify
+                    # from the name of the file found on disk instead
+                    transfer_type = self._transfer_type(None, stored[0])
+                total += filesize
+                files += 1
+                by_type[transfer_type]['count'] += 1
+                by_type[transfer_type]['bytes'] += filesize
+                if stored is not None:
+                    on_disk += 1
+                    disk_bytes += stored[1]
+                    by_type[transfer_type]['on_disk'] += 1
+                    by_type[transfer_type]['disk_bytes'] += stored[1]
+                else:
+                    by_type['missing']['count'] += 1
+                    by_type['missing']['bytes'] += filesize
+                if type_filter == 'missing':
+                    if stored is not None:
                         continue
-                    for transfer_id in os.listdir(receiver_path):
-                        transfer_path = os.path.join(receiver_path, transfer_id)
-                        if not os.path.isdir(transfer_path):
-                            continue
-                        for dirpath, dirnames, filenames in os.walk(transfer_path):
-                            for filename in filenames:
-                                try:
-                                    stat = os.stat(os.path.join(dirpath, filename))
-                                except OSError:
-                                    continue
-                                total += stat.st_size
-                                files += 1
-                                if not filename.startswith('meta-'):
-                                    transfers.append({'receiver': receiver,
-                                                      'transfer_id': transfer_id,
-                                                      'filename': filename,
-                                                      'bytes': stat.st_size,
-                                                      'mtime': stat.st_mtime,
-                                                      'date': time.strftime('%Y-%m-%d %H:%M', time.localtime(stat.st_mtime)),
-                                                      'legacy': name != account})
-            transfers.sort(key=lambda transfer: -transfer['mtime'])
+                elif type_filter and transfer_type != type_filter:
+                    continue
+                created_at = get(message, 'created_at') or get(message, 'timestamp')
+                date = str(created_at or '').replace('T', ' ')[:16]
+                transfers.append({'contact': contact,
+                                  'direction': get(message, 'direction'),
+                                  'transfer_id': transfer_id,
+                                  'filename': filename or (stored[0] if stored else None),
+                                  'type': transfer_type,
+                                  'bytes': filesize,
+                                  'date': date,
+                                  'sort_key': str(created_at or ''),
+                                  'on_disk': stored is not None,
+                                  'disk_bytes': stored[1] if stored else 0})
+            # reverse search: files on disk without a database entry
+            for receiver, transfer_id, path, filename, size, mtime in self._orphan_transfer_dirs(root, account, contact_filter, db_ids):
+                by_type['nodb']['count'] += 1
+                by_type['nodb']['bytes'] += size
+                if type_filter != 'nodb':
+                    continue
+                date = time.strftime('%Y-%m-%d %H:%M', time.localtime(mtime)) if mtime else ''
+                transfers.append({'contact': receiver, 'direction': None,
+                                  'transfer_id': transfer_id,
+                                  'filename': filename,
+                                  'type': self._transfer_type(None, filename),
+                                  'bytes': size, 'date': date, 'sort_key': date,
+                                  'on_disk': True, 'disk_bytes': size,
+                                  'in_db': False})
+            if sort == 'size':
+                transfers.sort(key=lambda transfer: transfer['bytes'], reverse=reverse)
+            elif sort == 'name':
+                transfers.sort(key=lambda transfer: (transfer['filename'] or '').lower(), reverse=reverse)
+            else:
+                transfers.sort(key=lambda transfer: transfer['sort_key'], reverse=reverse)
             for transfer in transfers:
-                del transfer['mtime']
-            return json.dumps({'account': account, 'bytes': total, 'files': files,
+                del transfer['sort_key']
+            contact_list = [dict(name=name, **usage) for name, usage in contacts.items()]
+            contact_list.sort(key=lambda entry: (-entry['count'], entry['name']))
+            return json.dumps({'account': account, 'backend': backend,
+                               'contact': contact_filter, 'type': type_filter,
+                               'sort': sort, 'order': 'desc' if reverse else 'asc',
+                               'bytes': total, 'files': files,
+                               'on_disk': on_disk, 'disk_bytes': disk_bytes,
+                               'by_type': by_type, 'contacts': contact_list,
                                'total_transfers': len(transfers),
                                'transfers': transfers[:50]})
 
-        return threads.deferToThread(walk)
+        if not use_cassandra:
+            def scan_file_backend():
+                messages = []
+                try:
+                    path = os.path.join(FileStorageConfig.storage_dir.normalized, 'conversations',
+                                        account[0], '{}_messages.json'.format(account))
+                    with open(path) as f:
+                        messages = json.load(f)
+                except (OSError, IOError, ValueError):
+                    pass
+                return assemble(messages, 'file', get=lambda m, k: m.get(k))
+            return threads.deferToThread(scan_file_backend)
+
+        deferred = defer.Deferred()
+
+        @run_in_thread('cassandra')
+        def query_transfers():
+            from .models.storage.cassandra import ChatMessage
+            try:
+                messages = ChatMessage.objects(ChatMessage.account == account).limit(None)
+                result = assemble(messages, 'cassandra', get=lambda m, k: getattr(m, k, None))
+            except Exception as e:
+                result = json.dumps({'account': account, 'backend': 'cassandra', 'error': str(e)})
+            reactor.callFromThread(deferred.callback, result)
+
+        query_transfers()
+        return deferred
+
+    @app.route('/media/file-transfers/<string:account>/purge-orphaned', methods=['POST'])
+    def purge_orphaned_transfers(self, request, account):
+        """Delete the account's file-transfer messages whose file is no
+        longer in the file-transfer store (expired or removed) — the
+        database rows stay the source of truth for what happened, this
+        just drops the ones pointing at files that are gone. The scope
+        follows the admin drill-down: an optional contact and type in
+        the JSON body narrow what is purged. Like the other message
+        deletion actions, only supported on the Cassandra backend."""
+        self._check_auth(request)
+        request.setHeader('Content-Type', 'application/json')
+        account = account.strip().lower()
+        raw = request.content.read() if request.content else b''
+        try:
+            payload = json.loads(raw.decode('utf-8')) if raw else {}
+        except (UnicodeDecodeError, ValueError):
+            payload = {}
+        contact_filter = (payload.get('contact') or '').strip().lower()
+        type_filter = (payload.get('type') or '').strip().lower()
+        if type_filter not in self.TRANSFER_TYPES:
+            # 'missing' needs no media-type restriction here — the purge
+            # only ever deletes messages whose file is missing anyway
+            type_filter = ''
+        use_cassandra = CASSANDRA_MODULES_AVAILABLE and CassandraConfig.cluster_contact_points
+        if not use_cassandra:
+            request.setResponseCode(501)
+            return json.dumps({'ok': False, 'error': 'purge is only supported on the Cassandra backend'})
+        root = GeneralConfig.file_transfer_dir.normalized
+        log.info('[admin] purge of file-transfer messages without files requested for {}{}{}'.format(
+            account,
+            ' contact {}'.format(contact_filter) if contact_filter else '',
+            ' type {}'.format(type_filter) if type_filter else ''))
+        deferred = defer.Deferred()
+
+        @run_in_thread('cassandra')
+        def purge():
+            from .models.storage.cassandra import ChatMessage
+            result = {'ok': True, 'account': account,
+                      'contact': contact_filter, 'type': type_filter}
+            checked = deleted = 0
+            try:
+                for message in ChatMessage.objects(ChatMessage.account == account).limit(None):
+                    content_type = message.content_type or ''
+                    if not content_type.startswith(self.FILE_TRANSFER_CONTENT_TYPE):
+                        continue
+                    contact = (message.contact or '').strip().lower()
+                    if contact_filter and contact != contact_filter:
+                        continue
+                    try:
+                        metadata = json.loads(message.content or '')
+                    except (TypeError, ValueError):
+                        metadata = {}
+                    if not isinstance(metadata, dict):
+                        metadata = {}
+                    filename = metadata.get('filename')
+                    transfer_id = message.message_id or metadata.get('transfer_id') or ''
+                    stored = self._probe_transfer_file(root, account, contact, transfer_id, filename) if transfer_id else None
+                    if type_filter:
+                        transfer_type = self._transfer_type(metadata.get('filetype'), filename)
+                        if filename is None and stored is not None:
+                            transfer_type = self._transfer_type(None, stored[0])
+                        if transfer_type != type_filter:
+                            continue
+                    checked += 1
+                    if stored is None:
+                        message.delete()
+                        deleted += 1
+            except Exception as e:
+                result['ok'] = False
+                result['error'] = str(e)
+            result['checked'] = checked
+            result['deleted'] = deleted
+            log.info('[admin] purged {} of {} file-transfer message(s) without files for {}'.format(deleted, checked, account))
+            reactor.callFromThread(deferred.callback, json.dumps(result))
+
+        purge()
+        return deferred
+
+    def _transfer_dirs(self, root, account, contact, transfer_id):
+        """Every existing directory of a transfer in the file store,
+        across all layout variants: plain and legacy hashed names for
+        either party, in sender-first and receiver-first order, mixed
+        freely (the contact may already be a hashed directory name, as
+        with entries found by the reverse search)."""
+        variants = lambda uri: [name for name in (uri, self._hash_uri(uri), self._hash_uri('sip:' + uri)) if name]
+        dirs = []
+        for top in variants(account) + variants(contact):
+            for sub in variants(contact) + variants(account):
+                folder = os.path.join(root, top[:1], top, sub, transfer_id)
+                if os.path.isdir(folder) and folder not in dirs:
+                    dirs.append(folder)
+        return dirs
+
+    @app.route('/media/file-transfers/<string:account>/delete', methods=['POST'])
+    def delete_transfer(self, request, account):
+        """Delete one file transfer completely: this account's
+        file-transfer message row(s) with the given message id AND the
+        transfer's directories in the file store. Works also for
+        entries only present on one side (a message whose file already
+        expired, or a file without a database entry). Like the other
+        message deletions, Cassandra backend only."""
+        self._check_auth(request)
+        request.setHeader('Content-Type', 'application/json')
+        account = account.strip().lower()
+        raw = request.content.read() if request.content else b''
+        try:
+            payload = json.loads(raw.decode('utf-8')) if raw else {}
+        except (UnicodeDecodeError, ValueError):
+            payload = {}
+        transfer_id = (payload.get('transfer_id') or '').strip()
+        contact = (payload.get('contact') or '').strip().lower()
+        if not transfer_id:
+            request.setResponseCode(400)
+            return json.dumps({'ok': False, 'error': 'transfer_id is required'})
+        use_cassandra = CASSANDRA_MODULES_AVAILABLE and CassandraConfig.cluster_contact_points
+        if not use_cassandra:
+            request.setResponseCode(501)
+            return json.dumps({'ok': False, 'error': 'deletion is only supported on the Cassandra backend'})
+        root = GeneralConfig.file_transfer_dir.normalized
+        log.info('[admin] delete file transfer {} requested for {}{}'.format(
+            transfer_id, account, ' contact {}'.format(contact) if contact else ''))
+        deferred = defer.Deferred()
+
+        @run_in_thread('cassandra')
+        def delete_one():
+            from .models.storage.cassandra import ChatMessage
+            result = {'ok': True, 'account': account, 'transfer_id': transfer_id}
+            deleted_messages = deleted_dirs = removed_bytes = 0
+            try:
+                matched = [message for message in ChatMessage.objects(ChatMessage.account == account).limit(None)
+                           if message.message_id == transfer_id
+                           and (message.content_type or '').startswith(self.FILE_TRANSFER_CONTENT_TYPE)]
+                for message in matched:
+                    message.delete()
+                    deleted_messages += 1
+                for folder in self._transfer_dirs(root, account, contact, transfer_id):
+                    size = 0
+                    for dirpath, dirnames, filenames in os.walk(folder):
+                        for entry in filenames:
+                            try:
+                                size += os.path.getsize(os.path.join(dirpath, entry))
+                            except OSError:
+                                pass
+                    try:
+                        rmtree(folder)
+                    except OSError as e:
+                        result['ok'] = False
+                        result['error'] = str(e)
+                        continue
+                    deleted_dirs += 1
+                    removed_bytes += size
+            except Exception as e:
+                result['ok'] = False
+                result['error'] = str(e)
+            result['deleted_messages'] = deleted_messages
+            result['deleted_dirs'] = deleted_dirs
+            result['bytes'] = removed_bytes
+            log.info('[admin] deleted file transfer {} for {}: {} message(s), {} folder(s), {} bytes'.format(
+                transfer_id, account, deleted_messages, deleted_dirs, removed_bytes))
+            reactor.callFromThread(deferred.callback, json.dumps(result))
+
+        delete_one()
+        return deferred
+
+    def _collect_transfer_ids(self, content_type, message_id, content, ids):
+        """Collect the transfer ids a file-transfer message accounts
+        for: its message id and the transfer_id in its metadata."""
+        if not (content_type or '').startswith(self.FILE_TRANSFER_CONTENT_TYPE):
+            return
+        if message_id:
+            ids.add(message_id)
+        try:
+            metadata = json.loads(content or '')
+        except (TypeError, ValueError):
+            return
+        if isinstance(metadata, dict) and metadata.get('transfer_id'):
+            ids.add(metadata['transfer_id'])
+
+    @app.route('/media/file-transfers/<string:account>/delete-orphan-files', methods=['POST'])
+    def delete_orphan_transfer_files(self, request, account):
+        """Reverse cleanup: delete from the file-transfer store the
+        transfer directories under this account that have no
+        corresponding file-transfer message in the database — the
+        database is the source of truth, so files it does not know
+        about are leftovers. An optional contact in the JSON body
+        narrows the scope. Only files are deleted, never database
+        rows, so this works on both storage backends."""
+        self._check_auth(request)
+        request.setHeader('Content-Type', 'application/json')
+        account = account.strip().lower()
+        raw = request.content.read() if request.content else b''
+        try:
+            payload = json.loads(raw.decode('utf-8')) if raw else {}
+        except (UnicodeDecodeError, ValueError):
+            payload = {}
+        contact_filter = (payload.get('contact') or '').strip().lower()
+        root = GeneralConfig.file_transfer_dir.normalized
+        use_cassandra = CASSANDRA_MODULES_AVAILABLE and CassandraConfig.cluster_contact_points
+        log.info('[admin] delete of file-transfer files without database entry requested for {}{}'.format(
+            account, ' contact {}'.format(contact_filter) if contact_filter else ''))
+
+        def delete_orphans(db_ids):
+            deleted, removed_bytes, errors = 0, 0, 0
+            for receiver, transfer_id, path, filename, size, mtime in list(self._orphan_transfer_dirs(root, account, contact_filter, db_ids)):
+                try:
+                    rmtree(path)
+                except OSError:
+                    errors += 1
+                    continue
+                deleted += 1
+                removed_bytes += size
+            result = {'ok': True, 'account': account, 'contact': contact_filter,
+                      'deleted': deleted, 'bytes': removed_bytes}
+            if errors:
+                result['errors'] = errors
+            log.info('[admin] deleted {} file-transfer folder(s) without database entry ({} bytes) for {}'.format(
+                deleted, removed_bytes, account))
+            return json.dumps(result)
+
+        if not use_cassandra:
+            def file_backend():
+                ids = set()
+                try:
+                    path = os.path.join(FileStorageConfig.storage_dir.normalized, 'conversations',
+                                        account[0], '{}_messages.json'.format(account))
+                    with open(path) as f:
+                        messages = json.load(f)
+                except (OSError, IOError, ValueError):
+                    messages = []
+                for message in messages:
+                    self._collect_transfer_ids(message.get('content_type'), message.get('message_id'),
+                                               message.get('content'), ids)
+                return delete_orphans(ids)
+            return threads.deferToThread(file_backend)
+
+        deferred = defer.Deferred()
+
+        @run_in_thread('cassandra')
+        def query_and_delete():
+            from .models.storage.cassandra import ChatMessage
+            try:
+                ids = set()
+                for message in ChatMessage.objects(ChatMessage.account == account).limit(None):
+                    self._collect_transfer_ids(message.content_type, message.message_id, message.content, ids)
+                result = delete_orphans(ids)
+            except Exception as e:
+                result = json.dumps({'ok': False, 'account': account, 'error': str(e)})
+            reactor.callFromThread(deferred.callback, result)
+
+        query_and_delete()
+        return deferred
 
     # ------------------------------------------------------------------
     # Account lookup — per-account storage details for the Accounts tab
