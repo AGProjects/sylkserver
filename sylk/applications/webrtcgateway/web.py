@@ -759,10 +759,19 @@ function showDashboard(username) {
         </div>
         <div class="card" style="padding:16px;margin-bottom:14px">
           <form onsubmit="return loadMessageTypes(event)" style="display:flex;gap:10px;align-items:center">
+            <label for="msgAcctInput" style="font-size:13px;color:#64748b;white-space:nowrap">Account</label>
             <input id="msgAcctInput" placeholder="account (user@domain)" autocomplete="off"
                    style="flex:1;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px">
             <button class="btn btn-accent" type="submit">Show messages</button>
           </form>
+          <div id="msgContactRow" style="display:none;gap:10px;align-items:center;margin-top:10px">
+            <label for="msgContactSelect" style="font-size:13px;color:#64748b;white-space:nowrap">Contact</label>
+            <select id="msgContactSelect" onchange="msgSetContact(this.value)"
+                    style="flex:1;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:#fff">
+              <option value="">All contacts</option>
+            </select>
+          </div>
+          <div id="msgDateRow" style="display:none;gap:10px;align-items:flex-start;margin-top:10px"></div>
           <div id="msgTypesResult"></div>
         </div>
         <div class="card" style="padding:16px">
@@ -1109,49 +1118,141 @@ function openMessagesFor(encAccount) {
   loadMessageTypes();
 }
 
+let msgFilters = { account: '', contact: '', date: '' };
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
 async function loadMessageTypes(e) {
   if (e) e.preventDefault();
   const account = $('msgAcctInput').value.trim().toLowerCase();
   if (!account) return false;
-  $('msgTypesResult').innerHTML = `<div class="empty" style="padding:18px">Loading message types for ${esc(account)}…</div>`;
-  const r = await api('messages/types/' + encodeURIComponent(account));
-  if (r.status === 403) { boot(); return false; }
-  const j = await r.json().catch(() => null);
+  msgFilters = { account: account, contact: '', date: '' };
+  const sel = $('msgContactSelect');
+  if (sel) sel.innerHTML = '<option value="">All contacts</option>';
+  if ($('msgContactRow')) $('msgContactRow').style.display = 'none';
+  if ($('msgDateRow')) $('msgDateRow').style.display = 'none';
+  msgFetch();
+  return false;
+}
+
+function msgSetContact(contact) {
+  msgFilters.contact = contact;
+  msgFetch();
+}
+
+function msgSetDate(date) {
+  msgFilters.date = date;
+  msgFetch();
+}
+
+function msgDateLabel(date) {
+  if (!date) return '';
+  const year = date.slice(0, 4), month = date.slice(5, 7), day = date.slice(8, 10);
+  if (day) return `${+day} ${MONTH_NAMES[+month - 1]} ${year}`;
+  if (month) return `${MONTH_NAMES[+month - 1]} ${year}`;
+  return year;
+}
+
+// Year -> Month -> Day drill-down with per-level counters, like the
+// client-side messages date filter.
+function msgRenderDates(j) {
+  const row = $('msgDateRow');
+  if (!row) return;
+  const date = j.date || '';
+  const counts = j.date_counts || {};
+  const year = date.slice(0, 4), month = date.slice(5, 7), day = date.slice(8, 10);
+  const crumbs = [];
+  crumbs.push(date ? `<a href="#" style="color:var(--accent)" onclick="msgSetDate('');return false">All dates</a>` : '<b>All dates</b>');
+  if (year) crumbs.push(month ? `<a href="#" style="color:var(--accent)" onclick="msgSetDate('${year}');return false">${year}</a>` : `<b>${year}</b>`);
+  if (month) crumbs.push(day ? `<a href="#" style="color:var(--accent)" onclick="msgSetDate('${year}-${month}');return false">${MONTH_NAMES[+month - 1]}</a>` : `<b>${MONTH_NAMES[+month - 1]}</b>`);
+  if (day) crumbs.push(`<b>${+day}</b>`);
+  let keys = Object.keys(counts).sort();
+  if (!year) keys.reverse();   // most recent year first; months and days in calendar order
+  const chips = keys.map(k => {
+    const next = !year ? k : !month ? `${year}-${k}` : `${year}-${month}-${k}`;
+    const label = !year ? k : !month ? MONTH_NAMES[+k - 1] : +k;
+    return `<button class="pbtn" onclick="msgSetDate('${next}')">${label} <span style="opacity:.7;font-weight:500">(${counts[k].toLocaleString()})</span></button>`;
+  }).join('');
+  row.style.display = 'flex';
+  row.innerHTML = `
+    <label style="font-size:13px;color:#64748b;white-space:nowrap;padding-top:6px">Date</label>
+    <span style="font-size:13px;white-space:nowrap;padding-top:6px">${crumbs.join(' › ')}</span>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;flex:1">${chips || '<span class="empty" style="padding:6px 0">no messages at this level</span>'}</div>`;
+}
+
+async function msgFetch() {
+  const account = msgFilters.account;
   const el = $('msgTypesResult');
-  if (!j) { el.innerHTML = '<div class="err" style="padding:12px 4px">Lookup failed.</div>'; return false; }
-  if (j.error) { el.innerHTML = `<div class="err" style="padding:12px 4px">${esc(j.error)}</div>`; return false; }
+  if (!el || !account) return;
+  el.innerHTML = `<div class="empty" style="padding:18px">Loading message types for ${esc(account)}${msgFilters.contact ? ' with contact ' + esc(msgFilters.contact) : ''}…</div>`;
+  const params = [];
+  if (msgFilters.contact) params.push('contact=' + encodeURIComponent(msgFilters.contact));
+  if (msgFilters.date) params.push('date=' + encodeURIComponent(msgFilters.date));
+  const r = await api('messages/types/' + encodeURIComponent(account) + (params.length ? '?' + params.join('&') : ''));
+  if (r.status === 403) { boot(); return; }
+  const j = await r.json().catch(() => null);
+  if (!j) { el.innerHTML = '<div class="err" style="padding:12px 4px">Lookup failed.</div>'; return; }
+  if (j.error) { el.innerHTML = `<div class="err" style="padding:12px 4px">${esc(j.error)}</div>`; return; }
+  const contacts = j.contacts || [];
+  const contactRow = $('msgContactRow'), dateRow = $('msgDateRow');
+  if (!contacts.length) {
+    if (contactRow) contactRow.style.display = 'none';
+    if (dateRow) dateRow.style.display = 'none';
+    el.innerHTML = `<div class="empty" style="padding:18px">No messages stored for ${esc(account)}.</div>`;
+    return;
+  }
+  // account found — show the filters and fill the contact options
+  const sel = $('msgContactSelect');
+  if (sel) {
+    sel.innerHTML = ['<option value="">All contacts</option>']
+      .concat(contacts.map(c => `<option value="${esc(c.name)}"${c.name === j.contact ? ' selected' : ''}>${esc(c.name)} (${c.count})</option>`))
+      .join('');
+  }
+  if (contactRow) contactRow.style.display = 'flex';
+  msgRenderDates(j);
   const byType = j.by_type || {};
   const types = Object.keys(byType);
-  if (!types.length) {
-    el.innerHTML = `<div class="empty" style="padding:18px">No messages stored for ${esc(account)}.</div>`;
-    return false;
-  }
-  const rows = types.map(t => `
+  const filtered = j.contact || j.date;
+  const scope = `${j.contact ? ` with <span class="mono">${esc(j.contact)}</span>` : ''}` +
+                `${j.date ? ` in <span class="mono">${esc(msgDateLabel(j.date))}</span>` : ''}`;
+  // Delete rules per content type: text/* only with a full day selected
+  // (too easy to wipe whole conversations otherwise), file transfers
+  // never (the File transfers tab handles those, files included),
+  // anything else always.
+  const daySelected = (j.date || '').length === 10;
+  const deleteCell = t => {
+    if (!j.can_delete) return '';
+    if (t.startsWith('application/sylk-file-transfer'))
+      return '<span style="font-size:11px;color:#94a3b8">use the File transfers tab</span>';
+    if (t.startsWith('text/') && !daySelected)
+      return '<span style="font-size:11px;color:#94a3b8">select a day to delete</span>';
+    return `<button class="pbtn pbtn-kick" onclick="deleteMessageType('${encodeURIComponent(account)}','${encodeURIComponent(t)}',${byType[t]},this)">Delete</button>`;
+  };
+  const rows = types.length ? types.map(t => `
     <tr style="cursor:default">
       <td class="mono" style="font-size:13px;text-align:right;width:90px;padding:9px 16px 9px 0">${byType[t].toLocaleString()}</td>
       <td class="mono" style="font-size:13px;padding:9px 16px 9px 0">${esc(t)}</td>
-      <td style="text-align:right;padding:9px 0">
-        ${j.can_delete ? `<button class="pbtn pbtn-kick" onclick="deleteMessageType('${encodeURIComponent(account)}','${encodeURIComponent(t)}',${byType[t]},this)">Delete</button>` : ''}
-      </td>
-    </tr>`).join('');
+      <td style="text-align:right;padding:9px 0">${deleteCell(t)}</td>
+    </tr>`).join('')
+    : `<tr><td colspan="3" class="empty">No messages match the current filters.</td></tr>`;
   el.innerHTML = `
     <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:14px">
-      <b style="font-size:14px">${Number(j.total).toLocaleString()} message(s) for <span class="mono">${esc(account)}</span></b>
+      <b style="font-size:14px">${Number(j.total).toLocaleString()} message(s) for <span class="mono">${esc(account)}</span>${scope}</b>
       ${j.oldest ? `<div style="font-size:12px;color:#64748b;margin-top:4px">oldest <span class="mono">${esc(j.oldest)}</span> · newest <span class="mono">${esc(j.newest)}</span></div>` : ''}
       <table style="margin-top:8px"><thead><tr>
         <th style="text-align:right;padding:6px 16px 4px 0">Count</th>
         <th style="padding:6px 16px 4px 0">Content type</th>
         <th style="padding:6px 0 4px"></th>
       </tr></thead><tbody>${rows}</tbody></table>
-      ${j.can_delete ? '' : '<div class="hint" style="padding:8px 0 0">deletion is only available on the Cassandra backend</div>'}
+      ${j.can_delete ? (filtered ? '<div class="hint" style="padding:8px 0 0">delete removes only the messages matching the current filters</div>' : '') : '<div class="hint" style="padding:8px 0 0">deletion is only available on the Cassandra backend</div>'}
     </div>`;
-  return false;
 }
 
 async function deleteMessageType(encAccount, encType, count, btn) {
   const account = decodeURIComponent(encAccount);
   const type = decodeURIComponent(encType);
-  if (!confirm(`Permanently delete ${count} ${type} message(s) for ${account}?\n\nThis cannot be undone.`)) return;
+  const scope = (msgFilters.contact ? `\nContact: ${msgFilters.contact}` : '') +
+                (msgFilters.date ? `\nDate: ${msgDateLabel(msgFilters.date)}` : '');
+  if (!confirm(`Permanently delete ${count} ${type} message(s) for ${account}?${scope}\n\nThis cannot be undone.`)) return;
   btn.disabled = true;
   btn.textContent = 'Deleting…';
   let j = null;
@@ -1159,14 +1260,15 @@ async function deleteMessageType(encAccount, encType, count, btn) {
     const r = await api('messages/delete/' + encodeURIComponent(account), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content_type: type }),
+      body: JSON.stringify({ content_type: type, contact: msgFilters.contact,
+                             date: msgFilters.date }),
     });
     if (r.status === 403) { boot(); return; }
     j = await r.json();
   } catch (e) {}
   if (j && j.ok) toast(`Deleted ${j.deleted} ${type} message(s)`);
   else toast('Delete failed' + (j && j.error ? ': ' + j.error : ''));
-  loadMessageTypes();   // refresh the breakdown
+  msgFetch();   // refresh the breakdown
 }
 
 async function purgeAccount(encAccount) {
@@ -1448,7 +1550,7 @@ async function ftFetch() {
     .map(([key, label, d]) => {
       const active = (j.type || '') === key;
       const style = active ? ' style="background:var(--accent);border-color:var(--accent);color:#fff"' : '';
-      const sub = d.count ? `${d.count} · ${fmtBytes(d.bytes)}` : '0';
+      const sub = d.count ? `(${d.count} · ${fmtBytes(d.bytes)})` : '(0)';
       return `<button class="pbtn" onclick="ftSetType('${key}')"${style}>${label} <span style="opacity:.7;font-weight:500">${sub}</span></button>`;
     }).join('');
   const shown = (j.transfers || []).length;
@@ -2969,57 +3071,110 @@ class AdminWebHandler(object, metaclass=Singleton):
     # Like the CLI, deletion only removes ChatMessage rows.
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _message_type_stats(messages, get, contact_filter, date_filter):
+        """Message counts by content type, with the admin drill-down
+        filters applied: contact narrows to one contact and date_filter
+        is a drill-down prefix ('', YYYY, YYYY-MM or YYYY-MM-DD) that
+        narrows to that year, month or day. date_counts holds the next
+        drill-down level below the current selection — messages per
+        year, per month of the selected year, or per day of the
+        selected month — like the client-side date filter.
+
+        The two filters cross-scope each other's counters, so the
+        drill-down works in one direction at a time: with a contact
+        selected the date counters cover only that contact (until the
+        contact is reset), and with a date selected the contact list
+        and its counters cover only that period (until the date is
+        reset)."""
+        by_type = {}
+        contacts = {}
+        date_counts = {}
+        oldest = newest = None
+        level = len(date_filter)
+        for message in messages:
+            contact = (get(message, 'contact') or '').strip().lower()
+            created = str(get(message, 'created_at') or get(message, 'timestamp') or '')
+            date_match = not date_filter or created.startswith(date_filter)
+            if date_match:
+                # contact counters are scoped by the date filter
+                contacts[contact] = contacts.get(contact, 0) + 1
+            if contact_filter and contact != contact_filter:
+                continue
+            # date counters are scoped by the contact filter
+            if created:
+                if level == 0:
+                    key = created[:4]
+                elif created.startswith(date_filter):
+                    key = created[5:7] if level == 4 else created[8:10] if level == 7 else None
+                else:
+                    key = None
+                if key:
+                    date_counts[key] = date_counts.get(key, 0) + 1
+            if not date_match:
+                continue
+            content_type = get(message, 'content_type') or 'unknown'
+            by_type[content_type] = by_type.get(content_type, 0) + 1
+            if created:
+                oldest = created if oldest is None or created < oldest else oldest
+                newest = created if newest is None or created > newest else newest
+        contact_list = [{'name': name, 'count': count} for name, count in contacts.items()]
+        contact_list.sort(key=lambda entry: (-entry['count'], entry['name']))
+        by_type = dict(sorted(by_type.items(), key=lambda item: -item[1]))
+        return {'by_type': by_type, 'total': sum(by_type.values()),
+                'contacts': contact_list,
+                'date_counts': dict(sorted(date_counts.items())),
+                'oldest': oldest[:19] if oldest else None,      # trim milliseconds
+                'newest': newest[:19] if newest else None}
+
+    @staticmethod
+    def _date_prefix_arg(value):
+        # a date drill-down prefix: YYYY, YYYY-MM or YYYY-MM-DD
+        value = (value or '').strip()[:10]
+        patterns = {4: 'dddd', 7: 'dddd-dd', 10: 'dddd-dd-dd'}
+        pattern = patterns.get(len(value))
+        if pattern and all((c == '-') == (p == '-') and (p == '-' or c.isdigit())
+                           for c, p in zip(value, pattern)):
+            return value
+        return ''
+
     @app.route('/messages/types/<string:account>', methods=['GET'])
     def message_types(self, request, account):
         self._check_auth(request)
         request.setHeader('Content-Type', 'application/json')
         account = account.strip().lower()
+        args = request.args or {}
+        contact_filter = args.get(b'contact', [b''])[0].decode('utf-8', 'replace').strip().lower()
+        date_filter = self._date_prefix_arg(args.get(b'date', [b''])[0].decode('utf-8', 'replace'))
         use_cassandra = CASSANDRA_MODULES_AVAILABLE and CassandraConfig.cluster_contact_points
 
         if not use_cassandra:
-            by_type = {}
-            oldest = newest = None
+            messages = []
             try:
                 path = os.path.join(FileStorageConfig.storage_dir.normalized, 'conversations',
                                     account[0], '{}_messages.json'.format(account))
                 with open(path) as f:
-                    for message in json.load(f):
-                        content_type = message.get('content_type') or 'unknown'
-                        by_type[content_type] = by_type.get(content_type, 0) + 1
-                        created_at = message.get('created_at') or message.get('timestamp')
-                        if created_at:
-                            oldest = created_at if oldest is None or created_at < oldest else oldest
-                            newest = created_at if newest is None or created_at > newest else newest
+                    messages = json.load(f)
             except (OSError, IOError, ValueError):
                 pass
-            by_type = dict(sorted(by_type.items(), key=lambda item: -item[1]))
-            return json.dumps({'account': account, 'backend': 'file', 'can_delete': False,
-                               'total': sum(by_type.values()), 'by_type': by_type,
-                               'oldest': str(oldest) if oldest else None,
-                               'newest': str(newest) if newest else None})
+            stats = self._message_type_stats(messages, lambda m, k: m.get(k),
+                                             contact_filter, date_filter)
+            return json.dumps(dict(stats, account=account, backend='file', can_delete=False,
+                                   contact=contact_filter, date=date_filter))
 
         deferred = defer.Deferred()
 
         @run_in_thread('cassandra')
         def query_types():
+            result = {'account': account, 'backend': 'cassandra', 'can_delete': True,
+                      'contact': contact_filter, 'date': date_filter}
             from .models.storage.cassandra import ChatMessage
-            result = {'account': account, 'backend': 'cassandra', 'can_delete': True}
-            by_type = {}
-            oldest = newest = None
             try:
-                for message in ChatMessage.objects(ChatMessage.account == account).limit(None):
-                    content_type = message.content_type or 'unknown'
-                    by_type[content_type] = by_type.get(content_type, 0) + 1
-                    created_at = message.created_at
-                    if created_at is not None:
-                        oldest = created_at if oldest is None or created_at < oldest else oldest
-                        newest = created_at if newest is None or created_at > newest else newest
+                messages = ChatMessage.objects(ChatMessage.account == account).limit(None)
+                result.update(self._message_type_stats(messages, lambda m, k: getattr(m, k, None),
+                                                       contact_filter, date_filter))
             except Exception as e:
                 result['error'] = str(e)
-            result['by_type'] = dict(sorted(by_type.items(), key=lambda item: -item[1]))
-            result['total'] = sum(by_type.values())
-            result['oldest'] = str(oldest) if oldest is not None else None
-            result['newest'] = str(newest) if newest is not None else None
             reactor.callFromThread(deferred.callback, json.dumps(result))
 
         query_types()
@@ -3039,22 +3194,47 @@ class AdminWebHandler(object, metaclass=Singleton):
         if not content_type:
             request.setResponseCode(400)
             return json.dumps({'ok': False, 'error': 'content_type is required'})
+        contact_filter = (payload.get('contact') or '').strip().lower()
+        date_filter = self._date_prefix_arg(payload.get('date'))
+        # same rules the UI enforces: file transfers are deleted from the
+        # File transfers tab (files included); text messages only for a
+        # selected day, to avoid wiping whole conversations by accident
+        if content_type.startswith(self.FILE_TRANSFER_CONTENT_TYPE):
+            request.setResponseCode(400)
+            return json.dumps({'ok': False, 'error': 'file-transfer messages are deleted from the File transfers tab'})
+        if content_type.startswith('text/') and len(date_filter) != 10:
+            request.setResponseCode(400)
+            return json.dumps({'ok': False, 'error': 'text messages can only be deleted with a day selected'})
         use_cassandra = CASSANDRA_MODULES_AVAILABLE and CassandraConfig.cluster_contact_points
         if not use_cassandra:
             request.setResponseCode(501)
             return json.dumps({'ok': False, 'error': 'deletion is only supported on the Cassandra backend'})
 
-        log.info('[admin] delete messages requested for {} with type {}'.format(account, content_type))
+        log.info('[admin] delete messages requested for {} with type {}{}{}'.format(
+            account, content_type,
+            ' contact {}'.format(contact_filter) if contact_filter else '',
+            ' date {}'.format(date_filter) if date_filter else ''))
         deferred = defer.Deferred()
 
         @run_in_thread('cassandra')
         def delete_matching():
             from .models.storage.cassandra import ChatMessage
-            result = {'ok': True, 'account': account, 'content_type': content_type}
+            result = {'ok': True, 'account': account, 'content_type': content_type,
+                      'contact': contact_filter, 'date': date_filter}
             deleted = 0
+
+            def matches(message):
+                if message.content_type != content_type:
+                    return False
+                if contact_filter and (message.contact or '').strip().lower() != contact_filter:
+                    return False
+                if date_filter and not str(message.created_at or '').startswith(date_filter):
+                    return False
+                return True
+
             try:
                 matched = [message for message in ChatMessage.objects(ChatMessage.account == account).limit(None)
-                           if message.content_type == content_type]
+                           if matches(message)]
                 for message in matched:
                     message.delete()
                     deleted += 1
