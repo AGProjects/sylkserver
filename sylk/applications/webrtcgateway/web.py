@@ -298,7 +298,7 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
                 log.warning(f'Authorization headers missing on message history request for {account}')
 
             if not auth_headers or method != 'Apikey' or auth_token != token:
-                log.warning(f'Token authentication error for {account}')
+                #log.warning(f'Token authentication error for {account}')
                 raise ApiTokenAuthError()
             else:
                 return self.get_account_messages(request, account, msg_id)

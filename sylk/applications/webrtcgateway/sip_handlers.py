@@ -178,9 +178,29 @@ class MessageHandler(object):
             return
         log.info(f'Adding {account} for storing messages (token request to {destination})')
         self.message_storage.add_account(account)
-        token = secrets.token_urlsafe()
-        self.outgoing_message(self.from_header.uri, json.dumps({'token': token, 'url': f'{server.url}/webrtcgateway/messages/history/{account}'}), 'application/sylk-api-token')
-        self.message_storage.add_account_token(account=account, token=token)
+
+        def send_token(existing_token=None):
+            # Idempotent issuance: if a valid token is already stored, re-send
+            # it instead of minting a new one. Generating a fresh token on
+            # every request revokes the previously issued one, so concurrent
+            # requesters (multiple devices, client retries, duplicated
+            # requests) keep invalidating each other's tokens and every 401
+            # triggers yet another request — an endless request/401 loop.
+            if existing_token:
+                log.info(f'Re-sending existing API token for {account}')
+                token = existing_token
+            else:
+                log.info(f'Generating new API token for {account}')
+                token = secrets.token_urlsafe()
+            self.outgoing_message(self.from_header.uri, json.dumps({'token': token, 'url': f'{server.url}/webrtcgateway/messages/history/{account}'}), 'application/sylk-api-token')
+            # store in both cases to refresh the token expiry/TTL
+            self.message_storage.add_account_token(account=account, token=token)
+
+        existing_token = self.message_storage.get_account_token(account)
+        if isinstance(existing_token, defer.Deferred):
+            existing_token.addCallback(send_token)
+        else:
+            send_token(existing_token)
 
     def _handle_lookup_pgp_key(self):
         account = f'{self.to_header.uri.user}@{self.to_header.uri.host}'
