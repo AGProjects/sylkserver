@@ -33,8 +33,8 @@ from sylk.web import (File, Klein, StaticFileResource,
                       TrackedUploadHTTPChannel, server)
 
 from .audio_level_udp import AudioLevelUDPClient
-from .configuration import (CassandraConfig, FileStorageConfig,
-                            GeneralConfig, JanusConfig)
+from .configuration import (BUILTIN_WEBSERVER, CassandraConfig,
+                            FileStorageConfig, GeneralConfig, JanusConfig)
 from .datatypes import FileTransferData
 from .factory import SylkWebSocketServerFactory
 from .janus import JanusBackend
@@ -78,6 +78,28 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
     @app.route('/ws')
     def ws(self, request):
         return self._ws_resource
+
+    # Admin/management API mounted on the built-in web server. Only active
+    # when http_management_interface or https_management_interface is set
+    # to 'builtin_webserver' (and authentication is configured) — see
+    # AdminWebHandler.start. Two routes are needed: the branch route does
+    # not match the bare '/admin/' URL (werkzeug's path converter requires
+    # a non-empty remainder), which would otherwise fall through to the
+    # static-files catch-all instead of the admin UI.
+
+    @app.route('/admin/')
+    def admin_index(self, request):
+        resource = AdminWebHandler().builtin_resource
+        if resource is None:
+            raise NotFound()
+        return resource
+
+    @app.route('/admin', branch=True)
+    def admin(self, request):
+        resource = AdminWebHandler().builtin_resource
+        if resource is None:
+            raise NotFound()
+        return resource
 
     @app.route('/filesharing/<string:conference>/<string:session_id>/<string:filename>', methods=['OPTIONS', 'POST', 'GET'])
     def filesharing(self, request, conference, session_id, filename):
@@ -1843,6 +1865,11 @@ class AdminWebHandler(object, metaclass=Singleton):
 
     def __init__(self):
         self.listener = None
+        # Klein resource served at /webrtcgateway/admin on the built-in
+        # web server when http(s)_management_interface is set to
+        # 'builtin_webserver'. None means the mount is inactive (the
+        # public /admin route answers 404).
+        self.builtin_resource = None
         # Active /rooms/events SSE clients (Twisted Request objects).
         self._event_subscribers = set()
         # Valid browser login sessions: token -> {'username', 'created'}.
@@ -1880,18 +1907,41 @@ class AdminWebHandler(object, metaclass=Singleton):
         site.noisy = False
         self._listeners = []
 
+        http_iface = GeneralConfig.http_management_interface
+        https_iface = GeneralConfig.https_management_interface
+
+        # 'builtin_webserver' keyword: mount the admin API on the main
+        # SylkServer web server at /webrtcgateway/admin instead of (or in
+        # addition to) running standalone listeners. The main server
+        # decides the scheme (HTTPS when it has a certificate, HTTP
+        # otherwise), so the keyword means the same thing on either
+        # setting. The built-in web server is typically public, so the
+        # mount is refused unless authentication is configured.
+        if BUILTIN_WEBSERVER in (http_iface, https_iface):
+            auth_configured = bool(GeneralConfig.http_management_auth_secret
+                                   or (GeneralConfig.http_management_admin_username
+                                       and GeneralConfig.http_management_admin_password))
+            if auth_configured:
+                self.builtin_resource = self.app.resource()
+                log.info('Admin web handler mounted on the built-in web server at %s/webrtcgateway/admin' % server.url)
+            else:
+                log.error('Admin web: refusing to mount the admin API on the '
+                          'built-in web server without authentication; set '
+                          'http_management_auth_secret and/or '
+                          'http_management_admin_username/password')
+
         # Plain HTTP listener — internal tooling (sip-janus-bridge, the
-        # audio bridge's /rooms/events SSE, etc.). Always on.
-        host, port = GeneralConfig.http_management_interface
-        # noinspection PyUnresolvedReferences
-        self.listener = reactor.listenTCP(port, site, interface=host)
-        self._listeners.append(self.listener)
-        log.info('Admin web handler started at http://%s:%d' % (host, port))
+        # audio bridge's /rooms/events SSE, etc.).
+        if http_iface and http_iface != BUILTIN_WEBSERVER:
+            host, port = http_iface
+            # noinspection PyUnresolvedReferences
+            self.listener = reactor.listenTCP(port, site, interface=host)
+            self._listeners.append(self.listener)
+            log.info('Admin web handler started at http://%s:%d' % (host, port))
 
         # Optional HTTPS listener — browser admin UI over the internet,
         # using the same certificate as the main web/WebSocket server.
-        https_iface = GeneralConfig.https_management_interface
-        if https_iface:
+        if https_iface and https_iface != BUILTIN_WEBSERVER:
             self._start_https(site, https_iface)
 
     def _start_https(self, site, https_iface):
@@ -1927,6 +1977,7 @@ class AdminWebHandler(object, metaclass=Singleton):
                 pass
         self._listeners = []
         self.listener = None
+        self.builtin_resource = None
 
     # Admin web API
 

@@ -89,6 +89,23 @@ class ManagementInterfaceAddress(NetworkAddress):
     default_port = 20888
 
 
+# Special keyword for http(s)_management_interface: instead of starting a
+# standalone listener, mount the admin/management API on the main SylkServer
+# web server (the [WebServer] section of config.ini) under
+# /webrtcgateway/admin. The main server determines the scheme: HTTPS when a
+# certificate is configured there, plain HTTP otherwise.
+BUILTIN_WEBSERVER = 'builtin_webserver'
+
+
+class ManagementInterfaceSetting(object):
+    """Parse a host[:port] network address or the keyword 'builtin_webserver'."""
+
+    def __new__(cls, value):
+        if isinstance(value, str) and value.strip().lower() == BUILTIN_WEBSERVER:
+            return BUILTIN_WEBSERVER
+        return ManagementInterfaceAddress(value)
+
+
 class AuthType(str):
     allowed_values = ('SIP', 'IMAP')
 
@@ -137,7 +154,7 @@ class GeneralConfig(ConfigSection):
     recording_dir = ConfigSetting(type=Path, value=Path(os.path.join(ServerConfig.spool_dir.normalized, 'videoconference', 'recordings')))
     filesharing_dir = ConfigSetting(type=Path, value=Path(os.path.join(ServerConfig.spool_dir.normalized, 'videoconference', 'files')))
     file_transfer_dir = ConfigSetting(type=Path, value=Path(os.path.join(ApplicationConfig.application_dir.normalized, 'file_transfers')))
-    http_management_interface = ConfigSetting(type=ManagementInterfaceAddress, value=ManagementInterfaceAddress('127.0.0.1'))
+    http_management_interface = ConfigSetting(type=ManagementInterfaceSetting, value=ManagementInterfaceAddress('127.0.0.1'))
     http_management_auth_secret = ConfigSetting(type=str, value=None)
     # Credentials for the browser-based admin UI served at / on the
     # management interface. When both are set, the UI login form accepts
@@ -160,7 +177,16 @@ class GeneralConfig(ConfigSection):
     #     certificate_chain). Unset (None) disables the HTTPS listener.
     #
     # Both serve the same routes; pick a different port for the HTTPS one.
-    https_management_interface = ConfigSetting(type=ManagementInterfaceAddress, value=None)
+    #
+    # Either setting also accepts the keyword 'builtin_webserver': no
+    # standalone listener is started for it; instead the admin API is
+    # mounted on the main SylkServer web server ([WebServer] in config.ini)
+    # under /webrtcgateway/admin. The main server's TLS configuration
+    # decides the scheme, so setting the keyword on both is equivalent to
+    # setting it on one. Because the main web server is typically public,
+    # the mount is refused unless authentication is configured
+    # (http_management_auth_secret and/or admin username+password).
+    https_management_interface = ConfigSetting(type=ManagementInterfaceSetting, value=None)
     # UDP listener for real-time audio-level updates pushed by a remote
     # conference focus (see sylk.applications.conference.audio_level_udp).
     # host:port; set to empty to disable. Pairs with the conference's

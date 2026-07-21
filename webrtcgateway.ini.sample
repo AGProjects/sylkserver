@@ -40,6 +40,24 @@
 ; http_management_admin_username = admin
 ; http_management_admin_password = your-strong-password
 
+; Either management interface setting also accepts the special keyword
+; 'builtin_webserver'. In that case no standalone listener is started for
+; that setting; instead the admin API and web frontend are mounted on the
+; main SylkServer web server (the [WebServer] section of config.ini) under
+; /webrtcgateway/admin, e.g. https://example.com/webrtcgateway/admin/
+; The main server's TLS settings decide between HTTP and HTTPS, so using
+; the keyword on both settings is equivalent to using it on one. Because
+; the main web server is normally reachable from the internet, the mount
+; is refused unless authentication is configured (http_management_auth_secret
+; and/or http_management_admin_username + http_management_admin_password).
+; Note: internal tooling that talks to the plain-HTTP management port
+; (e.g. sip-janus-bridge, the conference audio bridge's /rooms/events SSE
+; subscription) must then be pointed at the built-in web server URL, or
+; keep http_management_interface as a private address and set only
+; https_management_interface = builtin_webserver
+; http_management_interface = builtin_webserver
+; https_management_interface = builtin_webserver
+
 ; Sylk-push URL to send conference push notification
 ; sylk_push_url =
 
