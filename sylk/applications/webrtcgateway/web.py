@@ -1256,6 +1256,35 @@ async function msgFetch() {
       <td style="text-align:right;padding:9px 0">${deleteCell(t)}</td>
     </tr>`).join('')
     : `<tr><td colspan="3" class="empty">No messages match the current filters.</td></tr>`;
+  // When a full day is selected the backend also returns that day's
+  // messages (day_messages), sorted by timestamp, without the content —
+  // shown as a second table below the type summary.
+  const dirArrow = d => d === 'outgoing' ? '→' : d === 'incoming' ? '←' : '';
+  const dayMsgs = j.day_messages;
+  const dayList = dayMsgs ? `
+    <div style="margin-top:18px;border-top:1px solid var(--border);padding-top:14px">
+      <b style="font-size:14px">${Number(dayMsgs.length).toLocaleString()} message(s) on <span class="mono">${esc(msgDateLabel(j.date))}</span>${j.contact ? ` with <span class="mono">${esc(j.contact)}</span>` : ''}, by time</b>
+      <table style="margin-top:8px"><thead><tr>
+        <th style="padding:6px 16px 4px 0">Time</th>
+        <th style="padding:6px 16px 4px 0">Dir</th>
+        <th style="padding:6px 16px 4px 0">Contact</th>
+        <th style="padding:6px 16px 4px 0">Content type</th>
+        <th style="padding:6px 16px 4px 0">State</th>
+        <th style="padding:6px 0 4px">Message id</th>
+      </tr></thead><tbody>${
+        dayMsgs.length ? dayMsgs.map(m => `
+        <tr style="cursor:default">
+          <td class="mono" style="font-size:12px;white-space:nowrap;padding:7px 16px 7px 0" title="${esc(m.created_at)}${m.timestamp ? ' · msg ' + esc(m.timestamp) : ''}">${esc((m.created_at || '').slice(11, 19) || m.created_at || '')}</td>
+          <td style="padding:7px 16px 7px 0;font-size:13px" title="${esc(m.direction)}">${dirArrow(m.direction)}</td>
+          <td class="mono" style="font-size:12px;padding:7px 16px 7px 0${(m.contact || '').includes('@') ? '' : ';color:#94a3b8'}">${esc(m.contact)}</td>
+          <td class="mono" style="font-size:12px;padding:7px 16px 7px 0">${esc(m.content_type)}</td>
+          <td style="font-size:12px;color:#64748b;padding:7px 16px 7px 0">${esc(m.state)}</td>
+          <td style="padding:7px 0"><a href="#" class="mono" style="font-size:12px;color:var(--accent);word-break:break-all" onclick="msgDump('${encodeURIComponent(account)}','${encodeURIComponent(m.message_id)}');return false">${esc(m.message_id)}</a></td>
+        </tr>`).join('')
+        : `<tr><td colspan="6" class="empty">No messages on this day.</td></tr>`
+      }</tbody></table>
+      <div class="hint" style="padding:8px 0 0">click a message id to load its full content in the dump box below</div>
+    </div>` : '';
   el.innerHTML = `
     <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:14px">
       <b style="font-size:14px">${Number(j.total).toLocaleString()} message(s) for <span class="mono">${esc(account)}</span>${scope}</b>
@@ -1266,7 +1295,18 @@ async function msgFetch() {
         <th style="padding:6px 0 4px"></th>
       </tr></thead><tbody>${rows}</tbody></table>
       ${j.can_delete ? (filtered ? '<div class="hint" style="padding:8px 0 0">delete removes only the messages matching the current filters</div>' : '') : '<div class="hint" style="padding:8px 0 0">deletion is only available on the Cassandra backend</div>'}
-    </div>`;
+    </div>${dayList}`;
+}
+
+// Load a message's full content into the dump box below (used by the
+// per-day message list — the id links call this).
+function msgDump(encAccount, encId) {
+  const acc = decodeURIComponent(encAccount), id = decodeURIComponent(encId);
+  if ($('dumpAccount')) $('dumpAccount').value = acc;
+  if ($('dumpId')) $('dumpId').value = id;
+  dumpMessage();
+  const el = $('dumpResult');
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
 async function deleteMessageType(encAccount, encType, count, btn) {
@@ -3137,12 +3177,20 @@ class AdminWebHandler(object, metaclass=Singleton):
         selected the date counters cover only that contact (until the
         contact is reset), and with a date selected the contact list
         and its counters cover only that period (until the date is
-        reset)."""
+        reset).
+
+        When the drill-down reaches a full day (date_filter is
+        YYYY-MM-DD) the result also carries day_messages: that day's
+        messages (honouring the contact filter) sorted by timestamp,
+        without the message content, so the admin can see the individual
+        messages behind the type summary."""
         by_type = {}
         contacts = {}
         date_counts = {}
+        day_messages = []   # per-message list, only when a full day is selected
         oldest = newest = None
         level = len(date_filter)
+        want_list = level == 10
         for message in messages:
             contact = (get(message, 'contact') or '').strip().lower()
             created = str(get(message, 'created_at') or get(message, 'timestamp') or '')
@@ -3169,12 +3217,26 @@ class AdminWebHandler(object, metaclass=Singleton):
             if created:
                 oldest = created if oldest is None or created < oldest else oldest
                 newest = created if newest is None or created > newest else newest
+            if want_list:
+                msg_ts = str(get(message, 'msg_timestamp') or '')
+                day_messages.append({'message_id': get(message, 'message_id') or '',
+                                     'created_at': created[:19],
+                                     'timestamp': msg_ts[:19] or None,
+                                     'direction': get(message, 'direction') or '',
+                                     'contact': contact,
+                                     'content_type': content_type,
+                                     'state': get(message, 'state') or '',
+                                     'disposition': list(get(message, 'disposition') or [])})
+        # the day's messages, sorted by timestamp (created_at is the stored
+        # order and the table's clustering key, so it always exists)
+        day_messages.sort(key=lambda m: (m['created_at'], m['message_id']))
         contact_list = [{'name': name, 'count': count} for name, count in contacts.items()]
         contact_list.sort(key=lambda entry: (-entry['count'], entry['name']))
         by_type = dict(sorted(by_type.items(), key=lambda item: -item[1]))
         return {'by_type': by_type, 'total': sum(by_type.values()),
                 'contacts': contact_list,
                 'date_counts': dict(sorted(date_counts.items())),
+                'day_messages': day_messages if want_list else None,
                 'oldest': oldest[:19] if oldest else None,      # trim milliseconds
                 'newest': newest[:19] if newest else None}
 
