@@ -404,7 +404,7 @@ class MessageHandler(object):
             imdn_message_id = document.message_id.value
             imdn_status = document.notification.status.__str__()
             imdn_datetime = document.datetime.__str__()
-            log.info('storing IMDN {status} for message {message_id} from {originator.uri}'.format(status=imdn_status, message_id=imdn_message_id, originator=self.parsed_message.sender))
+            log.debug('storing IMDN {status} for message {message_id} from {originator.uri}'.format(status=imdn_status, message_id=imdn_message_id, originator=self.parsed_message.sender))
             self.message_storage.update(account=account.account,
                                         state=imdn_status,
                                         message_id=imdn_message_id)

@@ -2043,7 +2043,7 @@ class ConnectionHandler(object):
         storage.update(account=account_info.id,
                        state=state,
                        message_id=message_id)
-        self.log.info('sending IMDN {status} message {message_id} to {uri}'.format(status=state, message_id=message_id, uri=uri))
+        self.log.debug('sending IMDN {status} message {message_id} to {uri}'.format(status=state, message_id=message_id, uri=uri))
         self._send_sip_message(account_info, uri, str(uuid.uuid4()), content, IMDNDocument.content_type, add_disposition=False)
 
     def _RH_account_sync_conversations(self, request):
@@ -3960,7 +3960,7 @@ class ConnectionHandler(object):
             return
 
         message = notification.data.message
-        self.log.info('received IMDN {status} message {message_id} from {originator.uri}'.format(message_id=message.message_id, status=message.state, originator=notification.data.sender))
+        self.log.debug('received IMDN {status} message {message_id} from {originator.uri}'.format(message_id=message.message_id, status=message.state, originator=notification.data.sender))
         self.send(message)
 
     def _NH_SIPApplicationGotAccountMessage(self, notification):
@@ -4060,7 +4060,7 @@ class ConnectionHandler(object):
 
         body = CPIMPayload.decode(notification.sender.body)
         message_id = next((header.value for header in body.additional_headers if header.name == 'Message-ID'), None)
-        self.log.info('message %s was accepted' % message_id)
+        self.log.debug('message %s was accepted' % message_id)
         account = '{}@{}'.format(body.sender.uri.user.decode('utf-8'), body.sender.uri.host.decode('utf-8'))
         timestamp = body.timestamp
 
