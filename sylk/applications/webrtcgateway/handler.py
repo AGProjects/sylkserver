@@ -2060,6 +2060,10 @@ class ConnectionHandler(object):
             since = request.since
         except AttributeError:
             since = None
+        self.log.info('syncConversations for {account} from {message_id} using {device!r}'.format(
+                          account=account_info.id,
+                          message_id=request.message_id,
+                          device=account_info.user_agent))
         messages = storage[[account_info.id, request.message_id, since]]
 
         if isinstance(messages, defer.Deferred):
