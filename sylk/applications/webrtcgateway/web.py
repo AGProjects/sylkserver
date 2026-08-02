@@ -1235,6 +1235,48 @@ function msgFilterDay(type) {
   if (cnt) cnt.textContent = Number(msgs.length).toLocaleString();
 }
 
+// Download the currently visible day messages (after the content-type
+// filter) as a JSON archive. Metadata only — day_messages never carries
+// the message content, which is end-to-end encrypted anyway.
+function msgDownloadDay() {
+  const msgs = dayMsgTypeFilter
+    ? dayMsgAll.filter(m => (m.content_type || 'unknown') === dayMsgTypeFilter)
+    : dayMsgAll;
+  if (!msgs.length) { toast('No messages to download'); return; }
+  const archive = {
+    account: msgFilters.account,
+    contact: msgFilters.contact || null,
+    date: msgFilters.date || null,
+    content_type: dayMsgTypeFilter || null,
+    count: msgs.length,
+    note: 'metadata only — message content is end-to-end encrypted and not stored here',
+    messages: msgs.map(m => ({
+      message_id: m.message_id,
+      created_at: m.created_at,
+      timestamp: m.timestamp || null,
+      direction: m.direction,
+      contact: m.contact,
+      content_type: m.content_type,
+      state: m.state,
+      disposition: m.disposition || [],
+    })),
+  };
+  const safe = s => (s || '').replace(/[^a-zA-Z0-9._-]+/g, '_').replace(/^_+|_+$/g, '');
+  const parts = ['messages', safe(msgFilters.account), safe(msgFilters.date)];
+  if (dayMsgTypeFilter) parts.push(safe(dayMsgTypeFilter));
+  const name = parts.filter(Boolean).join('_') + '.json';
+  const blob = new Blob([JSON.stringify(archive, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  toast(`Downloaded ${msgs.length} message(s)`);
+}
+
 async function msgFetch() {
   const account = msgFilters.account;
   const el = $('msgTypesResult');
@@ -1312,6 +1354,7 @@ async function msgFetch() {
         <label for="msgDayTypeSelect" style="font-size:13px;color:#64748b;white-space:nowrap">Content type</label>
         <select id="msgDayTypeSelect" onchange="msgFilterDay(this.value)"
                 style="flex:1;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:#fff">${typeOpts}</select>
+        <button class="pbtn" type="button" onclick="msgDownloadDay()" style="white-space:nowrap">Download archive</button>
       </div>
       <table style="margin-top:4px"><thead><tr>
         <th style="padding:6px 16px 4px 0">Time</th>
