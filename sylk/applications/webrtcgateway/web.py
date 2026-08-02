@@ -1201,6 +1201,40 @@ function msgRenderDates(j) {
     <div style="display:flex;gap:6px;flex-wrap:wrap;flex:1">${chips || '<span class="empty" style="padding:6px 0">no messages at this level</span>'}</div>`;
 }
 
+// Per-day message list: full set for the current view plus the
+// client-side content-type filter selected in the dropdown above it.
+let dayMsgAll = [];
+let dayMsgTypeFilter = '';
+
+function msgDayRowsHtml(msgs) {
+  const account = msgFilters.account;
+  const dirArrow = d => d === 'outgoing' ? '→' : d === 'incoming' ? '←' : '';
+  return msgs.length ? msgs.map(m => `
+        <tr style="cursor:default">
+          <td class="mono" style="font-size:12px;white-space:nowrap;padding:7px 16px 7px 0" title="${esc(m.created_at)}${m.timestamp ? ' · msg ' + esc(m.timestamp) : ''}">${esc((m.created_at || '').slice(11, 19) || m.created_at || '')}</td>
+          <td style="padding:7px 16px 7px 0;font-size:13px" title="${esc(m.direction)}">${dirArrow(m.direction)}</td>
+          <td class="mono" style="font-size:12px;padding:7px 16px 7px 0${(m.contact || '').includes('@') ? '' : ';color:#94a3b8'}">${esc(m.contact)}</td>
+          <td class="mono" style="font-size:12px;padding:7px 16px 7px 0">${esc(m.content_type)}</td>
+          <td style="font-size:12px;color:#64748b;padding:7px 16px 7px 0">${esc(m.state)}</td>
+          <td style="padding:7px 0"><a href="#" class="mono" style="font-size:12px;color:var(--accent);word-break:break-all" onclick="msgDump('${encodeURIComponent(account)}','${encodeURIComponent(m.message_id)}');return false">${esc(m.message_id)}</a></td>
+        </tr>`).join('')
+    : `<tr><td colspan="6" class="empty">${dayMsgTypeFilter ? 'No messages of this content type on this day.' : 'No messages on this day.'}</td></tr>`;
+}
+
+// Re-render just the day-message rows for the picked content type — the
+// day's messages are already loaded, so no refetch is needed.
+function msgFilterDay(type) {
+  dayMsgTypeFilter = type || '';
+  const tb = $('msgDayTbody');
+  if (!tb) return;
+  const msgs = dayMsgTypeFilter
+    ? dayMsgAll.filter(m => (m.content_type || 'unknown') === dayMsgTypeFilter)
+    : dayMsgAll;
+  tb.innerHTML = msgDayRowsHtml(msgs);
+  const cnt = $('msgDayCount');
+  if (cnt) cnt.textContent = Number(msgs.length).toLocaleString();
+}
+
 async function msgFetch() {
   const account = msgFilters.account;
   const el = $('msgTypesResult');
@@ -1259,32 +1293,37 @@ async function msgFetch() {
   // When a full day is selected the backend also returns that day's
   // messages (day_messages), sorted by timestamp, without the content —
   // shown as a second table below the type summary.
-  const dirArrow = d => d === 'outgoing' ? '→' : d === 'incoming' ? '←' : '';
   const dayMsgs = j.day_messages;
-  const dayList = dayMsgs ? `
+  // Snapshot the day's messages and reset the content-type filter every
+  // time the view reloads (new account / contact / date).
+  dayMsgAll = dayMsgs || [];
+  dayMsgTypeFilter = '';
+  const dayList = dayMsgs ? (() => {
+    // Content types present in this day's messages, for the filter dropdown.
+    const dayTypeCounts = {};
+    dayMsgAll.forEach(m => { const t = m.content_type || 'unknown'; dayTypeCounts[t] = (dayTypeCounts[t] || 0) + 1; });
+    const typeOpts = [`<option value="">All content types (${dayMsgAll.length})</option>`]
+      .concat(Object.keys(dayTypeCounts).sort().map(t =>
+        `<option value="${esc(t)}">${esc(t)} (${dayTypeCounts[t]})</option>`)).join('');
+    return `
     <div style="margin-top:18px;border-top:1px solid var(--border);padding-top:14px">
-      <b style="font-size:14px">${Number(dayMsgs.length).toLocaleString()} message(s) on <span class="mono">${esc(msgDateLabel(j.date))}</span>${j.contact ? ` with <span class="mono">${esc(j.contact)}</span>` : ''}, by time</b>
-      <table style="margin-top:8px"><thead><tr>
+      <b style="font-size:14px"><span id="msgDayCount">${Number(dayMsgAll.length).toLocaleString()}</span> message(s) on <span class="mono">${esc(msgDateLabel(j.date))}</span>${j.contact ? ` with <span class="mono">${esc(j.contact)}</span>` : ''}, by time</b>
+      <div style="display:flex;gap:10px;align-items:center;margin:10px 0 4px">
+        <label for="msgDayTypeSelect" style="font-size:13px;color:#64748b;white-space:nowrap">Content type</label>
+        <select id="msgDayTypeSelect" onchange="msgFilterDay(this.value)"
+                style="flex:1;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:#fff">${typeOpts}</select>
+      </div>
+      <table style="margin-top:4px"><thead><tr>
         <th style="padding:6px 16px 4px 0">Time</th>
         <th style="padding:6px 16px 4px 0">Dir</th>
         <th style="padding:6px 16px 4px 0">Contact</th>
         <th style="padding:6px 16px 4px 0">Content type</th>
         <th style="padding:6px 16px 4px 0">State</th>
         <th style="padding:6px 0 4px">Message id</th>
-      </tr></thead><tbody>${
-        dayMsgs.length ? dayMsgs.map(m => `
-        <tr style="cursor:default">
-          <td class="mono" style="font-size:12px;white-space:nowrap;padding:7px 16px 7px 0" title="${esc(m.created_at)}${m.timestamp ? ' · msg ' + esc(m.timestamp) : ''}">${esc((m.created_at || '').slice(11, 19) || m.created_at || '')}</td>
-          <td style="padding:7px 16px 7px 0;font-size:13px" title="${esc(m.direction)}">${dirArrow(m.direction)}</td>
-          <td class="mono" style="font-size:12px;padding:7px 16px 7px 0${(m.contact || '').includes('@') ? '' : ';color:#94a3b8'}">${esc(m.contact)}</td>
-          <td class="mono" style="font-size:12px;padding:7px 16px 7px 0">${esc(m.content_type)}</td>
-          <td style="font-size:12px;color:#64748b;padding:7px 16px 7px 0">${esc(m.state)}</td>
-          <td style="padding:7px 0"><a href="#" class="mono" style="font-size:12px;color:var(--accent);word-break:break-all" onclick="msgDump('${encodeURIComponent(account)}','${encodeURIComponent(m.message_id)}');return false">${esc(m.message_id)}</a></td>
-        </tr>`).join('')
-        : `<tr><td colspan="6" class="empty">No messages on this day.</td></tr>`
-      }</tbody></table>
+      </tr></thead><tbody id="msgDayTbody">${msgDayRowsHtml(dayMsgAll)}</tbody></table>
       <div class="hint" style="padding:8px 0 0">click a message id to load its full content in the dump box below</div>
-    </div>` : '';
+    </div>`;
+  })() : '';
   el.innerHTML = `
     <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:14px">
       <b style="font-size:14px">${Number(j.total).toLocaleString()} message(s) for <span class="mono">${esc(account)}</span>${scope}</b>
