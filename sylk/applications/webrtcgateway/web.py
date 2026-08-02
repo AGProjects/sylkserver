@@ -1215,10 +1215,11 @@ function msgDayRowsHtml(msgs) {
           <td style="padding:7px 16px 7px 0;font-size:13px" title="${esc(m.direction)}">${dirArrow(m.direction)}</td>
           <td class="mono" style="font-size:12px;padding:7px 16px 7px 0${(m.contact || '').includes('@') ? '' : ';color:#94a3b8'}">${esc(m.contact)}</td>
           <td class="mono" style="font-size:12px;padding:7px 16px 7px 0">${esc(m.content_type)}</td>
+          <td class="mono" style="font-size:12px;padding:7px 16px 7px 0">${m.action ? esc(m.action) + (m.encrypted ? ' <span style="color:#94a3b8" title="encrypted — action inferred">(enc)</span>' : '') : '<span style="color:#cbd5e1">—</span>'}</td>
           <td style="font-size:12px;color:#64748b;padding:7px 16px 7px 0">${esc(m.state)}</td>
           <td style="padding:7px 0"><a href="#" class="mono" style="font-size:12px;color:var(--accent);word-break:break-all" onclick="msgDump('${encodeURIComponent(account)}','${encodeURIComponent(m.message_id)}');return false">${esc(m.message_id)}</a></td>
         </tr>`).join('')
-    : `<tr><td colspan="6" class="empty">${dayMsgTypeFilter ? 'No messages of this content type on this day.' : 'No messages on this day.'}</td></tr>`;
+    : `<tr><td colspan="7" class="empty">${dayMsgTypeFilter ? 'No messages of this content type on this day.' : 'No messages on this day.'}</td></tr>`;
 }
 
 // Re-render just the day-message rows for the picked content type — the
@@ -1257,6 +1258,8 @@ function msgDownloadDay() {
       direction: m.direction,
       contact: m.contact,
       content_type: m.content_type,
+      action: m.action || null,
+      encrypted: !!m.encrypted,
       state: m.state,
       disposition: m.disposition || [],
     })),
@@ -1361,10 +1364,11 @@ async function msgFetch() {
         <th style="padding:6px 16px 4px 0">Dir</th>
         <th style="padding:6px 16px 4px 0">Contact</th>
         <th style="padding:6px 16px 4px 0">Content type</th>
+        <th style="padding:6px 16px 4px 0">Action</th>
         <th style="padding:6px 16px 4px 0">State</th>
         <th style="padding:6px 0 4px">Message id</th>
       </tr></thead><tbody id="msgDayTbody">${msgDayRowsHtml(dayMsgAll)}</tbody></table>
-      <div class="hint" style="padding:8px 0 0">click a message id to load its full content in the dump box below</div>
+      <div class="hint" style="padding:8px 0 0">standalone events only — live-location update ticks are folded into their share-start and not listed (so this count can be lower than the metadata total above); click a message id to load its full content in the dump box below</div>
     </div>`;
   })() : '';
   el.innerHTML = `
@@ -3244,8 +3248,83 @@ class AdminWebHandler(object, metaclass=Singleton):
     # Like the CLI, deletion only removes ChatMessage rows.
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _message_type_stats(messages, get, contact_filter, date_filter):
+    # Two live-location ticks to the same contact closer together than
+    # this are treated as the same sharing session (so only the first is
+    # kept as a "share start"). Used only for encrypted ticks, whose
+    # start-vs-update pointer we cannot read; plaintext ticks are
+    # classified exactly by their metadataId.
+    LOCATION_SESSION_GAP_SECONDS = 300
+
+    PGP_MESSAGE_HEADER = '-----BEGIN PGP MESSAGE-----'
+
+    @classmethod
+    def _metadata_action(cls, content, content_type):
+        """Determine the action of an application/sylk-message-metadata
+        message. Returns (action, encrypted, metadata_id):
+
+          * action       — the metadata 'action' string, or None when the
+                            row is not sylk-message-metadata.
+          * encrypted     — True when the body is a PGP blob. Only
+                            location metadata is ever encrypted, so an
+                            encrypted metadata row is a live-location tick
+                            (action reported as 'location').
+          * metadata_id   — for plaintext location metadata, the origin
+                            pointer: None on the share-start tick, set on
+                            every follow-up update tick. None (unknown)
+                            for encrypted ticks.
+        """
+        if content_type != 'application/sylk-message-metadata':
+            return None, False, None
+        if isinstance(content, (bytes, bytearray)):
+            content = content.decode('utf-8', 'ignore')
+        text = (content or '').strip()
+        if text.startswith(cls.PGP_MESSAGE_HEADER):
+            return 'location', True, None
+        try:
+            data = json.loads(text)
+        except (ValueError, TypeError):
+            return 'unknown', False, None
+        if not isinstance(data, dict):
+            return 'unknown', False, None
+        return str(data.get('action') or 'unknown'), False, data.get('metadataId')
+
+    @classmethod
+    def _drop_location_updates(cls, day_messages):
+        """Return day_messages with live-location UPDATE ticks removed,
+        keeping only each share's START event. Expects the list already
+        sorted by (created_at, message_id). The internal '_loc' marker set
+        by the caller is consumed here and stripped from the output."""
+        last_start = {}   # (contact, direction) -> datetime of last location tick
+        kept = []
+        for message in day_messages:
+            loc = message.pop('_loc', None)
+            if loc is None:
+                kept.append(message)          # not a location tick — always keep
+                continue
+            try:
+                when = datetime.datetime.strptime(
+                    message['created_at'][:19], '%Y-%m-%d %H:%M:%S')
+            except (ValueError, TypeError):
+                when = None
+            key = (message['contact'], message['direction'])
+            if loc['encrypted']:
+                # Pointer unreadable: a tick within the session gap of the
+                # previous location tick to this contact is an update.
+                previous = last_start.get(key)
+                is_start = (previous is None or when is None
+                            or (when - previous).total_seconds()
+                            > cls.LOCATION_SESSION_GAP_SECONDS)
+            else:
+                # Plaintext: metadataId set => follow-up update tick.
+                is_start = not loc['is_update']
+            if when is not None:
+                last_start[key] = when
+            if is_start:
+                kept.append(message)
+        return kept
+
+    @classmethod
+    def _message_type_stats(cls, messages, get, contact_filter, date_filter):
         """Message counts by content type, with the admin drill-down
         filters applied: contact narrows to one contact and date_filter
         is a drill-down prefix ('', YYYY, YYYY-MM or YYYY-MM-DD) that
@@ -3301,17 +3380,35 @@ class AdminWebHandler(object, metaclass=Singleton):
                 newest = created if newest is None or created > newest else newest
             if want_list:
                 msg_ts = str(get(message, 'msg_timestamp') or '')
-                day_messages.append({'message_id': get(message, 'message_id') or '',
-                                     'created_at': created[:19],
-                                     'timestamp': msg_ts[:19] or None,
-                                     'direction': get(message, 'direction') or '',
-                                     'contact': contact,
-                                     'content_type': content_type,
-                                     'state': get(message, 'state') or '',
-                                     'disposition': list(get(message, 'disposition') or [])})
+                action, encrypted, metadata_id = cls._metadata_action(
+                    get(message, 'content'), content_type)
+                row = {'message_id': get(message, 'message_id') or '',
+                       'created_at': created[:19],
+                       'timestamp': msg_ts[:19] or None,
+                       'direction': get(message, 'direction') or '',
+                       'contact': contact,
+                       'content_type': content_type,
+                       'state': get(message, 'state') or '',
+                       'disposition': list(get(message, 'disposition') or []),
+                       'action': action,
+                       'encrypted': encrypted}
+                # Mark live-location ticks so the post-sort pass can keep
+                # only share-starts and drop the follow-up update ticks.
+                if action == 'location':
+                    row['_loc'] = {'encrypted': encrypted,
+                                   'is_update': bool(metadata_id)}
+                day_messages.append(row)
         # the day's messages, sorted by timestamp (created_at is the stored
         # order and the table's clustering key, so it always exists)
         day_messages.sort(key=lambda m: (m['created_at'], m['message_id']))
+        # Keep only standalone events in the timeline: a live-location
+        # share-start stays, its rapid follow-up update ticks are dropped
+        # (they only refresh the coordinates of an already-shown bubble).
+        # Plaintext ticks are classified exactly by metadataId; encrypted
+        # ticks (whose pointer we cannot read) use a per-contact time gap —
+        # a tick following a > LOCATION_SESSION_GAP_SECONDS quiet period
+        # starts a new share, closer ticks are updates.
+        day_messages = cls._drop_location_updates(day_messages)
         contact_list = [{'name': name, 'count': count} for name, count in contacts.items()]
         contact_list.sort(key=lambda entry: (-entry['count'], entry['name']))
         by_type = dict(sorted(by_type.items(), key=lambda item: -item[1]))
