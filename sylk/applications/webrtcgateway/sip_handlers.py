@@ -457,6 +457,11 @@ class MessageHandler(object):
                                                   message_id=self.parsed_message.message_id)
 
             notification_center.post_notification(name='SIPApplicationGotAccountMessage', sender=account.account, data=message)
+
+            if self.parsed_message.content_type == 'application/sylk-request':
+                push.message(originator=self.parsed_message.sender, destination=account.account, badge=1, call_id=self.parsed_message.message_id, message=self.parsed_message)
+                return
+                                 
             if self.parsed_message.content_type in ('text/plain', 'text/html', 'application/sylk-file-transfer'):
                 def get_unread_messages(messages, originator):
                     unread = 1
