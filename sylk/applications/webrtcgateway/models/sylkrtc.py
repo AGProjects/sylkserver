@@ -716,6 +716,7 @@ class AccountMessageRequest(AccountRequestBase):
     timestamp = StringProperty()
     server_generated = BooleanProperty(optional=True)
     skipJournal = BooleanProperty(optional=True)
+    skipDisposition = BooleanProperty(optional=True)
     disposition_notification = ArrayProperty(DispositionNotifications, optional=True)
 
 

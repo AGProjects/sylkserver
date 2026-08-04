@@ -2005,6 +2005,7 @@ class ConnectionHandler(object):
         timestamp = request.timestamp
 
         skip_journal = bool(getattr(request, 'skipJournal', None))
+        skip_disposition = bool(getattr(request, 'skipDisposition', None))
 
         storage = MessageStorage()
         if skip_journal:
@@ -2016,12 +2017,12 @@ class ConnectionHandler(object):
                         content=content if isinstance(content, str) else content.decode('latin1'),
                         content_type=content_type,
                         timestamp=timestamp,
-                        disposition_notification=['positive-delivery', 'display'],
+                        disposition_notification=[] if skip_disposition else ['positive-delivery', 'display'],
                         message_id=message_id,
                         state='pending')
 
         self.log.info('sending {content_type} message {message_id} to {uri}'.format(message_id=message_id, content_type=content_type, uri=uri))
-        self._send_sip_message(account_info, uri, message_id, content, content_type, timestamp=timestamp, skip_journal=skip_journal)
+        self._send_sip_message(account_info, uri, message_id, content, content_type, timestamp=timestamp, skip_journal=skip_journal, add_disposition=not skip_disposition)
 
         event = sylkrtc.AccountSyncEvent(account=account_info.id, type='message', action='add', content=request)
         self._fork_event_to_online_accounts(account_info, event)
