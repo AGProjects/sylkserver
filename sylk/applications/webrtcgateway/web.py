@@ -1263,6 +1263,7 @@ function msgDownloadDay() {
       encrypted: !!m.encrypted,
       state: m.state,
       disposition: m.disposition || [],
+      content: (m.content === undefined ? null : m.content),
     })),
   };
   const safe = s => (s || '').replace(/[^a-zA-Z0-9._-]+/g, '_').replace(/^_+|_+$/g, '');
@@ -3429,8 +3430,11 @@ class AdminWebHandler(object, metaclass=Singleton):
                 newest = created if newest is None or created > newest else newest
             if want_list:
                 msg_ts = str(get(message, 'msg_timestamp') or '')
+                _raw_content = get(message, 'content')
+                if isinstance(_raw_content, (bytes, bytearray)):
+                    _raw_content = _raw_content.decode('utf-8', 'ignore')
                 action, encrypted, metadata_id = cls._metadata_action(
-                    get(message, 'content'), content_type)
+                    _raw_content, content_type)
                 row = {'message_id': get(message, 'message_id') or '',
                        'created_at': created[:19],
                        'timestamp': msg_ts[:19] or None,
@@ -3441,7 +3445,8 @@ class AdminWebHandler(object, metaclass=Singleton):
                        'disposition': list(get(message, 'disposition') or []),
                        'action': action,
                        'related_action': cls._related_action(
-                           get(message, 'content'), content_type),
+                           _raw_content, content_type),
+                       'content': _raw_content,
                        'encrypted': encrypted}
                 # Mark live-location ticks so the post-sort pass can keep
                 # only share-starts and drop the follow-up update ticks.
