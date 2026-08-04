@@ -68,6 +68,7 @@ class MessageHandler(object):
         self.to_header = None
         self.content_type = None
         self.from_sip = None
+        self.skip_journal = None
         self.body = None
         self.parsed_message = None
 
@@ -356,17 +357,19 @@ class MessageHandler(object):
 
         message = None
 
-        log.info('storing {content_type} message {message_id} for account {originator} to {destination.uri}'.format(content_type=self.parsed_message.content_type, message_id=self.parsed_message.message_id, originator=account.account, destination=self.parsed_message.destination))
-
-        self.message_storage.add(account=account.account,
-                                 contact=f'{self.to_header.uri.user}@{self.to_header.uri.host}',
-                                 direction="outgoing",
-                                 content=self.parsed_message.content,
-                                 content_type=self.parsed_message.content_type,
-                                 timestamp=str(self.parsed_message.timestamp),
-                                 disposition_notification=self.parsed_message.disposition,
-                                 message_id=self.parsed_message.message_id,
-                                 state='accepted')
+        if self.skip_journal is not Null:
+            log.info('not storing {content_type} message {message_id} for account {originator} to {destination.uri} (skip journal set)'.format(content_type=self.parsed_message.content_type, message_id=self.parsed_message.message_id, originator=account.account, destination=self.parsed_message.destination))
+        else:
+            log.info('storing {content_type} message {message_id} for account {originator} to {destination.uri}'.format(content_type=self.parsed_message.content_type, message_id=self.parsed_message.message_id, originator=account.account, destination=self.parsed_message.destination))
+            self.message_storage.add(account=account.account,
+                                     contact=f'{self.to_header.uri.user}@{self.to_header.uri.host}',
+                                     direction="outgoing",
+                                     content=self.parsed_message.content,
+                                     content_type=self.parsed_message.content_type,
+                                     timestamp=str(self.parsed_message.timestamp),
+                                     disposition_notification=self.parsed_message.disposition,
+                                     message_id=self.parsed_message.message_id,
+                                     state='accepted')
 
         message = sylkrtc.AccountSyncEvent(account=account.account,
                                            type='message',
@@ -437,16 +440,19 @@ class MessageHandler(object):
                                                   sender=account.account,
                                                   data=NotificationData(message=message, sender=self.parsed_message.sender))
         else:
-            log.info('storing {content_type} message {message_id} for account {account} from {originator.uri}'.format(content_type=self.parsed_message.content_type, message_id=self.parsed_message.message_id, originator=self.parsed_message.sender, account=account.account))
-            self.message_storage.add(account=account.account,
-                                     contact=str(self.parsed_message.sender.uri),
-                                     direction='incoming',
-                                     content=self.parsed_message.content,
-                                     content_type=self.parsed_message.content_type,
-                                     timestamp=str(self.parsed_message.timestamp),
-                                     disposition_notification=self.parsed_message.disposition,
-                                     message_id=self.parsed_message.message_id,
-                                     state='received')
+            if self.skip_journal is not Null:
+                log.info('not storing {content_type} message {message_id} for account {account} from {originator.uri} (skip journal set)'.format(content_type=self.parsed_message.content_type, message_id=self.parsed_message.message_id, originator=self.parsed_message.sender, account=account.account))
+            else:
+                log.info('storing {content_type} message {message_id} for account {account} from {originator.uri}'.format(content_type=self.parsed_message.content_type, message_id=self.parsed_message.message_id, originator=self.parsed_message.sender, account=account.account))
+                self.message_storage.add(account=account.account,
+                                         contact=str(self.parsed_message.sender.uri),
+                                         direction='incoming',
+                                         content=self.parsed_message.content,
+                                         content_type=self.parsed_message.content_type,
+                                         timestamp=str(self.parsed_message.timestamp),
+                                         disposition_notification=self.parsed_message.disposition,
+                                         message_id=self.parsed_message.message_id,
+                                         state='received')
 
             message = sylkrtc.AccountMessageEvent(account=account.account,
                                                   sender=self.parsed_message.sender,
@@ -495,6 +501,7 @@ class MessageHandler(object):
         self.to_header = data.headers.get('To', Null)
         self.body = data.body
         self.from_sip = data.headers.get('X-Sylk-From-Sip', Null)
+        self.skip_journal = data.headers.get('X-Sylk-Skip-Journal', Null)
         self.content_encoding = data.headers.get('Content-Encoding', Null).body;
 
         self.parsed_message = self._parse_message()

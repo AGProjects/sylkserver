@@ -1726,7 +1726,7 @@ class ConnectionHandler(object):
         self.log.debug('DNS lookup for SIP message proxy for {} yielded {}'.format(uri, route))
         return route
 
-    def _send_sip_message(self, account, uri, message_id, content, content_type='text/plain', timestamp=None, add_disposition=True):
+    def _send_sip_message(self, account, uri, message_id, content, content_type='text/plain', timestamp=None, add_disposition=True, skip_journal=False):
         route = self._lookup_sip_target_route(uri, sender=account.id)
         sip_uri = SIPURI.parse('sip:%s' % uri)
         if route:
@@ -1744,6 +1744,8 @@ class ConnectionHandler(object):
                 additional_headers.append(CPIMHeader('Disposition-Notification', ns, 'positive-delivery, display'))
             if GeneralConfig.local_sip_messages:
                 additional_sip_headers.append(Header('X-Sylk-App', 'webrtcgateway'))
+            if skip_journal:
+                additional_sip_headers.append(Header('X-Sylk-Skip-Journal', 'yes'))
             payload = CPIMPayload(content,
                                   content_type,
                                   charset='utf-8',
@@ -2002,19 +2004,24 @@ class ConnectionHandler(object):
         message_id = request.message_id
         timestamp = request.timestamp
 
+        skip_journal = bool(getattr(request, 'skipJournal', None))
+
         storage = MessageStorage()
-        storage.add(account=account_info.id,
-                    contact=uri,
-                    direction="outgoing",
-                    content=content if isinstance(content, str) else content.decode('latin1'),
-                    content_type=content_type,
-                    timestamp=timestamp,
-                    disposition_notification=['positive-delivery', 'display'],
-                    message_id=message_id,
-                    state='pending')
+        if skip_journal:
+            self.log.info('skipping journal for message {message_id} to {uri} (skipJournal set)'.format(message_id=message_id, uri=uri))
+        else:
+            storage.add(account=account_info.id,
+                        contact=uri,
+                        direction="outgoing",
+                        content=content if isinstance(content, str) else content.decode('latin1'),
+                        content_type=content_type,
+                        timestamp=timestamp,
+                        disposition_notification=['positive-delivery', 'display'],
+                        message_id=message_id,
+                        state='pending')
 
         self.log.info('sending {content_type} message {message_id} to {uri}'.format(message_id=message_id, content_type=content_type, uri=uri))
-        self._send_sip_message(account_info, uri, message_id, content, content_type, timestamp=timestamp)
+        self._send_sip_message(account_info, uri, message_id, content, content_type, timestamp=timestamp, skip_journal=skip_journal)
 
         event = sylkrtc.AccountSyncEvent(account=account_info.id, type='message', action='add', content=request)
         self._fork_event_to_online_accounts(account_info, event)
