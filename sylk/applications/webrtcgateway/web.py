@@ -1215,7 +1215,7 @@ function msgDayRowsHtml(msgs) {
           <td style="padding:7px 16px 7px 0;font-size:13px" title="${esc(m.direction)}">${dirArrow(m.direction)}</td>
           <td class="mono" style="font-size:12px;padding:7px 16px 7px 0${(m.contact || '').includes('@') ? '' : ';color:#94a3b8'}">${esc(m.contact)}</td>
           <td class="mono" style="font-size:12px;padding:7px 16px 7px 0">${esc(m.content_type)}</td>
-          <td class="mono" style="font-size:12px;padding:7px 16px 7px 0">${m.action ? esc(m.action) + (m.encrypted ? ' <span style="color:#94a3b8" title="encrypted — action inferred">(enc)</span>' : '') : '<span style="color:#cbd5e1">—</span>'}</td>
+          <td class="mono" style="font-size:12px;padding:7px 16px 7px 0">${(m.action || m.related_action) ? esc(m.action || m.related_action) + (m.action && m.encrypted ? ' <span style="color:#94a3b8" title="encrypted — action inferred">(enc)</span>' : '') : '<span style="color:#cbd5e1">—</span>'}</td>
           <td style="font-size:12px;color:#64748b;padding:7px 16px 7px 0">${esc(m.state)}</td>
           <td style="padding:7px 0"><a href="#" class="mono" style="font-size:12px;color:var(--accent);word-break:break-all" onclick="msgDump('${encodeURIComponent(account)}','${encodeURIComponent(m.message_id)}');return false">${esc(m.message_id)}</a></td>
         </tr>`).join('')
@@ -1250,7 +1250,7 @@ function msgDownloadDay() {
     date: msgFilters.date || null,
     content_type: dayMsgTypeFilter || null,
     count: msgs.length,
-    note: 'metadata only — message content is end-to-end encrypted and not stored here',
+    note: 'includes raw message content; location coordinates within the payload remain PGP-encrypted',
     messages: msgs.map(m => ({
       message_id: m.message_id,
       created_at: m.created_at,
@@ -1259,6 +1259,7 @@ function msgDownloadDay() {
       contact: m.contact,
       content_type: m.content_type,
       action: m.action || null,
+      related_action: m.related_action || null,
       encrypted: !!m.encrypted,
       state: m.state,
       disposition: m.disposition || [],
@@ -3288,6 +3289,54 @@ class AdminWebHandler(object, metaclass=Singleton):
             return 'unknown', False, None
         return str(data.get('action') or 'unknown'), False, data.get('metadataId')
 
+    # Cleartext lifecycle signals that ride the sylk-location-sharing
+    # envelope with no coordinates. Anything else value-bearing is a tick.
+    _LOCATION_SIGNAL_ACTIONS = frozenset((
+        'location_stop', 'meeting_end', 'location_request'))
+
+    @classmethod
+    def _related_action(cls, content, content_type):
+        """related_action label derived from the CLEARTEXT envelope only.
+
+        Live-location ticks migrated to the application/sylk-location-sharing
+        payload model: the lifecycle fields ride in the clear as a JSON
+        envelope ({..., "value": "<PGP coords blob>"}), so every tick can be
+        labelled WITHOUT decrypting the coordinates:
+
+          * cleartext signal (location_stop / meeting_end /
+            location_request) -> that action
+          * one_shot tick        -> 'location_once'
+          * update tick (has a metadataId pointer) -> 'location_update'
+          * otherwise (share start / origin tick)  -> 'location'
+
+        The legacy application/sylk-message-metadata model is mapped to the
+        same vocabulary via _metadata_action. Returns None for everything
+        else (plain chat, receipts, files, ...).
+        """
+        if content_type == 'application/sylk-location-sharing':
+            if isinstance(content, (bytes, bytearray)):
+                content = content.decode('utf-8', 'ignore')
+            try:
+                data = json.loads((content or '').strip())
+            except (ValueError, TypeError):
+                return 'location'
+            if not isinstance(data, dict):
+                return 'location'
+            action = data.get('action')
+            if action in cls._LOCATION_SIGNAL_ACTIONS:
+                return str(action)
+            if data.get('one_shot'):
+                return 'location_once'
+            if data.get('metadataId') is not None:
+                return 'location_update'
+            return 'location'
+        if content_type == 'application/sylk-message-metadata':
+            action, encrypted, metadata_id = cls._metadata_action(content, content_type)
+            if action == 'location':
+                return 'location_update' if metadata_id is not None else 'location'
+            return action
+        return None
+
     @classmethod
     def _drop_location_updates(cls, day_messages):
         """Return day_messages with live-location UPDATE ticks removed,
@@ -3391,6 +3440,8 @@ class AdminWebHandler(object, metaclass=Singleton):
                        'state': get(message, 'state') or '',
                        'disposition': list(get(message, 'disposition') or []),
                        'action': action,
+                       'related_action': cls._related_action(
+                           get(message, 'content'), content_type),
                        'encrypted': encrypted}
                 # Mark live-location ticks so the post-sort pass can keep
                 # only share-starts and drop the follow-up update ticks.
