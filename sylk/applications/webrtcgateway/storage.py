@@ -26,6 +26,28 @@ from .models import xcap
 __all__ = 'TokenStorage',
 
 
+def location_track_session_id(content_type, content):
+    """Session/origin id shared by every tick of one live-location track.
+
+    Every application/sylk-location-sharing tick (origin, updates, and the
+    location_stop marker) carries a cleartext ``sessionId`` == the origin
+    message id. Returns that id so removeMessage can cascade-remove a track's
+    update ticks when its origin is removed. Returns None when the message is
+    not a location-sharing tick, or is a one-shot share (no ``sessionId``, so
+    no trail to cascade). Only the cleartext envelope is parsed — the coords
+    stay encrypted and untouched.
+    """
+    if content_type != 'application/sylk-location-sharing':
+        return None
+    try:
+        data = json.loads(content)
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    return data.get('sessionId') or None
+
+
 # TODO: Maybe add some more metadata like the modification date so we know when a token was refreshed,
 # and thus it's ok to scrap it after a reasonable amount of time.
 
@@ -612,7 +634,14 @@ class FileMessageStorage(object):
                                     pass
                                 else:
                                     print(f"Removed {data.path}")
+                            
+                            session_id = location_track_session_id(item[0].get('content_type'), item[0].get('content'))
                             messages.remove(item[0])
+                            if session_id is not None:
+                                siblings = [m for m in messages if location_track_session_id(m.get('content_type'), m.get('content')) == session_id]
+                                for m in siblings:
+                                    messages.remove(m)
+                                log.info('removed %d location entries for session %s of %s' % (1 + len(siblings), session_id, account))
                             self._save_messages(account, messages)
                             reactor.callFromThread(deferred.callback, True)
                             return
@@ -880,6 +909,7 @@ class CassandraMessageStorage(object):
                                                 # ChatMessage.message_id == message_id).if_exists().delete()
                                                 ChatMessage.message_id == message_id)
 
+                    session_id = None
                     for message in messages:
                         if message.content_type == 'application/sylk-file-transfer':
                             data = FileTransferData('', '', '', message.message_id, message.account, message.contact)
@@ -889,13 +919,26 @@ class CassandraMessageStorage(object):
                                 pass
                             else:
                                 print(f"Removed {data.path}")
+
+                        if session_id is None:
+                            session_id = location_track_session_id(message.content_type, message.content)
+                    
                     if not messages:
                         result = False
-                        print('message not removed')
-                    else:
-                        print('message removed')
 
                     messages.if_exists().delete()
+
+                    if session_id is not None:
+                        cascaded = 0
+                        try:
+                            for m in ChatMessage.objects(ChatMessage.account == account).limit(None):
+                                if location_track_session_id(m.content_type, m.content) == session_id:
+                                    m.delete()
+                                    cascaded += 1
+                        except Exception as e:
+                            log.warning('removeMessage: location-track cascade scan failed for session %s (account %s): %s' % (session_id, account, e))
+                        log.info('removed %d messages for location session %s of %s' % (cascaded, session_id, account))
+
                     reactor.callFromThread(deferred.callback, result)
                 except LWTException:
                     pass
