@@ -467,6 +467,22 @@ class MessageHandler(object):
             if self.parsed_message.content_type == 'application/sylk-request':
                 push.message(originator=self.parsed_message.sender, destination=account.account, badge=1, call_id=self.parsed_message.message_id, message=self.parsed_message)
                 return
+
+            if self.parsed_message.content_type == 'application/sylk-location-sharing':
+                try:
+                    _loc = json.loads(self.parsed_message.content)
+                except (ValueError, TypeError):
+                    _loc = None
+                if isinstance(_loc, dict):
+                    _action = _loc.get('action')
+                    _reason = _loc.get('reason')
+                    _start = ('location_once', 'location_start')
+                    _handshake = ('meeting_request', 'meeting_accept', 'location_request')
+                    _stop = ('location_stop', 'meeting_end')
+                    _suppress = (_action in _stop and _reason == 'expired')
+                    if (_action in _start or _action in _handshake or _action in _stop) and not _suppress:
+                        push.message(originator=self.parsed_message.sender, destination=account.account, badge=1, call_id=self.parsed_message.message_id, message=self.parsed_message)
+                return
                                  
             if self.parsed_message.content_type in ('text/plain', 'text/html', 'application/sylk-file-transfer'):
                 def get_unread_messages(messages, originator):
