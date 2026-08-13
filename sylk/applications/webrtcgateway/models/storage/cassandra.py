@@ -30,6 +30,7 @@ class ChatMessage(Model):
     disposition     = columns.List(value_type=columns.Text, required=False)
     state           = columns.Text()
     msg_timestamp   = columns.DateTime()
+    metadata        = columns.Text()
 
 
 class ChatMessageIdMapping(Model):
