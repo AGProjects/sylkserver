@@ -1216,6 +1216,7 @@ function msgDayRowsHtml(msgs) {
           <td class="mono" style="font-size:12px;padding:7px 16px 7px 0${(m.contact || '').includes('@') ? '' : ';color:#94a3b8'}">${esc(m.contact)}</td>
           <td class="mono" style="font-size:12px;padding:7px 16px 7px 0">${esc(m.content_type)}</td>
           <td class="mono" style="font-size:12px;padding:7px 16px 7px 0">${(m.action || m.related_action) ? esc(m.action || m.related_action) + (m.action && m.encrypted ? ' <span style="color:#94a3b8" title="encrypted — action inferred">(enc)</span>' : '') : '<span style="color:#cbd5e1">—</span>'}</td>
+          <td class="mono" style="font-size:12px;color:#475569;padding:7px 16px 7px 0;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(m.metadata || '')}">${m.metadata ? esc(m.metadata) : '<span style="color:#cbd5e1">—</span>'}</td>
           <td style="font-size:12px;color:#64748b;padding:7px 16px 7px 0">${esc(m.state)}</td>
           <td style="padding:7px 0"><a href="#" class="mono" style="font-size:12px;color:var(--accent);word-break:break-all" onclick="msgDump('${encodeURIComponent(account)}','${encodeURIComponent(m.message_id)}');return false">${esc(m.message_id)}</a></td>
         </tr>`).join('')
@@ -1260,6 +1261,7 @@ function msgDownloadDay() {
       content_type: m.content_type,
       action: m.action || null,
       related_action: m.related_action || null,
+      metadata: (m.metadata === undefined ? null : m.metadata),
       encrypted: !!m.encrypted,
       state: m.state,
       disposition: m.disposition || [],
@@ -1367,6 +1369,7 @@ async function msgFetch() {
         <th style="padding:6px 16px 4px 0">Contact</th>
         <th style="padding:6px 16px 4px 0">Content type</th>
         <th style="padding:6px 16px 4px 0">Action</th>
+        <th style="padding:6px 16px 4px 0">Metadata</th>
         <th style="padding:6px 16px 4px 0">State</th>
         <th style="padding:6px 0 4px">Message id</th>
       </tr></thead><tbody id="msgDayTbody">${msgDayRowsHtml(dayMsgAll)}</tbody></table>
@@ -1495,7 +1498,8 @@ async function dumpMessage(e) {
     const fields = [['timestamp', msg.timestamp || msg.created_at], ['stored at', msg.created_at],
                     ['direction', msg.direction], ['contact', msg.contact],
                     ['content type', msg.content_type], ['state', msg.state],
-                    ['disposition', (msg.disposition || []).join(', ') || null]];
+                    ['disposition', (msg.disposition || []).join(', ') || null],
+                    ['metadata', msg.metadata || null]];
     const rows = fields.filter(f => f[1]).map(f => `<tr style="cursor:default;border:0">
         <td style="padding:3px 18px 3px 0;font-size:13px;color:#475569;white-space:nowrap">${f[0]}</td>
         <td class="mono" style="padding:3px 0;font-size:13px;word-break:break-all">${esc(f[1])}</td>
@@ -3259,6 +3263,15 @@ class AdminWebHandler(object, metaclass=Singleton):
 
     PGP_MESSAGE_HEADER = '-----BEGIN PGP MESSAGE-----'
 
+    @staticmethod
+    def _as_text(value):
+        """Normalise a stored column value for JSON output: bytes decode as
+        UTF-8, None stays None (so the UI shows an em-dash), everything else
+        is coerced to str. Used for the cleartext `metadata` column."""
+        if isinstance(value, (bytes, bytearray)):
+            return value.decode('utf-8', 'ignore')
+        return None if value is None else str(value)
+
     @classmethod
     def _metadata_action(cls, content, content_type):
         """Determine the action of an application/sylk-message-metadata
@@ -3468,6 +3481,7 @@ class AdminWebHandler(object, metaclass=Singleton):
                        'disposition': list(get(message, 'disposition') or []),
                        'action': action,
                        'related_action': related,
+                       'metadata': cls._as_text(get(message, 'metadata')),
                        'content': _raw_content,
                        'encrypted': encrypted}
                 # Mark location/meet UPDATE ticks so the post-sort pass keeps
@@ -3758,13 +3772,17 @@ class AdminWebHandler(object, metaclass=Singleton):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _dump_message_row(created_at, direction, contact, content_type, state, disposition, timestamp, content):
+    def _dump_message_row(created_at, direction, contact, content_type, state, disposition, timestamp, content, metadata=None):
         if isinstance(content, (bytes, bytearray)):
             content = content.decode('utf-8', 'ignore')
+        if isinstance(metadata, (bytes, bytearray)):
+            metadata = metadata.decode('utf-8', 'ignore')
         return {'created_at': str(created_at) if created_at is not None else None,
                 'timestamp': str(timestamp) if timestamp is not None else None,
                 'direction': direction, 'contact': contact, 'content_type': content_type,
-                'state': state, 'disposition': list(disposition or []), 'content': content}
+                'state': state, 'disposition': list(disposition or []),
+                'metadata': metadata if metadata is None else str(metadata),
+                'content': content}
 
     @app.route('/messages/dump/<string:account>/<string:message_id>', methods=['GET'])
     def dump_message(self, request, account, message_id):
@@ -3786,7 +3804,7 @@ class AdminWebHandler(object, metaclass=Singleton):
                 pass
             rows = [self._dump_message_row(m.get('created_at'), m.get('direction'), m.get('contact'),
                                            m.get('content_type'), m.get('state'), m.get('disposition'),
-                                           m.get('timestamp'), m.get('content'))
+                                           m.get('timestamp'), m.get('content'), m.get('metadata'))
                     for m in messages if m.get('message_id') == message_id]
             result['found'] = bool(rows)
             result['messages'] = rows[:10]
@@ -3815,7 +3833,8 @@ class AdminWebHandler(object, metaclass=Singleton):
             result['found'] = bool(rows)
             result['messages'] = [self._dump_message_row(m.created_at, m.direction, m.contact,
                                                          m.content_type, m.state, m.disposition,
-                                                         m.msg_timestamp, m.content)
+                                                         m.msg_timestamp, m.content,
+                                                         getattr(m, 'metadata', None))
                                   for m in rows[:10]]
             reactor.callFromThread(deferred.callback, json.dumps(result))
 
