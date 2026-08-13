@@ -1212,13 +1212,44 @@ function msgRenderDates(j) {
 // client-side content-type filter selected in the dropdown above it.
 let dayMsgAll = [];
 let dayMsgTypeFilter = '';
+// Display sort order for the day list. dayMsgAll arrives ascending by
+// (created_at, message_id) from the backend (that order is what the
+// update-tick folding relies on, so it stays untouched); 'desc' just
+// reverses a copy for display. Default: most recent message on top.
+let dayMsgOrder = 'desc';
 
-function msgDayRowsHtml(msgs) {
+// The day's messages after the content-type filter, in the chosen order.
+// Live-location / meet UPDATE ticks stay in this list — in the table they are
+// nested (collapsed) under their origin so the main view isn't polluted, but
+// the flat list is what the count and the archive download use.
+function msgTypeFiltered() {
+  return dayMsgTypeFilter
+    ? dayMsgAll.filter(m => (m.content_type || 'unknown') === dayMsgTypeFilter)
+    : dayMsgAll;
+}
+function msgDayVisible() {
+  const msgs = msgTypeFiltered();
+  return dayMsgOrder === 'desc' ? msgs.slice().reverse() : msgs.slice();
+}
+
+// One day-list table row. opts.groupId set => this origin has update ticks
+// nested under it (render an expander caret in the time cell). opts.child set
+// => this is a nested update row (hidden until expanded, tagged + indented).
+function msgDayRow(m, opts) {
+  opts = opts || {};
   const account = msgFilters.account;
   const dirArrow = d => d === 'outgoing' ? '→' : d === 'incoming' ? '←' : '';
-  return msgs.length ? msgs.map(m => `
-        <tr style="cursor:default">
-          <td class="mono" style="font-size:12px;white-space:nowrap;padding:7px 16px 7px 0" title="${esc(m.created_at)}${m.timestamp ? ' · msg ' + esc(m.timestamp) : ''}">${esc((m.created_at || '').slice(11, 19) || m.created_at || '')}</td>
+  const isChild = !!opts.child;
+  const trStyle = 'cursor:default' + (m.is_update ? ';opacity:.72' : '') + (isChild ? ';display:none' : '');
+  const trAttr = isChild ? ` data-upd="${opts.child}"` : '';
+  const time = esc((m.created_at || '').slice(11, 19) || m.created_at || '');
+  const timeCell = opts.groupId
+    ? `<button class="pbtn" type="button" data-open="0" data-n="${opts.count}" onclick="msgToggleUpdates(${opts.groupId},this)" title="show/hide ${opts.count} update tick(s)" style="padding:0 6px;font-size:11px;margin-right:6px;min-width:34px">▸ ${opts.count}</button>${time}`
+    : (isChild ? '<span style="color:#cbd5e1;margin-right:6px">↳</span>' : '') + time;
+  const timePad = isChild ? '7px 16px 7px 20px' : '7px 16px 7px 0';
+  return `
+        <tr style="${trStyle}"${trAttr}>
+          <td class="mono" style="font-size:12px;white-space:nowrap;padding:${timePad}" title="${esc(m.created_at)}${m.timestamp ? ' · msg ' + esc(m.timestamp) : ''}">${timeCell}</td>
           <td style="padding:7px 16px 7px 0;font-size:13px" title="${esc(m.direction)}">${dirArrow(m.direction)}</td>
           <td class="mono" style="font-size:12px;padding:7px 16px 7px 0${(m.contact || '').includes('@') ? '' : ';color:#94a3b8'}">${esc(m.contact)}</td>
           <td class="mono" style="font-size:12px;padding:7px 16px 7px 0">${esc(m.content_type)}</td>
@@ -1226,37 +1257,110 @@ function msgDayRowsHtml(msgs) {
           <td class="mono" style="font-size:12px;color:#475569;padding:7px 16px 7px 0;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(m.metadata || '')}">${m.metadata ? esc(m.metadata) : '<span style="color:#cbd5e1">—</span>'}</td>
           <td style="font-size:12px;color:#64748b;padding:7px 16px 7px 0">${esc(m.state)}</td>
           <td style="padding:7px 0"><a href="#" class="mono" style="font-size:12px;color:var(--accent);word-break:break-all" onclick="msgDump('${encodeURIComponent(account)}','${encodeURIComponent(m.message_id)}');return false">${esc(m.message_id)}</a></td>
-        </tr>`).join('')
-    : `<tr><td colspan="8" class="empty">${dayMsgTypeFilter ? 'No messages of this content type on this day.' : 'No messages on this day.'}</td></tr>`;
+        </tr>`;
 }
 
-// Re-render just the day-message rows for the picked content type — the
-// day's messages are already loaded, so no refetch is needed.
-function msgFilterDay(type) {
-  dayMsgTypeFilter = type || '';
+// The share-start actions an update trail nests under.
+const MSG_ORIGIN_ACTIONS = new Set(['location_start', 'meeting_start', 'meeting_request']);
+
+// Build the day-list body: standalone events at top level, each share's
+// update ticks nested (collapsed) under its origin. The origin is picked from
+// the session's own data (the start action, else its earliest tick), so the
+// nesting is independent of the display sort order — the stop/end row and the
+// second meet leg stay as their own top-level rows. Update ticks whose origin
+// isn't in the current view fall back to top level so nothing is hidden.
+function msgDayRowsHtml() {
+  const msgs = msgTypeFiltered();
+  if (!msgs.length)
+    return `<tr><td colspan="8" class="empty">${dayMsgTypeFilter ? 'No messages of this content type on this day.' : 'No messages on this day.'}</td></tr>`;
+  const updBySession = new Map();   // session -> [update rows]
+  const nonUpdBySession = new Map();  // session -> [origin/signal rows]
+  for (const m of msgs) {
+    if (!m.session) continue;
+    const bag = m.is_update ? updBySession : nonUpdBySession;
+    if (!bag.has(m.session)) bag.set(m.session, []);
+    bag.get(m.session).push(m);
+  }
+  // Anchor (message id) each update trail nests under: the start action if
+  // present, otherwise the session's earliest non-update row.
+  const anchorBySession = new Map();
+  for (const [session, rows] of nonUpdBySession) {
+    if (!updBySession.has(session)) continue;   // no updates -> nothing to nest
+    let anchor = rows.find(r => MSG_ORIGIN_ACTIONS.has(r.related_action));
+    if (!anchor) anchor = rows.slice().sort((a, b) =>
+      (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0))[0];
+    anchorBySession.set(session, anchor.message_id);
+  }
+  // top-level rows: everything except update ticks that have an anchor here
+  let mains = msgs.filter(m => !m.is_update || !anchorBySession.has(m.session));
+  mains = dayMsgOrder === 'desc' ? mains.slice().reverse() : mains.slice();
+  const order = list => dayMsgOrder === 'desc' ? list.slice().reverse() : list;
+  let html = '', gid = 0;
+  for (const m of mains) {
+    const isAnchor = !m.is_update && m.session
+      && anchorBySession.get(m.session) === m.message_id;
+    const kids = isAnchor ? (updBySession.get(m.session) || []) : [];
+    if (kids.length) {
+      const id = ++gid;
+      html += msgDayRow(m, { groupId: id, count: kids.length });
+      for (const k of order(kids)) html += msgDayRow(k, { child: id });
+    } else {
+      html += msgDayRow(m, {});
+    }
+  }
+  return html;
+}
+
+// Expand / collapse one origin's nested update ticks.
+function msgToggleUpdates(gid, btn) {
+  const rows = document.querySelectorAll('tr[data-upd="' + gid + '"]');
+  const open = btn.getAttribute('data-open') === '1';
+  rows.forEach(r => { r.style.display = open ? 'none' : ''; });
+  btn.setAttribute('data-open', open ? '0' : '1');
+  btn.textContent = (open ? '▸ ' : '▾ ') + (btn.getAttribute('data-n') || rows.length);
+}
+
+// Label for the sort-order toggle button.
+function msgDayOrderLabel() {
+  return dayMsgOrder === 'desc' ? '↓ Newest first' : '↑ Oldest first';
+}
+
+// Re-render just the day-message rows (content-type filter + sort order) —
+// the day's messages are already loaded, so no refetch is needed.
+function msgRenderDay() {
   const tb = $('msgDayTbody');
   if (!tb) return;
-  const msgs = dayMsgTypeFilter
-    ? dayMsgAll.filter(m => (m.content_type || 'unknown') === dayMsgTypeFilter)
-    : dayMsgAll;
-  tb.innerHTML = msgDayRowsHtml(msgs);
+  tb.innerHTML = msgDayRowsHtml();
   const cnt = $('msgDayCount');
-  if (cnt) cnt.textContent = Number(msgs.length).toLocaleString();
+  if (cnt) cnt.textContent = Number(msgTypeFiltered().length).toLocaleString();
+}
+
+// Content-type dropdown handler.
+function msgFilterDay(type) {
+  dayMsgTypeFilter = type || '';
+  msgRenderDay();
+}
+
+// Flip the day-list sort order and re-render in place (no refetch).
+function msgToggleDayOrder() {
+  dayMsgOrder = dayMsgOrder === 'desc' ? 'asc' : 'desc';
+  const btn = $('msgDayOrderBtn');
+  if (btn) btn.textContent = msgDayOrderLabel();
+  msgRenderDay();
 }
 
 // Download the currently visible day messages (after the content-type
 // filter) as a JSON archive. Metadata only — day_messages never carries
 // the message content, which is end-to-end encrypted anyway.
 function msgDownloadDay() {
-  const msgs = dayMsgTypeFilter
-    ? dayMsgAll.filter(m => (m.content_type || 'unknown') === dayMsgTypeFilter)
-    : dayMsgAll;
+  const msgs = msgDayVisible();
   if (!msgs.length) { toast('No messages to download'); return; }
   const archive = {
     account: msgFilters.account,
     contact: msgFilters.contact || null,
     date: msgFilters.date || null,
     content_type: dayMsgTypeFilter || null,
+    order: dayMsgOrder,
     count: msgs.length,
     note: 'includes raw message content; location coordinates within the payload remain PGP-encrypted',
     messages: msgs.map(m => ({
@@ -1269,6 +1373,8 @@ function msgDownloadDay() {
       action: m.action || null,
       related_action: m.related_action || null,
       metadata: (m.metadata === undefined ? null : m.metadata),
+      session: m.session || null,
+      is_update: !!m.is_update,
       encrypted: !!m.encrypted,
       state: m.state,
       disposition: m.disposition || [],
@@ -1362,10 +1468,11 @@ async function msgFetch() {
   // messages (day_messages), sorted by timestamp, without the content —
   // shown as a second table below the type summary.
   const dayMsgs = j.day_messages;
-  // Snapshot the day's messages and reset the content-type filter every
-  // time the view reloads (new account / contact / date).
+  // Snapshot the day's messages and reset the content-type filter and sort
+  // order every time the view reloads (new account / contact / date).
   dayMsgAll = dayMsgs || [];
   dayMsgTypeFilter = '';
+  dayMsgOrder = 'desc';   // default: most recent message on top
   const dayList = dayMsgs ? (() => {
     // Content types present in this day's messages, for the filter dropdown.
     const dayTypeCounts = {};
@@ -1380,6 +1487,7 @@ async function msgFetch() {
         <label for="msgDayTypeSelect" style="font-size:13px;color:#64748b;white-space:nowrap">Content type</label>
         <select id="msgDayTypeSelect" onchange="msgFilterDay(this.value)"
                 style="flex:1;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:#fff">${typeOpts}</select>
+        <button class="pbtn" type="button" id="msgDayOrderBtn" onclick="msgToggleDayOrder()" title="toggle sort order" style="white-space:nowrap">${msgDayOrderLabel()}</button>
         <button class="pbtn" type="button" onclick="msgDownloadDay()" style="white-space:nowrap">Download archive</button>
       </div>
       <table style="margin-top:4px"><thead><tr>
@@ -1391,8 +1499,8 @@ async function msgFetch() {
         <th style="padding:6px 16px 4px 0">Metadata</th>
         <th style="padding:6px 16px 4px 0">State</th>
         <th style="padding:6px 0 4px">Message id</th>
-      </tr></thead><tbody id="msgDayTbody">${msgDayRowsHtml(dayMsgAll)}</tbody></table>
-      <div class="hint" style="padding:8px 0 0">standalone events only — live-location and meet update ticks are folded into their origin and not listed (so this count can be lower than the metadata total above); click a message id to load its full content in the dump box below</div>
+      </tr></thead><tbody id="msgDayTbody">${msgDayRowsHtml()}</tbody></table>
+      <div class="hint" style="padding:8px 0 0">live-location and meet update ticks are collapsed under their origin — click the ▸ count in the Time column to expand a share's trail; click a message id to load its full content in the dump box below</div>
     </div>`;
   })() : '';
   el.innerHTML = `
@@ -3393,17 +3501,41 @@ class AdminWebHandler(object, metaclass=Singleton):
         return None
 
     @classmethod
-    def _drop_location_updates(cls, day_messages):
-        """Return day_messages with live-location UPDATE ticks removed,
-        keeping only each share's START event. Expects the list already
-        sorted by (created_at, message_id). The internal '_loc' marker set
-        by the caller is consumed here and stripped from the output."""
+    def _location_session_id(cls, content, content_type):
+        """The cleartext sessionId that groups every tick of one live-location
+        / meet session — the origin and all its update ticks carry it, so the
+        admin UI can nest the updates under their origin. Parsed straight from
+        the sylk-location-sharing envelope; None for a one-shot (which omits
+        sessionId) or any non-location row."""
+        if content_type != 'application/sylk-location-sharing':
+            return None
+        if isinstance(content, (bytes, bytearray)):
+            content = content.decode('utf-8', 'ignore')
+        try:
+            data = json.loads((content or '').strip())
+        except (ValueError, TypeError):
+            return None
+        if not isinstance(data, dict):
+            return None
+        return data.get('sessionId') or None
+
+    @classmethod
+    def _mark_location_updates(cls, day_messages):
+        """Stamp every row with an `is_update` flag instead of dropping any:
+        True for a live-location / meet UPDATE tick (a follow-up that only
+        refreshes an already-shown bubble), False for a standalone event
+        (origin, one-shot, lifecycle signal, or any non-location row).
+
+        Nothing is removed — the admin UI keeps the full tick list and folds
+        the updates on the client, so both the folded ("standalone events
+        only") and the full ("every tick") views are available without a
+        refetch. Expects the list already sorted by (created_at, message_id);
+        consumes the internal '_loc' marker set by the caller."""
         last_start = {}   # (contact, direction) -> datetime of last location tick
-        kept = []
         for message in day_messages:
             loc = message.pop('_loc', None)
             if loc is None:
-                kept.append(message)          # not a location tick — always keep
+                message['is_update'] = False   # not a location tick — standalone
                 continue
             try:
                 when = datetime.datetime.strptime(
@@ -3419,13 +3551,12 @@ class AdminWebHandler(object, metaclass=Singleton):
                             or (when - previous).total_seconds()
                             > cls.LOCATION_SESSION_GAP_SECONDS)
             else:
-                # Plaintext: metadataId set => follow-up update tick.
+                # Plaintext / explicit action: an update tick is flagged.
                 is_start = not loc['is_update']
             if when is not None:
                 last_start[key] = when
-            if is_start:
-                kept.append(message)
-        return kept
+            message['is_update'] = not is_start
+        return day_messages
 
     @classmethod
     def _message_type_stats(cls, messages, get, contact_filter, date_filter):
@@ -3501,19 +3632,20 @@ class AdminWebHandler(object, metaclass=Singleton):
                        'action': action,
                        'related_action': related,
                        'metadata': cls._as_text(get(message, 'metadata')),
+                       'session': cls._location_session_id(_raw_content, content_type),
                        'content': _raw_content,
                        'encrypted': encrypted}
                 # Mark location/meet UPDATE ticks so the post-sort pass keeps
                 # only the origins and drops the follow-up update ticks.
                 if content_type == 'application/sylk-location-sharing':
                     # Explicit cleartext action — classify the tick exactly
-                    # (both live-location and meet trails fold), no time-gap
+                    # (both live-location and meet trails), no time-gap
                     # guessing needed for this payload model.
                     if related in ('location_update', 'meeting_update'):
                         row['_loc'] = {'encrypted': False, 'is_update': True}
                 elif action == 'location':
                     # Legacy sylk-message-metadata tick: the encrypted variant
-                    # has no readable pointer, so _drop_location_updates falls
+                    # has no readable pointer, so _mark_location_updates falls
                     # back to the per-contact time gap.
                     row['_loc'] = {'encrypted': encrypted,
                                    'is_update': bool(metadata_id)}
@@ -3521,17 +3653,18 @@ class AdminWebHandler(object, metaclass=Singleton):
         # the day's messages, sorted by timestamp (created_at is the stored
         # order and the table's clustering key, so it always exists)
         day_messages.sort(key=lambda m: (m['created_at'], m['message_id']))
-        # Keep only standalone events in the timeline: an origin (live-share
-        # start, meet start, one-shot) stays, its rapid follow-up update ticks
-        # are dropped (they only refresh the coordinates of an already-shown
-        # bubble). sylk-location-sharing ticks are classified exactly by their
-        # explicit cleartext action (location_update / meeting_update above).
-        # Legacy sylk-message-metadata plaintext ticks are classified by
-        # metadataId; their encrypted variant (whose pointer we cannot read)
-        # uses a per-contact time gap — a tick following a >
-        # LOCATION_SESSION_GAP_SECONDS quiet period starts a new share, closer
-        # ticks are updates.
-        day_messages = cls._drop_location_updates(day_messages)
+        # Flag each row as origin vs update (is_update) but keep them all —
+        # the UI shows every tick by default and can fold the updates on the
+        # client. An origin (live-share start, meet start, one-shot) is a
+        # standalone event; its rapid follow-up ticks only refresh the
+        # coordinates of an already-shown bubble. sylk-location-sharing ticks
+        # are classified exactly by their explicit cleartext action
+        # (location_update / meeting_update above). Legacy
+        # sylk-message-metadata plaintext ticks are classified by metadataId;
+        # their encrypted variant (whose pointer we cannot read) uses a
+        # per-contact time gap — a tick following a > LOCATION_SESSION_GAP_SECONDS
+        # quiet period starts a new share, closer ticks are updates.
+        day_messages = cls._mark_location_updates(day_messages)
         contact_list = [{'name': name, 'count': count} for name, count in contacts.items()]
         contact_list.sort(key=lambda entry: (-entry['count'], entry['name']))
         by_type = dict(sorted(by_type.items(), key=lambda item: -item[1]))
