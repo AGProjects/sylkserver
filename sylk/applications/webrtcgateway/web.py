@@ -1141,6 +1141,12 @@ function openMessagesFor(encAccount) {
 }
 
 let msgFilters = { account: '', contact: '', date: '' };
+// After an account is loaded the first fetch runs at the top (all dates)
+// only to discover the newest day, then re-fetches drilled into that day —
+// so the view opens on the latest day's messages and the breadcrumb zooms
+// OUT from there instead of the operator drilling in. Set on account load,
+// consumed by the first msgFetch response.
+let msgAutoDay = false;
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 async function loadMessageTypes(e) {
@@ -1148,6 +1154,7 @@ async function loadMessageTypes(e) {
   const account = $('msgAcctInput').value.trim().toLowerCase();
   if (!account) return false;
   msgFilters = { account: account, contact: '', date: '' };
+  msgAutoDay = true;   // first response should drill straight to the newest day
   const sel = $('msgContactSelect');
   if (sel) sel.innerHTML = '<option value="">All contacts</option>';
   if ($('msgContactRow')) $('msgContactRow').style.display = 'none';
@@ -1220,7 +1227,7 @@ function msgDayRowsHtml(msgs) {
           <td style="font-size:12px;color:#64748b;padding:7px 16px 7px 0">${esc(m.state)}</td>
           <td style="padding:7px 0"><a href="#" class="mono" style="font-size:12px;color:var(--accent);word-break:break-all" onclick="msgDump('${encodeURIComponent(account)}','${encodeURIComponent(m.message_id)}');return false">${esc(m.message_id)}</a></td>
         </tr>`).join('')
-    : `<tr><td colspan="7" class="empty">${dayMsgTypeFilter ? 'No messages of this content type on this day.' : 'No messages on this day.'}</td></tr>`;
+    : `<tr><td colspan="8" class="empty">${dayMsgTypeFilter ? 'No messages of this content type on this day.' : 'No messages on this day.'}</td></tr>`;
 }
 
 // Re-render just the day-message rows for the picked content type — the
@@ -1297,6 +1304,18 @@ async function msgFetch() {
   const j = await r.json().catch(() => null);
   if (!j) { el.innerHTML = '<div class="err" style="padding:12px 4px">Lookup failed.</div>'; return; }
   if (j.error) { el.innerHTML = `<div class="err" style="padding:12px 4px">${esc(j.error)}</div>`; return; }
+  // Reverse drill-down: on the first response after an account load, jump
+  // straight to the newest day that has messages (j.newest is the newest
+  // stored timestamp) and re-fetch that day. Runs at most once per load, so
+  // zooming back OUT via the breadcrumb is never snapped back to the day.
+  if (msgAutoDay) {
+    msgAutoDay = false;
+    if (!msgFilters.date && j.newest) {
+      msgFilters.date = String(j.newest).slice(0, 10);
+      msgFetch();
+      return;
+    }
+  }
   const contacts = j.contacts || [];
   const contactRow = $('msgContactRow'), dateRow = $('msgDateRow');
   if (!contacts.length) {
