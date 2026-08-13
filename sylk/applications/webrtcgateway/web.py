@@ -1370,7 +1370,7 @@ async function msgFetch() {
         <th style="padding:6px 16px 4px 0">State</th>
         <th style="padding:6px 0 4px">Message id</th>
       </tr></thead><tbody id="msgDayTbody">${msgDayRowsHtml(dayMsgAll)}</tbody></table>
-      <div class="hint" style="padding:8px 0 0">standalone events only — live-location update ticks are folded into their share-start and not listed (so this count can be lower than the metadata total above); click a message id to load its full content in the dump box below</div>
+      <div class="hint" style="padding:8px 0 0">standalone events only — live-location and meet update ticks are folded into their origin and not listed (so this count can be lower than the metadata total above); click a message id to load its full content in the dump box below</div>
     </div>`;
   })() : '';
   el.innerHTML = `
@@ -3290,10 +3290,26 @@ class AdminWebHandler(object, metaclass=Singleton):
             return 'unknown', False, None
         return str(data.get('action') or 'unknown'), False, data.get('metadataId')
 
-    # Cleartext lifecycle signals that ride the sylk-location-sharing
-    # envelope with no coordinates. Anything else value-bearing is a tick.
+    # The full cleartext `action` vocabulary of an
+    # application/sylk-location-sharing tick, per
+    # docs/messages/sylk-location-sharing-v1.md. Every message now carries an
+    # explicit action, set by the sender and stored verbatim as
+    # related_action (no re-derivation) — so the admin classifier trusts it
+    # directly rather than inferring the purpose from one_shot / metadataId.
+    _LOCATION_ACTIONS = frozenset((
+        # coordinate-bearing (carry an encrypted `value`)
+        'location_once', 'location_start', 'location_update',
+        'meeting_request', 'meeting_start', 'meeting_update',
+        # coordinate-free lifecycle signals (no `value`)
+        'location_request', 'location_stop',
+        'meeting_accept', 'meeting_reject', 'meeting_end'))
+
+    # The coordinate-free lifecycle subset — the signals that ride the
+    # sylk-location-sharing envelope with no coordinates. Kept for reference;
+    # anything value-bearing is a coordinate tick.
     _LOCATION_SIGNAL_ACTIONS = frozenset((
-        'location_stop', 'meeting_end', 'location_request'))
+        'location_request', 'location_stop',
+        'meeting_accept', 'meeting_reject', 'meeting_end'))
 
     @classmethod
     def _related_action(cls, content, content_type):
@@ -3302,13 +3318,18 @@ class AdminWebHandler(object, metaclass=Singleton):
         Live-location ticks migrated to the application/sylk-location-sharing
         payload model: the lifecycle fields ride in the clear as a JSON
         envelope ({..., "value": "<PGP coords blob>"}), so every tick can be
-        labelled WITHOUT decrypting the coordinates:
+        labelled WITHOUT decrypting the coordinates. Every tick now carries an
+        explicit cleartext `action` naming its purpose, so it is returned
+        verbatim for the whole vocabulary (see _LOCATION_ACTIONS):
 
-          * cleartext signal (location_stop / meeting_end /
-            location_request) -> that action
-          * one_shot tick        -> 'location_once'
-          * update tick (has a metadataId pointer) -> 'location_update'
-          * otherwise (share start / origin tick)  -> 'location'
+          * location_once / location_start / location_update
+          * meeting_request / meeting_start / meeting_update
+          * location_request / location_stop
+          * meeting_accept / meeting_reject / meeting_end
+
+        A row without a recognised explicit action falls back to the legacy
+        one_shot / metadataId heuristics (one_shot -> 'location_once', a
+        metadataId pointer -> 'location_update', else the origin 'location').
 
         The legacy application/sylk-message-metadata model is mapped to the
         same vocabulary via _metadata_action. Returns None for everything
@@ -3324,8 +3345,9 @@ class AdminWebHandler(object, metaclass=Singleton):
             if not isinstance(data, dict):
                 return 'location'
             action = data.get('action')
-            if action in cls._LOCATION_SIGNAL_ACTIONS:
+            if action in cls._LOCATION_ACTIONS:
                 return str(action)
+            # defensive fallback for a row that predates explicit actions
             if data.get('one_shot'):
                 return 'location_once'
             if data.get('metadataId') is not None:
@@ -3435,6 +3457,7 @@ class AdminWebHandler(object, metaclass=Singleton):
                     _raw_content = _raw_content.decode('utf-8', 'ignore')
                 action, encrypted, metadata_id = cls._metadata_action(
                     _raw_content, content_type)
+                related = cls._related_action(_raw_content, content_type)
                 row = {'message_id': get(message, 'message_id') or '',
                        'created_at': created[:19],
                        'timestamp': msg_ts[:19] or None,
@@ -3444,26 +3467,37 @@ class AdminWebHandler(object, metaclass=Singleton):
                        'state': get(message, 'state') or '',
                        'disposition': list(get(message, 'disposition') or []),
                        'action': action,
-                       'related_action': cls._related_action(
-                           _raw_content, content_type),
+                       'related_action': related,
                        'content': _raw_content,
                        'encrypted': encrypted}
-                # Mark live-location ticks so the post-sort pass can keep
-                # only share-starts and drop the follow-up update ticks.
-                if action == 'location':
+                # Mark location/meet UPDATE ticks so the post-sort pass keeps
+                # only the origins and drops the follow-up update ticks.
+                if content_type == 'application/sylk-location-sharing':
+                    # Explicit cleartext action — classify the tick exactly
+                    # (both live-location and meet trails fold), no time-gap
+                    # guessing needed for this payload model.
+                    if related in ('location_update', 'meeting_update'):
+                        row['_loc'] = {'encrypted': False, 'is_update': True}
+                elif action == 'location':
+                    # Legacy sylk-message-metadata tick: the encrypted variant
+                    # has no readable pointer, so _drop_location_updates falls
+                    # back to the per-contact time gap.
                     row['_loc'] = {'encrypted': encrypted,
                                    'is_update': bool(metadata_id)}
                 day_messages.append(row)
         # the day's messages, sorted by timestamp (created_at is the stored
         # order and the table's clustering key, so it always exists)
         day_messages.sort(key=lambda m: (m['created_at'], m['message_id']))
-        # Keep only standalone events in the timeline: a live-location
-        # share-start stays, its rapid follow-up update ticks are dropped
-        # (they only refresh the coordinates of an already-shown bubble).
-        # Plaintext ticks are classified exactly by metadataId; encrypted
-        # ticks (whose pointer we cannot read) use a per-contact time gap —
-        # a tick following a > LOCATION_SESSION_GAP_SECONDS quiet period
-        # starts a new share, closer ticks are updates.
+        # Keep only standalone events in the timeline: an origin (live-share
+        # start, meet start, one-shot) stays, its rapid follow-up update ticks
+        # are dropped (they only refresh the coordinates of an already-shown
+        # bubble). sylk-location-sharing ticks are classified exactly by their
+        # explicit cleartext action (location_update / meeting_update above).
+        # Legacy sylk-message-metadata plaintext ticks are classified by
+        # metadataId; their encrypted variant (whose pointer we cannot read)
+        # uses a per-contact time gap — a tick following a >
+        # LOCATION_SESSION_GAP_SECONDS quiet period starts a new share, closer
+        # ticks are updates.
         day_messages = cls._drop_location_updates(day_messages)
         contact_list = [{'name': name, 'count': count} for name, count in contacts.items()]
         contact_list.sort(key=lambda entry: (-entry['count'], entry['name']))
