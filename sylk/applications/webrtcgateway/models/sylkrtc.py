@@ -195,6 +195,12 @@ class Message(JSONObject):
     content = StringProperty()
     direction = StringProperty(optional=True)
     state = LimitedChoiceProperty(['delivered', 'failed', 'displayed', 'forbidden', 'error', 'accepted', 'pending', 'received'], optional=True)
+    # Opaque, application-defined side-band data stored alongside the message
+    # (Cassandra `metadata` text column). The server never interprets it; it is
+    # a JSON string by convention. First user: application/sylk-location-sharing
+    # ships its cleartext lifecycle envelope here so the journal and clients can
+    # classify/filter a message without decrypting its content.
+    metadata = StringProperty(optional=True)
 
     def __init__(self, **kw):
         if 'msg_timestamp' in kw:
@@ -294,6 +300,7 @@ class AccountMessageEvent(AccountEventBase):
     content_type = StringProperty()
     content = StringProperty()
     direction = StringProperty(optional=True)
+    metadata = StringProperty(optional=True)
 
 
 class AccountDispositionNotificationEvent(AccountEventBase):
@@ -421,6 +428,7 @@ class SessionMessageEvent(SessionEventBase):
     content_type = StringProperty()
     content = StringProperty()
     direction = StringProperty(optional=True)
+    metadata = StringProperty(optional=True)
 
 
 class SessionMessageDispositionNotificationEvent(SessionEventBase):
@@ -718,6 +726,9 @@ class AccountMessageRequest(AccountRequestBase):
     skipJournal = BooleanProperty(optional=True)
     skipDisposition = BooleanProperty(optional=True)
     disposition_notification = ArrayProperty(DispositionNotifications, optional=True)
+    # Opaque application data (JSON string by convention) stored with the
+    # message and relayed to the peer in the CPIM envelope. See Message.metadata.
+    metadata = StringProperty(optional=True)
 
 
 class AccountDispositionNotificationRequest(AccountRequestBase):
@@ -817,6 +828,7 @@ class SessionMessageRequest(SessionRequestBase):
     content = StringProperty()
     content_type = StringProperty()
     timestamp = StringProperty()
+    metadata = StringProperty(optional=True)
 
 
 class SessionDtmfInfoRequest(SessionRequestBase):

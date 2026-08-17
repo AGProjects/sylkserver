@@ -522,7 +522,7 @@ class FileMessageStorage(object):
                         break
 
     @run_in_thread('file-io')
-    def add(self, account, contact, direction, content, content_type, timestamp, disposition_notification, message_id, state=None):
+    def add(self, account, contact, direction, content, content_type, timestamp, disposition_notification, message_id, state=None, metadata=None):
         Metrics().count_message(content_type)
         try:
             msg_timestamp = datetime.datetime.fromisoformat(timestamp)
@@ -581,7 +581,11 @@ class FileMessageStorage(object):
                    'message_id': message_id,
                    'disposition': disposition_notification,
                    'state': state,
-                   'msg_timestamp': msg_timestamp}
+                   'msg_timestamp': msg_timestamp,
+                   # Opaque application side-band data (JSON string by
+                   # convention). Mirrors the Cassandra `metadata` column so both
+                   # backends replay the same shape to the clients.
+                   'metadata': metadata}
         messages.append(message)
 
         self._save_messages(account, messages)
@@ -829,7 +833,7 @@ class CassandraMessageStorage(object):
                 message.save()
 
     @run_in_thread('cassandra')
-    def add(self, account, contact, direction, content, content_type, timestamp, disposition_notification, message_id, state=None):
+    def add(self, account, contact, direction, content, content_type, timestamp, disposition_notification, message_id, state=None, metadata=None):
         Metrics().count_message(content_type)
         try:
             msg_timestamp = datetime.datetime.fromisoformat(timestamp)
@@ -873,7 +877,8 @@ class CassandraMessageStorage(object):
         try:
             ChatMessage.create(account=account, direction=direction, contact=contact, content_type=content_type,
                                content=content, created_at=timestamp, message_id=message_id,
-                               disposition=disposition_notification, state=state, msg_timestamp=msg_timestamp)
+                               disposition=disposition_notification, state=state, msg_timestamp=msg_timestamp,
+                               metadata=metadata)
             if timestamp_not_found:
                 ChatMessageIdMapping.create(created_at=timestamp, message_id=message_id)
         except (CQLEngineException, InvalidRequest) as e:

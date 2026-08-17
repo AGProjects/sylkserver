@@ -55,6 +55,7 @@ from .configuration import (ExternalAuthConfig, GeneralConfig, JanusConfig,
 from .janus import (JanusBackend, JanusError, JanusSession, SIPPluginHandle,
                     VideoroomPluginHandle)
 from .logger import ConnectionLogger, VideoroomLogger
+from .metadata import metadata_cpim_header, metadata_from_cpim_headers, sanitize_metadata
 from .metrics import Metrics
 from .models import janus, sylkrtc
 from .sip_handlers import log_uri
@@ -1726,7 +1727,7 @@ class ConnectionHandler(object):
         self.log.debug('DNS lookup for SIP message proxy for {} yielded {}'.format(uri, route))
         return route
 
-    def _send_sip_message(self, account, uri, message_id, content, content_type='text/plain', timestamp=None, add_disposition=True, skip_journal=False):
+    def _send_sip_message(self, account, uri, message_id, content, content_type='text/plain', timestamp=None, add_disposition=True, skip_journal=False, metadata=None):
         route = self._lookup_sip_target_route(uri, sender=account.id)
         sip_uri = SIPURI.parse('sip:%s' % uri)
         if route:
@@ -1742,6 +1743,15 @@ class ConnectionHandler(object):
             additional_sip_headers = []
             if add_disposition:
                 additional_headers.append(CPIMHeader('Disposition-Notification', ns, 'positive-delivery, display'))
+            # Relay the application metadata end-to-end inside the CPIM
+            # envelope so the receiving SylkServer can journal it and hand it
+            # to the recipient's clients. Oversized/unusable values are dropped
+            # by metadata_cpim_header -- the message itself still goes out.
+            metadata_header = metadata_cpim_header(metadata)
+            if metadata_header is not None:
+                additional_headers.append(metadata_header)
+            elif metadata:
+                self.log.warning('dropping unusable metadata on message {message_id} to {uri}'.format(message_id=message_id, uri=uri))
             if GeneralConfig.local_sip_messages:
                 additional_sip_headers.append(Header('X-Sylk-App', 'webrtcgateway'))
             if skip_journal:
@@ -1797,7 +1807,7 @@ class ConnectionHandler(object):
             else:
                 connection_handler.send(event)
 
-    def _send_in_dialog_sip_message(self, session, message_id, content, content_type='text/plain', timestamp=None, add_disposition=True):
+    def _send_in_dialog_sip_message(self, session, message_id, content, content_type='text/plain', timestamp=None, add_disposition=True, metadata=None):
         identity = str(session.account.uri)
         if session.account.display_name:
             identity = '"%s" <%s>' % (session.account.display_name, identity)
@@ -1806,9 +1816,16 @@ class ConnectionHandler(object):
         from_uri = SIPURI.parse(session.account.uri)
         sip_uri = SIPURI.parse('sip:%s' % session.remote_identity.uri)
         content = content if isinstance(content, bytes) else content.encode()
+        # NOTE: additional_headers used to be bound only inside the
+        # add_disposition branch, so a message sent with add_disposition=False
+        # raised UnboundLocalError. Always start from an empty list.
+        additional_headers = []
         if add_disposition:
             ns = CPIMNamespace('urn:ietf:params:imdn', 'imdn')
-            additional_headers = [CPIMHeader('Message-ID', ns, message_id)]
+            additional_headers.append(CPIMHeader('Message-ID', ns, message_id))
+        metadata_header = metadata_cpim_header(metadata)
+        if metadata_header is not None:
+            additional_headers.append(metadata_header)
         payload = CPIMPayload(content,
                               content_type,
                               charset='utf-8',
@@ -2006,6 +2023,9 @@ class ConnectionHandler(object):
 
         skip_journal = bool(getattr(request, 'skipJournal', None))
         skip_disposition = bool(getattr(request, 'skipDisposition', None))
+        # Opaque application metadata. Journaled with the message and relayed
+        # to the peer inside the CPIM envelope; never interpreted here.
+        metadata = sanitize_metadata(getattr(request, 'metadata', None))
 
         storage = MessageStorage()
         if skip_journal:
@@ -2019,10 +2039,11 @@ class ConnectionHandler(object):
                         timestamp=timestamp,
                         disposition_notification=[] if skip_disposition else ['positive-delivery', 'display'],
                         message_id=message_id,
-                        state='pending')
+                        state='pending',
+                        metadata=metadata)
 
         self.log.info('sending {content_type} message {message_id} to {uri}'.format(message_id=message_id, content_type=content_type, uri=uri))
-        self._send_sip_message(account_info, uri, message_id, content, content_type, timestamp=timestamp, skip_journal=skip_journal, add_disposition=not skip_disposition)
+        self._send_sip_message(account_info, uri, message_id, content, content_type, timestamp=timestamp, skip_journal=skip_journal, add_disposition=not skip_disposition, metadata=metadata)
 
         event = sylkrtc.AccountSyncEvent(account=account_info.id, type='message', action='add', content=request)
         self._fork_event_to_online_accounts(account_info, event)
@@ -2414,7 +2435,8 @@ class ConnectionHandler(object):
         if session_info.state not in ('established'):
             raise APIError('Invalid state session {session.id}: {session.state} for sending messages'.format(session=session_info))
 
-        self._send_in_dialog_sip_message(session_info, message_id=request.message_id, content=request.content, content_type=request.content_type, timestamp=request.timestamp)
+        self._send_in_dialog_sip_message(session_info, message_id=request.message_id, content=request.content, content_type=request.content_type, timestamp=request.timestamp,
+                                         metadata=sanitize_metadata(getattr(request, 'metadata', None)))
 
     def _RH_session_dtmf_info(self, request):
         try:
@@ -3506,11 +3528,13 @@ class ConnectionHandler(object):
                 sender = cpim_message.sender or FromHeader(SIPURI.parse('{}'.format(data.sender)), data.displayname)
                 disposition = next(([item.strip() for item in header.value.split(',')] for header in cpim_message.additional_headers if header.name == 'Disposition-Notification'), None)
                 message_id = next((header.value for header in cpim_message.additional_headers if header.name == 'Message-ID'), None)
+                metadata = metadata_from_cpim_headers(cpim_message.additional_headers)
         else:
             body = data.content
             content_type = data.content_type
             sender = FromHeader(SIPURI.parse('{}'.format(data.sender)), data.displayname)
             disposition = None
+            metadata = None
             message_id = str(uuid.uuid4())
 
         timestamp = str(cpim_message.timestamp) if cpim_message is not None and cpim_message.timestamp is not None else str(ISOTimestamp.now())
@@ -3542,7 +3566,8 @@ class ConnectionHandler(object):
                                                   content_type=content_type,
                                                   timestamp=timestamp,
                                                   disposition_notification=disposition,
-                                                  message_id=message_id))
+                                                  message_id=message_id,
+                                                  metadata=metadata))
 
     def _EH_janus_sip_event_messagesent(self, event):
         pass

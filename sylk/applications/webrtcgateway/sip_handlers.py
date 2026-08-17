@@ -32,6 +32,7 @@ from . import push
 from .configuration import GeneralConfig
 from .datatypes import FileTransferData
 from .logger import log
+from .metadata import metadata_from_cpim_headers
 from .models import sylkrtc
 from .storage import MessageStorage
 
@@ -42,13 +43,16 @@ def log_uri(uri):
 
 
 class ParsedSIPMessage(SIPMessage):
-    __slots__ = 'message_id', 'disposition', 'destination'
+    __slots__ = 'message_id', 'disposition', 'destination', 'metadata'
 
-    def __init__(self, content, content_type, sender=None, recipients=None, courtesy_recipients=None, subject=None, timestamp=None, required=None, additional_headers=None, message_id=None, disposition=None, destination=None):
+    def __init__(self, content, content_type, sender=None, recipients=None, courtesy_recipients=None, subject=None, timestamp=None, required=None, additional_headers=None, message_id=None, disposition=None, destination=None, metadata=None):
         super(ParsedSIPMessage, self).__init__(content, content_type, sender, recipients, courtesy_recipients, subject, timestamp, required, additional_headers)
         self.message_id = message_id
         self.disposition = disposition
         self.destination = destination
+        # Opaque application metadata carried in the CPIM envelope (see
+        # .metadata) -- None for messages that arrive without it.
+        self.metadata = metadata
 
 
 @implementer(IObserver)
@@ -122,6 +126,7 @@ class MessageHandler(object):
             sender = cpim_message.sender or self.from_header
             disposition = next(([item.strip() for item in header.value.split(',')] for header in cpim_message.additional_headers if header.name == 'Disposition-Notification'), None)
             message_id = next((header.value for header in cpim_message.additional_headers if header.name == 'Message-ID'), str(uuid.uuid4()))
+            message_metadata = metadata_from_cpim_headers(cpim_message.additional_headers)
         else:
             try:
                 body = self.body.decode('utf-8')
@@ -142,6 +147,7 @@ class MessageHandler(object):
             disposition = None
             message_id = str(uuid.uuid4())
             content_type = str(self.content_type)
+            message_metadata = None
 
         timestamp = str(cpim_message.timestamp) if cpim_message is not None and cpim_message.timestamp is not None else str(ISOTimestamp.now())
         sender = sylkrtc.SIPIdentity(uri=str(sender.uri), display_name=sender.display_name)
@@ -162,7 +168,8 @@ class MessageHandler(object):
                     body = json.dumps(sylkrtc.FileTransferMessage(**metadata.__data__).__data__)
                     content_type = 'application/sylk-file-transfer'
 
-        return ParsedSIPMessage(body, content_type, sender=sender, disposition=disposition, message_id=message_id, timestamp=timestamp, destination=destination)
+        return ParsedSIPMessage(body, content_type, sender=sender, disposition=disposition, message_id=message_id, timestamp=timestamp, destination=destination,
+                                metadata=message_metadata)
 
     def _send_public_key(self, from_header, to_header, public_key):
         if public_key:
@@ -369,7 +376,8 @@ class MessageHandler(object):
                                      timestamp=str(self.parsed_message.timestamp),
                                      disposition_notification=self.parsed_message.disposition,
                                      message_id=self.parsed_message.message_id,
-                                     state='accepted')
+                                     state='accepted',
+                                     metadata=self.parsed_message.metadata)
 
         message = sylkrtc.AccountSyncEvent(account=account.account,
                                            type='message',
@@ -382,7 +390,8 @@ class MessageHandler(object):
                                                content=self.parsed_message.content,
                                                content_type=self.parsed_message.content_type,
                                                timestamp=str(self.parsed_message.timestamp),
-                                               server_generated=True
+                                               server_generated=True,
+                                               metadata=self.parsed_message.metadata
                                            ))
 
         notification_center = NotificationCenter()
@@ -452,7 +461,8 @@ class MessageHandler(object):
                                          timestamp=str(self.parsed_message.timestamp),
                                          disposition_notification=self.parsed_message.disposition,
                                          message_id=self.parsed_message.message_id,
-                                         state='received')
+                                         state='received',
+                                         metadata=self.parsed_message.metadata)
 
             message = sylkrtc.AccountMessageEvent(account=account.account,
                                                   sender=self.parsed_message.sender,
@@ -460,7 +470,8 @@ class MessageHandler(object):
                                                   content_type=self.parsed_message.content_type,
                                                   timestamp=str(self.parsed_message.timestamp),
                                                   disposition_notification=self.parsed_message.disposition,
-                                                  message_id=self.parsed_message.message_id)
+                                                  message_id=self.parsed_message.message_id,
+                                                  metadata=self.parsed_message.metadata)
 
             notification_center.post_notification(name='SIPApplicationGotAccountMessage', sender=account.account, data=message)
 
