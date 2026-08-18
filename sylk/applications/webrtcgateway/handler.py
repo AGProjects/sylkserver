@@ -2432,7 +2432,7 @@ class ConnectionHandler(object):
         except KeyError:
             raise APIError('Unknown session {request.session}'.format(request=request))
 
-        if session_info.state not in ('established'):
+        if session_info.state not in ('established', 'accepted'):
             raise APIError('Invalid state session {session.id}: {session.state} for sending messages'.format(session=session_info))
 
         self._send_in_dialog_sip_message(session_info, message_id=request.message_id, content=request.content, content_type=request.content_type, timestamp=request.timestamp,
@@ -3385,7 +3385,33 @@ class ConnectionHandler(object):
                     session=session_info, prev=previous_state))
             return
 
-        if session_info.state == 'established' or session_info.state == 'early_media':  # We had early media
+        if session_info.state == 'established':
+            # 'established' is the winning state and must not regress.
+            #
+            # These two events come from unrelated Janus sources:
+            # webrtcup means the ICE/DTLS media path is up
+            # (_EH_janus_sip_webrtcup), while this 'accepted' event
+            # means the 200 OK arrived. On a call with early media the
+            # answer SDP rides the 183, so media comes up during the
+            # ringback and webrtcup fires BEFORE the 200 OK. This
+            # branch used to overwrite 'established' with 'accepted',
+            # and since nothing ever set it back, such sessions spent
+            # their entire talking life in 'accepted' — silently
+            # failing every request whose guard tested for
+            # 'established' (in-dialog MESSAGE, and on the client side
+            # the DTMF keypad and Call.sendDtmfInfo).
+            #
+            # The 200 OK is still real information, so the event is
+            # still emitted: clients use it to start the call timer at
+            # the true answer moment, stop ringback and report the
+            # call connected. It is a notification, not a transition —
+            # the session state stays 'established'.
+            self.send(sylkrtc.SessionAcceptedEvent(session=session_info.id))
+            self.log.info('{session.direction} session {session.id} answered (200 OK) while already established; '
+                          'state stays {session.state}'.format(session=session_info))
+            return
+
+        if session_info.state == 'early_media':  # We had early media
             session_info.state = 'accepted'
             self.send(sylkrtc.SessionAcceptedEvent(session=session_info.id))
             self.log.debug('{session.direction} session {session.id} state: {session.state}'.format(session=session_info))
