@@ -108,7 +108,12 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
             videoroom = self._ws_factory.videorooms[conference_uri]
             if session_id in videoroom:
                 request.setHeader('Access-Control-Allow-Origin', '*')
-                request.setHeader('Access-Control-Allow-Headers', 'content-type')
+                # 'range' must be allowed through preflight and the range
+                # response headers exposed, otherwise a cross-origin client
+                # cannot resume an interrupted download even though
+                # twisted.web.static.File serves byte ranges just fine.
+                request.setHeader('Access-Control-Allow-Headers', 'content-type, range')
+                request.setHeader('Access-Control-Expose-Headers', 'content-range, accept-ranges, content-length')
                 method = request.method.upper().decode()
                 session = videoroom[session_id]
                 if method == 'POST':
@@ -146,7 +151,13 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
     @app.route('/filetransfer/<string:sender>/<string:receiver>/<string:transfer_id>/<string:filename>', methods=['GET', 'POST', 'OPTIONS'])
     def filetransfer(self, request, sender, receiver, transfer_id, filename):
         request.setHeader('Access-Control-Allow-Origin', '*')
-        request.setHeader('Access-Control-Allow-Headers', 'content-type')
+        # 'range' must be allowed through preflight and the range response
+        # headers exposed, otherwise a cross-origin client cannot resume an
+        # interrupted download even though twisted.web.static.File serves
+        # byte ranges just fine. Attachments run to hundreds of megabytes;
+        # restarting one from zero on every blip is not viable.
+        request.setHeader('Access-Control-Allow-Headers', 'content-type, range')
+        request.setHeader('Access-Control-Expose-Headers', 'content-range, accept-ranges, content-length')
         method = request.method.upper().decode()
 
         if method == 'POST':
