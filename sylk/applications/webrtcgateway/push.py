@@ -8,6 +8,7 @@ from twisted.web.iweb import IBodyProducer
 from zope.interface import implementer
 
 from .configuration import GeneralConfig
+from .location import LOCATION_CONTENT_TYPE, location_push_content
 from .logger import log
 from .models import sylkpush
 from .storage import TokenStorage
@@ -72,9 +73,19 @@ def message(originator, destination, call_id, badge, message):
     tokens = TokenStorage()
     media_type = 'sms'
 
+    content = message.content
+    if message.content_type == LOCATION_CONTENT_TYPE:
+        # The lifecycle envelope (action, sessionId, expires, perm, ...) is
+        # moving out of the message body and into the metadata column, but the
+        # push consumers -- the Sylk push server and the native iOS/Android
+        # notification layers that build the banner -- still read it from
+        # `content`. Merge it back in so the push payload is identical before
+        # and after that migration. A no-op for a message without metadata.
+        content = location_push_content(content, getattr(message, 'metadata', None))
+
     request = sylkpush.MessageEvent(token='dummy', app_id='dummy', platform='dummy', device_id='dummy',
                                     originator=originator.uri, from_display_name=originator.display_name, to=destination, call_id=str(call_id),
-                                    media_type=media_type, badge=badge, content_type=message.content_type, content=message.content)
+                                    media_type=media_type, badge=badge, content_type=message.content_type, content=content)
     user_tokens = tokens[destination]
     if isinstance(user_tokens, set):
         return

@@ -19,6 +19,7 @@ from sylk.configuration import ServerConfig
 from .configuration import CassandraConfig, FileStorageConfig
 from .datatypes import FileTransferData
 from .errors import StorageError
+from .location import location_session_id
 from .logger import log
 from .metrics import Metrics
 from .models import xcap
@@ -26,7 +27,7 @@ from .models import xcap
 __all__ = 'TokenStorage',
 
 
-def location_track_session_id(content_type, content):
+def location_track_session_id(content_type, content, metadata=None):
     """Session/origin id shared by every tick of one live-location track.
 
     Every application/sylk-location-sharing tick (origin, updates, and the
@@ -34,18 +35,11 @@ def location_track_session_id(content_type, content):
     message id. Returns that id so removeMessage can cascade-remove a track's
     update ticks when its origin is removed. Returns None when the message is
     not a location-sharing tick, or is a one-shot share (no ``sessionId``, so
-    no trail to cascade). Only the cleartext envelope is parsed — the coords
-    stay encrypted and untouched.
+    no trail to cascade). Only the cleartext envelope is read — the coords
+    stay encrypted and untouched — from the metadata column for a version 2
+    payload and from the message body for version 1 (see .location).
     """
-    if content_type != 'application/sylk-location-sharing':
-        return None
-    try:
-        data = json.loads(content)
-    except (ValueError, TypeError):
-        return None
-    if not isinstance(data, dict):
-        return None
-    return data.get('sessionId') or None
+    return location_session_id(content_type, content, metadata)
 
 
 # TODO: Maybe add some more metadata like the modification date so we know when a token was refreshed,
@@ -639,10 +633,10 @@ class FileMessageStorage(object):
                                 else:
                                     print(f"Removed {data.path}")
                             
-                            session_id = location_track_session_id(item[0].get('content_type'), item[0].get('content'))
+                            session_id = location_track_session_id(item[0].get('content_type'), item[0].get('content'), item[0].get('metadata'))
                             messages.remove(item[0])
                             if session_id is not None:
-                                siblings = [m for m in messages if location_track_session_id(m.get('content_type'), m.get('content')) == session_id]
+                                siblings = [m for m in messages if location_track_session_id(m.get('content_type'), m.get('content'), m.get('metadata')) == session_id]
                                 for m in siblings:
                                     messages.remove(m)
                                 log.info('removed %d location entries for session %s of %s' % (1 + len(siblings), session_id, account))
@@ -926,7 +920,7 @@ class CassandraMessageStorage(object):
                                 print(f"Removed {data.path}")
 
                         if session_id is None:
-                            session_id = location_track_session_id(message.content_type, message.content)
+                            session_id = location_track_session_id(message.content_type, message.content, getattr(message, 'metadata', None))
                     
                     if not messages:
                         result = False
@@ -937,7 +931,7 @@ class CassandraMessageStorage(object):
                         cascaded = 0
                         try:
                             for m in ChatMessage.objects(ChatMessage.account == account).limit(None):
-                                if location_track_session_id(m.content_type, m.content) == session_id:
+                                if location_track_session_id(m.content_type, m.content, getattr(m, 'metadata', None)) == session_id:
                                     m.delete()
                                     cascaded += 1
                         except Exception as e:

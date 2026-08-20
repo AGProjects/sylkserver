@@ -38,6 +38,8 @@ from .configuration import (BUILTIN_WEBSERVER, CassandraConfig,
 from .datatypes import FileTransferData
 from .factory import SylkWebSocketServerFactory
 from .janus import JanusBackend
+from .location import (LOCATION_CONTENT_TYPE, location_envelope,
+                       location_session_id)
 from .logger import log
 from .metrics import Metrics
 from .models import sylkrtc
@@ -522,6 +524,18 @@ function esc(s) {
 
 function stripSip(u) {
   return (u == null ? '' : String(u)).replace(/^sips?:/i, '');
+}
+
+// Pretty-print a JSON string for display; anything that does not parse is
+// returned untouched so a non-JSON blob still shows verbatim.
+function prettyJson(s) {
+  if (s == null) return '';
+  const text = String(s);
+  try {
+    return JSON.stringify(JSON.parse(text), null, 2);
+  } catch (e) {
+    return text;
+  }
 }
 
 /* ---------- views ---------- */
@@ -1265,7 +1279,6 @@ function msgDayRow(m, opts) {
           <td class="mono" style="font-size:12px;padding:7px 16px 7px 0${(m.contact || '').includes('@') ? '' : ';color:#94a3b8'}">${esc(m.contact)}</td>
           <td class="mono" style="font-size:12px;padding:7px 16px 7px 0">${esc(m.content_type)}</td>
           <td class="mono" style="font-size:12px;padding:7px 16px 7px 0">${(m.action || m.related_action) ? esc(m.action || m.related_action) + (m.action && m.encrypted ? ' <span style="color:#94a3b8" title="encrypted — action inferred">(enc)</span>' : '') : '<span style="color:#cbd5e1">—</span>'}</td>
-          <td class="mono" style="font-size:12px;color:#475569;padding:7px 16px 7px 0;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(m.metadata || '')}">${m.metadata ? esc(m.metadata) : '<span style="color:#cbd5e1">—</span>'}</td>
           <td style="font-size:12px;color:#64748b;padding:7px 16px 7px 0">${esc(m.state)}</td>
           <td style="padding:7px 0"><a href="#" class="mono" style="font-size:12px;color:var(--accent);word-break:break-all" onclick="msgDump('${encodeURIComponent(account)}','${encodeURIComponent(m.message_id)}');return false">${esc(m.message_id)}</a></td>
         </tr>`;
@@ -1283,7 +1296,7 @@ const MSG_ORIGIN_ACTIONS = new Set(['location_start', 'meeting_start', 'meeting_
 function msgDayRowsHtml() {
   const msgs = msgTypeFiltered();
   if (!msgs.length)
-    return `<tr><td colspan="8" class="empty">${dayMsgTypeFilter ? 'No messages of this content type on this day.' : 'No messages on this day.'}</td></tr>`;
+    return `<tr><td colspan="7" class="empty">${dayMsgTypeFilter ? 'No messages of this content type on this day.' : 'No messages on this day.'}</td></tr>`;
   const updBySession = new Map();   // session -> [update rows]
   const nonUpdBySession = new Map();  // session -> [origin/signal rows]
   for (const m of msgs) {
@@ -1507,11 +1520,10 @@ async function msgFetch() {
         <th style="padding:6px 16px 4px 0">Contact</th>
         <th style="padding:6px 16px 4px 0">Content type</th>
         <th style="padding:6px 16px 4px 0">Action</th>
-        <th style="padding:6px 16px 4px 0">Metadata</th>
         <th style="padding:6px 16px 4px 0">State</th>
         <th style="padding:6px 0 4px">Message id</th>
       </tr></thead><tbody id="msgDayTbody">${msgDayRowsHtml()}</tbody></table>
-      <div class="hint" style="padding:8px 0 0">live-location and meet update ticks are collapsed under their origin — click the ▸ count in the Time column to expand a share's trail; click a message id to load its full content in the dump box below</div>
+      <div class="hint" style="padding:8px 0 0">live-location and meet update ticks are collapsed under their origin — click the ▸ count in the Time column to expand a share's trail; click a message id to load its full content and metadata in the dump box below</div>
     </div>`;
   })() : '';
   el.innerHTML = `
@@ -1636,15 +1648,20 @@ async function dumpMessage(e) {
     const fields = [['timestamp', msg.timestamp || msg.created_at], ['stored at', msg.created_at],
                     ['direction', msg.direction], ['contact', msg.contact],
                     ['content type', msg.content_type], ['state', msg.state],
-                    ['disposition', (msg.disposition || []).join(', ') || null],
-                    ['metadata', msg.metadata || null]];
+                    ['disposition', (msg.disposition || []).join(', ') || null]];
     const rows = fields.filter(f => f[1]).map(f => `<tr style="cursor:default;border:0">
         <td style="padding:3px 18px 3px 0;font-size:13px;color:#475569;white-space:nowrap">${f[0]}</td>
         <td class="mono" style="padding:3px 0;font-size:13px;word-break:break-all">${esc(f[1])}</td>
       </tr>`).join('');
+    // metadata is shown here, in the full message body, rather than as a
+    // column in the day list — it is a JSON blob, too wide to tabulate.
+    // Pretty-printed when it parses, verbatim when it does not.
+    const metaBlock = msg.metadata ? `
+      <div style="font-size:12px;color:#64748b;margin-top:10px">metadata</div>
+      <pre style="font-size:12px;line-height:1.5;background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:12px;overflow:auto;margin:6px 0 0;white-space:pre-wrap;word-break:break-word">${esc(prettyJson(msg.metadata))}</pre>` : '';
     return `
     <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:14px">
-      <table style="width:auto"><tbody>${rows}</tbody></table>
+      <table style="width:auto"><tbody>${rows}</tbody></table>${metaBlock}
       <div style="font-size:12px;color:#64748b;margin-top:10px">content</div>
       <pre style="font-size:12px;line-height:1.5;background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:12px;overflow:auto;margin:6px 0 0;white-space:pre-wrap;word-break:break-word">${esc(msg.content || '')}</pre>
     </div>`;
@@ -3463,7 +3480,7 @@ class AdminWebHandler(object, metaclass=Singleton):
         'meeting_accept', 'meeting_reject', 'meeting_end'))
 
     @classmethod
-    def _related_action(cls, content, content_type):
+    def _related_action(cls, content, content_type, metadata=None):
         """related_action label derived from the CLEARTEXT envelope only.
 
         Live-location ticks migrated to the application/sylk-location-sharing
@@ -3478,6 +3495,11 @@ class AdminWebHandler(object, metaclass=Singleton):
           * location_request / location_stop
           * meeting_accept / meeting_reject / meeting_end
 
+        Where that envelope lives depends on the payload version — the
+        message body up to version 1, the metadata column from version 2 on —
+        so it is read through location_envelope, which handles both (see
+        .location).
+
         A row without a recognised explicit action falls back to the legacy
         one_shot / metadataId heuristics (one_shot -> 'location_once', a
         metadataId pointer -> 'location_update', else the origin 'location').
@@ -3486,14 +3508,9 @@ class AdminWebHandler(object, metaclass=Singleton):
         same vocabulary via _metadata_action. Returns None for everything
         else (plain chat, receipts, files, ...).
         """
-        if content_type == 'application/sylk-location-sharing':
-            if isinstance(content, (bytes, bytearray)):
-                content = content.decode('utf-8', 'ignore')
-            try:
-                data = json.loads((content or '').strip())
-            except (ValueError, TypeError):
-                return 'location'
-            if not isinstance(data, dict):
+        if content_type == LOCATION_CONTENT_TYPE:
+            data = location_envelope(content_type, content, metadata)
+            if not data:
                 return 'location'
             action = data.get('action')
             if action in cls._LOCATION_ACTIONS:
@@ -3512,23 +3529,14 @@ class AdminWebHandler(object, metaclass=Singleton):
         return None
 
     @classmethod
-    def _location_session_id(cls, content, content_type):
+    def _location_session_id(cls, content, content_type, metadata=None):
         """The cleartext sessionId that groups every tick of one live-location
         / meet session — the origin and all its update ticks carry it, so the
-        admin UI can nest the updates under their origin. Parsed straight from
-        the sylk-location-sharing envelope; None for a one-shot (which omits
-        sessionId) or any non-location row."""
-        if content_type != 'application/sylk-location-sharing':
-            return None
-        if isinstance(content, (bytes, bytearray)):
-            content = content.decode('utf-8', 'ignore')
-        try:
-            data = json.loads((content or '').strip())
-        except (ValueError, TypeError):
-            return None
-        if not isinstance(data, dict):
-            return None
-        return data.get('sessionId') or None
+        admin UI can nest the updates under their origin. Read from the
+        sylk-location-sharing envelope — the metadata column for a version 2
+        payload, the message body for version 1; None for a one-shot (which
+        omits sessionId) or any non-location row."""
+        return location_session_id(content_type, content, metadata)
 
     @classmethod
     def _mark_location_updates(cls, day_messages):
@@ -3629,9 +3637,10 @@ class AdminWebHandler(object, metaclass=Singleton):
                 _raw_content = get(message, 'content')
                 if isinstance(_raw_content, (bytes, bytearray)):
                     _raw_content = _raw_content.decode('utf-8', 'ignore')
+                _raw_metadata = cls._as_text(get(message, 'metadata'))
                 action, encrypted, metadata_id = cls._metadata_action(
                     _raw_content, content_type)
-                related = cls._related_action(_raw_content, content_type)
+                related = cls._related_action(_raw_content, content_type, _raw_metadata)
                 row = {'message_id': get(message, 'message_id') or '',
                        'created_at': created[:19],
                        'timestamp': msg_ts[:19] or None,
@@ -3642,13 +3651,13 @@ class AdminWebHandler(object, metaclass=Singleton):
                        'disposition': list(get(message, 'disposition') or []),
                        'action': action,
                        'related_action': related,
-                       'metadata': cls._as_text(get(message, 'metadata')),
-                       'session': cls._location_session_id(_raw_content, content_type),
+                       'metadata': _raw_metadata,
+                       'session': cls._location_session_id(_raw_content, content_type, _raw_metadata),
                        'content': _raw_content,
                        'encrypted': encrypted}
                 # Mark location/meet UPDATE ticks so the post-sort pass keeps
                 # only the origins and drops the follow-up update ticks.
-                if content_type == 'application/sylk-location-sharing':
+                if content_type == LOCATION_CONTENT_TYPE:
                     # Explicit cleartext action — classify the tick exactly
                     # (both live-location and meet trails), no time-gap
                     # guessing needed for this payload model.

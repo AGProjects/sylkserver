@@ -31,6 +31,7 @@ from sylk.web import server
 from . import push
 from .configuration import GeneralConfig
 from .datatypes import FileTransferData
+from .location import LOCATION_CONTENT_TYPE, location_envelope
 from .logger import log
 from .metadata import metadata_from_cpim_headers
 from .models import sylkrtc
@@ -479,12 +480,16 @@ class MessageHandler(object):
                 push.message(originator=self.parsed_message.sender, destination=account.account, badge=1, call_id=self.parsed_message.message_id, message=self.parsed_message)
                 return
 
-            if self.parsed_message.content_type == 'application/sylk-location-sharing':
-                try:
-                    _loc = json.loads(self.parsed_message.content)
-                except (ValueError, TypeError):
-                    _loc = None
-                if isinstance(_loc, dict):
+            if self.parsed_message.content_type == LOCATION_CONTENT_TYPE:
+                # Which ticks warrant a push is decided from the cleartext
+                # lifecycle envelope. Where that envelope lives depends on the
+                # payload version -- the message body up to version 1, the
+                # metadata column from version 2 on -- so read it through
+                # location_envelope, which handles both (see .location).
+                _loc = location_envelope(self.parsed_message.content_type,
+                                         self.parsed_message.content,
+                                         self.parsed_message.metadata)
+                if _loc:
                     _action = _loc.get('action')
                     _reason = _loc.get('reason')
                     _start = ('location_once', 'location_start')
@@ -493,8 +498,14 @@ class MessageHandler(object):
                     _suppress = (_action in _stop and _reason == 'expired')
                     if (_action in _start or _action in _handshake or _action in _stop) and not _suppress:
                         push.message(originator=self.parsed_message.sender, destination=account.account, badge=1, call_id=self.parsed_message.message_id, message=self.parsed_message)
+                else:
+                    # No readable envelope on either side: a version 2 tick
+                    # whose metadata went missing, or a body we cannot parse.
+                    # It cannot be classified, so it gets no push -- worth a
+                    # line while clients are rolling over to version 2.
+                    log.warning('no readable location envelope on message {message_id} for account {account} from {originator.uri} — no push sent'.format(message_id=self.parsed_message.message_id, account=account.account, originator=self.parsed_message.sender))
                 return
-                                 
+
             if self.parsed_message.content_type in ('text/plain', 'text/html', 'application/sylk-file-transfer'):
                 def get_unread_messages(messages, originator):
                     unread = 1
