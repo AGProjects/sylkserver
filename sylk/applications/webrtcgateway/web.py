@@ -587,7 +587,38 @@ function showLogin(configured) {
 
 const VIEWS = ['accounts', 'endpoints', 'sessions', 'conferences', 'messages', 'media'];
 const DEFAULT_VIEW = VIEWS[0];
-let currentView = VIEWS.includes(location.hash.slice(1)) ? location.hash.slice(1) : DEFAULT_VIEW;
+
+// The hash may carry query parameters after the view name, as in
+// '#messages?account=alice@example.com&id=<message-id>' (the public
+// single-message share link). Split it into the view and its params.
+function parseHash() {
+  const raw = location.hash.replace(/^#/, '');
+  const q = raw.indexOf('?');
+  const view = q === -1 ? raw : raw.slice(0, q);
+  let params;
+  try { params = new URLSearchParams(q === -1 ? '' : raw.slice(q + 1)); }
+  catch (e) { params = new URLSearchParams(''); }
+  return { view: view, params: params };
+}
+
+// A share link is '#messages' plus both an account and a message id.
+function sharedMessageTarget() {
+  const { view, params } = parseHash();
+  if (view !== 'messages') return null;
+  const account = (params.get('account') || '').trim();
+  const id = (params.get('id') || '').trim();
+  return account && id ? { account: account, id: id } : null;
+}
+
+// Build the public URL for one message — same page, '#messages' with the
+// account and message id as hash parameters.
+function shareUrlFor(account, id) {
+  return location.origin + location.pathname + location.search +
+         '#messages?account=' + encodeURIComponent(account) +
+         '&id=' + encodeURIComponent(id);
+}
+
+let currentView = VIEWS.includes(parseHash().view) ? parseHash().view : DEFAULT_VIEW;
 
 function switchView(v) {
   if (VIEWS.indexOf(v) === -1) v = DEFAULT_VIEW;
@@ -1644,28 +1675,157 @@ async function dumpMessage(e) {
     el.innerHTML = `<div class="empty" style="padding:18px">No message with id <span class="mono">${esc(j.message_id)}</span> for ${esc(j.account)}.</div>`;
     return false;
   }
-  el.innerHTML = (j.messages || []).map(msg => {
-    const fields = [['timestamp', msg.timestamp || msg.created_at], ['stored at', msg.created_at],
-                    ['direction', msg.direction], ['contact', msg.contact],
-                    ['content type', msg.content_type], ['state', msg.state],
-                    ['disposition', (msg.disposition || []).join(', ') || null]];
-    const rows = fields.filter(f => f[1]).map(f => `<tr style="cursor:default;border:0">
-        <td style="padding:3px 18px 3px 0;font-size:13px;color:#475569;white-space:nowrap">${f[0]}</td>
-        <td class="mono" style="padding:3px 0;font-size:13px;word-break:break-all">${esc(f[1])}</td>
-      </tr>`).join('');
-    // metadata is shown here, in the full message body, rather than as a
-    // column in the day list — it is a JSON blob, too wide to tabulate.
-    // Pretty-printed when it parses, verbatim when it does not.
-    const metaBlock = msg.metadata ? `
-      <div style="font-size:12px;color:#64748b;margin-top:10px">metadata</div>
-      <pre style="font-size:12px;line-height:1.5;background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:12px;overflow:auto;margin:6px 0 0;white-space:pre-wrap;word-break:break-word">${esc(prettyJson(msg.metadata))}</pre>` : '';
-    return `
+  el.innerHTML = shareLinkBoxHtml(j.account, j.message_id) +
+    (j.messages || []).map(msg => messageCardHtml(msg, j)).join('') +
+    (j.scanned ? '<div class="hint" style="padding:8px 0 0">found via account partition scan (id mapping expired)</div>' : '');
+  return false;
+}
+
+// One full message: the header fields, the metadata blob and the raw
+// content. Shared by the admin dump box and the public share view, so
+// both always show exactly the same thing.
+function messageCardHtml(msg, j) {
+  j = j || {};
+  const fields = [['timestamp', msg.timestamp || msg.created_at], ['stored at', msg.created_at],
+                  ['account', j.account], ['direction', msg.direction], ['contact', msg.contact],
+                  ['content type', msg.content_type], ['state', msg.state],
+                  ['disposition', (msg.disposition || []).join(', ') || null],
+                  ['message id', j.message_id]];
+  const rows = fields.filter(f => f[1]).map(f => `<tr style="cursor:default;border:0">
+      <td style="padding:3px 18px 3px 0;font-size:13px;color:#475569;white-space:nowrap">${f[0]}</td>
+      <td class="mono" style="padding:3px 0;font-size:13px;word-break:break-all">${esc(f[1])}</td>
+    </tr>`).join('');
+  // metadata is shown here, in the full message body, rather than as a
+  // column in the day list — it is a JSON blob, too wide to tabulate.
+  // Pretty-printed when it parses, verbatim when it does not.
+  const metaBlock = msg.metadata ? `
+    <div style="font-size:12px;color:#64748b;margin-top:10px">metadata</div>
+    <pre style="font-size:12px;line-height:1.5;background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:12px;overflow:auto;margin:6px 0 0;white-space:pre-wrap;word-break:break-word">${esc(prettyJson(msg.metadata))}</pre>` : '';
+  const body = contentBlock(msg.content);
+  return `
+  <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:14px">
+    <table style="width:auto"><tbody>${rows}</tbody></table>${metaBlock}
+    <div style="font-size:12px;color:#64748b;margin-top:10px">${body.label}</div>
+    <pre style="font-size:12px;line-height:1.5;background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:12px;overflow:auto;margin:6px 0 0;white-space:pre-wrap;word-break:break-word">${esc(body.text)}</pre>
+  </div>`;
+}
+
+// Message content is often a JSON payload (location shares, meet
+// invitations, file-transfer descriptors, ...). Pretty-print it when it
+// really parses as a JSON object or array, and say so in the label so it
+// is clear the view is formatted rather than raw. Everything else — plain
+// text, PGP blobs, bare numbers — is shown exactly as stored.
+function contentBlock(content) {
+  const text = content == null ? '' : String(content);
+  if (text.trim()) {
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed && typeof parsed === 'object')
+        return { label: 'content (JSON)', text: JSON.stringify(parsed, null, 2) };
+    } catch (e) {}
+  }
+  return { label: 'content', text: text };
+}
+
+// The public-link controls shown above a dumped message in the admin UI.
+// The URL itself is not displayed — it is long and noisy — it lives in an
+// off-screen field that the copy fallback can still select.
+function shareLinkBoxHtml(account, id) {
+  if (!account || !id) return '';
+  const url = shareUrlFor(account, id);
+  return `
     <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:14px">
-      <table style="width:auto"><tbody>${rows}</tbody></table>${metaBlock}
-      <div style="font-size:12px;color:#64748b;margin-top:10px">content</div>
-      <pre style="font-size:12px;line-height:1.5;background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:12px;overflow:auto;margin:6px 0 0;white-space:pre-wrap;word-break:break-word">${esc(msg.content || '')}</pre>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button class="pbtn" type="button" onclick="copyShareUrl(this)" style="white-space:nowrap">Copy public link</button>
+        <a class="pbtn" href="${esc(url)}" target="_blank" rel="noopener" style="white-space:nowrap;text-decoration:none">Open</a>
+        <span style="font-size:12px;color:#64748b">anyone with the link can read this message without signing in</span>
+      </div>
+      <input id="shareUrl" readonly tabindex="-1" aria-hidden="true" value="${esc(url)}"
+             style="position:fixed;left:-9999px;top:0;width:320px;height:28px;opacity:0">
     </div>`;
-  }).join('') + (j.scanned ? '<div class="hint" style="padding:8px 0 0">found via account partition scan (id mapping expired)</div>' : '');
+}
+
+// Copy the share URL. navigator.clipboard needs a secure context (HTTPS or
+// localhost); over plain HTTP fall back to selecting the off-screen field
+// and letting execCommand do the copy.
+function copyShareUrl(btn) {
+  const input = $('shareUrl');
+  if (!input) return;
+  const done = () => {
+    toast('Public link copied to clipboard');
+    if (btn) {
+      const label = btn.textContent;
+      btn.textContent = 'Copied';
+      setTimeout(() => { btn.textContent = label; }, 1500);
+    }
+  };
+  const legacy = () => {
+    try {
+      input.select();
+      input.setSelectionRange(0, input.value.length);
+      if (document.execCommand('copy')) { done(); return; }
+    } catch (e) {}
+    toast('Could not copy the link automatically');
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(input.value).then(done, legacy);
+  } else {
+    legacy();
+  }
+}
+
+/* ---------- public single-message view ---------- */
+
+// Standalone page for '#messages?account=..&id=..'. Rendered instead of
+// the dashboard or the login form, whether or not the visitor is signed
+// in, so an admin sees exactly what the recipient of the link sees.
+async function showSharedMessage(target) {
+  stopLive();
+  $('app').innerHTML = `
+    <header class="topbar">
+      <span class="dot"></span>
+      <h1>SylkServer WebRTC Gateway — shared message</h1>
+      <span class="spacer"></span>
+    </header>
+    <main>
+      <div class="card" style="padding:20px" id="sharedBody">
+        <div class="empty" style="padding:24px">Loading message…</div>
+      </div>
+      <div class="hint" style="padding:14px 4px 0">
+        This is a read-only view of a single stored message, opened from a shared link.
+        <a href="#messages" onclick="return clearShare()" style="color:var(--accent)">Go to the admin portal</a>
+      </div>
+    </main>`;
+  const el = $('sharedBody');
+  let j = null;
+  try {
+    const r = await api('public/message?account=' + encodeURIComponent(target.account) +
+                        '&id=' + encodeURIComponent(target.id));
+    j = await r.json();
+  } catch (e) {}
+  if (!j) {
+    el.innerHTML = '<div class="err" style="padding:12px 4px">Could not load the message.</div>';
+    return;
+  }
+  if (j.error) {
+    el.innerHTML = `<div class="err" style="padding:12px 4px">${esc(j.error)}</div>`;
+    return;
+  }
+  if (!j.found || !(j.messages || []).length) {
+    el.innerHTML = `<div class="empty" style="padding:24px">
+        This message is no longer available.<br>
+        <span style="font-size:12px">It may have been deleted, or it expired — stored messages are kept for one year.</span>
+      </div>`;
+    return;
+  }
+  el.innerHTML = `<b style="font-size:15px">Message ${esc(j.message_id)}</b>` +
+                 j.messages.map(msg => messageCardHtml(msg, j)).join('');
+}
+
+// Leave the shared view and load the normal admin portal.
+function clearShare() {
+  try { history.replaceState(null, '', '#messages'); } catch (e) {}
+  boot();
   return false;
 }
 
@@ -2121,12 +2281,32 @@ async function logout() {
 }
 
 /* ---------- bootstrap ---------- */
+
+// account+id currently rendered by the public share view, so a hash
+// change can tell 'still the same shared message' from 'something else'.
+let shareKey = null;
+
 async function boot() {
+  // A share link wins over both the dashboard and the login form: the
+  // public message view needs no session at all.
+  const shared = sharedMessageTarget();
+  shareKey = shared ? shared.account + ' | ' + shared.id : null;
+  if (shared) { showSharedMessage(shared); return; }
   const r = await api('session');
   const j = await r.json().catch(() => ({ authenticated: false }));
   if (j.authenticated) showDashboard(j.username);
   else showLogin(j.login_configured !== false);
 }
+
+// Re-render when the hash is changed from outside the app (pasting a
+// share link into the address bar of an already open tab, Back/Forward).
+// switchView() uses replaceState, which does not fire this event.
+window.addEventListener('hashchange', () => {
+  const shared = sharedMessageTarget();
+  const key = shared ? shared.account + ' | ' + shared.id : null;
+  if (key !== shareKey) boot();
+});
+
 boot();
 </script>
 </body>
@@ -3960,12 +4140,60 @@ class AdminWebHandler(object, metaclass=Singleton):
     def dump_message(self, request, account, message_id):
         self._check_auth(request)
         request.setHeader('Content-Type', 'application/json')
+        return self._lookup_message(account, message_id)
+
+    # ------------------------------------------------------------------
+    # Public single-message view — deliberately NOT behind _check_auth so
+    # a message can be shared by URL (e.g. mailed to someone without an
+    # admin account). The link carries both the account and the message
+    # id; the message id is a UUID, so a link cannot be guessed, but
+    # anyone holding one can read that message in full. Only ever hand
+    # these out to people who are allowed to see the message.
+    # Served at  <admin>/public/message?account=<uri>&id=<message-id>
+    # and rendered by the '#messages?account=..&id=..' view of the UI.
+    # ------------------------------------------------------------------
+
+    @app.route('/public/message', methods=['GET'])
+    def public_message(self, request):
+        request.setHeader('Content-Type', 'application/json')
+        # no caching: the message may be deleted from the admin UI
+        request.setHeader('Cache-Control', 'no-store')
+
+        def arg(name):
+            values = request.args.get(name.encode(), [])
+            if not values:
+                return ''
+            value = values[0]
+            return value.decode('utf-8', 'replace') if isinstance(value, bytes) else value
+
+        account = arg('account').strip().lower()
+        message_id = arg('id').strip()
+        if not account or not message_id:
+            request.setResponseCode(400)
+            return json.dumps({'error': 'account and id are required'})
+        # This route is unauthenticated and the file backend derives a path
+        # from the account, so only accept something that looks like a SIP
+        # address: exactly one '@', and no path separators or dot segments.
+        if (account.count('@') != 1 or not all(account.partition('@'))
+                or any(c in account for c in '/\\') or '.' == account[0]
+                or '..' in account):
+            request.setResponseCode(400)
+            return json.dumps({'error': 'invalid account'})
+        log.info('[admin] public message view requested for {} (id={})'.format(
+            account, message_id))
+        return self._lookup_message(account, message_id, public=True)
+
+    def _lookup_message(self, account, message_id, public=False):
+        """Load one message by account + message id. Shared by the
+        authenticated dump endpoint and the public share view; `public`
+        only tags the result so the UI knows which view it is rendering."""
         account = account.strip().lower()
         message_id = message_id.strip()
         use_cassandra = CASSANDRA_MODULES_AVAILABLE and CassandraConfig.cluster_contact_points
 
         if not use_cassandra:
-            result = {'account': account, 'message_id': message_id, 'backend': 'file'}
+            result = {'account': account, 'message_id': message_id, 'backend': 'file',
+                      'public': public}
             messages = []
             try:
                 path = os.path.join(FileStorageConfig.storage_dir.normalized, 'conversations',
@@ -3987,7 +4215,8 @@ class AdminWebHandler(object, metaclass=Singleton):
         @run_in_thread('cassandra')
         def query_message():
             from .models.storage.cassandra import ChatMessage, ChatMessageIdMapping
-            result = {'account': account, 'message_id': message_id, 'backend': 'cassandra'}
+            result = {'account': account, 'message_id': message_id, 'backend': 'cassandra',
+                      'public': public}
             rows = []
             try:
                 mappings = list(ChatMessageIdMapping.objects(ChatMessageIdMapping.message_id == message_id))
