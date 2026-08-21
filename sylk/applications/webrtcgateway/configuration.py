@@ -8,7 +8,8 @@ from application.configuration.datatypes import (HostnameList, NetworkAddress,
 
 from sylk.configuration import ServerConfig
 from sylk.configuration.datatypes import (URL, Path, SIPProxyAddress,
-                                          VideoBitrate, VideoCodec)
+                                          TrustedPeerList, VideoBitrate,
+                                          VideoCodec)
 from sylk.resources import VarResources
 
 __all__ = 'GeneralConfig', 'JanusConfig', 'get_room_config', 'ExternalAuthConfig', 'get_auth_config', 'CassandraConfig'
@@ -205,6 +206,16 @@ class GeneralConfig(ConfigSection):
     # the conference uses for its own audio_level_log_period.
     audio_level_log_period = 5
     sylk_push_url = ConfigSetting(type=str, value=None)
+
+    # Push proxy: mirrors the push server's /v2/tokens/<account>/push API on
+    # the main web server under /webrtcgateway/push and relays to the push
+    # server named by sylk_push_url. See push_proxy.py.
+    sylk_push_proxy = False
+    sylk_push_proxy_secret = ConfigSetting(type=str, value=None)
+    # Source address ACL, same syntax as [SIP] trusted_peers including the
+    # 'thor_network' keyword. Required unless sylk_push_proxy_secret is set.
+    sylk_push_proxy_allowed_ips = ConfigSetting(type=TrustedPeerList, value=TrustedPeerList('none'))
+    sylk_push_proxy_timeout = 10
     xcap_url = ConfigSetting(type=URL, value='')
     local_sip_messages = False
     filetransfer_expire_days = 15

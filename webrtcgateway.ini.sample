@@ -61,6 +61,52 @@
 ; Sylk-push URL to send conference push notification
 ; sylk_push_url =
 
+; ---------------------------------------------------------------------------
+; Push proxy
+; ---------------------------------------------------------------------------
+; Mirrors the push server's API on the main web server, so that clients which
+; would otherwise talk to the push server directly go through SylkServer:
+;
+;     POST   /webrtcgateway/push/v2/tokens/<account>/push
+;     POST   /webrtcgateway/push/v2/tokens/<account>/push/<device_id>
+;     POST   /webrtcgateway/push/v2/tokens/<account>              (add token)
+;     DELETE /webrtcgateway/push/v2/tokens/<account>              (remove token)
+;
+; Requests are relayed to the push server named by sylk_push_url above (only
+; its scheme://host:port is used). The body is forwarded unmodified and the
+; caller is acknowledged with 202 before the forward completes, so a slow or
+; unreachable push server cannot delay the caller. The push server's response
+; is logged, not relayed.
+;
+; A client needs only its base push URL changed to
+; https://example.com/webrtcgateway/push, or to
+; https://example.com/webrtcgateway/push/auth/YOUR_SECRET when it cannot send
+; the shared secret in a header.
+;
+; sylk_push_proxy = True
+
+; Shared secret the caller must present, in an X-Sylk-Push-Auth header, an
+; Authorization header, or in the URL under /push/auth/<secret>/
+; sylk_push_proxy_secret =
+
+; Source address ACL. Same syntax as [SIP] trusted_peers in config.ini: comma
+; separated IPv4 addresses or CIDR networks, plus the keywords 'any'/'none'
+; and 'thor_network'. With 'thor_network' a request is accepted when its
+; source address belongs to a node currently in the Thor network; it requires
+; [ThorNetwork] enabled in config.ini and can be combined with explicit
+; ranges, which always apply:
+;
+;     sylk_push_proxy_allowed_ips = thor_network
+;     sylk_push_proxy_allowed_ips = thor_network, 10.0.0.0/8
+;
+; When both this and sylk_push_proxy_secret are set, both must match. At least
+; one of the two must be set: the route is served by the public web server, so
+; the proxy refuses to run unauthenticated.
+; sylk_push_proxy_allowed_ips = 127.0.0.1, 10.0.0.0/8
+
+; Connect/response timeout in seconds when forwarding to the push server
+; sylk_push_proxy_timeout = 10
+
 ; XCAP URL to manage addressbooks
 ; xcap_url =
 

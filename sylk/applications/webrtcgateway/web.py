@@ -44,6 +44,7 @@ from .logger import log
 from .metrics import Metrics
 from .models import sylkrtc
 from .protocol import SYLK_WS_PROTOCOL
+from .push_proxy import PushProxy
 from .sip_handlers import MessageHandler
 from .storage import CASSANDRA_MODULES_AVAILABLE, MessageStorage, TokenStorage
 
@@ -352,6 +353,37 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
         else:
             return self.verify_api_token(request, account, msg_id, token)
 
+    # Push proxy: mirrors the push server's API and relays to it. POST/DELETE
+    # on /v2/tokens/<account> add and remove a device token. The
+    # /push/auth/<secret>/ variant carries the shared secret in the URL for
+    # clients that cannot set headers. See push_proxy.py.
+
+    @app.route('/push/v2/tokens/<string:account>/push', methods=['POST'])
+    @app.route('/push/v2/tokens/<string:account>/push/<string:device_id>', methods=['POST'])
+    def push_proxy(self, request, account, device_id=None):
+        return self._push_proxy_response(request, account, device_id, None)
+
+    @app.route('/push/v2/tokens/<string:account>', methods=['POST', 'DELETE'])
+    def push_proxy_token(self, request, account):
+        return self._push_proxy_response(request, account, None, None, token_request=True)
+
+    @app.route('/push/auth/<string:secret>/v2/tokens/<string:account>/push', methods=['POST'])
+    @app.route('/push/auth/<string:secret>/v2/tokens/<string:account>/push/<string:device_id>', methods=['POST'])
+    def push_proxy_with_secret(self, request, secret, account, device_id=None):
+        return self._push_proxy_response(request, account, device_id, secret)
+
+    @app.route('/push/auth/<string:secret>/v2/tokens/<string:account>', methods=['POST', 'DELETE'])
+    def push_proxy_token_with_secret(self, request, secret, account):
+        return self._push_proxy_response(request, account, None, secret, token_request=True)
+
+    @staticmethod
+    def _push_proxy_response(request, account, device_id, secret, token_request=False):
+        request.setHeader('Content-Type', 'application/json')
+        code, body = PushProxy().handle(request, account, device_id, path_secret=secret,
+                                        token_request=token_request)
+        request.setResponseCode(code)
+        return json.dumps(body)
+
 
 class WebHandler(object):
     def __init__(self):
@@ -372,6 +404,17 @@ class WebHandler(object):
         server.register_resource(b'webrtcgateway', self.web.resource)
 
         log.info('WebSocket handler started at %s' % ws_url)
+
+        push_proxy = PushProxy()
+        push_proxy.start()
+        if push_proxy.enabled:
+            error = push_proxy.configuration_error()
+            if error is None:
+                log.info('Push proxy started at %s/webrtcgateway/push, relaying to %s' %
+                         (server.url, push_proxy.base_url))
+            else:
+                log.error('Push proxy enabled but not usable: %s' % error)
+
         log.info('Allowed web origins: %s' % ', '.join(GeneralConfig.web_origins))
         log.info('Allowed SIP domains: %s' % ', '.join(GeneralConfig.sip_domains))
         log.info('Using Janus API: %s' % JanusConfig.api_url)
@@ -389,6 +432,7 @@ class WebHandler(object):
         if self.backend is not None:
             self.backend.stop()
             self.backend = None
+        PushProxy().stop()
         Metrics().stop()
 
 
