@@ -4,6 +4,8 @@ import logging
 import os
 import re
 
+from datetime import datetime
+
 from abc import ABCMeta, abstractproperty
 from application import log
 from application.notification import IObserver, NotificationCenter
@@ -351,3 +353,27 @@ def _format_strip_sip_scheme(self, record):
     return formatted
 
 log.Formatter.format = _format_strip_sip_scheme
+
+
+# Syslog and the journal stamp each entry themselves, so the default formatter
+# emits none. Running in the foreground there is nothing to add one.
+
+_TIMESTAMP_FORMAT = '%Y-%m-%d %H:%M:%S.%f'
+_TIMESTAMP_LENGTH = 24  # 'YYYY-MM-DD HH:MM:SS.mmm '
+
+_base_record_factory = logging.getLogRecordFactory()
+
+
+def _record_with_timestamp(*args, **kw):
+    record = _base_record_factory(*args, **kw)
+    record.timestamp = datetime.fromtimestamp(record.created).strftime(_TIMESTAMP_FORMAT)[:-3]
+    return record
+
+
+def enable_timestamps():
+    """Prefix log lines with a timestamp. Idempotent."""
+    if '{record.timestamp}' in log.Formatter.prefix_format:
+        return
+    logging.setLogRecordFactory(_record_with_timestamp)
+    log.Formatter.prefix_format = '{record.timestamp} ' + log.Formatter.prefix_format
+    log.Formatter.prefix_length += _TIMESTAMP_LENGTH

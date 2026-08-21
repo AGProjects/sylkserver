@@ -77,6 +77,10 @@ if __name__ == '__main__':
     from sylk.server import SylkServer, ServerConfig
     from sipsimple.core import CORE_BUILD, PJ_VERSION, PJ_SVN_REVISION
 
+    if not options.systemd and not options.fork:
+        from sylk.log import enable_timestamps
+        enable_timestamps()
+
     pj_version = PJ_VERSION.decode() if isinstance(PJ_VERSION, bytes) else PJ_VERSION
     log.info('Starting {name} {sylk.__version__}, using SIP SIMPLE SDK {sipsimple.__version__} (core build {core_build}, PJSIP {pj_version} rev {pj_rev})'.format(name=fullname, sylk=sylk, sipsimple=sipsimple, core_build=CORE_BUILD, pj_version=pj_version, pj_rev=PJ_SVN_REVISION))
 
