@@ -173,6 +173,24 @@ class AccountInfo(object):
             self.incoming_header_prefixes = incoming_header_prefixes.__data__
         self.auth_handle = None
         self.auth_state = False
+        # Registration retry throttling. A client that re-sends
+        # 'account-register' the instant it receives a
+        # AccountRegistrationFailedEvent (older Sylk/Blink builds do exactly
+        # that) would otherwise hammer the SIP proxy at network RTT — during
+        # a proxy restart every registered account turns into a hot loop of
+        # 503s, each one costing a Janus plugin handle detach/attach plus a
+        # Thor/DNS lookup here. These fields let the gateway enforce its own
+        # minimum interval between REGISTER attempts per account,
+        # independently of how well-behaved the client is.
+        self.registration_failure_count = 0
+        self.last_register_time = 0       # time.monotonic() of the last attempt actually sent to janus
+        self.register_retry_timer = None  # IDelayedCall for a coalesced, deferred attempt
+
+    def cancel_register_retry(self):
+        if self.register_retry_timer is not None:
+            if self.register_retry_timer.active():
+                self.register_retry_timer.cancel()
+            self.register_retry_timer = None
 
     @property
     def uri(self):
@@ -1325,6 +1343,11 @@ class ConnectionHandler(object):
 
     janus = JanusBackend()
 
+    # Minimum seconds between REGISTER attempts for one account, indexed by
+    # the number of consecutive registration failures (last entry = ceiling).
+    # See _schedule_account_register.
+    registration_backoff_intervals = (0, 2, 4, 8, 16, 32, 60, 120)
+
     def __init__(self, protocol):
         self.protocol = protocol
         self.device_id = base64.b64encode(hashlib.md5(protocol.peer.encode('utf-8')).digest()).rstrip(b'=\n').decode('utf-8')
@@ -1389,6 +1412,7 @@ class ConnectionHandler(object):
             # Because we do not want to wait for them, we will rely instead on the fact that janus automatically detaches the plugin handles
             # when it destroys a session, so we only remove our event handlers and issue a destroy request for the session.
             for account_info in list(self.accounts_map.values()):
+                account_info.cancel_register_retry()
                 if account_info.janus_handle is not None:
                     self.janus.set_event_handler(account_info.janus_handle.id, None)
                     for helper in account_info.janus_helpers:
@@ -1915,6 +1939,8 @@ class ConnectionHandler(object):
         except KeyError:
             raise APIError('Unknown account specified for remove: {request.account}'.format(request=request))
 
+        account_info.cancel_register_retry()
+
         # cleanup in case the client didn't unregister before removing the account
         if account_info.janus_handle is not None:
             account_info.janus_handle.detach()
@@ -1943,7 +1969,67 @@ class ConnectionHandler(object):
         except KeyError:
             raise APIError('Unknown account specified for register: {request.account}'.format(request=request))
 
-        proxy = self._lookup_sip_proxy(request.account)
+        self._schedule_account_register(account_info)
+
+    def _registration_retry_delay(self, account_info):
+        # Minimum interval before the next REGISTER attempt for this account,
+        # derived from the number of consecutive registration failures. The
+        # last entry is the ceiling. +/-25% of jitter is applied so a fleet of
+        # clients that all lost their registration at the same instant (a SIP
+        # proxy restart) does not come back in lockstep and re-create the
+        # very stampede the proxy just recovered from.
+        intervals = self.registration_backoff_intervals
+        interval = intervals[min(account_info.registration_failure_count, len(intervals) - 1)]
+        if interval == 0:
+            return 0
+        return interval * random.uniform(0.75, 1.25)
+
+    def _schedule_account_register(self, account_info):
+        # Enforce the backoff window before touching janus or the SIP proxy.
+        # Clients are expected to back off themselves, but the gateway cannot
+        # rely on that: older builds re-send 'account-register' the moment
+        # they see a AccountRegistrationFailedEvent, which during a proxy
+        # outage becomes a hot loop at network RTT, each iteration costing a
+        # Janus plugin handle detach+attach and a Thor/DNS lookup. Requests
+        # arriving inside the window are coalesced into the single pending
+        # attempt rather than executed or queued individually.
+        if account_info.register_retry_timer is not None and account_info.register_retry_timer.active():
+            self.log.debug('register request coalesced, an attempt is already scheduled in {delay:.1f}s'.format(
+                delay=account_info.register_retry_timer.getTime() - reactor.seconds()))
+            return
+
+        account_info.cancel_register_retry()
+
+        remaining = self._registration_retry_delay(account_info) - (time.monotonic() - account_info.last_register_time)
+        if remaining <= 0:
+            self._register_account(account_info)
+            return
+
+        self.log.info('registration retry throttled after {count} failures, next attempt in {delay:.1f}s'.format(
+            count=account_info.registration_failure_count, delay=remaining))
+        account_info.register_retry_timer = reactor.callLater(remaining, call_in_green_thread,
+                                                              self._deferred_account_register, account_info)
+
+    def _deferred_account_register(self, account_info):
+        account_info.register_retry_timer = None
+        if self.state != 'started':
+            return
+        if self.accounts_map.get(account_info.id) is not account_info:
+            return  # the account was removed (or replaced) while we were waiting
+        try:
+            self._register_account(account_info)
+        except (APIError, DNSLookupError, JanusError) as e:
+            account_info.registration_failure_count += 1
+            self.log.warning('deferred registration attempt failed: {exception!s}'.format(exception=e))
+        except Exception as e:
+            account_info.registration_failure_count += 1
+            self.log.exception('deferred registration attempt failed: {exception!s}'.format(exception=e))
+
+    def _register_account(self, account_info):
+        # should only be called from a green thread (_lookup_sip_proxy blocks)
+        proxy = self._lookup_sip_proxy(account_info.id)
+
+        account_info.last_register_time = time.monotonic()
 
         if account_info.janus_handle is not None:
             # Destroy the existing plugin handle
@@ -1971,6 +2057,12 @@ class ConnectionHandler(object):
             account_info = self.accounts_map[request.account]
         except KeyError:
             raise APIError('Unknown account specified for unregister: {request.account}'.format(request=request))
+
+        # An explicit unregister ends any pending retry and clears the backoff
+        # history, so a subsequent user-driven register is attempted at once.
+        account_info.cancel_register_retry()
+        account_info.registration_failure_count = 0
+        account_info.last_register_time = 0
 
         if account_info.janus_handle is not None:
             account_info.janus_handle.detach()
@@ -3263,6 +3355,10 @@ class ConnectionHandler(object):
         if account_info.registration_state != 'registered':
             account_info.registration_state = 'registered'
             account_info.auth_state = True
+            # Registration recovered — forget the backoff history so the next
+            # failure starts from the short end of the schedule again.
+            account_info.registration_failure_count = 0
+            account_info.cancel_register_retry()
             Metrics().increment('registrations')
             Metrics().mark('accounts', account_info.id)
 
@@ -3289,9 +3385,14 @@ class ConnectionHandler(object):
             return
         if account_info.registration_state != 'failed':
             account_info.registration_state = 'failed'
+            # Grows the backoff window applied to the next attempt, whether
+            # that attempt comes from the client re-registering or from a
+            # retry we scheduled ourselves.
+            account_info.registration_failure_count += 1
             reason = '{result.code} {result.reason}'.format(result=event.plugindata.data.result)
             self.send(sylkrtc.AccountRegistrationFailedEvent(account=account_info.id, reason=reason))
-            self.log.info('registration failed: {reason}'.format(reason=reason))
+            self.log.info('registration failed: {reason} (attempt {count})'.format(
+                reason=reason, count=account_info.registration_failure_count))
 
     def _EH_janus_sip_event_incomingcall(self, event):
         # Janus re-emits 'incomingcall' for in-dialog re-INVITEs in
