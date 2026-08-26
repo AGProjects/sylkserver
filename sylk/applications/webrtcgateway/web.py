@@ -159,7 +159,10 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
         # interrupted download even though twisted.web.static.File serves
         # byte ranges just fine. Attachments run to hundreds of megabytes;
         # restarting one from zero on every blip is not viable.
-        request.setHeader('Access-Control-Allow-Headers', 'content-type, range')
+        # 'authorization' rides along with them: an upload from a client
+        # with no WebSocket session here carries an Apikey header, and a
+        # cross-origin one cannot send it unless preflight allows it.
+        request.setHeader('Access-Control-Allow-Headers', 'content-type, range, authorization')
         request.setHeader('Access-Control-Expose-Headers', 'content-range, accept-ranges, content-length')
         method = request.method.upper().decode()
 
@@ -172,8 +175,6 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
             ip = request.getClientIP()
             connection_handlers = [connection.connection_handler for connection in self._ws_factory.connections if connection.peer.split(":")[1] == ip]
             sender_connection = next((connection_handler for connection_handler in connection_handlers if sender in connection_handler.accounts_map), False)
-            if not sender_connection:
-                raise Forbidden
 
             # TODO: Form support to support extra metadata?
 
@@ -182,15 +183,35 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
             transfer_data = FileTransferData(filename, filesize, filetype, transfer_id, sender, receiver, content=request.content)
 
             message_storage = MessageStorage()
-            account = defer.maybeDeferred(message_storage.get_account, receiver)
-            account.addCallback(lambda result: self._check_receiver(result))
 
-            sender_account = defer.maybeDeferred(message_storage.get_account, sender)
-            sender_account.addCallback(lambda result: self._check_sender(result, transfer_data))
+            def lookup_accounts(result=None):
+                account = defer.maybeDeferred(message_storage.get_account, receiver)
+                account.addCallback(lambda result: self._check_receiver(result))
 
-            d1 = defer.DeferredList([account, sender_account], consumeErrors=True)
-            d1.addCallback(lambda result: self._handle_lookup_result(result, transfer_data, sender_connection))
-            return d1
+                sender_account = defer.maybeDeferred(message_storage.get_account, sender)
+                sender_account.addCallback(lambda result: self._check_sender(result, transfer_data))
+
+                d1 = defer.DeferredList([account, sender_account], consumeErrors=True)
+                d1.addCallback(lambda result: self._handle_lookup_result(result, transfer_data, sender_connection))
+                return d1
+
+            if sender_connection:
+                # A WebSocket session from this address already speaks for
+                # the sender, which is how every browser and mobile client
+                # gets here.
+                return lookup_accounts()
+
+            # Nothing here does. A SIP-only client -- Blink -- never opens a
+            # WebSocket to this gateway at all, so before this it could not
+            # upload anything: every POST it made was refused, whatever the
+            # account. It holds the same API token the message history
+            # endpoint issues it over SIP, so let it present that instead.
+            # The token proves the account; the WebSocket only ever did the
+            # same job, and _accept_upload does not use the connection.
+            token = defer.maybeDeferred(message_storage.get_account_token, sender)
+            token.addCallback(lambda result: self._check_upload_token(request, sender, result))
+            token.addCallback(lookup_accounts)
+            return token
         elif method == 'GET':
             folder = safe_join(GeneralConfig.file_transfer_dir.normalized, sender[:1], sender, receiver, transfer_id)
             if not folder:
@@ -233,6 +254,36 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
             return f"Cancelled upload {transfer_id}\n"
         else:
             return f"No active upload with transfer_id {transfer_id}\n"
+
+    def _check_upload_token(self, request, account, token=None):
+        """Authorise an upload by the account's API token.
+
+        The same credential and the same header the message history
+        endpoint takes -- 'Authorization: Apikey <token>' -- because it is
+        the same token: issued over SIP as application/sylk-api-token and
+        stored with add_account_token, which is what get_account_token
+        reads back here.
+        """
+        if not token:
+            log.warning(f'No API token stored for {account}, cannot authorise the file upload')
+            raise ApiTokenAuthError()
+
+        auth_headers = request.requestHeaders.getRawHeaders('Authorization', default=None)
+        if not auth_headers:
+            log.warning(f'File upload from {account} has no WebSocket session here and no Authorization header')
+            raise ApiTokenAuthError()
+        try:
+            method, auth_token = auth_headers[0].split()
+        except ValueError:
+            log.warning(f'Authorization header is not correct for a file upload from {account}, it should be in the format: Apikey [TOKEN]')
+            raise ApiTokenAuthError()
+        # compare_digest rather than !=: this is a secret being checked
+        # against one an unauthenticated caller supplies, and == leaks its
+        # length and its matching prefix through timing.
+        if method != 'Apikey' or not hmac.compare_digest(auth_token, token):
+            log.warning(f'Token authentication error for a file upload from {account}')
+            raise ApiTokenAuthError()
+        log.info(f'File upload from {account} authorised by API token')
 
     def _check_receiver(self, account):
         if account is None:
