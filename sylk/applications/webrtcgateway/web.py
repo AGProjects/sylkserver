@@ -382,7 +382,10 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
         log.debug(f'Returning message history for {account}')
         account = account.lower()
         storage = MessageStorage()
-        messages = storage[[account, msg_id]]
+        since = request.args.get(b'since', [None])[0]
+        if since is not None:
+            since = since.decode() if isinstance(since, bytes) else since
+        messages = storage[[account, msg_id, since]]
         request.setHeader('Content-Type', 'application/json')
         if isinstance(messages, defer.Deferred):
             return messages.addCallback(lambda result:
