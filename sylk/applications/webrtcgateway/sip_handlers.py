@@ -281,6 +281,13 @@ class MessageHandler(object):
 
             content = sylkrtc.AccountConversationRemoveEventData(contact=contact, timestamp=timestamp)
 
+            # Same as the websocket request (_RH_account_remove_conversation):
+            # the stored conversation goes, and only the remove marker below
+            # is kept for the journal. Without this a SIP client's removal was
+            # relayed but the messages stayed on the server, and a device
+            # syncing its history from scratch got them back.
+            self.message_storage.removeChat(account=account.account, contact=contact)
+
             self.message_storage.add(account=account.account,
                                      contact=contact,
                                      direction='',
