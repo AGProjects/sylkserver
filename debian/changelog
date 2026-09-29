@@ -1,8 +1,85 @@
-sylkserver (6.7.0) unstable; urgency=medium
+sylkserver (7.0.0) unstable; urgency=medium
 
+  * [webrtcgateway] Fix authenticating non websocket clients
+  * [webrtcgateway] Implement registration throttle during SIP server restart
+  * [webrtcgateway] Added Push proxy function
+  * Add timestamp for logs when running in the foreground
+  * [webrtcgateway] Added web message id viewer
+  * [webrtcgateway] Fix resumable downloads
+  * [webrtcgateway] Do not change established state to accepted (PSTN early media case)
+  * [webrtcgateway] Added end-to-end message metadata and storage for it
+  * [webrtcgateway] Added filtering and ordering for location messages
+  * [webrtcgateway] Load by default last day messages when select and account
+  * [webrtcgateway] Added metadata to web output
+  * [webrtcgateway] Update location payload types when render messages
+  * [webrtcgateway] Added metadata column to messages
+  * [webrtcgateway] Send push notifications for location events
+  * [webrtcgateway] Purge location updates when deleting a location session
+  * [webrtcgateway] Export message content too in web admin message export 
+  * [webrtcgateway] Export location action in the message archive
+  * [webrtcgateway] Added client driven disposition notifification
+  * [webrtcgateway] Added optional option for sending messages without storing them
+  * [webrtcgateway] Send push for sylk-request content types
+  * [webrtcgateway] Add metadata action to export for messages in web admin handler
+  * [webrtcgateway] Added download archive to messages web admin handler selection
+  * [webrtcgateway] Added filter by content type for message in web admin handler
+  * [webrtcgateway] Move IMDN log to debug
+  * [webrtcgateway] Log request conversations
+  * [webrtcgateway] Show the message list in webrtc admin messages tab when drill down by date
+  * [webrtcgateway] Attempt fix request token loop
+  * [webrtcgateway] Added option to mount webrtcgw app admin website under main server
+  * [webrtcgateway] Added filter by contact and date for messages
+  * [webrtcgateway] Added drill down of files by category
+  * [webrtcgateway] Added metrics to webrtcgateway app
+  * [webrtcgateway] Enhance webrtcgateway admin website
+  * Fix makedeb.sh
+  * [webrtcgateway] Log the number of XCAP ab contacts
+  * [webrtcgateway] Use original user agent for AB operations
+  * [webrtcgateway] Added Sylk client port for outgoing calls
+  * [playback] Log audio endpoints
+  * [echo] Lo audio endpoints
+  * [conference] Use system message for welcome handler in conference
+  * Map applications by MESSAGE content type as fallback to uri matching
+  * [webrtcgateway] Discount bridge for initial chat message
+  * [webrtcgateway] Log dropped SIP message type in conference
+  * [conference] Log active calls after conference room ends 
+  * [conference] Added CallId to conference app logging
+  * [conference] Added MSRP hostname to replace the IP in SDP m line
+  * [webrtcgateway] Added SIP Thor lookup capability to webrtcgateway app
+  * [webrtcgateway] Added sylk-dump-push-tokens tool
+  * [webrtcgateway] Added dump accounts option for cassandra storage tool
+  * [webrtcgateway] Do not add push payload if bigger than max size
+  * [webrtcgateway] Make SIP error description optional
+  * [conference] Allow overwriting global moh setting per conference room
+  * [xmppgateway] Fix xmpp gw app memory leak
+  * Log user agent
+  * Added optional limit to sync conversations
+  * Fixed removing receiver messages
+  * [playback] Added silence playback
+  * [conference] Distribute load to multiple audio mixers
+  * [conference] Add multi-core audio mixer pool
+  * [conference] Log active calls at session end and number of active conferences
+  * [xmppgateway] Fix for xmpp python3 migration
+  * [xmppgateway] Ignore OTR3 request over xmpp gw app
+  * [xmppgateway] Fix chatroom capability parsing on Python 3
+  * [xmppgateway] Start outgoing TLS connection to remote xmmp server on remote demand
+  * [xmppgateway] Added multi-certicate support for XMPP gateway application
+  * [conference] Added explicit thor_network keyword value for ACL
+  * [webrtcgateway] Retry sending message push without payload if failed due to too large
+  * [webrtcgateway] Added dump message by Id to sylk-dump-message-cassandra
+  * [webrtcgateway] Allow delete AB group by id only
+  * [webrtcgateway] Log xcap failed operation account
+  * [webrtcgateway] Add journal get simulator
+  * [webrtcgateway] Added utility dump/restore scripts
+  * [webrtcgateway] Allow deleting a contact by id only
+  * [webrtcgateway] Fix destroying conversations that happend after the original removeConversation was issued
+  * [webrtcgateway] Handle connection failures to XCAP backend
+  * [webrtcgateway] Allow arbitrary attributes in Contacts
+  * [webrtcgateway] Handle XCAP diff when addressbook changed on server
+  * [webrtcgateway] Added addressbook group and policy management function to webrtgateway
   * Added DoS mitigator using active calls counters
   * Added handling of incoming PUBLISH
-  * Improve validation and logging of trusted peers
+  * [webrtcgateway] Improve validation and logging of trusted peers
   * [webrtcgateway] Added web portal for active video rooms
   * [webrtcgateway] Reuse DNS lookup results in videoroom
   * [webrtcgateway] Classify by participant_id, not AoR
