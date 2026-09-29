@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SylkServer WebRTC Gateway Application Admin frontend</title>
+<link rel="stylesheet" href="assets/admin.css">
+</head>
+<body>
+<div id="app"></div>
+
+<div class="overlay" id="overlay">
+  <aside class="drawer">
+    <header>
+      <div>
+        <h3 id="d-uri">—</h3>
+        <div class="sub" id="d-sub"></div>
+      </div>
+      <button class="x" onclick="closeDrawer()">&times;</button>
+    </header>
+    <div class="body" id="d-body"></div>
+  </aside>
+</div>
+<div class="toast" id="toast"></div>
+
+<script src="assets/admin.js"></script>
+</body>
+</html>
