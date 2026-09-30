@@ -1,4 +1,6 @@
+import hashlib
 import json
+import time
 
 from twisted.internet import defer, reactor
 from twisted.web.client import Agent, readBody
@@ -43,6 +45,78 @@ def _make_headers(account):
         user_agent = 'SylkServer'
     return Headers({'User-Agent': [user_agent],
                     'Content-Type': ['application/json']})
+
+# --- origin stamps ------------------------------------------------------------
+# Blink and Sylk mobile stamp every contact and group they write with who
+# changed it (attributes modified_by/_agent/_at/_reason/_hash, see Blink's
+# AddressbookOrigin.py and sylk-mobile's addressbookOrigin.js). A WebRTC client
+# that does not stamp leaves its writes anonymous: the other devices can only
+# say "by a client that does not stamp". So a write that arrives here without
+# a stamp for its own content is stamped on the client's behalf, with the user
+# agent it registered with. The fingerprint must stay byte-identical to the
+# clients' one, or every stamp made here reads as "after the last stamp".
+
+STAMP_KEYS = ('modified_by', 'modified_agent', 'modified_at', 'modified_reason', 'modified_hash')
+
+
+def _text(value):
+    return '' if value is None else str(value)
+
+
+def _bool(value):
+    if isinstance(value, str):
+        return value.strip().lower() in ('true', '1')
+    return bool(value)
+
+
+def _event(handling):
+    handling = handling or {}
+    policy = handling.get('policy')
+    return [_text('default' if policy is None else policy), _bool(handling.get('subscribe', False))]
+
+
+def _digest(body):
+    data = json.dumps(body, sort_keys=True, separators=(',', ':'), ensure_ascii=False)
+    return hashlib.sha1(data.encode('utf-8')).hexdigest()[:16]
+
+
+def contact_fingerprint(payload):
+    uris = sorted([_text(uri.get('uri')).strip(), _text(uri.get('type'))]
+                  for uri in (payload.get('uris') or ()))
+    return _digest({'name': _text(payload.get('name')),
+                    'uris': uris,
+                    'presence': _event(payload.get('presence')),
+                    'dialog': _event(payload.get('dialog'))})
+
+
+def group_fingerprint(payload):
+    members = [_text(item.get('id') if isinstance(item, dict) else item)
+               for item in (payload.get('contacts') or ())]
+    return _digest({'name': _text(payload.get('name')),
+                    'contacts': sorted(members)})
+
+
+def stamp_payload(kind, payload, agent, now=None):
+    """Return the payload to send, stamped when the client did not stamp it.
+
+    A client stamp that matches the content is left alone -- that client
+    knows its own device id better than we do.
+    """
+    fingerprint = {'contact': contact_fingerprint, 'group': group_fingerprint}.get(kind)
+    if fingerprint is None or not isinstance(payload, dict):
+        return payload, False
+    current = fingerprint(payload)
+    attributes = dict(payload.get('attributes') or {})
+    if attributes.get('modified_hash') == current and attributes.get('modified_by'):
+        return payload, False
+    attributes.update({'modified_by': 'sylkserver',
+                       'modified_agent': _text(agent) or 'SylkServer',
+                       'modified_at': time.strftime('%Y-%m-%dT%H:%M:%SZ',
+                                                    time.gmtime(time.time() if now is None else now)),
+                       'modified_reason': 'stamped-by-sylkserver',
+                       'modified_hash': current})
+    return dict(payload, attributes=attributes), True
+
 
 class XCAPRoutes:
     """
@@ -156,11 +230,25 @@ def _send_update_addressbook(account, request, destination):
     else:
         url = routes.resolve(request.type, action=request.action, user=account.id)
 
+    payload = request.data.__data__
+    stamped = False
+    if request.action in ('add', 'update'):
+        try:
+            payload, stamped = stamp_payload(request.type, payload, getattr(account, 'user_agent', None))
+        except Exception as e:
+            log.warning("Cannot stamp addressbook %s %s: %s", request.type, getattr(request.data, 'id', None), e)
+    # Who changed what: a removal carries no stamp in the document, so this
+    # line is the only record of which client deleted an entry.
+    log.info("Addressbook %s %s %s for %s by %s%s", request.action, request.type,
+             getattr(request.data, 'id', None), account.id,
+             getattr(account, 'user_agent', None) or 'unknown client',
+             ' (stamped here)' if stamped else '')
+
     try:
         resp = yield agent.request(routes.method.encode('utf-8'),
                                    url.encode('utf-8'),
                                    _make_headers(account),
-                                   BytesProducer(json.dumps(request.data.__data__).encode())
+                                   BytesProducer(json.dumps(payload).encode())
                                    )
     except defer.CancelledError:
         raise
@@ -186,7 +274,7 @@ def _send_update_addressbook(account, request, destination):
         raise AddressbookUpdateError(f"Non-200 response: {resp.code}, {detail}", retryable=retryable)
 
     if resp.code == 204 and routes.method == 'DELETE':
-        return xcap.XCAPMapper.from_payload(request.data.__data__, request.type)
+        return xcap.XCAPMapper.from_payload(payload, request.type)
 
     try:
         body = yield readBody(resp)
