@@ -15,6 +15,7 @@ from twisted.web.static import File
 
 from sylk import __version__
 from sylk.configuration import WebServerConfig
+from sylk.tls import log_certificate_file
 
 __all__ = 'Klein', 'StaticFileResource', 'WebServer', 'server'
 
@@ -136,6 +137,7 @@ class WebServer(object, metaclass=Singleton):
             if not os.path.isfile(cert_path):
                 log.error('Certificate file %s could not be found' % cert_path)
                 return
+            log_certificate_file('HTTPS', cert_path)
             try:
                 ssl_ctx_factory = DefaultOpenSSLContextFactory(cert_path, cert_path)
             except Exception:
@@ -145,6 +147,7 @@ class WebServer(object, metaclass=Singleton):
                 if not os.path.isfile(cert_chain_path):
                     log.error('Certificate chain file %s could not be found' % cert_chain_path)
                     return
+                log_certificate_file('HTTPS chain', cert_chain_path)
                 ssl_ctx = ssl_ctx_factory.getContext()
                 try:
                     ssl_ctx.use_certificate_chain_file(cert_chain_path)

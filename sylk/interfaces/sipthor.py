@@ -1,4 +1,6 @@
 
+from datetime import datetime, timezone
+
 from application import log
 from application.notification import NotificationCenter, NotificationData
 from application.python.types import Singleton
@@ -12,6 +14,7 @@ from thor.scheduler import KeepRunning
 
 import sylk
 from sylk.configuration import SIPConfig, ThorNodeConfig
+from sylk.tls import log_certificate_expiry
 
 
 __all__ = 'ConferenceNode',
@@ -41,6 +44,13 @@ class ConferenceNode(EventServiceClient, metaclass=Singleton):
         self.networks = {}
         self.presence_message = ThorEvent('Thor.Presence', self.node.id)
         self.shutdown_message = ThorEvent('Thor.Leave', self.node.id)
+        for label, certificate in (('ThorNetwork', ThorNodeConfig.certificate), ('ThorNetwork CA', ThorNodeConfig.ca)):
+            try:
+                not_after = datetime.fromtimestamp(certificate.expiration_time, timezone.utc)
+                expires = log_certificate_expiry('%s (%s)' % (label, certificate.subject), not_after)
+                log.info('%s certificate: %s, expires %s' % (label, certificate.subject, expires))
+            except Exception as e:
+                log.warning('Could not determine expiry of %s certificate: %s' % (label, e))
         credentials = X509Credentials(ThorNodeConfig.certificate, ThorNodeConfig.private_key, [ThorNodeConfig.ca])
         credentials.verify_peer = True
         tls_context = TLSContext(credentials)

@@ -32,6 +32,7 @@ from sylk.configuration.settings import (AccountExtension,
                                          SylkServerSettingsExtension)
 from sylk.log import TraceLogManager
 from sylk.session import SessionManager
+from sylk.tls import log_certificate_file
 from sylk.web import WebServer
 
 # Load stream extensions needed for integration with SIP SIMPLE SDK
@@ -97,6 +98,9 @@ class SylkServer(SIPApplication):
                     log.error("Invalid TLS private key %s: %s" % (settings.tls.certificate, str(e)))
                 else:
                     log.info("TLS identity: %s" % certificate.subject)
+                    log_certificate_file('SIP TLS', settings.tls.certificate)
+        if settings.tls.ca_list:
+            log_certificate_file('SIP TLS CA list', settings.tls.ca_list, summarize=True)
                         
 
         # initialize core

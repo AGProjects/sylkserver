@@ -1,11 +1,12 @@
 
 import os
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from OpenSSL import SSL, crypto
 
 from sylk.applications.xmppgateway.logger import log
+from sylk.tls import log_certificate_expiry
 
 
 class _StaticContextFactory(object):
@@ -114,16 +115,12 @@ class SNIContextFactory(object):
                 break
         if not dns_names and common_name:
             dns_names = [common_name]
-        not_after = certificate.get_notAfter()
-        if not_after is not None:
-            try:
-                expires = datetime.strptime(not_after.decode('ascii'), '%Y%m%d%H%M%SZ').strftime('%Y-%m-%d')
-            except (ValueError, AttributeError):
-                expires = not_after.decode('ascii', 'replace')
-        else:
+        try:
+            not_after = datetime.strptime(certificate.get_notAfter().decode('ascii'), '%Y%m%d%H%M%SZ').replace(tzinfo=timezone.utc)
+        except (ValueError, AttributeError):
             expires = '(unknown)'
-        if certificate.has_expired():
-            expires += ' (EXPIRED)'
+        else:
+            expires = log_certificate_expiry('XMPP S2S %s (%s)' % (cert_path, common_name), not_after, logger=log)
         fingerprint = certificate.digest('sha256').decode('ascii')
         return common_name, dns_names, expires, fingerprint
 
