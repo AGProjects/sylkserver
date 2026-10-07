@@ -1780,6 +1780,11 @@ class ConnectionHandler(object):
                 additional_sip_headers.append(Header('X-Sylk-App', 'webrtcgateway'))
             if skip_journal:
                 additional_sip_headers.append(Header('X-Sylk-Skip-Journal', 'yes'))
+            # The SIP User-Agent of what we send is ours; say which client of the
+            # account sent it (and its receipts), for the other side to show.
+            user_agent = ' '.join(str(getattr(account, 'user_agent', None) or '').split())[:200]
+            if user_agent:
+                additional_sip_headers.append(Header('X-Sylk-User-Agent', user_agent))
             payload = CPIMPayload(content,
                                   content_type,
                                   charset='utf-8',
