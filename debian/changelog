@@ -3,7 +3,6 @@ sylkserver (7.0.0) unstable; urgency=medium
   * [webrtcgateway] Fix authenticating non websocket clients
   * [webrtcgateway] Implement registration throttle during SIP server restart
   * [webrtcgateway] Added Push proxy function
-  * Add timestamp for logs when running in the foreground
   * [webrtcgateway] Added web message id viewer
   * [webrtcgateway] Fix resumable downloads
   * [webrtcgateway] Do not change established state to accepted (PSTN early media case)
@@ -32,39 +31,16 @@ sylkserver (7.0.0) unstable; urgency=medium
   * [webrtcgateway] Added drill down of files by category
   * [webrtcgateway] Added metrics to webrtcgateway app
   * [webrtcgateway] Enhance webrtcgateway admin website
-  * Fix makedeb.sh
   * [webrtcgateway] Log the number of XCAP ab contacts
   * [webrtcgateway] Use original user agent for AB operations
   * [webrtcgateway] Added Sylk client port for outgoing calls
-  * [playback] Log audio endpoints
-  * [echo] Lo audio endpoints
-  * [conference] Use system message for welcome handler in conference
-  * Map applications by MESSAGE content type as fallback to uri matching
   * [webrtcgateway] Discount bridge for initial chat message
   * [webrtcgateway] Log dropped SIP message type in conference
-  * [conference] Log active calls after conference room ends 
-  * [conference] Added CallId to conference app logging
-  * [conference] Added MSRP hostname to replace the IP in SDP m line
   * [webrtcgateway] Added SIP Thor lookup capability to webrtcgateway app
   * [webrtcgateway] Added sylk-dump-push-tokens tool
   * [webrtcgateway] Added dump accounts option for cassandra storage tool
   * [webrtcgateway] Do not add push payload if bigger than max size
   * [webrtcgateway] Make SIP error description optional
-  * [conference] Allow overwriting global moh setting per conference room
-  * [xmppgateway] Fix xmpp gw app memory leak
-  * Log user agent
-  * Added optional limit to sync conversations
-  * Fixed removing receiver messages
-  * [playback] Added silence playback
-  * [conference] Distribute load to multiple audio mixers
-  * [conference] Add multi-core audio mixer pool
-  * [conference] Log active calls at session end and number of active conferences
-  * [xmppgateway] Fix for xmpp python3 migration
-  * [xmppgateway] Ignore OTR3 request over xmpp gw app
-  * [xmppgateway] Fix chatroom capability parsing on Python 3
-  * [xmppgateway] Start outgoing TLS connection to remote xmmp server on remote demand
-  * [xmppgateway] Added multi-certicate support for XMPP gateway application
-  * [conference] Added explicit thor_network keyword value for ACL
   * [webrtcgateway] Retry sending message push without payload if failed due to too large
   * [webrtcgateway] Added dump message by Id to sylk-dump-message-cassandra
   * [webrtcgateway] Allow delete AB group by id only
@@ -77,8 +53,6 @@ sylkserver (7.0.0) unstable; urgency=medium
   * [webrtcgateway] Allow arbitrary attributes in Contacts
   * [webrtcgateway] Handle XCAP diff when addressbook changed on server
   * [webrtcgateway] Added addressbook group and policy management function to webrtgateway
-  * Added DoS mitigator using active calls counters
-  * Added handling of incoming PUBLISH
   * [webrtcgateway] Improve validation and logging of trusted peers
   * [webrtcgateway] Added web portal for active video rooms
   * [webrtcgateway] Reuse DNS lookup results in videoroom
@@ -113,8 +87,20 @@ sylkserver (7.0.0) unstable; urgency=medium
   * [webrtcgateway] Handle empty local adderssbook storage
   * [webrtcgateway] Fixed file storage for addressbook data
   * [webrtcgateway] Fixed push token split in file backend
+  * [webrtcgateway] Added optional limit to sync conversations
+  * [webrtcgateway] Fixed removing receiver messages
+  * [playback] Added silence playback
   * [playback] Capture exception when call is teared down in playback app
   * [playback] [echo] Add sip uri to loglines of playback and echo apps
+  * [playback] Log audio endpoints
+  * [echo] Log audio endpoints
+  * [xmppgateway] Fix xmpp gw app memory leak
+  * [xmppgateway] Fix for xmpp python3 migration
+  * [xmppgateway] Ignore OTR3 request over xmpp gw app
+  * [xmppgateway] Fix chatroom capability parsing on Python 3
+  * [xmppgateway] Start outgoing TLS connection to remote xmmp server on remote demand
+  * [xmppgateway] Added multi-certicate support for XMPP gateway application
+  * [conference] Added explicit thor_network keyword value for ACL
   * [conference] Added anti-fraud measure to prevent lingering outgoing PSTN calls from
   * [conference] Support sending Cancel to existing conference Invites by REFER 
   * [conference] Fix NOTIFY for REFER in conference app
@@ -132,8 +118,22 @@ sylkserver (7.0.0) unstable; urgency=medium
   * [conference] Added mute/unmute REFER methods to conference application
   * [conference] Added mute/unmute for remote videoroom participants inside the SIP conference
   * [conference] Log conference info Notify payload
-
- -- Tijmen de Mes <support@ag-projects.com>  Fri, 12 Jun 2026 08:29:27 +0200
+  * [conference] Use system message for welcome handler in conference
+  * [conference] Allow overwriting global moh setting per conference room
+  * [conference] Distribute load to multiple audio mixers
+  * [conference] Add multi-core audio mixer pool
+  * [conference] Log active calls at session end and number of active conferences
+  * [conference] Log active calls after conference room ends 
+  * [conference] Added CallId to conference app logging
+  * [conference] Added MSRP hostname to replace the IP in SDP m line
+  * Added DoS mitigator using active calls counters
+  * Added handling of incoming PUBLISH
+  * Add timestamp for logs when running in the foreground
+  * Fix makedeb.sh
+  * Map applications by MESSAGE content type as fallback to uri matching
+  * Log user agent
+ 
+ -- Tijmen de Mes <support@ag-projects.com>  Fri, 09 Oct 2026 17:08:24 +0200
 
 sylkserver (6.6.1) unstable; urgency=medium
 
