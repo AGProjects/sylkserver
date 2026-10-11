@@ -1,5 +1,7 @@
 
+import base64
 import datetime
+import hashlib
 import json
 import os
 import pickle as pickle
@@ -16,7 +18,7 @@ from twisted.internet import defer, reactor
 
 from sylk.configuration import ServerConfig
 
-from .configuration import CassandraConfig, FileStorageConfig
+from .configuration import CassandraConfig, FileStorageConfig, GeneralConfig
 from .datatypes import FileTransferData
 from .errors import StorageError
 from .location import location_session_id
@@ -42,6 +44,38 @@ def location_track_session_id(content_type, content, metadata=None):
     return location_session_id(content_type, content, metadata)
 
 
+def _hash_uri(uri):
+    return base64.urlsafe_b64encode(hashlib.md5(uri.encode('utf-8')).digest()).rstrip(b'=\n').decode('utf-8')
+
+
+def transfer_folders(account, contact, transfer_id):
+    """The folders of a transfer: it is stored once, under either party, by plain or legacy hashed name."""
+    transfer_id = str(transfer_id or '')
+    if not transfer_id or '/' in transfer_id or transfer_id.startswith('.') or not account or not contact:
+        return []
+    root = GeneralConfig.file_transfer_dir.normalized
+    folders = []
+    for encode in (lambda uri: uri, _hash_uri, lambda uri: _hash_uri('sip:' + uri)):
+        one, two = encode(account), encode(contact)
+        for top, sub in ((one, two), (two, one)):
+            folder = os.path.join(root, top[:1], top, sub, transfer_id)
+            if folder not in folders and os.path.isdir(folder):
+                folders.append(folder)
+    return folders
+
+
+def release_transfer_files(account, contact, transfer_id, peer_keeps):
+    """Remove the files of a transfer whose row of `account` is removed, unless the other party still has it."""
+    if peer_keeps:
+        return 0
+    removed = 0
+    for folder in transfer_folders(account, contact, transfer_id):
+        rmtree(folder, ignore_errors=True)
+        log.info(f'Removed transfer files {folder}')
+        removed += 1
+    return removed
+
+
 # TODO: Maybe add some more metadata like the modification date so we know when a token was refreshed,
 # and thus it's ok to scrap it after a reasonable amount of time.
 
@@ -61,6 +95,7 @@ else:
         from cassandra.cluster import NoHostAvailable
         from cassandra.cqlengine import CQLEngineException
         from cassandra.cqlengine.query import LWTException
+        from cassandra.concurrent import execute_concurrent_with_args
         from cassandra.policies import DCAwareRoundRobinPolicy
 
         from .models.storage.cassandra import (ChatAccount, ChatMessage,
@@ -625,13 +660,9 @@ class FileMessageStorage(object):
                         item = [n for n in messages if n['created_at'] == timestamp and n['message_id'] == message_id]
                         if len(item) == 1:
                             if item[0]['content_type'] == 'application/sylk-file-transfer':
-                                data = FileTransferData('', '', '', item[0]['message_id'], item[0]['account'], item[0]['contact'])
-                                try:
-                                    rmtree(data.path)
-                                except FileNotFoundError:
-                                    pass
-                                else:
-                                    print(f"Removed {data.path}")
+                                peer = item[0].get('contact')
+                                release_transfer_files(item[0]['account'], peer, item[0]['message_id'],
+                                                       peer != item[0]['account'] and self._peer_has_message(peer, item[0]['message_id']))
                             
                             session_id = location_track_session_id(item[0].get('content_type'), item[0].get('content'), item[0].get('metadata'))
                             messages.remove(item[0])
@@ -644,6 +675,55 @@ class FileMessageStorage(object):
                             reactor.callFromThread(deferred.callback, True)
                             return
                         reactor.callFromThread(deferred.callback, False)
+        remove()
+        return deferred
+
+    def _peer_has_message(self, contact, message_id):
+        if not contact:
+            return False
+        try:
+            messages = self._load_messages(contact)
+        except (OSError, IOError, ValueError):
+            return False
+        return any(message.get('message_id') == message_id for message in messages)
+
+    def removeMessages(self, account, message_ids, progress=None, every=100, should_stop=None):
+        """Remove these messages of the account, without cascade or tombstone. Fires with (removed ids, transfer folders removed)."""
+        deferred = defer.Deferred()
+        wanted = set(message_ids)
+
+        @run_in_thread('file-io')
+        def remove():
+            try:
+                messages = self._load_messages(account)
+            except (OSError, IOError):
+                reactor.callFromThread(deferred.callback, ([], 0))
+                return
+            removed = []
+            kept = []
+            files = 0
+            for message in messages:
+                if message.get('message_id') in wanted:
+                    if message.get('content_type') == 'application/sylk-file-transfer':
+                        peer = message.get('contact')
+                        files += release_transfer_files(message['account'], peer, message['message_id'],
+                                               peer != message['account'] and self._peer_has_message(peer, message['message_id']))
+                    removed.append(message['message_id'])
+                else:
+                    kept.append(message)
+            if removed:
+                self._save_messages(account, kept)
+                try:
+                    id_by_timestamp = self._load_id_by_timestamp(account)
+                except (OSError, IOError):
+                    pass
+                else:
+                    for message_id in removed:
+                        id_by_timestamp.pop(message_id, None)
+                    self._save_id_by_timestamp(account, id_by_timestamp)
+            if progress is not None:
+                progress(len(wanted), len(removed))
+            reactor.callFromThread(deferred.callback, (removed, files))
         remove()
         return deferred
 
@@ -911,13 +991,8 @@ class CassandraMessageStorage(object):
                     session_id = None
                     for message in messages:
                         if message.content_type == 'application/sylk-file-transfer':
-                            data = FileTransferData('', '', '', message.message_id, message.account, message.contact)
-                            try:
-                                rmtree(data.path)
-                            except FileNotFoundError:
-                                pass
-                            else:
-                                print(f"Removed {data.path}")
+                            release_transfer_files(message.account, message.contact, message.message_id,
+                                                   message.contact != message.account and self._peer_has_message(message.contact, timestamp.created_at, message.message_id))
 
                         if session_id is None:
                             session_id = location_track_session_id(message.content_type, message.content, getattr(message, 'metadata', None))
@@ -943,6 +1018,91 @@ class CassandraMessageStorage(object):
                     pass
 
         remove(account, message_id)
+        return deferred
+
+    @staticmethod
+    def _peer_has_message(contact, created_at, message_id):
+        if not contact:
+            return False
+        try:
+            return ChatMessage.objects(ChatMessage.account == contact, ChatMessage.created_at == created_at,
+                                       ChatMessage.message_id == message_id).count() > 0
+        except Exception as e:
+            log.warning('Cannot tell if %s still has message %s, keeping its files: %s' % (contact, message_id, e))
+            return True
+
+    BULK_CONCURRENCY = 64
+    _bulk_statements = None
+
+    @classmethod
+    def _bulk_prepared(cls):
+        if cls._bulk_statements is None:
+            session = connection.get_session()
+            ids_table = ChatMessageIdMapping.column_family_name()
+            table = ChatMessage.column_family_name()
+            cls._bulk_statements = (session,
+                                    session.prepare(f'SELECT created_at FROM {ids_table} WHERE message_id = ?'),
+                                    session.prepare(f'SELECT contact, content_type FROM {table} WHERE account = ? AND created_at = ? AND message_id = ?'),
+                                    session.prepare(f'DELETE FROM {table} WHERE account = ? AND created_at = ? AND message_id = ?'))
+        return cls._bulk_statements
+
+    @staticmethod
+    def _column(row, name):
+        return row[name] if isinstance(row, dict) else getattr(row, name)
+
+    def removeMessages(self, account, message_ids, progress=None, every=100, should_stop=None):
+        """Remove these messages of the account, without cascade or tombstone. Fires with (removed ids, transfer folders removed)."""
+        deferred = defer.Deferred()
+
+        @run_in_thread('cassandra')
+        def remove(account, message_ids):
+            removed = []
+            files = 0
+            try:
+                session, lookup, read, delete = self._bulk_prepared()
+            except Exception as e:
+                log.warning('removeMessages: cannot prepare statements: %s' % e)
+                reactor.callFromThread(deferred.callback, (removed, files))
+                return
+
+            def run(statement, parameters):
+                return execute_concurrent_with_args(session, statement, parameters, concurrency=self.BULK_CONCURRENCY, raise_on_first_error=False)
+
+            step = max(int(every or 100), 1)
+            for start in range(0, len(message_ids), step):
+                if should_stop is not None and should_stop():
+                    log.info('removeMessages: stopped for %s after %d of %d' % (account, start, len(message_ids)))
+                    break
+                chunk = message_ids[start:start + step]
+                keys = []
+                for message_id, (ok, result) in zip(chunk, run(lookup, [(message_id,) for message_id in chunk])):
+                    if not ok:
+                        log.warning('removeMessages: lookup of %s for %s failed: %s' % (message_id, account, result))
+                        continue
+                    rows = list(result)
+                    if rows:
+                        keys.append((message_id, self._column(rows[0], 'created_at')))
+                present = []
+                for (message_id, created_at), (ok, result) in zip(keys, run(read, [(account, created_at, message_id) for message_id, created_at in keys])):
+                    if not ok:
+                        log.warning('removeMessages: reading %s for %s failed: %s' % (message_id, account, result))
+                        continue
+                    rows = list(result)
+                    if rows:
+                        present.append((message_id, created_at, self._column(rows[0], 'contact'), self._column(rows[0], 'content_type')))
+                for (message_id, created_at, contact, content_type), (ok, result) in zip(present, run(delete, [(account, created_at, message_id) for message_id, created_at, _, _ in present])):
+                    if not ok:
+                        log.warning('removeMessages: removing %s for %s failed: %s' % (message_id, account, result))
+                        continue
+                    removed.append(message_id)
+                    if content_type == 'application/sylk-file-transfer':
+                        files += release_transfer_files(account, contact, message_id,
+                                                        contact != account and self._peer_has_message(contact, created_at, message_id))
+                if progress is not None:
+                    progress(min(start + len(chunk), len(message_ids)), len(removed))
+            reactor.callFromThread(deferred.callback, (removed, files))
+
+        remove(account, list(message_ids))
         return deferred
 
     def find_message(self, account, message_id, content_type=None):

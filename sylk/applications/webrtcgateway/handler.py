@@ -58,7 +58,7 @@ from .logger import ConnectionLogger, VideoroomLogger
 from .metadata import metadata_cpim_header, metadata_from_cpim_headers, sanitize_metadata
 from .metrics import Metrics
 from .models import janus, sylkrtc
-from .sip_handlers import log_uri
+from .sip_handlers import MessageHandler, log_uri
 from .storage import MessageStorage, TokenStorage
 
 
@@ -2114,6 +2114,17 @@ class ConnectionHandler(object):
 
         uri = request.uri
         content_type = request.content_type
+
+        if content_type == 'application/sylk-api-messages-bulk-delete':
+            if uri != account_info.id:
+                raise APIError('A bulk delete is sent by an account to itself')
+            try:
+                payload = json.loads(request.content)
+            except (TypeError, ValueError):
+                raise APIError('Invalid bulk delete')
+            MessageHandler().relay_bulk_delete(account_info.id, payload)
+            return
+
         content = request.content if content_type.startswith('text') else request.content.encode('latin1')
         message_id = request.message_id
         timestamp = request.timestamp

@@ -304,6 +304,60 @@ class MessageHandler(object):
         account = defer.maybeDeferred(self.message_storage.get_account, from_account)
         account.addCallback(lambda result: remove_conversation(result))
 
+    def _handle_messages_bulk_delete(self):
+        """Store the bulk delete criteria in the journal and relay them to all devices of the account."""
+        account = f'{self.from_header.uri.user}@{self.from_header.uri.host}'
+        target = f'{self.to_header.uri.user}@{self.to_header.uri.host}'
+        if account != target:
+            log.warning(f'Bulk delete from {account} to {target} refused')
+            return
+        try:
+            payload = json.loads(self.parsed_message.content)
+        except (TypeError, ValueError) as e:
+            log.warning(f'Bulk delete from {account} refused, parsing error {e}')
+            return
+        self.relay_bulk_delete(account, payload)
+
+    def relay_bulk_delete(self, account, payload):
+        if isinstance(payload, dict):
+            log.info(f'Bulk delete request {payload.get("bulk_delete_id")} received from {account} device {payload.get("device_id")}')
+        if not isinstance(payload, dict) or not isinstance(payload.get('criteria'), dict):
+            log.warning(f'Bulk delete from {account} refused, it has no criteria')
+            return
+        content_type = 'application/sylk-messages-bulk-delete'
+        content = json.dumps(payload)
+        timestamp = payload.get('timestamp') or str(ISOTimestamp.now())
+        message_id = str(payload.get('bulk_delete_id') or uuid.uuid4())
+
+        def relay(result):
+            if result is None:
+                return
+            self.message_storage.add(account=account,
+                                     contact=account,
+                                     direction='',
+                                     content=content,
+                                     content_type=content_type,
+                                     timestamp=timestamp,
+                                     disposition_notification='',
+                                     message_id=message_id)
+            uri = f'sip:{account}'
+            self.outgoing_message(uri, content, content_type, uri)
+            event = sylkrtc.AccountMessageEvent(account=account,
+                                                sender=sylkrtc.SIPIdentity(uri=account, display_name=''),
+                                                content=content,
+                                                content_type=content_type,
+                                                timestamp=timestamp,
+                                                disposition_notification=[],
+                                                message_id=message_id)
+            NotificationCenter().post_notification(name='SIPApplicationGotAccountMessage', sender=account, data=event)
+            criteria = dict(payload['criteria'])
+            if isinstance(criteria.get('ids'), list):
+                criteria['ids'] = len(criteria['ids'])
+            log.info(f'Bulk delete {message_id} for {account}: {json.dumps(criteria)}')
+
+        stored = defer.maybeDeferred(self.message_storage.get_account, account)
+        stored.addCallback(relay)
+
     def _handle_message_remove(self):
         account = f'{self.from_header.uri.user}@{self.from_header.uri.host}'
         contact = f'{self.to_header.uri.user}@{self.to_header.uri.host}'
@@ -571,6 +625,10 @@ class MessageHandler(object):
 
         if self.parsed_message.content_type == 'application/sylk-api-conversation-remove':
             self._handle_conversation_remove()
+            return
+
+        if self.parsed_message.content_type == 'application/sylk-api-messages-bulk-delete':
+            self._handle_messages_bulk_delete()
             return
 
         if self.from_sip is not Null:

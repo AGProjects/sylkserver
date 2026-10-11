@@ -9,6 +9,7 @@ import mimetypes
 import os
 import secrets
 import time
+import uuid
 from shutil import copyfileobj, rmtree
 
 from application.notification import IObserver, NotificationCenter
@@ -412,6 +413,74 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
             return token
         else:
             return self.verify_api_token(request, account, msg_id, token)
+
+    # Remove messages of the account by id: {"ids": [...], "progress": N}.
+    # No tombstone, no notification. With progress, the answer is JSON lines
+    # {"done", "removed", "total"} every N ids, then {"ok", "requested", "removed"}.
+    MAX_REMOVE_IDS = 1000
+
+    @app.route('/messages/history/<string:account>/remove', methods=['POST'])
+    def remove_messages(self, request, account):
+        storage = MessageStorage()
+        token = storage.get_account_token(account)
+        if isinstance(token, defer.Deferred):
+            token.addCallback(lambda result: self._remove_messages(request, account, result))
+            return token
+        else:
+            return self._remove_messages(request, account, token)
+
+    def _remove_messages(self, request, account, token):
+        auth_headers = request.requestHeaders.getRawHeaders('Authorization', default=None)
+        try:
+            method, auth_token = auth_headers[0].split()
+        except (TypeError, IndexError, ValueError):
+            method = auth_token = None
+        if not token or method != 'Apikey' or auth_token != token:
+            raise ApiTokenAuthError()
+        request.setHeader('Content-Type', 'application/json')
+        account = account.strip().lower()
+        raw = request.content.read() if request.content else b''
+        try:
+            payload = json.loads(raw.decode('utf-8')) if raw else {}
+        except (UnicodeDecodeError, ValueError):
+            payload = None
+        ids = payload.get('ids') if isinstance(payload, dict) else None
+        if not isinstance(ids, list) or not all(isinstance(message_id, str) and message_id for message_id in ids):
+            request.setResponseCode(400)
+            return json.dumps({'ok': False, 'error': 'ids must be a list of message ids'})
+        ids = list(dict.fromkeys(ids))
+        if len(ids) > self.MAX_REMOVE_IDS:
+            request.setResponseCode(400)
+            return json.dumps({'ok': False, 'error': f'at most {self.MAX_REMOVE_IDS} ids per request', 'max': self.MAX_REMOVE_IDS})
+
+        every = payload.get('progress')
+        stream = isinstance(every, int) and not isinstance(every, bool) and every > 0
+        request_id = str(payload.get('request_id') or uuid.uuid4())[:64]
+        log.info(f'Bulk removal {request_id} of {len(ids)} messages requested for {account} from {request.getClientIP()}')
+        gone = []
+        progress = None
+        if stream:
+            request.setHeader('Content-Type', 'application/x-ndjson')
+            request.notifyFinish().addBoth(lambda result: gone.append(True))
+
+            def write_progress(done, removed):
+                if not gone:
+                    request.write(json.dumps({'done': done, 'removed': removed, 'total': len(ids)}).encode() + b'\n')
+
+            def progress(done, removed):
+                reactor.callFromThread(write_progress, done, removed)
+
+        def done(result):
+            removed, files = result
+            log.info(f'Bulk removal {request_id} for {account} done: {len(removed)} of {len(ids)} messages removed, {files} transfer folders removed'
+                     + (', stopped by the client' if gone and len(removed) < len(ids) else ''))
+            result = json.dumps({'ok': True, 'requested': len(ids), 'removed': removed})
+            return result + '\n' if stream else result
+
+        removed = defer.maybeDeferred(MessageStorage().removeMessages, account, ids, progress=progress,
+                                      every=every if stream else 100, should_stop=lambda: bool(gone))
+        removed.addCallback(done)
+        return removed
 
     # Push proxy: mirrors the push server's API and relays to it. POST/DELETE
     # on /v2/tokens/<account> add and remove a device token. The
