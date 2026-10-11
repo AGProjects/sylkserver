@@ -388,8 +388,14 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
         messages = storage[[account, msg_id, since]]
         request.setHeader('Content-Type', 'application/json')
         if isinstance(messages, defer.Deferred):
-            return messages.addCallback(lambda result:
-                                        json.dumps(sylkrtc.MessageHistoryData(account=account, messages=result[:5000]).__data__))
+            return messages.addCallback(lambda result: self._history_page(request, account, result))
+
+    @staticmethod
+    def _history_page(request, account, result):
+        # a page of at most 5000; X-Sylk-Journal-Remaining is how many there are from this page on
+        # (this page included), so a client can show its progress against the total
+        request.setHeader('X-Sylk-Journal-Remaining', str(len(result)))
+        return json.dumps(sylkrtc.MessageHistoryData(account=account, messages=result[:5000]).__data__)
 
     @app.handle_errors(ApiTokenAuthError)
     def auth_error(self, request, failure):
