@@ -217,6 +217,7 @@ class MessageHandler(object):
         log.info(f'Public key lookup for {account}')
         if isinstance(public_key, defer.Deferred):
             public_key.addCallback(lambda result: self._send_public_key(self.from_header.uri, self.to_header.uri, result))
+            public_key.addErrback(lambda failure: log.warning(f'Public key lookup for {account} failed: {failure.getErrorMessage()}'))
         else:
             self._send_public_key(self.from_header.uri, self.to_header.uri, public_key)
 

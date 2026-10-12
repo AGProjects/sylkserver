@@ -1914,6 +1914,8 @@ class ConnectionHandler(object):
         public_key = storage.get_public_key(account=request.uri)
         if isinstance(public_key, defer.Deferred):
             public_key.addCallback(lambda result: self.send(sylkrtc.LookupPublicKeyEvent(uri=request.uri, public_key=result)))
+            # no event on a failed query: an event without a key means "none kept"
+            public_key.addErrback(lambda failure: self.log.warning(f'Public key lookup for {request.uri} failed: {failure.getErrorMessage()}'))
         else:
             self.send(sylkrtc.LookupPublicKeyEvent(uri=request.uri, public_key=public_key))
 

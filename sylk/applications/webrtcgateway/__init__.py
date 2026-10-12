@@ -304,10 +304,44 @@ class WebRTCGatewayApplication(SylkApplication):
         else:
             log.info('received SIP %s message from %s to %s' % (content_type, from_account, to_account))
 
+        if content_type == 'application/sylk-api-pgp-key-lookup':
+            self._answer_public_key_lookup(message_request, data, to_account)
+            return
+
         message_request.answer(200)
 
         message_handler = MessageHandler()
         message_handler.incoming_message(data)
+
+    def _answer_public_key_lookup(self, message_request, data, account):
+        """A public key lookup is answered with what the server keeps, so a client can tell
+        "no key" from "no answer" (it must not generate a new key for an account that has one):
+          200                 a key is kept; it follows as a text/pgp-public-key message
+          404 No Public Key   no key is kept for the account
+          500                 the key storage could not be read
+        """
+        def answer(public_key):
+            if public_key:
+                message_request.answer(200)
+                MessageHandler().incoming_message(data)     # sends the key, as before
+            else:
+                log.info('Public key lookup for %s: no public key' % account)
+                message_request.answer(404, reason='No Public Key')
+
+        def failed(failure):
+            log.warning('Public key lookup for %s failed: %s' % (account, failure.getErrorMessage()))
+            message_request.answer(500)
+
+        try:
+            public_key = MessageStorage().get_public_key(account)
+        except Exception as e:
+            log.warning('Public key lookup for %s failed: %s' % (account, e))
+            message_request.answer(500)
+            return
+        if isinstance(public_key, defer.Deferred):
+            public_key.addCallbacks(answer, failed)
+        else:
+            answer(public_key)
 
     def _NH_SIPSessionDidStart(self, notification):
         session = notification.sender

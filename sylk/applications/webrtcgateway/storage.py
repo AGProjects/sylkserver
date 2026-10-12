@@ -871,10 +871,14 @@ class CassandraMessageStorage(object):
 
         @run_in_thread('cassandra')
         def query_key(account):
+            # no key is None; a failed query is an error, never "no key": a client
+            # told there is no key generates a new one and orphans the old messages
             try:
                 public_key = PublicKey.objects(PublicKey.account == account)[0]
-            except (IndexError, InvalidRequest):
+            except IndexError:
                 reactor.callFromThread(deferred.callback, None)
+            except Exception as e:
+                reactor.callFromThread(deferred.errback, e)
             else:
                 reactor.callFromThread(deferred.callback, public_key.public_key)
 
