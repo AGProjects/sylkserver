@@ -1,0 +1,316 @@
+#!/usr/bin/env python3
+"""Create SylkServer's Cassandra tables, and bring existing ones to the correct schema.
+
+  sylk-create-cassandra-tables [--apply] [--yes] [--table NAME ...] [--config-dir PATH]
+
+The correct schema is the one of the models in
+sylk/applications/webrtcgateway/models/storage/cassandra.py -- the same
+definitions the server reads and writes with -- so this tool and the server
+cannot disagree. Every table is compared with the keyspace and one of these
+actions is planned:
+
+  create     the table does not exist
+  add        regular columns are missing          ALTER TABLE ... ADD     (rows kept)
+  drop       regular columns the model lacks      ALTER TABLE ... DROP    (those values lost)
+  options    default_time_to_live / gc_grace      ALTER TABLE ... WITH    (rows kept)
+  recreate   a key, a column type or the clustering order differs, which
+             Cassandra cannot alter:              DROP TABLE + CREATE TABLE  (ALL ROWS LOST)
+
+Defaults to a DRY-RUN that prints the plan and its CQL; --apply runs it after
+a confirmation (--yes skips it). --table limits the run to the named tables.
+"""
+import argparse
+import logging
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from application import log
+from application.process import process
+
+logging.getLogger('cassandra').setLevel(logging.WARNING)
+
+CASSANDRA_MODULES_AVAILABLE = False
+try:
+    from cassandra.cluster import (EXEC_PROFILE_DEFAULT, Cluster,
+                                   ExecutionProfile, NoHostAvailable)
+    from cassandra.policies import DCAwareRoundRobinPolicy
+except ImportError:
+    pass
+else:
+    CASSANDRA_MODULES_AVAILABLE = True
+
+
+# Table options that are part of the schema; everything else is left alone.
+SCHEMA_OPTIONS = ('default_time_to_live', 'gc_grace_seconds')
+# What Cassandra uses when a model does not say.
+DEFAULT_OPTIONS = {'default_time_to_live': 0, 'gc_grace_seconds': 864000}
+
+
+class colors:
+    if sys.stdout.isatty():
+        TGREEN = '\033[32m'
+        TRED = '\033[31m'
+        ENDC = '\033[m'
+        BOLD = '\033[1m'
+    else:
+        TGREEN = TRED = ENDC = BOLD = ''
+
+
+def bold(string):
+    return colors.BOLD + str(string) + colors.ENDC
+
+
+def red(string):
+    return colors.TRED + str(string) + colors.ENDC
+
+
+def ask(question):
+    try:
+        while (res := input(colors.TGREEN + f"{'>>':>8s} {question} (Enter y/n) " + colors.ENDC).lower()) not in {"y", "n"}:
+            pass
+    except (EOFError, KeyboardInterrupt):
+        sys.exit(1)
+    return res == "y"
+
+
+def quote(name):
+    return name if name.islower() and name.replace('_', '').isalnum() else '"%s"' % name.replace('"', '""')
+
+
+def normalize_type(cql_type):
+    return str(cql_type).replace(' ', '').lower()
+
+
+# --- the expected schema, from the models -------------------------------------
+
+class TableSpec(object):
+    def __init__(self, model):
+        self.model = model
+        self.name = model.__table_name__
+        columns = model._columns
+        self.partition_key = [(c.db_field_name, normalize_type(c.db_type)) for c in model._partition_keys.values()]
+        self.clustering_key = [(c.db_field_name, normalize_type(c.db_type), (c.clustering_order or 'ASC').upper())
+                               for c in model._clustering_keys.values()]
+        keys = set(name for name, _ in self.partition_key) | set(c[0] for c in self.clustering_key)
+        self.columns = dict((c.db_field_name, normalize_type(c.db_type)) for c in columns.values())
+        self.regular = dict((name, kind) for name, kind in self.columns.items() if name not in keys)
+        options = getattr(model, '__options__', None) or {}
+        self.options = dict((name, int(options.get(name, DEFAULT_OPTIONS[name]))) for name in SCHEMA_OPTIONS)
+        # columns in model order, keys first, as CREATE TABLE lists them
+        self.ordered = [c.db_field_name for c in columns.values()]
+
+    def create_cql(self, keyspace):
+        lines = ['    %s %s' % (quote(name), self.columns[name]) for name in self.ordered]
+        partition = ', '.join(quote(name) for name, _ in self.partition_key)
+        if len(self.partition_key) > 1:
+            partition = '(%s)' % partition
+        primary = ', '.join([partition] + [quote(c[0]) for c in self.clustering_key])
+        lines.append('    PRIMARY KEY (%s)' % primary)
+        cql = 'CREATE TABLE %s.%s (\n%s)' % (quote(keyspace), quote(self.name), ',\n'.join(lines))
+        clauses = []
+        if any(order == 'DESC' for _, _, order in self.clustering_key):
+            clauses.append('CLUSTERING ORDER BY (%s)' % ', '.join('%s %s' % (quote(c[0]), c[2]) for c in self.clustering_key))
+        for name in SCHEMA_OPTIONS:
+            if self.options[name] != DEFAULT_OPTIONS[name]:
+                clauses.append('%s = %d' % (name, self.options[name]))
+        if clauses:
+            cql += '\nWITH ' + '\n AND '.join(clauses)
+        return cql
+
+
+def expected_tables():
+    from cassandra.cqlengine.models import Model
+    from sylk.applications.webrtcgateway.configuration import CassandraConfig
+    from sylk.applications.webrtcgateway.models.storage import cassandra as models
+    if CassandraConfig.push_tokens_table:
+        # as storage.py does at startup
+        models.PushTokens.__table_name__ = CassandraConfig.push_tokens_table
+    specs = []
+    for value in vars(models).values():
+        if isinstance(value, type) and issubclass(value, Model) and value is not Model and getattr(value, '__table_name__', None):
+            specs.append(TableSpec(value))
+    return sorted(specs, key=lambda spec: spec.name)
+
+
+# --- comparison ---------------------------------------------------------------
+
+def actual_layout(table):
+    partition = [(c.name, normalize_type(c.cql_type)) for c in table.partition_key]
+    clustering = [(c.name, normalize_type(c.cql_type), 'DESC' if c.is_reversed else 'ASC') for c in table.clustering_key]
+    columns = dict((name, normalize_type(c.cql_type)) for name, c in table.columns.items())
+    options = {}
+    for name in SCHEMA_OPTIONS:
+        try:
+            options[name] = int(table.options.get(name, DEFAULT_OPTIONS[name]))
+        except (TypeError, ValueError):
+            options[name] = DEFAULT_OPTIONS[name]
+    return partition, clustering, columns, options
+
+
+def plan_table(spec, table, keyspace):
+    """(action, reasons, statements) bringing one table to the spec."""
+    table_ref = '%s.%s' % (quote(keyspace), quote(spec.name))
+    if table is None:
+        return 'create', ['table does not exist'], [spec.create_cql(keyspace)]
+
+    partition, clustering, columns, options = actual_layout(table)
+    reasons = []
+    if partition != spec.partition_key:
+        reasons.append('partition key is %s, should be %s' % (_keys(partition), _keys(spec.partition_key)))
+    if clustering != spec.clustering_key:
+        reasons.append('clustering key is %s, should be %s' % (_keys(clustering), _keys(spec.clustering_key)))
+    for name, kind in sorted(spec.columns.items()):
+        if name in columns and columns[name] != kind:
+            reasons.append('column %s is %s, should be %s' % (name, columns[name], kind))
+    if reasons:
+        return 'recreate', reasons, ['DROP TABLE %s' % table_ref, spec.create_cql(keyspace)]
+
+    statements = []
+    actions = []
+    missing = sorted(name for name in spec.regular if name not in columns)
+    extra = sorted(name for name in columns if name not in spec.columns)
+    if missing:
+        actions.append('add')
+        reasons.append('missing column%s %s' % ('s' if len(missing) > 1 else '', ', '.join(missing)))
+        statements.extend('ALTER TABLE %s ADD %s %s' % (table_ref, quote(name), spec.regular[name]) for name in missing)
+    if extra:
+        actions.append('drop')
+        reasons.append('column%s not in the model: %s' % ('s' if len(extra) > 1 else '', ', '.join(extra)))
+        statements.extend('ALTER TABLE %s DROP %s' % (table_ref, quote(name)) for name in extra)
+    changed = [name for name in SCHEMA_OPTIONS if options[name] != spec.options[name]]
+    if changed:
+        actions.append('options')
+        reasons.extend('%s is %s, should be %s' % (name, options[name], spec.options[name]) for name in changed)
+        statements.append('ALTER TABLE %s WITH %s' % (table_ref, ' AND '.join('%s = %d' % (name, spec.options[name]) for name in changed)))
+    if not statements:
+        return 'ok', [], []
+    return '+'.join(actions), reasons, statements
+
+
+def _keys(keys):
+    return '(%s)' % ', '.join(' '.join(str(part) for part in key) for key in keys) if keys else '()'
+
+
+# --- run ----------------------------------------------------------------------
+
+def create_tables(dry_run=True, assume_yes=False, only=None):
+    print(f"\n{' SylkServer - Cassandra tables ':*^80s}\n")
+    from sylk.applications.webrtcgateway.configuration import CassandraConfig
+    if not CASSANDRA_MODULES_AVAILABLE:
+        log.warning('The Cassandra driver is not installed (python3-cassandra)')
+        sys.exit(1)
+    if not CassandraConfig.cluster_contact_points or not CassandraConfig.keyspace:
+        log.warning('cluster_contact_points and keyspace must be set in the [Cassandra] section of webrtcgateway.ini')
+        sys.exit(1)
+
+    specs = expected_tables()
+    if only:
+        unknown = set(only) - set(spec.name for spec in specs)
+        if unknown:
+            log.warning(f'Unknown table(s): {", ".join(sorted(unknown))}; known: {", ".join(spec.name for spec in specs)}')
+            sys.exit(1)
+        specs = [spec for spec in specs if spec.name in only]
+
+    keyspace = CassandraConfig.keyspace
+    print(f'Cluster: {bold(", ".join(str(point) for point in CassandraConfig.cluster_contact_points))}')
+    print(f'Keyspace: {bold(keyspace)}\n')
+
+    profile = ExecutionProfile(load_balancing_policy=DCAwareRoundRobinPolicy(), request_timeout=60)
+    cluster = Cluster(CassandraConfig.cluster_contact_points, protocol_version=4,
+                      execution_profiles={EXEC_PROFILE_DEFAULT: profile})
+    try:
+        session = cluster.connect()
+    except NoHostAvailable:
+        log.warning("Can't connect to Cassandra cluster")
+        sys.exit(1)
+
+    try:
+        keyspace_metadata = cluster.metadata.keyspaces.get(keyspace)
+        if keyspace_metadata is None:
+            log.warning(f'Keyspace {keyspace} does not exist')
+            sys.exit(1)
+
+        plans = []
+        for spec in specs:
+            action, reasons, statements = plan_table(spec, keyspace_metadata.tables.get(spec.name), keyspace)
+            label = 'ok' if action == 'ok' else (red(action) if action == 'recreate' else bold(action))
+            print(f'  {spec.name:<32s} {label}')
+            for reason in reasons:
+                print(f'  {"":<32s}   {reason}')
+            if statements:
+                plans.append((spec, action, statements))
+
+        if not plans:
+            print('\nAll tables match the schema. Nothing to do.')
+            return
+
+        for spec, action, statements in plans:
+            print(f'\n-- {spec.name}: {action}')
+            for statement in statements:
+                print(f'{statement};')
+
+        destructive = [spec.name for spec, action, _ in plans if action == 'recreate']
+        dropping = [spec.name for spec, action, _ in plans if 'drop' in action.split('+')]
+        if destructive:
+            print(red(f'\nRecreating drops ALL ROWS of: {", ".join(destructive)}'))
+        if dropping:
+            print(red(f'Dropping columns loses their values in: {", ".join(dropping)}'))
+
+        if dry_run:
+            print('\nDry-run, nothing changed. Pass --apply to run the statements above.')
+            return
+        if not assume_yes and not ask(f'Apply the changes to {len(plans)} table(s) in keyspace {keyspace}?'):
+            return
+        if destructive and not assume_yes and not ask(red(f'Really delete all rows of {", ".join(destructive)}?')):
+            return
+
+        for spec, action, statements in plans:
+            for statement in statements:
+                try:
+                    session.execute(statement)
+                except Exception as e:
+                    log.warning(f'{spec.name}: {statement.splitlines()[0]} failed: {e}')
+                    sys.exit(1)
+                # a DROP must have settled everywhere before the CREATE of the same name
+                if statement.startswith('DROP TABLE'):
+                    cluster.control_connection.wait_for_schema_agreement()
+            print(f'{spec.name}: {bold(action)} done')
+        if not cluster.control_connection.wait_for_schema_agreement():
+            log.warning('Schema agreement not reached yet, check with nodetool describecluster')
+    finally:
+        cluster.shutdown()
+
+
+if __name__ == '__main__':
+    process.configuration.subdirectory = 'sylkserver'
+
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument('-h', '--help', action='help', default=argparse.SUPPRESS,
+                        help='Show this help message and exit.')
+    parser.add_argument('--config-dir', '--config-folder', dest='config_directory',
+                        default=None, metavar='PATH', help='Set a config directory.')
+    parser.add_argument('--apply', action='store_true',
+                        help='run the planned changes (default is a dry-run that only reports)')
+    parser.add_argument('--yes', action='store_true',
+                        help='skip the confirmation prompts when applying')
+    parser.add_argument('--table', action='append', default=None, metavar='NAME',
+                        help='only this table (repeatable)')
+
+    options = parser.parse_args()
+
+    if options.config_directory is not None:
+        process.configuration.local_directory = options.config_directory
+
+    from sylk.server import ServerConfig
+    ServerConfig.__cfgtype__(ServerConfig.__cfgfile__)
+
+    cfg_dir = os.path.abspath(options.config_directory) if options.config_directory else os.getcwd()
+    print(f'Configuration directory: {bold(cfg_dir)}')
+    from application.configuration import ConfigFile
+    cfg_files = ConfigFile('config.ini').files + ConfigFile('webrtcgateway.ini').files
+    if cfg_files:
+        print(f'Reading configuration from: {", ".join(cfg_files)}')
+
+    create_tables(dry_run=not options.apply, assume_yes=options.yes, only=options.table)
