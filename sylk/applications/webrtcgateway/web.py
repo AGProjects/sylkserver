@@ -386,15 +386,37 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
         since = request.args.get(b'since', [None])[0]
         if since is not None:
             since = since.decode() if isinstance(since, bytes) else since
+        content_types = self._history_content_types(request)
         messages = storage[[account, msg_id, since]]
         request.setHeader('Content-Type', 'application/json')
         if isinstance(messages, defer.Deferred):
-            return messages.addCallback(lambda result: self._history_page(request, account, result))
+            return messages.addCallback(lambda result: self._history_page(request, account, result, content_types))
 
     @staticmethod
-    def _history_page(request, account, result):
-        # a page of at most 5000; X-Sylk-Journal-Remaining is how many there are from this page on
+    def _history_content_types(request):
+        # ?content_type=message/imdn&content_type=application/sylk-location-sharing (or comma
+        # separated): only the entries of these content types. None (no argument): all of them.
+        values = request.args.get(b'content_type') or []
+        content_types = set()
+        for value in values:
+            value = value.decode() if isinstance(value, bytes) else str(value)
+            content_types.update(part.strip().lower() for part in value.split(',') if part.strip())
+        return content_types or None
+
+    @staticmethod
+    def _history_page(request, account, result, content_types=None):
+        # the entries after the cursor, of the content types asked for (all when none were): the
+        # cursor of the next page is the last entry returned, whatever its type, so paging is unchanged.
+        # A page of at most 5000; X-Sylk-Journal-Remaining is how many there are from this page on
         # (this page included), so a client can show its progress against the total
+        if content_types is not None:
+            def content_type(message):
+                value = message.get('content_type') if isinstance(message, dict) else getattr(message, 'content_type', None)
+                return str(value or '').lower()
+            unfiltered = len(result)
+            result = [message for message in result if content_type(message) in content_types]
+            log.info(f'Message history for {account}: {len(result)} of {unfiltered} entries after the cursor are of the content types asked for '
+                     f'({", ".join(sorted(content_types))}), {min(len(result), 5000)} returned')
         request.setHeader('X-Sylk-Journal-Remaining', str(len(result)))
         return json.dumps(sylkrtc.MessageHistoryData(account=account, messages=result[:5000]).__data__)
 
