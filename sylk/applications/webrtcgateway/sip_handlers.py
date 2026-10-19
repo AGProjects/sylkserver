@@ -201,7 +201,7 @@ class MessageHandler(object):
             else:
                 log.info(f'Generating new API token for {account}')
                 token = secrets.token_urlsafe()
-            self.outgoing_message(self.from_header.uri, json.dumps({'token': token, 'url': f'{server.url}/webrtcgateway/messages/history/{account}'}), 'application/sylk-api-token')
+            self.outgoing_message(self.from_header.uri, json.dumps({'token': token, 'url': f'{server.url}/webrtcgateway/messages/history/{account}', 'storage_url': f'{server.url}/webrtcgateway/storage/{account}'}), 'application/sylk-api-token')
             # store in both cases to refresh the token expiry/TTL
             self.message_storage.add_account_token(account=account, token=token)
 
@@ -415,7 +415,7 @@ class MessageHandler(object):
         removed.addCallback(lambda result: update_other_endpoints(result))
 
     def _store_message_for_sender(self, account):
-        ignored_content_types = ("application/im-iscomposing+xml", 'text/pgp-public-key', IMDNDocument.content_type)
+        ignored_content_types = ("application/im-iscomposing+xml", 'text/pgp-public-key', IMDNDocument.content_type, 'application/sylk-storage-changed')
         if self.parsed_message.content_type in ignored_content_types:
             return
 
@@ -461,9 +461,15 @@ class MessageHandler(object):
         notification_center.post_notification(name='SIPApplicationGotOutgoingAccountMessage', sender=account.account, data=message)
 
     def _store_message_for_receiver(self, account):
-        ignored_content_types = ("application/im-iscomposing+xml")
+        ignored_content_types = ("application/im-iscomposing+xml",)
         if self.parsed_message.content_type in ignored_content_types:
             return
+
+        # Delivered live to the account's WebSocket clients (Sylk mobile,
+        # sylk-desktop), never journalled: an offline device re-lists the
+        # storage instead (docs/CONTACT-AVATARS.md in Blink). Returning early
+        # here, as for is-composing, kept it from the WebSocket clients too.
+        unjournaled_content_types = ('application/sylk-storage-changed',)
 
         if account is None:
             log.debug('not storing %s message from %s to non-existent account %s' % (self.parsed_message.content_type, self.from_header.uri, '%s@%s' % (self.to_header.uri.user, self.to_header.uri.host)))
@@ -512,7 +518,9 @@ class MessageHandler(object):
                                                   sender=account.account,
                                                   data=NotificationData(message=message, sender=self.parsed_message.sender))
         else:
-            if self.skip_journal is not Null:
+            if self.parsed_message.content_type in unjournaled_content_types:
+                log.debug('not storing {content_type} message for account {account}'.format(content_type=self.parsed_message.content_type, account=account.account))
+            elif self.skip_journal is not Null:
                 log.info('not storing {content_type} message {message_id} for account {account} from {originator.uri} (skip journal set)'.format(content_type=self.parsed_message.content_type, message_id=self.parsed_message.message_id, originator=self.parsed_message.sender, account=account.account))
             else:
                 log.info('storing {content_type} message {message_id} for account {account} from {originator.uri}'.format(content_type=self.parsed_message.content_type, message_id=self.parsed_message.message_id, originator=self.parsed_message.sender, account=account.account))

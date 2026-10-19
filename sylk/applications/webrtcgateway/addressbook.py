@@ -215,6 +215,9 @@ def update_addressbook(account, request):
 def _update_addressbook(account, request):
     storage = FileAddressBookStorage()
     if request.type in ('contact', 'group', 'policy'):
+        if request.type == 'contact':
+            # the picture lives in account storage, never in the document
+            request.data.avatar = None
         storage.update(account.id, request.data, request.type, action=request.action)
 
 
@@ -231,6 +234,9 @@ def _send_update_addressbook(account, request, destination):
         url = routes.resolve(request.type, action=request.action, user=account.id)
 
     payload = request.data.__data__
+    if request.type == 'contact':
+        # the picture lives in account storage, never in the document
+        payload.pop('avatar', None)
     stamped = False
     if request.action in ('add', 'update'):
         try:

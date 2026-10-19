@@ -766,8 +766,21 @@ class AccountConversationRemoveRequest(AccountRequestBase):
     timestamp = StringProperty(optional=True, default=None)
 
 
+class AvatarEtag(JSONObject):
+    id = StringProperty()
+    etag = StringProperty()
+
+
+class AvatarEtags(JSONArray):
+    item_type = AvatarEtag
+
+
 class AccountFetchAddressbookRequest(AccountRequestBase):
     sylkrtc = FixedValueProperty('account-fetch-addressbook')
+    # The contact pictures the client has cached. Present (even empty): the
+    # contacts come back with their avatar, with data only where it changed.
+    # Absent: no avatars, as before (contact_avatars.py).
+    avatars = ArrayProperty(AvatarEtags, optional=True)
 
 
 class AccountUpdateAddressBookRequest(AccountRequestBase):

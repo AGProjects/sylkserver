@@ -49,6 +49,7 @@ from sylk.session import Session
 
 from . import push
 from .addressbook import get_addressbook, update_addressbook
+from .contact_avatars import apply_contact_avatar, attach_avatars, remove_contact_avatar
 from .auth import AuthHandler
 from .configuration import (ExternalAuthConfig, GeneralConfig, JanusConfig,
                             get_room_config)
@@ -173,6 +174,9 @@ class AccountInfo(object):
             self.incoming_header_prefixes = incoming_header_prefixes.__data__
         self.auth_handle = None
         self.auth_state = False
+        # Contact id -> etag of the pictures this client holds, once it asked
+        # for avatars on a fetch; None for clients that never did.
+        self.avatar_etags = None
         # Registration retry throttling. A client that re-sends
         # 'account-register' the instant it receives a
         # AccountRegistrationFailedEvent (older Sylk/Blink builds do exactly
@@ -2354,6 +2358,11 @@ class ConnectionHandler(object):
             raise APIError("Account not authenticated")
 
         addressbook = defer.maybeDeferred(get_addressbook, account_info)
+        if request.avatars is not None:
+            # The client told us which pictures it has: from now on its
+            # addressbooks carry avatars, with data only where they changed.
+            account_info.avatar_etags = {item.id: item.etag for item in request.avatars}
+            addressbook.addCallback(lambda result: attach_avatars(account_info, result, account_info.avatar_etags))
         addressbook.addCallback(lambda result: self.send(sylkrtc.AccountAddressBookFetchedEvent(addressbook=result, account=account_info.id)))
         return addressbook
 
@@ -2366,13 +2375,32 @@ class ConnectionHandler(object):
         if not account_info.auth_state:
             raise APIError("Account not authenticated")
 
-        def addressbook_updated(result):
+        # A contact update may carry its picture (contact_avatars.py). It is
+        # kept out of XCAP and stored after the contact write succeeded.
+        avatar = getattr(request.data, 'avatar', None) if request.type == 'contact' else None
+
+        def send_updated(result):
             event = sylkrtc.AccountAddressBookUpdatedEvent(data=result,
                                                            action=request.action,
                                                            type=request.type,
                                                            account=account_info.id)
             self.send(event)
             self._fork_event_to_online_accounts(account_info, event)
+
+        def addressbook_updated(result):
+            if request.type == 'contact' and request.action == 'delete':
+                remove_contact_avatar(account_info, request.data.id)
+            elif avatar is not None and (avatar.remove or avatar.data):
+                # the file backend returns nothing: echo the request's contact
+                contact = result if result is not None else request.data
+                stored = apply_contact_avatar(account_info, contact, avatar)
+
+                def attach(value):
+                    contact.avatar = value
+                    send_updated(contact)
+                stored.addCallback(attach)
+                return stored
+            send_updated(result)
 
         def addressbook_update_failed(failure):
             # retryable defaults to True for unknown errors (safer to let the
@@ -4223,6 +4251,8 @@ class ConnectionHandler(object):
         # wipe local state. Skipping the refresh leaves every device with the
         # data it already has; the next successful change re-syncs them.
         addressbook = defer.maybeDeferred(get_addressbook, account_info, raise_on_error=True)
+        if account_info.avatar_etags is not None:
+            addressbook.addCallback(lambda result: attach_avatars(account_info, result, account_info.avatar_etags))
         def _push_refresh(result):
             self.send(sylkrtc.AccountAddressBookFetchedEvent(addressbook=result, account=account_info.id))
         def _skip_refresh(failure):

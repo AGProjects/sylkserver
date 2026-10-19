@@ -12,7 +12,7 @@ from sylk.configuration.datatypes import (URL, Path, SIPProxyAddress,
                                           VideoCodec)
 from sylk.resources import VarResources
 
-__all__ = 'GeneralConfig', 'JanusConfig', 'get_room_config', 'ExternalAuthConfig', 'get_auth_config', 'CassandraConfig'
+__all__ = 'GeneralConfig', 'JanusConfig', 'AccountStorageConfig', 'get_room_config', 'ExternalAuthConfig', 'get_auth_config', 'CassandraConfig'
 
 
 # Datatypes
@@ -247,6 +247,17 @@ class FileStorageConfig(ConfigSection):
     __section__ = 'FileStorage'
 
     storage_dir = ConfigSetting(type=Path, value=Path(os.path.join(GeneralConfig.application_dir.normalized, 'storage')))
+
+
+class AccountStorageConfig(ConfigSection):
+    __cfgfile__ = 'webrtcgateway.ini'
+    __section__ = 'AccountStorage'
+
+    enabled = True
+    storage_dir = ConfigSetting(type=Path, value=Path(os.path.join(GeneralConfig.application_dir.normalized, 'account_storage')))
+    max_object_size = 262144
+    max_account_size = 20971520
+    max_objects = 10000
 
 
 class RoomConfig(ConfigSection):

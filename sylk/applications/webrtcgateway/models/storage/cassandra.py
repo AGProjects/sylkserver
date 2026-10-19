@@ -68,3 +68,16 @@ class MetricsDailySeen(Model):
     metric           = columns.Text(partition_key=True)
     day              = columns.Text(partition_key=True)
     item             = columns.Text(primary_key=True)
+
+
+class AccountObject(Model):
+    __table_name__   = 'account_storage'
+    account          = columns.Text(partition_key=True)
+    namespace        = columns.Text(primary_key=True)
+    object_id        = columns.Text(primary_key=True)
+    etag             = columns.Text()
+    size             = columns.Integer()
+    content_type     = columns.Text()
+    modified         = columns.BigInt()
+    device_id        = columns.Text(required=False)    # X-Sylk-Device-Id of the uploader
+    data             = columns.Blob()

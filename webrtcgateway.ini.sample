@@ -164,6 +164,32 @@ api_secret = 0745f2f74f34451c89343afcdcae5809
 ; Table name for token storage
 ; push_tokens_table = push_tokens
 
+[AccountStorage]
+; Private per-account object storage, reachable over HTTPS with the account
+; API token (application/sylk-api-token) at:
+;     GET    /webrtcgateway/storage/<account>                       (namespaces)
+;     GET    /webrtcgateway/storage/<account>/<namespace>           (index)
+;     GET    /webrtcgateway/storage/<account>/<namespace>/<id>
+;     PUT    /webrtcgateway/storage/<account>/<namespace>/<id>      (If-Match / If-None-Match)
+;     DELETE /webrtcgateway/storage/<account>/<namespace>/<id>
+; Every change is announced to the account devices with a SIP MESSAGE of type
+; application/sylk-storage-changed
+; With the Cassandra backend the objects are kept in this table, which must be
+; created by hand:
+;     CREATE TABLE IF NOT EXISTS account_storage (account text, namespace text, object_id text,
+;         etag text, size int, content_type text, modified bigint, device_id text, data blob,
+;         PRIMARY KEY (account, namespace, object_id));
+; tools/sylk-create-cassandra-tables creates it, and brings existing tables to
+; the schema of the models (models/storage/cassandra.py).
+; otherwise in files under storage_dir (single server only)
+; enabled = True
+; storage_dir = /var/lib/sylkserver/webrtcgateway/account_storage
+; Limits in bytes, and the maximum number of objects per account
+; max_object_size = 262144
+; max_account_size = 20971520
+; max_objects = 10000
+
+
 ; Per room configuration options
 ; [room1@videoconference.example.com]
 ; record = True

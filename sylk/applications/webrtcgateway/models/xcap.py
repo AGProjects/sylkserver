@@ -1,5 +1,6 @@
 from .jsonobjects import (ArrayProperty, BooleanProperty, DictObject,
-                          JSONArray, JSONObject, ObjectProperty, StringProperty)
+                          IntegerProperty, JSONArray, JSONObject, ObjectProperty,
+                          StringProperty)
 
 
 class ContactURI(JSONObject):
@@ -19,6 +20,27 @@ class ContactURIs(JSONArray):
     item_type = ContactURI
 
 
+class ContactAvatar(JSONObject):
+    # The contact's picture in account storage (contact_avatars.py). Never
+    # part of the XCAP document: the gateway adds it to what it sends and
+    # takes it out of what it writes.
+    etag = StringProperty(optional=True)
+    contentType = StringProperty(optional=True)
+    size = IntegerProperty(optional=True)
+    modified = IntegerProperty(optional=True)
+    deviceId = StringProperty(optional=True)
+    data = StringProperty(optional=True)        # base64
+    remove = BooleanProperty(optional=True)     # update: delete the stored picture
+    code = IntegerProperty(optional=True)       # echo of an update: storing failed (413, 507, ...)
+    error = StringProperty(optional=True)
+
+    def __init__(self, **data):
+        for old, new in (('content_type', 'contentType'), ('device_id', 'deviceId')):
+            if old in data and new not in data:
+                data[new] = data.pop(old)
+        super().__init__(**data)
+
+
 class Contact(JSONObject):
     id = StringProperty()
     name = StringProperty()
@@ -27,6 +49,7 @@ class Contact(JSONObject):
     presence = ObjectProperty(EventHandling)
     attributes = ObjectProperty(DictObject, optional=True)
     defaultUri = ObjectProperty(ContactURI, optional=True)
+    avatar = ObjectProperty(ContactAvatar, optional=True)
 
     def __init__(self, **data):
         if 'default_uri' in data and 'defaultUri' not in data:

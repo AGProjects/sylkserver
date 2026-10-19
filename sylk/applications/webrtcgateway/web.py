@@ -33,9 +33,12 @@ from sylk.resources import Resources
 from sylk.web import (File, Klein, StaticFileResource,
                       TrackedUploadHTTPChannel, server)
 
+from . import account_storage
+from .account_storage import AccountStorage
 from .audio_level_udp import AudioLevelUDPClient
-from .configuration import (BUILTIN_WEBSERVER, CassandraConfig,
-                            FileStorageConfig, GeneralConfig, JanusConfig)
+from .configuration import (BUILTIN_WEBSERVER, AccountStorageConfig,
+                            CassandraConfig, FileStorageConfig, GeneralConfig,
+                            JanusConfig)
 from .datatypes import FileTransferData
 from .factory import SylkWebSocketServerFactory
 from .janus import JanusBackend
@@ -503,6 +506,145 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
                                       every=every if stream else 100, should_stop=lambda: bool(gone))
         removed.addCallback(done)
         return removed
+
+    # Private per-account object storage (see account_storage.py), authorised
+    # by the account API token. Changes are announced to the account devices
+    # with an application/sylk-storage-changed MESSAGE.
+    STORAGE_CHANGED_CONTENT_TYPE = 'application/sylk-storage-changed'
+
+    @staticmethod
+    def _storage_cors(request):
+        request.setHeader('Access-Control-Allow-Origin', '*')
+        request.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, PUT, DELETE, OPTIONS')
+        request.setHeader('Access-Control-Allow-Headers', 'content-type, authorization, if-match, if-none-match, x-sylk-device-id')
+        request.setHeader('Access-Control-Expose-Headers', 'etag, content-length, content-type, x-sylk-device-id')
+
+    @staticmethod
+    def _check_api_token(request, account, token):
+        auth_headers = request.requestHeaders.getRawHeaders('Authorization', default=None)
+        try:
+            method, auth_token = auth_headers[0].split()
+        except (TypeError, IndexError, ValueError):
+            method = auth_token = None
+        if not token or method != 'Apikey' or not hmac.compare_digest(auth_token, token):
+            log.warning(f'Token authentication error for account storage request from {account}')
+            raise ApiTokenAuthError()
+
+    @staticmethod
+    def _storage_failure(failure, request):
+        errors = {ApiTokenAuthError: (401, 'unauthorized'),
+                  account_storage.InvalidName: (400, None),
+                  account_storage.NotFound: (404, 'not found'),
+                  account_storage.PreconditionFailed: (412, 'precondition failed'),
+                  account_storage.TooLarge: (413, None),
+                  account_storage.QuotaExceeded: (507, 'account storage quota exceeded')}
+        for error_type, (code, message) in errors.items():
+            if failure.check(error_type):
+                break
+        else:
+            log.error(f'Account storage request {request.method.decode()} {request.uri.decode()} failed: {failure.getErrorMessage()}')
+            code, message = 500, 'internal error'
+        request.setResponseCode(code)
+        request.setHeader('Content-Type', 'application/json')
+        return json.dumps({'ok': False, 'error': message or str(failure.value)})
+
+    def _storage_request(self, request, account, operation, render):
+        """Authorise, run operation(storage, account) in a thread, then render(result) in the reactor."""
+        self._storage_cors(request)
+        if request.method == b'OPTIONS':
+            return b''
+        if not AccountStorageConfig.enabled:
+            raise NotFound()
+        try:
+            account = account_storage.normalize_account(account)
+        except account_storage.InvalidName as e:
+            return self._storage_failure(Failure(e), request)
+        deferred = defer.maybeDeferred(MessageStorage().get_account_token, account)
+        deferred.addCallback(lambda token: self._check_api_token(request, account, token))
+        deferred.addCallback(lambda _: threads.deferToThread(operation, AccountStorage(), account))
+        deferred.addCallback(render)
+        deferred.addErrback(self._storage_failure, request)
+        return deferred
+
+    def _storage_changed(self, request, account, namespace, object_id, op, meta):
+        account_storage.announce_change(account, namespace, object_id, op, meta,
+                                        request.getHeader('X-Sylk-Device-Id'))
+
+    @staticmethod
+    def _json_response(request, data, code=200):
+        request.setResponseCode(code)
+        request.setHeader('Content-Type', 'application/json')
+        request.setHeader('Cache-Control', 'private, no-cache')
+        return json.dumps(data)
+
+    @app.route('/storage/<string:account>', methods=['OPTIONS', 'GET'])
+    def storage_namespaces(self, request, account):
+        return self._storage_request(request, account,
+                                     lambda storage, account: storage.namespaces(account),
+                                     lambda result: self._json_response(request, result))
+
+    @app.route('/storage/<string:account>/<string:namespace>', methods=['OPTIONS', 'GET'])
+    def storage_index(self, request, account, namespace):
+        return self._storage_request(request, account,
+                                     lambda storage, account: storage.index(account, namespace),
+                                     lambda result: self._json_response(request, result))
+
+    @app.route('/storage/<string:account>/<string:namespace>/<string:object_id>', methods=['OPTIONS', 'GET', 'HEAD', 'PUT', 'DELETE'])
+    def storage_object(self, request, account, namespace, object_id):
+        method = request.method.upper()
+
+        if method in (b'GET', b'HEAD'):
+            def render(result):
+                meta, data = result
+                request.setHeader('ETag', f'"{meta["etag"]}"')
+                request.setHeader('Cache-Control', 'private, no-cache')
+                if meta.get('device_id'):
+                    request.setHeader('X-Sylk-Device-Id', meta['device_id'])
+                if account_storage.etag_matches(request.getHeader('If-None-Match'), meta['etag']):
+                    request.setResponseCode(304)
+                    return b''
+                request.setHeader('Content-Type', meta['content_type'])
+                return data
+            return self._storage_request(request, account, lambda storage, account: storage.get(account, namespace, object_id), render)
+
+        if method == b'PUT':
+            length = request.getHeader('Content-Length')
+            if length is not None and length.isdigit() and int(length) > AccountStorageConfig.max_object_size:
+                self._storage_cors(request)
+                return self._storage_failure(Failure(account_storage.TooLarge(f'object larger than {AccountStorageConfig.max_object_size} bytes')), request)
+            data = request.content.read() if request.content else b''
+            content_type = request.getHeader('Content-Type')
+            if_match = request.getHeader('If-Match')
+            if_none_match = request.getHeader('If-None-Match')
+            device_id = request.getHeader('X-Sylk-Device-Id')
+
+            def put(storage, account):
+                return account, storage.put(account, namespace, object_id, data, content_type,
+                                            if_match=if_match, if_none_match=if_none_match, device_id=device_id)
+
+            def render(result):
+                normalized, (meta, created) = result
+                log.info(f'Account storage: {normalized} {"created" if created else "updated"} {namespace}/{object_id} ({meta["size"]} bytes)')
+                self._storage_changed(request, normalized, namespace, object_id, 'put', meta)
+                request.setHeader('ETag', f'"{meta["etag"]}"')
+                return self._json_response(request, meta, 201 if created else 200)
+            return self._storage_request(request, account, put, render)
+
+        if method == b'DELETE':
+            if_match = request.getHeader('If-Match')
+
+            def delete(storage, account):
+                return account, storage.delete(account, namespace, object_id, if_match=if_match)
+
+            def render(result):
+                normalized, meta = result
+                log.info(f'Account storage: {normalized} removed {namespace}/{object_id}')
+                self._storage_changed(request, normalized, namespace, object_id, 'delete', meta)
+                request.setResponseCode(204)
+                return b''
+            return self._storage_request(request, account, delete, render)
+
+        return self._storage_request(request, account, None, None)
 
     # Push proxy: mirrors the push server's API and relays to it. POST/DELETE
     # on /v2/tokens/<account> add and remove a device token. The
@@ -2380,11 +2522,15 @@ class AdminWebHandler(object, metaclass=Singleton):
                 return counts
             db_deferred = threads.deferToThread(purge_file_backend)
 
-        dl = defer.DeferredList([db_deferred, threads.deferToThread(purge_transfers)],
+        def purge_account_storage():
+            files, size = AccountStorage().purge(account)
+            return {'storage_objects': files, 'storage_bytes': size}
+
+        dl = defer.DeferredList([db_deferred, threads.deferToThread(purge_transfers), threads.deferToThread(purge_account_storage)],
                                 consumeErrors=True)
 
         def assemble(results):
-            (db_ok, db_value), (ft_ok, ft_value) = results
+            (db_ok, db_value), (ft_ok, ft_value), (st_ok, st_value) = results
             result = {'ok': True, 'account': account}
             if db_ok:
                 result.update(db_value)
@@ -2398,6 +2544,11 @@ class AdminWebHandler(object, metaclass=Singleton):
             else:
                 result['ok'] = False
                 result.setdefault('error', str(ft_value.value))
+            if st_ok:
+                result.update(st_value)
+            else:
+                result['ok'] = False
+                result.setdefault('error', str(st_value.value))
             log.info('[admin] purged account {}: {}'.format(account, result))
             return json.dumps(result)
         dl.addCallback(assemble)
