@@ -41,6 +41,7 @@ from sylk.accounts import DefaultAccount
 from sylk.applications.conference.audio_level_udp import LevelUDPServer
 from sylk.applications.conference.configuration import get_room_config, ConferenceConfig
 from sylk.applications.conference.logger import log
+from sylk.applications.conference.radio_ptt import CONTENT_TYPE as RADIO_PTT_CONTENT_TYPE, RadioPTTController
 from sylk.payloads.conference_info_extensions import Duration
 from sylk.bonjour import BonjourService
 from sylk.configuration import ServerConfig, ThorNodeConfig
@@ -221,6 +222,9 @@ class Room(object):
         self.identity = ChatIdentity(SIPURI.parse('sip:%s' % self.uri), display_name='Conference Room')
         self.files = []
         self.screen_images = {}
+        # Radio PTT relay (docs/radio-ptt.md): radio-capable sessions and
+        # their on-air state, published on their conference-info endpoint.
+        self.radio_ptt = RadioPTTController(self)
         self.subject = ''
         self.sessions = []
         self.subscriptions = []
@@ -444,6 +448,11 @@ class Room(object):
                     endpoint.participant_id = participant_id
                 except Exception:
                     pass
+            # Radio PTT capability and on-air state (docs/radio-ptt.md).
+            try:
+                self.radio_ptt.decorate_endpoint(session, endpoint)
+            except Exception as e:
+                log.debug('Room %s - radio PTT endpoint decoration failed: %s' % (self.name, e))
             # Publish the per-endpoint server-side mute state, but skip the
             # audio bridge itself — it's the one driving the mute commands
             # and its own audio path through the conference is uninteresting
@@ -656,6 +665,7 @@ class Room(object):
             subscription.end()
         self.subscriptions = []
         self._subscription_uris = {}
+        self.radio_ptt.stop()
         self.cleanup_files()
         # Cancel every armed anti-fraud eviction timer — the room is
         # going away, so any reactor.callLater holding a reference to
@@ -1336,6 +1346,10 @@ class Room(object):
         self.sessions.append(session)
         remote_uri = str(session.remote_identity.uri)
         self.participants_counter[remote_uri] += 1
+        try:
+            self.radio_ptt.session_added(session)
+        except Exception as e:
+            log.warning('Room %s - session %s add_session: radio PTT check raised: %s' % (self.name, session.call_id, e))
         # Log the joining participant's SIP User-Agent (taken from the
         # INVITE, stashed on the session as _sylk_invite_headers). Useful
         # server-side since subscribers can't always see the conference-info
@@ -1474,6 +1488,7 @@ class Room(object):
         notification_center.remove_observer(self, sender=session)
         self.sessions.remove(session)
         self.session_nickname_map.pop(session, None)
+        self.radio_ptt.session_removed(session)
         remote_uri = str(session.remote_identity.uri)
         self.participants_counter[remote_uri] -= 1
         # Anti-fraud bookkeeping on departure. Three independent
@@ -1760,6 +1775,11 @@ class Room(object):
         if content_type.startswith(('text/', 'image/')):
             stream.msrp_session.send_report(notification.data.chunk, 200, 'OK')
             self.incoming_message_queue.send((session, 'message', data))
+        elif content_type == RADIO_PTT_CONTENT_TYPE:
+            # Consumed by the focus, never broadcast: requests are forwarded
+            # to the radio endpoint, state reports update conference-info.
+            code, reason = self.radio_ptt.handle_message(session, message)
+            stream.msrp_session.send_report(notification.data.chunk, code, reason)
         elif content_type == 'application/blink-screensharing':
             stream.msrp_session.send_report(notification.data.chunk, 200, 'OK')
             try:

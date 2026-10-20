@@ -38,8 +38,8 @@ Keeping the registrations in a neutral package eliminates that import
 side effect.
 """
 
-from sipsimple.payloads import (XMLBooleanElement, XMLStringElement,
-                                XMLUnsignedIntElement)
+from sipsimple.payloads import (XMLAttribute, XMLBooleanElement, XMLElement,
+                                XMLStringElement, XMLUnsignedIntElement)
 from sipsimple.payloads.conference import (ConferenceDescription,
                                            ConferenceDescriptionExtension,
                                            ConferenceDocument,
@@ -50,7 +50,7 @@ from sipsimple.payloads.conference import (ConferenceDescription,
 
 __all__ = ('AdminEndpointURL', 'AdminEndpointToken',
            'AudioLevelsUdpEndpoint',
-           'MutedFlag', 'ParticipantId', 'UserAgent', 'Duration')
+           'MutedFlag', 'ParticipantId', 'UserAgent', 'RadioPTT', 'Duration')
 
 
 # --- User extensions -----------------------------------------------------
@@ -158,6 +158,41 @@ class UserAgent(XMLStringElement, EndpointExtension):
 
 
 Endpoint.register_extension('user_agent', UserAgent)
+
+
+class RadioPTT(XMLElement, EndpointExtension):
+    """On-air state of the radio driven by this endpoint (docs/radio-ptt.md).
+
+    Present only on endpoints that can key a two-way radio; its presence
+    is the capability flag. `elapsed` is whole seconds in the current
+    state, computed by the focus on every build so clients need no clock
+    sync. All attributes are strings on the wire.
+
+    sipclients3 (sipclient/radio_ptt.py) carries an identical definition
+    so the CLI can parse it; registration tolerates either being loaded
+    first in the same process.
+    """
+    _xml_tag = 'radio_ptt'
+    _xml_namespace = agp_conf_namespace
+    _xml_document = ConferenceDocument
+
+    state = XMLAttribute('state', type=str, required=True, test_equal=False)
+    by = XMLAttribute('by', type=str, required=False, test_equal=False)
+    elapsed = XMLAttribute('elapsed', type=str, required=False, test_equal=False)
+    timeout = XMLAttribute('timeout', type=str, required=False, test_equal=False)
+    reason = XMLAttribute('reason', type=str, required=False, test_equal=False)
+
+    def __init__(self, state, by=None, elapsed=None, timeout=None, reason=None):
+        XMLElement.__init__(self)
+        self.state = state
+        self.by = by
+        self.elapsed = elapsed
+        self.timeout = timeout
+        self.reason = reason
+
+
+if not hasattr(Endpoint, 'radio_ptt'):
+    Endpoint.register_extension('radio_ptt', RadioPTT)
 
 
 # --- ConferenceDescription extensions ------------------------------------
