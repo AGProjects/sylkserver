@@ -6,6 +6,7 @@ import re
 import secrets
 import shutil
 import string
+import sys
 import time
 import weakref
 import base64
@@ -124,6 +125,14 @@ class ScreenImage(object):
             txt = '%s stopped sharing the screen' % format_identity(self.sender)
             room.dispatch_server_message(txt)
             log.info(txt)
+
+
+def _uri_str(uri):
+    if uri is None:
+        return '?'
+    def _s(x):
+        return x.decode() if isinstance(x, bytes) else (x or '')
+    return '%s@%s' % (_s(uri.user), _s(uri.host))
 
 
 class _InviterEviction(object):
@@ -1192,23 +1201,43 @@ class Room(object):
         return False
 
     def dispatch_conference_info(self):
+        try:
+            caller = sys._getframe(1).f_code.co_name
+        except Exception:
+            caller = '?'
         full_data = self.build_conference_info(hide_bridges=False)
+        full_version = self.conference_info_payload.version
         sip_data = None  # built on demand when a SIP-only subscriber is present
-        for subscription in (subscription for subscription in self.subscriptions if subscription.state.lower() == 'active'):
+        sip_version = None
+        user_count = len(self.participants_counter)
+        sent = []
+        skipped = []
+        for subscription in list(self.subscriptions):
             sub_uri = self._subscription_uris.get(subscription)
+            sub_str = _uri_str(sub_uri)
+            state = subscription.state
+            if state.lower() != 'active':
+                skipped.append('%s(%s)' % (sub_str, state))
+                continue
             is_videoroom = self._is_videoroom_subscriber(sub_uri)
-            #log.info('Room %s - NOTIFY to %s: videoroom=%s variant=%s' %
-            #         (self.name, sub_uri, is_videoroom, 'full' if is_videoroom else 'sip-only'))
             if is_videoroom:
                 data = full_data
+                version = full_version
             else:
                 if sip_data is None:
                     sip_data = self.build_conference_info(hide_bridges=True)
+                    sip_version = self.conference_info_payload.version
                 data = sip_data
+                version = sip_version
             try:
                 subscription.push_content(conference.ConferenceDocument.content_type, data)
-            except (SIPCoreError, SIPCoreInvalidStateError):
-                pass
+            except (SIPCoreError, SIPCoreInvalidStateError) as e:
+                log.warning('Room %s - conference-info NOTIFY to %s v%s failed: %s' % (self.name, sub_str, version, e))
+            else:
+                sent.append('%s%s v%s' % (sub_str, '/full' if is_videoroom else '', version))
+        log.info('Room %s - conference-info NOTIFY (%s) participants=%d sessions=%d -> %d sent [%s]%s' % (
+            self.name, caller, user_count, len(self.sessions), len(sent), ', '.join(sent),
+            (' skipped [%s]' % ', '.join(skipped)) if skipped else ''))
 
     def set_videoroom_roster(self, body, content_type=None, etag=None):
         """Store (or clear, when body is None) the videoroom roster most
@@ -1622,7 +1651,11 @@ class Room(object):
                       '(gateway_sessions=%d)' %
                       (self.name, subscriber_uri, is_videoroom, hide_bridges,
                        sum(1 for s in self.sessions if getattr(s, '_sylk_from_gateway', False))))
-            subscribe_request.accept(conference.ConferenceDocument.content_type, self.build_conference_info(hide_bridges=hide_bridges))
+            data = self.build_conference_info(hide_bridges=hide_bridges)
+            subscribe_request.accept(conference.ConferenceDocument.content_type, data)
+            log.info('Room %s - conference-info initial NOTIFY to %s v%s participants=%d sessions=%d subscribers=%d' % (
+                self.name, _uri_str(subscriber_uri), self.conference_info_payload.version,
+                len(self.participants_counter), len(self.sessions), len(self.subscriptions)))
         except SIPCoreError as e:
             log.warning('Error accepting SIP subscription: %s' % e)
             subscribe_request.end()
