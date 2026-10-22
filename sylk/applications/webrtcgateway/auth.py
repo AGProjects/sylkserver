@@ -54,9 +54,9 @@ class AuthHandler(object):
     def _auth_finished(self, ret):
         success, proxy = ret
         if success:
-            # callout to janus
+            # callout to the SIP backend
             self.account_info.auth_state = True
-            self.account_info.janus_handle.register(self.account_info, proxy=proxy)
+            self.account_info.sip_backend.register(proxy)
         else:
             if self.account_info.registration_state != 'failed':
                 self.account_info.registration_state = 'failed'

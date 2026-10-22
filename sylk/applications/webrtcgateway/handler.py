@@ -53,12 +53,13 @@ from .contact_avatars import apply_contact_avatar, attach_avatars, remove_contac
 from .auth import AuthHandler
 from .configuration import (ExternalAuthConfig, GeneralConfig, JanusConfig,
                             get_room_config)
-from .janus import (JanusBackend, JanusError, JanusSession, SIPPluginHandle,
+from .janus import (JanusBackend, JanusError, JanusSession,
                     VideoroomPluginHandle)
 from .logger import ConnectionLogger, VideoroomLogger
 from .metadata import metadata_cpim_header, metadata_from_cpim_headers, sanitize_metadata
 from .metrics import Metrics
 from .models import janus, sylkrtc
+from .sip_backends import get_backend_class
 from .sip_handlers import MessageHandler, log_uri
 from .storage import MessageStorage, TokenStorage
 
@@ -159,8 +160,7 @@ class AccountInfo(object):
         self.display_name = display_name
         self.user_agent = user_agent
         self.registration_state = None
-        self.janus_handle = None  # type: Optional[SIPPluginHandle]
-        self.janus_helpers = []  # type: List[SIPPluginHandle]
+        self.sip_backend = None  # type: Optional[SIPAccountBackend]  # registration side, see sip_backends
         self.contact_params = {}
         # Default to forwarding ALL X-* headers from incoming INVITEs into
         # the webrtcgateway incoming-session WebSocket event so any custom
@@ -260,7 +260,8 @@ class SIPSessionInfo(object):
         self.account = None            # type: Optional[AccountInfo]
         self.local_identity = None     # type: Optional[SessionPartyIdentity]
         self.remote_identity = None    # type: Optional[SessionPartyIdentity]
-        self.janus_handle = None       # type: Optional[SIPPluginHandle]
+        self.janus_handle = None       # type: Optional[JanusPluginHandle]  # the Janus handle carrying the media
+        self.backend = None            # type: Optional[SIPCallBackend]     # signalling side, see sip_backends
         self.call_id = None            # SIP Call-ID, learned from the first event that carries it
         self.created = time.time()     # wall-clock creation time (admin UI shows it as session duration)
         self.media = []                # negotiated media types ('audio', 'video'), updated from SDP
@@ -1369,7 +1370,7 @@ class ConnectionHandler(object):
         self.accounts_map = {}         # account ID -> account
         self.devices_map = {}          # device ID -> account
         self.connections_map = {}      # peer connection -> account
-        self.account_handles_map = {}  # Janus handle ID -> account
+        self.sip_backends = {}         # SIP backend name -> SIPBackend (created on demand)
         self.sip_sessions = SessionContainer()        # type: SessionContainer[SIPSessionInfo]        # incoming and outgoing SIP sessions
         self.videoroom_sessions = SessionContainer()  # type: SessionContainer[VideoroomSessionInfo]  # publisher and subscriber sessions in video rooms
         self.ready_event = GreenEvent()
@@ -1417,18 +1418,16 @@ class ConnectionHandler(object):
             # when it destroys a session, so we only remove our event handlers and issue a destroy request for the session.
             for account_info in list(self.accounts_map.values()):
                 account_info.cancel_register_retry()
-                if account_info.janus_handle is not None:
-                    self.janus.set_event_handler(account_info.janus_handle.id, None)
-                    for helper in account_info.janus_helpers:
-                        # helper.detach()
-                        self.account_handles_map.pop(helper.id, None)
-                    account_info.janus_helpers = []
+                if account_info.sip_backend is not None:
+                    account_info.sip_backend.connection_lost()
 
                 notification_center = NotificationCenter()
                 notification_center.remove_observer(self, sender=account_info.id)
             for session in self.sip_sessions:
-                if session.janus_handle is not None:
-                    self.janus.set_event_handler(session.janus_handle.id, None)
+                if session.backend is not None:
+                    session.backend.connection_lost()
+            for backend in self.sip_backends.values():
+                backend.connection_lost()
             for session in self.videoroom_sessions:
                 if session.janus_handle is not None:
                     self.janus.set_event_handler(session.janus_handle.id, None)
@@ -1448,7 +1447,7 @@ class ConnectionHandler(object):
         self.accounts_map.clear()
         self.devices_map.clear()
         self.connections_map.clear()
-        self.account_handles_map.clear()
+        self.sip_backends.clear()
         self.sip_sessions.clear()
         self.videoroom_sessions.clear()
         self.janus_session = None
@@ -1486,9 +1485,7 @@ class ConnectionHandler(object):
 
         if session in self.sip_sessions:
             self.sip_sessions.remove(session)
-            if session.direction == 'outgoing':
-                # Destroy plugin handle for outgoing sessions. For incoming ones it's the same as the account handle, so don't
-                session.janus_handle.detach()
+            session.backend.cleanup()
 
     def _cleanup_videoroom_session(self, session):
         # should only be called from a green thread.
@@ -1868,11 +1865,20 @@ class ConnectionHandler(object):
                               additional_headers=additional_headers)
         payload, content_type = payload.encode()
 
-        session.janus_handle.send_message(content_type=content_type, content=payload)
+        session.backend.send_message(content_type=content_type, content=payload)
         session._message_queue.append((message_id, payload, content_type))
 
-    def _handle_janus_sip_event(self, event):
-        operation = Operation(type='event', name='janus-sip', data=event)
+    def _get_sip_backend(self, name):
+        try:
+            return self.sip_backends[name]
+        except KeyError:
+            backend = self.sip_backends[name] = get_backend_class(name)(self)
+            return backend
+
+    def post_backend_event(self, function, *args, **kw):
+        # SIP backends deliver their events through here, so they get processed
+        # in order with the client requests, from the operations queue.
+        operation = Operation(type='event', name='sip-backend', data=(function, args, kw))
         self.operations_queue.send(operation)
 
     def _handle_janus_videoroom_event(self, event):
@@ -1936,6 +1942,7 @@ class ConnectionHandler(object):
         account_info = AccountInfo(request.account, request.password, request.display_name, request.user_agent, request.incoming_header_prefixes)
         # get the auth config for domain
         account_info.auth_handle = AuthHandler(account_info, self)
+        account_info.sip_backend = self._get_sip_backend('janus').create_account(account_info)
         self.accounts_map[account_info.id] = account_info
         self.devices_map[self.device_id] = account_info.id
         self.connections_map[self.protocol.peer] = account_info.id
@@ -1953,15 +1960,9 @@ class ConnectionHandler(object):
         account_info.cancel_register_retry()
 
         # cleanup in case the client didn't unregister before removing the account
-        if account_info.janus_handle is not None:
-            account_info.janus_handle.detach()
-            self.account_handles_map.pop(account_info.janus_handle.id)
-            for helper in account_info.janus_helpers:
-                helper.detach()
-                self.account_handles_map.pop(helper.id, None)
-            account_info.janus_helpers = []
-            notification_center = NotificationCenter()
-            notification_center.remove_observer(self, sender=account_info.id)
+        account_info.sip_backend.release()
+        notification_center = NotificationCenter()
+        notification_center.discard_observer(self, sender=account_info.id)
         self.log.info('removed')
 
         try:
@@ -2037,29 +2038,17 @@ class ConnectionHandler(object):
             self.log.exception('deferred registration attempt failed: {exception!s}'.format(exception=e))
 
     def _register_account(self, account_info):
-        # should only be called from a green thread (_lookup_sip_proxy blocks)
-        proxy = self._lookup_sip_proxy(account_info.id)
+        # should only be called from a green thread (the proxy lookup blocks)
+        proxy = account_info.sip_backend.lookup_proxy()
 
         account_info.last_register_time = time.monotonic()
 
-        if account_info.janus_handle is not None:
-            # Destroy the existing plugin handle
-            account_info.janus_handle.detach()
-            self.account_handles_map.pop(account_info.janus_handle.id)
-            account_info.janus_handle = None
-            for helper in account_info.janus_helpers:
-                helper.detach()
-                self.account_handles_map.pop(helper.id, None)
-            account_info.janus_helpers = []
-
-        # Create a plugin handle
-        account_info.janus_handle = SIPPluginHandle(self.janus_session, event_handler=self._handle_janus_sip_event)
-        self.account_handles_map[account_info.janus_handle.id] = account_info
+        account_info.sip_backend.reset()
 
         if ExternalAuthConfig.enable:
             account_info.auth_handle.authenticate(proxy)
         else:
-            account_info.janus_handle.register(account_info, proxy=proxy)
+            account_info.sip_backend.register(proxy)
             proxy_type = 'SIP Thor node' if ThorNodeConfig.outbound_proxy_enabled else 'SIP Proxy'
             self.log.info('registering to {proxy_type} {proxy}...'.format(proxy_type=proxy_type, proxy=proxy))
 
@@ -2075,14 +2064,7 @@ class ConnectionHandler(object):
         account_info.registration_failure_count = 0
         account_info.last_register_time = 0
 
-        if account_info.janus_handle is not None:
-            account_info.janus_handle.detach()
-            self.account_handles_map.pop(account_info.janus_handle.id)
-            account_info.janus_handle = None
-            for helper in account_info.janus_helpers:
-                helper.detach()
-                self.account_handles_map.pop(helper.id, None)
-            account_info.janus_helpers = []
+        account_info.sip_backend.release()
 
         if 'pn_app' in account_info.contact_params:
             storage = TokenStorage()
@@ -2445,10 +2427,6 @@ class ConnectionHandler(object):
         except KeyError:
             raise APIError('Unknown account specified: {request.account}'.format(request=request))
 
-        proxy = self._lookup_sip_proxy(request.uri, sender=request.account)
-
-        # Create a new plugin handle and 'register' it, without actually doing so
-        janus_handle = SIPPluginHandle(self.janus_session, event_handler=self._handle_janus_sip_event)
         # Inject the client's session id (the value sylkrtc uses as
         # call.id) as a custom SIP header on the outgoing INVITE. It
         # then appears in the server-side SIP trace, so a call can be
@@ -2465,15 +2443,9 @@ class ConnectionHandler(object):
         extra_headers.append({'name': 'X-Sylk-Client-Ip', 'value': client_ip})
         if client_port is not None:
             extra_headers.append({'name': 'X-Sylk-Client-Port', 'value': client_port})
-        headers = {'headers': extra_headers}
-        try:
-            janus_handle.call(account_info, uri=request.uri, sdp=request.sdp, proxy=proxy, **headers)
-        except Exception:
-            janus_handle.detach()
-            raise
 
         session_info = SIPSessionInfo(request.session)
-        session_info.janus_handle = janus_handle
+        session_info.backend = account_info.sip_backend.backend.create_outgoing_session(account_info, session_info, request.uri, request.sdp, extra_headers)
         session_info.init_outgoing(account_info, request.uri)
         session_info.update_media(request.sdp)
         Metrics().increment('sessions')
@@ -2501,7 +2473,7 @@ class ConnectionHandler(object):
         extra_headers.append({'name': 'X-Sylk-Client-Ip', 'value': client_ip})
         if client_port is not None:
             extra_headers.append({'name': 'X-Sylk-Client-Port', 'value': client_port})
-        session_info.janus_handle.accept(sdp=request.sdp, headers=extra_headers)
+        session_info.backend.answer(sdp=request.sdp, headers=extra_headers)
         session_info.update_media(request.sdp)  # the answer is what got negotiated
         self.log.info('incoming session {session.id} answered'.format(session=session_info))
 
@@ -2514,7 +2486,7 @@ class ConnectionHandler(object):
         if session_info.state == 'terminated':
             raise APIError('Session {request.session} is terminated'.format(request=request))
 
-        session_info.janus_handle.trickle(request.candidates)
+        session_info.backend.trickle(request.candidates)
 
         if not request.candidates:
             self.log.debug('session {session.id} negotiated ICE'.format(session=session_info))
@@ -2529,9 +2501,9 @@ class ConnectionHandler(object):
             raise APIError('Invalid state for terminating session {session.id}: {session.state}'.format(session=session_info))
 
         if session_info.direction == 'incoming' and session_info.state == 'connecting':
-            session_info.janus_handle.decline(self.decline_code)
+            session_info.backend.decline(self.decline_code)
         else:
-            session_info.janus_handle.hangup()
+            session_info.backend.hangup()
         self.log.info('{session.direction} session {session.id} will terminate'.format(session=session_info))
 
     def _RH_session_update(self, request):
@@ -2550,9 +2522,9 @@ class ConnectionHandler(object):
                 'Invalid state for updating session {session.id}: {session.state}'.format(
                     session=session_info))
 
-        headers = {'headers': request.headers.__data__} if request.headers is not None else {}
+        headers = request.headers.__data__ if request.headers is not None else None
         try:
-            session_info.janus_handle.update(sdp=request.sdp, jsep_type=jsep_type, **headers)
+            session_info.backend.update(sdp=request.sdp, jsep_type=jsep_type, headers=headers)
         except Exception:
             if jsep_type == 'offer':
                 session_info.state = 'established'
@@ -2588,7 +2560,7 @@ class ConnectionHandler(object):
                     session=session_info))
 
         duration = request.duration if request.duration else None
-        session_info.janus_handle.send_dtmf_info(digit=request.digit, duration=duration)
+        session_info.backend.send_dtmf_info(digit=request.digit, duration=duration)
         self.log.debug('{session.direction} session {session.id} send DTMF INFO {digit} {duration}'.format(session=session_info, digit=request.digit, duration=duration))
 
     def _RH_videoroom_join(self, request):
@@ -3300,104 +3272,21 @@ class ConnectionHandler(object):
 
     # Event handlers
 
-    def _EH_janus_sip(self, event):
-        if isinstance(event, janus.PluginEvent):
-            event_id = event.plugindata.data.__id__
-            try:
-                handler = getattr(self, '_EH_janus_' + '_'.join(event_id))
-            except AttributeError:
-                self.log.warning('unhandled Janus SIP event: {event_name}'.format(event_name=event_id[-1]))
-            else:
-                self.log.debug('janus SIP event: {event_name} (handle_id={event.sender})'.format(event=event, event_name=event_id[-1]))
-                handler(event)
-        else:  # janus.CoreEvent
-            try:
-                handler = getattr(self, '_EH_janus_sip_' + event.janus)
-            except AttributeError:
-                self.log.warning('unhandled Janus SIP event: {event.janus}'.format(event=event))
-            else:
-                self.log.debug('janus SIP event: {event.janus} (handle_id={event.sender})'.format(event=event))
-                handler(event)
+    def _EH_sip_backend(self, data):
+        function, args, kw = data
+        function(*args, **kw)
 
-    def _EH_janus_sip_error(self, event):
-        # fixme: implement error handling
-        self.log.error('got SIP error event: {}'.format(event.__data__))
-        handle_id = event.sender
-        if handle_id in self.sip_sessions:
-            pass  # this is a session related event
-        elif handle_id in self.account_handles_map:
-            pass  # this is an account related event
+    # SIP backend events (see sip_backends.base.SIPBackendListener). They
+    # are called from the operations queue by the SIP backends and contain
+    # the backend independent part: the session/account state and the
+    # events sent to the client.
 
-    def _EH_janus_sip_webrtcup(self, event):
-        try:
-            session_info = self.sip_sessions[event.sender]
-        except KeyError:
-            self.log.warning('could not find SIP session with handle ID {event.sender} for webrtcup event'.format(event=event))
-            return
-        session_info.state = 'established'
-        self.send(sylkrtc.SessionEstablishedEvent(session=session_info.id))
-        self.log.info('{session.direction} session {session.id} established'.format(session=session_info))
-
-    def _EH_janus_sip_hangup(self, event):
-        try:
-            session_info = self.sip_sessions[event.sender]
-        except KeyError:
-            return
-        if session_info.state != 'terminated':
-            session_info.state = 'terminated'
-            reason = event.reason or 'unspecified reason'
-            self.send(sylkrtc.SessionTerminatedEvent(session=session_info.id, reason=reason, call_id=session_info.call_id))
-            self.log.info('{session.direction} session {session.id} terminated ({reason})'.format(session=session_info, reason=reason))
-            self._cleanup_session(session_info)
-
-    def _EH_janus_sip_slowlink(self, event):
-        try:
-            session_info = self.sip_sessions[event.sender]
-        except KeyError:
-            self.log.warning('could not find SIP session with handle ID {event.sender} for slowlink event'.format(event=event))
-            return
-        if event.uplink:  # uplink is from janus' point of view
-            if not session_info.slow_download:
-                self.log.debug('poor download connectivity for session {session.id}'.format(session=session_info))
-            session_info.slow_download = True
-        else:
-            if not session_info.slow_upload:
-                self.log.debug('poor upload connectivity for session {session.id}'.format(session=session_info))
-            session_info.slow_upload = True
-
-    def _EH_janus_sip_media(self, event):
-        # Janus 'media' event: it (re)started or stopped receiving RTP from
-        # the WebRTC peer (the phone) for one medium.
-        try:
-            session_info = self.sip_sessions[event.sender]
-        except KeyError:
-            return
-        medium = getattr(event, 'type', None) or 'audio'
-        receiving = bool(getattr(event, 'receiving', False))
-        self.log.debug('{session.direction} session {session.id} media {medium} receiving={receiving}'.format(
-            session=session_info, medium=medium, receiving=receiving))
-
-    def _EH_janus_sip_detached(self, event):
-        pass
-
-    def _EH_janus_sip_event_registering(self, event):
-        try:
-            account_info = self.account_handles_map[event.sender]
-        except KeyError:
-            self.log.warning('could not find account with handle ID {event.sender} for registering event'.format(event=event))
-            return
+    def sip_account_registering(self, account_info):
         if account_info.registration_state != 'registering':
             account_info.registration_state = 'registering'
             self.send(sylkrtc.AccountRegisteringEvent(account=account_info.id))
 
-    def _EH_janus_sip_event_registered(self, event):
-        if event.sender in self.sip_sessions:  # skip 'registered' events from outgoing session handles
-            return
-        try:
-            account_info = self.account_handles_map[event.sender]
-        except KeyError:
-            self.log.warning('could not find account with handle ID {event.sender} for registered event'.format(event=event))
-            return
+    def sip_account_registered(self, account_info):
         if account_info.registration_state != 'registered':
             account_info.registration_state = 'registered'
             account_info.auth_state = True
@@ -3408,13 +3297,6 @@ class ConnectionHandler(object):
             Metrics().increment('registrations')
             Metrics().mark('accounts', account_info.id)
 
-
-            helper = SIPPluginHandle(self.janus_session, event_handler=self._handle_janus_sip_event)
-            master_id = event.plugindata.data.result.master_id
-            helper.register_helper(account_info, master_id=master_id)
-            self.account_handles_map[helper.id] = account_info
-            account_info.janus_helpers.append(helper)
-
             self.send(sylkrtc.AccountRegisteredEvent(account=account_info.id))
             self.log.info('registered')
             storage = MessageStorage()
@@ -3423,108 +3305,57 @@ class ConnectionHandler(object):
                 token_storage = TokenStorage()
                 token_storage.add(account_info.id, account_info.contact_params, account_info.user_agent)
 
-    def _EH_janus_sip_event_registration_failed(self, event):
-        try:
-            account_info = self.account_handles_map[event.sender]
-        except KeyError:
-            self.log.warning('could not find account with handle ID {event.sender} for registration failed event'.format(event=event))
-            return
+    def sip_account_registration_failed(self, account_info, reason):
         if account_info.registration_state != 'failed':
             account_info.registration_state = 'failed'
             # Grows the backoff window applied to the next attempt, whether
             # that attempt comes from the client re-registering or from a
             # retry we scheduled ourselves.
             account_info.registration_failure_count += 1
-            reason = '{result.code} {result.reason}'.format(result=event.plugindata.data.result)
             self.send(sylkrtc.AccountRegistrationFailedEvent(account=account_info.id, reason=reason))
             self.log.info('registration failed: {reason} (attempt {count})'.format(
                 reason=reason, count=account_info.registration_failure_count))
 
-    def _EH_janus_sip_event_incomingcall(self, event):
-        # Janus re-emits 'incomingcall' for in-dialog re-INVITEs in
-        # some builds (instead of using a separate 'updatingcall'
-        # event). Detect that case by checking whether event.sender
-        # corresponds to an already-known session handle — if so,
-        # this is a mid-call renegotiation and we route through the
-        # same logic as the explicit 'updatingcall' event handler.
-        # Without this guard, an in-dialog re-INVITE would land here,
-        # fall through the account_handles_map lookup with a warning,
-        # and the client (callee) would never get a SessionUpdateEvent
-        # — symptom on the wire: A's session-update gets accepted, B's
-        # PeerConnection is never told to expect new media, A's video
-        # frames arrive but B has no receiver wired to render them.
-        if event.sender in self.sip_sessions:
-            self.log.info('incomingcall on existing session — routing as re-INVITE')
-            return self._EH_janus_sip_event_updatingcall(event)
-        try:
-            account_info = self.account_handles_map[event.sender]
-        except KeyError:
-            self.log.warning('could not find account with handle ID {event.sender} for incoming call event'.format(event=event))
-            return
-        assert event.jsep is not None
-        data = event.plugindata.data.result  # type: janus.SIPResultIncomingCall
-        call_id = event.plugindata.data.call_id
-        originator = sylkrtc.SIPIdentity(uri=data.username, display_name=data.displayname)
-        headers = {'headers': data.headers} if data.headers else {}
-        session = SIPSessionInfo(self._callid_to_uuid(call_id))
-
-        handle = None
-        if event.sender == account_info.janus_handle.id:
-            handle = account_info.janus_handle
-        else:
-            handle = next((helper for helper in account_info.janus_helpers if helper.id == event.sender),None)
-        if handle:
-            session.janus_handle = handle
-        else:
-            self.log.warning('could not find handle ID {event.sender} for incoming call event'.format(event=event))
-            return
-
-        session.init_incoming(account_info, originator.uri, originator.display_name)
-        session.call_id = call_id
-        session.update_media(event.jsep.sdp, remote=True)
-        self.sip_sessions.add(session)
+    def sip_account_incoming_session(self, account_info, session_info, originator, sdp, call_id, headers=None):
+        # session_info was created by the backend, with janus_handle, backend
+        # and the init_incoming() data already set
+        headers = {'headers': headers} if headers else {}
+        self.sip_sessions.add(session_info)
         Metrics().increment('sessions')
-        Metrics().increment('sessions_video' if 'video' in session.media else 'sessions_audio')
-        self.send(sylkrtc.AccountIncomingSessionEvent(account=account_info.id, session=session.id, originator=originator, sdp=event.jsep.sdp, call_id=call_id, **headers))
-        self.log.info('incoming session {session.id} from {session.remote_identity.uri!s}'.format(session=session))
+        Metrics().increment('sessions_video' if 'video' in session_info.media else 'sessions_audio')
+        self.send(sylkrtc.AccountIncomingSessionEvent(account=account_info.id, session=session_info.id, originator=originator, sdp=sdp, call_id=call_id, **headers))
+        self.log.info('incoming session {session.id} from {session.remote_identity.uri!s}'.format(session=session_info))
 
-    def _EH_janus_sip_event_missed_call(self, event):
-        try:
-            account_info = self.account_handles_map[event.sender]
-        except KeyError:
-            self.log.warning('could not find account with handle ID {event.sender} for missed call event'.format(event=event))
-            return
-        data = event.plugindata.data.result  # type: janus.SIPResultMissedCall
-        originator = sylkrtc.SIPIdentity(uri=data.caller, display_name=data.displayname)
+    def sip_account_missed_session(self, account_info, originator):
         self.send(sylkrtc.AccountMissedSessionEvent(account=account_info.id, originator=originator))
         self.log.info('missed incoming call from {originator.uri}'.format(originator=originator))
 
-    def _EH_janus_sip_event_calling(self, event):
-        try:
-            session_info = self.sip_sessions[event.sender]
-        except KeyError:
-            self.log.warning('could not find SIP session with handle ID {event.sender} for calling event'.format(event=event))
-            return
+    def sip_session_calling(self, session_info):
         session_info.state = 'progress'
         self.send(sylkrtc.SessionProgressEvent(session=session_info.id))
         self.log.debug('{session.direction} session {session.id} state: {session.state}'.format(session=session_info))
 
-    def _EH_janus_sip_event_accepted(self, event):
-        try:
-            session_info = self.sip_sessions[event.sender]
-        except KeyError:
-            self.log.warning('could not find SIP session with handle ID {event.sender} for accepted event'.format(event=event))
-            return
+    def sip_session_proceeding(self, session_info, code):
+        self.send(sylkrtc.ProceedingEvent(session=session_info.id, code=code))
 
-        if event.plugindata.data.call_id:
-            session_info.call_id = event.plugindata.data.call_id
+    def sip_session_ringing(self, session_info):
+        self.send(sylkrtc.RingingEvent(session=session_info.id))
 
+    def sip_session_early_media(self, session_info, sdp, call_id=None):
+        session_info.state = 'early_media'
+        self.log.info('{session.direction} session {session.id} has early media'.format(session=session_info))
+        self.send(sylkrtc.SessionEarlyMediaEvent(session=session_info.id, sdp=sdp, call_id=call_id))
+        self.log.debug('{session.direction} session {session.id} state: {session.state}'.format(session=session_info))
+
+    def sip_session_accepted(self, session_info, sdp=None, call_id=None, headers=None):
+        # sdp is the remote answer (outgoing sessions) or the remote answer to
+        # a local re-INVITE (local-updating), already converted to WebRTC.
         if session_info.state in ('local-updating', 'remote-updating'):
             previous_state = session_info.state
             session_info.state = 'established'
-            if event.jsep is not None:
-                session_info.update_media(event.jsep.sdp, remote=True)
-                self.send(sylkrtc.SessionUpdateEvent(session=session_info.id, state='accepted', sdp=event.jsep.sdp))
+            if sdp is not None:
+                session_info.update_media(sdp, remote=True)
+                self.send(sylkrtc.SessionUpdateEvent(session=session_info.id, state='accepted', sdp=sdp))
                 self.log.info('{session.direction} session {session.id} update accepted ({prev}→established)'.format(
                     session=session_info, prev=previous_state))
             else:
@@ -3535,12 +3366,11 @@ class ConnectionHandler(object):
         if session_info.state == 'established':
             # 'established' is the winning state and must not regress.
             #
-            # These two events come from unrelated Janus sources:
-            # webrtcup means the ICE/DTLS media path is up
-            # (_EH_janus_sip_webrtcup), while this 'accepted' event
-            # means the 200 OK arrived. On a call with early media the
-            # answer SDP rides the 183, so media comes up during the
-            # ringback and webrtcup fires BEFORE the 200 OK. This
+            # These two events come from unrelated sources: established
+            # means the ICE/DTLS media path is up (sip_session_established),
+            # while accepted means the 200 OK arrived. On a call with early
+            # media the answer SDP rides the 183, so media comes up during
+            # the ringback and the media path is up BEFORE the 200 OK. This
             # branch used to overwrite 'established' with 'accepted',
             # and since nothing ever set it back, such sessions spent
             # their entire talking life in 'accepted' — silently
@@ -3566,131 +3396,79 @@ class ConnectionHandler(object):
 
         session_info.state = 'accepted'
         if session_info.direction == 'outgoing':
-            assert event.jsep is not None
-            data = event.plugindata.data.result  # type: janus.SIPResultAccepted
-            headers = {'headers': data.headers} if data.headers else {}
-            session_info.update_media(event.jsep.sdp, remote=True)  # the answer is what got negotiated
-            self.send(sylkrtc.SessionAcceptedEvent(session=session_info.id, sdp=event.jsep.sdp, call_id=event.plugindata.data.call_id, **headers))
+            assert sdp is not None
+            headers = {'headers': headers} if headers else {}
+            session_info.update_media(sdp, remote=True)  # the answer is what got negotiated
+            self.send(sylkrtc.SessionAcceptedEvent(session=session_info.id, sdp=sdp, call_id=call_id, **headers))
         else:
             self.send(sylkrtc.SessionAcceptedEvent(session=session_info.id))
         self.log.debug('{session.direction} session {session.id} state: {session.state}'.format(session=session_info))
 
-    def _EH_janus_sip_event_updating(self, event):
-        try:
-            session_info = self.sip_sessions[event.sender]
-        except KeyError:
-            return
-        self.log.debug('{session.direction} session {session.id} update in progress'.format(session=session_info))
+    def sip_session_established(self, session_info):
+        session_info.state = 'established'
+        self.send(sylkrtc.SessionEstablishedEvent(session=session_info.id))
+        self.log.info('{session.direction} session {session.id} established'.format(session=session_info))
 
-    def _EH_janus_sip_event_updatingcall(self, event):
-        try:
-            session_info = self.sip_sessions[event.sender]
-        except KeyError:
-            self.log.warning('could not find SIP session with handle ID {event.sender} for updatingcall event'.format(event=event))
-            return
-        if event.jsep is None:
-            self.log.warning('updatingcall event without JSEP for session {session.id}'.format(session=session_info))
-            return
+    def sip_session_update_received(self, session_info, sdp):
+        # The remote party sent a re-INVITE; sdp is its offer converted to WebRTC
         session_info.state = 'remote-updating'
-        session_info.update_media(event.jsep.sdp, remote=True)
-        self.send(sylkrtc.SessionUpdateEvent(session=session_info.id, state='received', sdp=event.jsep.sdp))
+        session_info.update_media(sdp, remote=True)
+        self.send(sylkrtc.SessionUpdateEvent(session=session_info.id, state='received', sdp=sdp))
         self.log.info('{session.direction} session {session.id} got remote re-INVITE'.format(session=session_info))
 
-    def _EH_janus_sip_event_updated(self, event):
-        try:
-            session_info = self.sip_sessions[event.sender]
-        except KeyError:
-            self.log.warning('could not find SIP session with handle ID {event.sender} for updated event'.format(event=event))
-            return
+    def sip_session_updated(self, session_info, sdp=None):
+        # A re-INVITE completed; sdp is the remote answer if we were the offerer
         previous_state = session_info.state
         session_info.state = 'established'
-        if event.jsep is not None:
-            session_info.update_media(event.jsep.sdp, remote=True)
-            self.send(sylkrtc.SessionUpdateEvent(session=session_info.id, state='accepted', sdp=event.jsep.sdp))
+        if sdp is not None:
+            session_info.update_media(sdp, remote=True)
+            self.send(sylkrtc.SessionUpdateEvent(session=session_info.id, state='accepted', sdp=sdp))
             self.log.info('{session.direction} session {session.id} update accepted'.format(session=session_info))
         else:
             self.log.info('{session.direction} session {session.id} update completed (was {state})'.format(session=session_info, state=previous_state))
 
-    def _EH_janus_sip_event_hangup(self, event):
-        try:
-            session_info = self.sip_sessions[event.sender]
-        except KeyError:
-            self.log.warning('could not find SIP session with handle ID {event.sender} for hangup event'.format(event=event))
+    def sip_session_terminated(self, session_info, reason, code=None):
+        # code is the SIP status code when the termination came from the SIP
+        # side, None when it came from the media side (e.g. the
+        # PeerConnection went away).
+        if session_info.state == 'terminated':
             return
-        if session_info.state != 'terminated':
-            session_info.state = 'terminated'
-            data = event.plugindata.data.result  # type: janus.SIPResultHangup
-            reason = '{0.code} {0.reason}'.format(data)
-            self.send(sylkrtc.SessionTerminatedEvent(session=session_info.id, reason=reason, call_id=session_info.call_id))
-            if session_info.direction == 'incoming' and data.code == 487:  # incoming call was cancelled -> missed
+        session_info.state = 'terminated'
+        self.send(sylkrtc.SessionTerminatedEvent(session=session_info.id, reason=reason, call_id=session_info.call_id))
+        if code is None:
+            self.log.info('{session.direction} session {session.id} terminated ({reason})'.format(session=session_info, reason=reason))
+        else:
+            if session_info.direction == 'incoming' and code == 487:  # incoming call was cancelled -> missed
                 self.send(sylkrtc.AccountMissedSessionEvent(account=session_info.account.id, originator=session_info.remote_identity.__dict__))
-            if data.code >= 300:
+            if code >= 300:
                 self.log.info('{session.direction} session {session.id} terminated ({reason})'.format(session=session_info, reason=reason))
             else:
                 self.log.info('{session.direction} session {session.id} terminated'.format(session=session_info))
-            self._cleanup_session(session_info)
+        self._cleanup_session(session_info)
 
-    def _EH_janus_sip_event_declining(self, event):
-        pass
+    def sip_session_slow_link(self, session_info, uplink):
+        if uplink:  # uplink is from janus' point of view
+            if not session_info.slow_download:
+                self.log.debug('poor download connectivity for session {session.id}'.format(session=session_info))
+            session_info.slow_download = True
+        else:
+            if not session_info.slow_upload:
+                self.log.debug('poor upload connectivity for session {session.id}'.format(session=session_info))
+            session_info.slow_upload = True
 
-    def _EH_janus_sip_event_hangingup(self, event):
-        pass
+    def sip_session_media(self, session_info, medium, receiving):
+        # Janus (re)started or stopped receiving RTP from the WebRTC peer for one medium.
+        self.log.debug('{session.direction} session {session.id} media {medium} receiving={receiving}'.format(
+            session=session_info, medium=medium, receiving=receiving))
 
-    def _EH_janus_sip_event_proceeding(self, event):
-        data = event.plugindata.data.result  # type: janus.SIPResultMessage
-
-        try:
-            session_info = self.sip_sessions[event.sender]
-        except KeyError:
-            return
-
-        self.send(sylkrtc.ProceedingEvent(session=session_info.id, code=data.code))
-
-    def _EH_janus_sip_event_progress(self, event):
-        try:
-            session_info = self.sip_sessions[event.sender]
-        except KeyError:
-            self.log.warning('could not find SIP session with handle ID {event.sender} for progress event'.format(event=event))
-            return
-        # The 183 progress is the earliest event that carries the SIP
-        # Call-ID for an outgoing call. Remember it so a later cancel /
-        # terminate can report it to the caller (SessionTerminatedEvent).
-        if event.plugindata.data.call_id:
-            session_info.call_id = event.plugindata.data.call_id
-        if event.jsep:
-            session_info.state = 'early_media'
-            self.log.info('{session.direction} session {session.id} has early media'.format(session=session_info))
-            self.send(sylkrtc.SessionEarlyMediaEvent(session=session_info.id, sdp=event.jsep.sdp, call_id=event.plugindata.data.call_id))
-            self.log.debug('{session.direction} session {session.id} state: {session.state}'.format(session=session_info))
-
-    def _EH_janus_sip_event_ringing(self, event):
-        try:
-            session_info = self.sip_sessions[event.sender]
-        except KeyError:
-            return
-
-        self.send(sylkrtc.RingingEvent(session=session_info.id))
-
-    def _EH_janus_sip_event_message(self, event):
-        data = event.plugindata.data.result  # type: janus.SIPResultMessage
-
-        try:
-            session_info = self.sip_sessions[event.sender]
-        except KeyError:
-            return
-
-        if not event.plugindata.data.call_id:
-            return
-
-        if not data.content:
-            return
-
+    def sip_session_message(self, session_info, content, content_type, sender_uri, sender_display_name=None):
+        # An in-dialog SIP MESSAGE
         cpim_message = None
-        if data.content_type in ("application/im-iscomposing+xml", "text/pgp-public-key"):
+        if content_type in ("application/im-iscomposing+xml", "text/pgp-public-key"):
             return
-        elif data.content_type == "message/cpim":
+        elif content_type == "message/cpim":
             try:
-                content = data.content if isinstance(data.content, str) else data.content.decode('latin1')
+                content = content if isinstance(content, str) else content.decode('latin1')
                 cpim_message = CPIMPayload.decode(content.encode('utf-8'))
             except CPIMParserError:
                 self.log.info('message rejected: CPIM parse error')
@@ -3698,14 +3476,13 @@ class ConnectionHandler(object):
             else:
                 body = cpim_message.content if isinstance(cpim_message.content, str) else cpim_message.content.decode()
                 content_type = cpim_message.content_type
-                sender = cpim_message.sender or FromHeader(SIPURI.parse('{}'.format(data.sender)), data.displayname)
+                sender = cpim_message.sender or FromHeader(SIPURI.parse('{}'.format(sender_uri)), sender_display_name)
                 disposition = next(([item.strip() for item in header.value.split(',')] for header in cpim_message.additional_headers if header.name == 'Disposition-Notification'), None)
                 message_id = next((header.value for header in cpim_message.additional_headers if header.name == 'Message-ID'), None)
                 metadata = metadata_from_cpim_headers(cpim_message.additional_headers)
         else:
-            body = data.content
-            content_type = data.content_type
-            sender = FromHeader(SIPURI.parse('{}'.format(data.sender)), data.displayname)
+            body = content
+            sender = FromHeader(SIPURI.parse('{}'.format(sender_uri)), sender_display_name)
             disposition = None
             metadata = None
             message_id = str(uuid.uuid4())
@@ -3742,37 +3519,25 @@ class ConnectionHandler(object):
                                                   message_id=message_id,
                                                   metadata=metadata))
 
-    def _EH_janus_sip_event_messagesent(self, event):
-        pass
-
-    def _EH_janus_sip_event_messagedelivery(self, event):
-        try:
-            session_info = self.sip_sessions[event.sender]
-        except KeyError:
-            self.log.warning('could not find SIP session with handle ID {event.sender} for delivery event'.format(event=event))
-            return
-
-        data = event.plugindata.data.result
+    def sip_session_message_delivery(self, session_info, code, reason):
+        # Final response to an in-dialog MESSAGE we sent (see _send_in_dialog_sip_message)
         message_id, content, content_type = session_info._message_queue.popleft()
         body = CPIMPayload.decode(content)
         timestamp = body.timestamp
 
-        if data.code < 300:
-            self.log.info('in dialog message was delivered to remote party: %s', data.reason)
+        if code < 300:
+            self.log.info('in dialog message was delivered to remote party: %s', reason)
             state = 'accepted'
         else:
-            self.log.info('message was not delivered to remote party %s: %s', data.code, data.reason)
+            self.log.info('message was not delivered to remote party %s: %s', code, reason)
             state = 'failed'
         self.send(sylkrtc.SessionMessageDispositionNotificationEvent(session=session_info.id,
-                                                                     code=data.code,
-                                                                     reason=data.reason,
+                                                                     code=code,
+                                                                     reason=reason,
                                                                      state=state,
                                                                      message_id=message_id,
                                                                      message_timestamp=str(timestamp),
                                                                      timestamp=str(ISOTimestamp.now())))
-
-    def _EH_janus_sip_event_dtmfsent(self, event):
-        pass
 
     def _EH_janus_videoroom(self, event):
         if isinstance(event, janus.PluginEvent):
