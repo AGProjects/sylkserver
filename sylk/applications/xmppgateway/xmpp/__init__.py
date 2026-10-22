@@ -20,7 +20,8 @@ from sylk.applications.xmppgateway.xmpp.session import XMPPChatSessionManager, X
 from sylk.applications.xmppgateway.xmpp.subscription import XMPPSubscriptionManager
 
 import os
-from sylk.applications.xmppgateway.xmpp.sni import SNIContextFactory
+from OpenSSL import SSL
+from sylk.applications.xmppgateway.xmpp.sni import SNIContextFactory, ssl_error_reason
 
 
 @implementer(IObserver)
@@ -110,20 +111,29 @@ class XMPPManager(object, metaclass=Singleton):
         if XMPPGatewayConfig.transport == 'tls':
             if cert_path is not None:
                 if not os.path.isfile(cert_path):
-                    log.error('Certificate file %s could not be found' % cert_path)
+                    log.error('XMPP S2S disabled: certificate file %s could not be found' % cert_path)
                     return
                 if cert_chain_path is not None and not os.path.isfile(cert_chain_path):
-                    log.error('Certificate chain file %s could not be found' % cert_chain_path)
+                    log.error('XMPP S2S disabled: CA file %s could not be found' % cert_chain_path)
                     return
                 try:
                     ssl_ctx_factory = SNIContextFactory(cert_path, certificates_directory=certs_dir, chain_path=cert_chain_path)
+                except SSL.Error as e:
+                    log.error('XMPP S2S disabled: cannot use TLS certificate %s: %s' % (cert_path, ssl_error_reason(e)))
+                    return
+                except OSError as e:
+                    log.error('XMPP S2S disabled: cannot read TLS certificate %s: %s' % (cert_path, e.strerror or e))
+                    return
                 except Exception:
-                    log.exception('Creating TLS context')
+                    log.exception('XMPP S2S disabled: error creating TLS context')
                     return
                 # Let outgoing S2S connections present the certificate matching
                 # the originating domain, so peers can validate our identity.
                 self._server_service.ssl_context_factory = ssl_ctx_factory
                 self._s2s_listener = reactor.listenSSL(port, self._s2s_factory, ssl_ctx_factory, interface=interface)
+            else:
+                log.error('XMPP S2S disabled: transport is TLS but no certificate is configured')
+                return
         else:
             self._s2s_listener = reactor.listenTCP(port, self._s2s_factory, interface=interface)
 
@@ -144,7 +154,10 @@ class XMPPManager(object, metaclass=Singleton):
 
     def stop(self):
         self.stopped = True
+        if self._s2s_listener is None:
+            return  # start() gave up before starting anything (see the errors logged there)
         self._s2s_listener.stopListening()
+        self._s2s_listener = None
         self.jingle_session_manager.stop()
         self.subscription_manager.stop()
         self.muc_session_manager.stop()

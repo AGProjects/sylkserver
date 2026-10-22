@@ -1,12 +1,26 @@
 
 import os
+import re
 
 from datetime import datetime, timezone
 
+from cryptography import x509
 from OpenSSL import SSL, crypto
 
 from sylk.applications.xmppgateway.logger import log
 from sylk.tls import log_certificate_expiry
+
+
+_pem_certificate_re = re.compile(rb'-----BEGIN CERTIFICATE-----.+?-----END CERTIFICATE-----', re.DOTALL)
+
+
+def ssl_error_reason(error):
+    """A one line description of an OpenSSL.SSL.Error"""
+    try:
+        reasons = [item[2] for item in error.args[0] if item[2]]
+    except (IndexError, TypeError):
+        reasons = []
+    return ', '.join(reasons) or str(error) or error.__class__.__name__
 
 
 class _StaticContextFactory(object):
@@ -94,25 +108,72 @@ class SNIContextFactory(object):
         # key_path holds the private key (the same file in the flat layout).
         context.use_certificate_chain_file(cert_path)
         context.use_privatekey_file(key_path or cert_path)
-        if chain_path is not None:
-            context.use_certificate_chain_file(chain_path)
         context.check_privatekey()
+        if chain_path is not None:
+            # chain_path is the ca_file setting, which is normally a CA list
+            # (/etc/sylkserver/tls/ca.crt holds well over 100 roots), not a
+            # chain for our certificate. It must not be loaded with
+            # use_certificate_chain_file(): that replaces the server
+            # certificate with the first certificate in the file, OpenSSL then
+            # drops the no longer matching private key and the context is
+            # unusable ("no private key assigned"). Use it as the trust store,
+            # and send along only the intermediates it holds for our own
+            # certificate that cert_path itself does not already provide.
+            context.load_verify_locations(chain_path)
+            SNIContextFactory._add_issuer_chain(context, cert_path, chain_path)
         return context
+
+    @staticmethod
+    def _load_certificates(path):
+        with open(path, 'rb') as f:
+            data = f.read()
+        certificates = []
+        for block in _pem_certificate_re.findall(data):
+            try:
+                certificates.append(crypto.load_certificate(crypto.FILETYPE_PEM, block))
+            except crypto.Error:
+                log.warning('Skipping unreadable certificate in %s' % path)
+        return certificates
+
+    @staticmethod
+    def _add_issuer_chain(context, cert_path, chain_path):
+        own_chain = SNIContextFactory._load_certificates(cert_path)
+        if not own_chain:
+            return
+        own_subjects = {certificate.get_subject().der(): certificate for certificate in own_chain}
+        candidates = {}
+        for certificate in SNIContextFactory._load_certificates(chain_path):
+            candidates.setdefault(certificate.get_subject().der(), certificate)
+        current = own_chain[0]
+        for _ in range(10):  # guard against loops in broken bundles
+            issuer = current.get_issuer()
+            if issuer.der() == current.get_subject().der():
+                break  # self-signed: end of the chain
+            if issuer.der() in own_subjects:
+                current = own_subjects[issuer.der()]  # already sent from cert_path
+                continue
+            certificate = candidates.get(issuer.der())
+            if certificate is None or certificate.get_issuer().der() == certificate.get_subject().der():
+                break  # issuer unknown, or a root, which peers must already have
+            if certificate.has_expired():
+                log.warning('XMPP S2S intermediate certificate %s from %s has expired' % (certificate.get_subject().commonName, chain_path))
+            context.add_extra_chain_cert(certificate)
+            log.info('XMPP S2S added intermediate certificate %s from %s' % (certificate.get_subject().commonName, chain_path))
+            current = certificate
 
     @staticmethod
     def _certificate_names(cert_path):
         with open(cert_path, 'rb') as f:
             certificate = crypto.load_certificate(crypto.FILETYPE_PEM, f.read())
         common_name = certificate.get_subject().commonName
-        dns_names = []
-        for index in range(certificate.get_extension_count()):
-            extension = certificate.get_extension(index)
-            if extension.get_short_name() == b'subjectAltName':
-                for item in str(extension).split(','):
-                    item = item.strip()
-                    if item.lower().startswith('dns:'):
-                        dns_names.append(item[4:])
-                break
+        # pyOpenSSL removed the X509 extension API (get_extension and friends),
+        # read the Subject Alternative Name through cryptography instead.
+        try:
+            san = certificate.to_cryptography().extensions.get_extension_for_class(x509.SubjectAlternativeName)
+        except x509.ExtensionNotFound:
+            dns_names = []
+        else:
+            dns_names = san.value.get_values_for_type(x509.DNSName)
         if not dns_names and common_name:
             dns_names = [common_name]
         try:
@@ -139,6 +200,10 @@ class SNIContextFactory(object):
         if context is None:
             try:
                 context = self._load_context(cert_path, key_path=key_path)
+            except (SSL.Error, OSError) as e:
+                reason = ssl_error_reason(e) if isinstance(e, SSL.Error) else (e.strerror or str(e))
+                log.error('Skipping XMPP S2S certificate [%s] from %s: %s' % (label, cert_path, reason))
+                return
             except Exception:
                 log.exception('Loading XMPP S2S certificate from %s' % cert_path)
                 return
