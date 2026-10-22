@@ -17,6 +17,12 @@
 ; Enable replies from Chuck Norris on SIP Message
 ; enable_chuck_norris_reply = True
 
+; Log per-call RTP statistics (RTT, loss, RX/TX bandwidth), one line per
+; stream every rtp_statistics_interval seconds, prefixed by Call-ID and caller
+; rtp_statistics_enabled = False
+; rtp_statistics_log = /var/log/sylkserver/playback/rtp.log
+; rtp_statistics_interval = 5
+
 ; [test@conference.example.com]
 ; file = test.wav
 ; enable_video, answer_delay, timeout and enable_chuck_norris_reply can be overridden here

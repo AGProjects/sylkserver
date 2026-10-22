@@ -6,7 +6,7 @@ from application.configuration import ConfigFile, ConfigSection, ConfigSetting
 from sylk.configuration.datatypes import Path
 from sylk.resources import Resources
 
-__all__ = 'get_config',
+__all__ = 'get_config', 'GeneralConfig'
 
 
 class GeneralConfig(ConfigSection):
@@ -18,6 +18,9 @@ class GeneralConfig(ConfigSection):
     answer_delay = 1
     timeout = 60
     enable_chuck_norris_reply = True
+    rtp_statistics_enabled = False
+    rtp_statistics_log = ConfigSetting(type=Path, value=Path('/var/log/sylkserver/playback/rtp.log'))
+    rtp_statistics_interval = 5
 
 
 class PlaybackConfig(ConfigSection):

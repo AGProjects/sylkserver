@@ -3,6 +3,9 @@ import json
 import os
 import random
 
+from datetime import datetime
+from time import monotonic
+
 from application.notification import IObserver, NotificationCenter
 from application.python import Null
 from eventlib import api, proc
@@ -18,7 +21,7 @@ from zope.interface import implementer
 from sylk.applications import ApplicationLogger, SylkApplication
 from sylk.applications.echo import MessageHandler as EchoMessageHandler
 from sylk.applications.echo import format_user_agent, strip_sip_prefix
-from sylk.applications.playback.configuration import get_config
+from sylk.applications.playback.configuration import get_config, GeneralConfig
 from sylk.bonjour import BonjourService
 from sylk.configuration import ServerConfig
 
@@ -137,6 +140,8 @@ class PlaybackHandler(object):
         self.session = session
         self.caller = '%s@%s' % (session.remote_identity.uri.user, session.remote_identity.uri.host)
         self.proc = None
+        self.stats_proc = None
+        self._last_bytes = {}
 
     def run(self):
         notification_center = NotificationCenter()
@@ -158,6 +163,74 @@ class PlaybackHandler(object):
                                                                              stream.local_rtp_address, stream.local_rtp_port,
                                                                              stream.remote_rtp_address, stream.remote_rtp_port,
                                                                              encryption))
+
+    @staticmethod
+    def _bytes(direction):
+        # sipsimple statistics may use 'bytes' or 'octets' depending on version
+        return direction.get('bytes', direction.get('octets', 0)) or 0
+
+    def _bandwidth_kbps(self, stream, stats):
+        key = id(stream)
+        rx_now = self._bytes(stats['rx'])
+        tx_now = self._bytes(stats['tx'])
+        rx_prev, tx_prev, t_prev = self._last_bytes.get(key, (rx_now, tx_now, None))
+        t_now = monotonic()
+        self._last_bytes[key] = (rx_now, tx_now, t_now)
+        if t_prev is None:
+            return 0.0, 0.0
+        dt = max(t_now - t_prev, 0.001)
+        return (rx_now - rx_prev) * 8 / 1000.0 / dt, (tx_now - tx_prev) * 8 / 1000.0 / dt
+
+    def _statistics(self, logfile, interval):
+        call_id = self.session.call_id
+        try:
+            while self.session is not None:
+                api.sleep(interval)
+                session = self.session
+                if session is None or not session.streams:
+                    continue
+                ts = datetime.now().replace(microsecond=0)
+                lines = []
+                for stream in session.streams:
+                    if stream.type not in ('audio', 'video'):
+                        continue
+                    stats = stream.statistics
+                    if stats is None:
+                        continue
+                    rx_kbps, tx_kbps = self._bandwidth_kbps(stream, stats)
+                    rx_pkts = stats['rx']['packets']
+                    loss = 100.0 * stats['rx']['packets_lost'] / rx_pkts if rx_pkts else 0
+                    lines.append('%s %s %s %s RTT=%4d ms, loss=%5.1f%%, RX/TX=%4.0f/%4.0f kbps, %s:%s <-> %s:%s\n' % (
+                        ts, call_id, self.caller, stream.type, stats['rtt']['avg'] / 1000, loss, rx_kbps, tx_kbps,
+                        stream.local_rtp_address, stream.local_rtp_port, stream.remote_rtp_address, stream.remote_rtp_port))
+                if lines:
+                    try:
+                        with open(logfile, 'a') as f:
+                            f.writelines(lines)
+                    except OSError as e:
+                        log.warning('Cannot write RTP statistics to %s: %s' % (logfile, e))
+                        return
+        except proc.ProcExit:
+            pass
+        finally:
+            self.stats_proc = None
+
+    def _start_statistics(self):
+        if self.stats_proc is not None:
+            return
+        if not GeneralConfig.rtp_statistics_enabled:
+            return
+        logfile = GeneralConfig.rtp_statistics_log
+        if not logfile:
+            return
+        logfile = logfile.normalized
+        try:
+            os.makedirs(os.path.dirname(logfile), exist_ok=True)
+        except OSError as e:
+            log.warning('Cannot create RTP statistics directory for %s: %s' % (logfile, e))
+            return
+        interval = max(int(GeneralConfig.rtp_statistics_interval or 5), 1)
+        self.stats_proc = proc.spawn(self._statistics, logfile, interval)
 
     def _play(self):
         config = get_config('%s@%s' % (self.session.request_uri.user, self.session.request_uri.host))
@@ -259,6 +332,7 @@ class PlaybackHandler(object):
         else:
             self._log_audio_stream(audio_stream)
         self.proc = proc.spawn(self._play)
+        self._start_statistics()
 
     def _NH_SIPSessionDidFail(self, notification):
         session = notification.sender
@@ -268,6 +342,8 @@ class PlaybackHandler(object):
     def _NH_SIPSessionWillEnd(self, notification):
         if self.proc:
             self.proc.kill()
+        if self.stats_proc:
+            self.stats_proc.kill()
 
     def _NH_SIPSessionDidEnd(self, notification):
         session = notification.sender

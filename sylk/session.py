@@ -483,12 +483,6 @@ class Session(object):
         # SUBSCRIBE picks up account.credentials (DefaultAccount = "default"
         # username) and is rejected by any real proxy with 407.
         self.credentials = credentials
-        # Diagnostic marker: confirms this patched sylk/session.py is the
-        # version actually loaded. Remove once the credential plumbing is
-        # verified working in production.
-        print('[sylk.session] connect() called, stored session.credentials = {!r}'.format(
-            credentials and getattr(credentials, 'username', '?')
-        ), flush=True)
         self.conference = ConferenceHandler(self)
         notification_center.add_observer(self, sender=self._invitation)
         notification_center.post_notification('SIPSessionNewOutgoing', self, NotificationData(streams=streams[:]))
