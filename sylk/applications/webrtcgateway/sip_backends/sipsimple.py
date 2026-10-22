@@ -26,7 +26,7 @@ import secrets
 
 from application.notification import IObserver, NotificationCenter
 from application.python import Null
-from sipsimple.core import ContactHeader, Credentials, FromHeader, Registration, RouteHeader, SIPURI, SIPCoreError
+from sipsimple.core import ContactHeader, Credentials, FromHeader, Header, Registration, RouteHeader, SIPURI, SIPCoreError
 from sipsimple.threading import run_in_twisted_thread
 from zope.interface import implementer
 
@@ -64,6 +64,11 @@ def find_contact(uri):
     return _contacts.get(token) if token is not None else None
 
 
+def user_agent(account_info):
+    """The client's User-Agent, made safe for use as a SIP header value, or None"""
+    return ' '.join(str(account_info.user_agent or '').split())[:200] or None
+
+
 def _text(value):
     return value.decode() if isinstance(value, bytes) else value
 
@@ -83,9 +88,17 @@ class SIPSimpleAccount(SIPAccountBackend):
         if self._registration is None:
             from_uri = SIPURI.parse(self.account_info.uri)
             credentials = Credentials(username=_text(from_uri.user), password=self.account_info.password.encode('utf-8'), digest=True)  # the password is the HA1 hash
-            self._registration = Registration(FromHeader(from_uri, self.account_info.display_name), credentials=credentials, duration=REGISTRATION_DURATION)
+            self._registration = Registration(FromHeader(from_uri, self.account_info.display_name), credentials=credentials, duration=REGISTRATION_DURATION, extra_headers=self.extra_headers)
             NotificationCenter().add_observer(self, sender=self._registration)
         return self._registration
+
+    @property
+    def extra_headers(self):
+        # The requests sent on behalf of the client carry the client's
+        # User-Agent (the one it gave in account-add), as with the Janus SIP
+        # plugin, instead of SylkServer's. The SIP stack only adds its own
+        # User-Agent header when the request has none.
+        return [Header('User-Agent', user_agent(self.account_info))] if user_agent(self.account_info) else []
 
     def lookup_proxy(self):
         # REGISTER goes where the account's other SIP requests go (the Thor
