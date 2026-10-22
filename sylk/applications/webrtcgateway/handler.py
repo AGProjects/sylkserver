@@ -66,6 +66,11 @@ from .storage import MessageStorage, TokenStorage
 
 _SIP_URI_RE = re.compile(r'^sips?:[^\s@]+@[^\s@]+$')
 
+# (account, call id) -> time.monotonic() of when the endpoints of an incoming
+# call were logged, so the summary is logged once per call, not once per
+# endpoint (see ConnectionHandler._log_incoming_call_endpoints)
+_incoming_call_endpoints_logged = {}
+
 
 def _is_bridge_uri(uri):
     """True if a SIP URI identifies the sylk-janus-audio-bridge.
@@ -3323,7 +3328,41 @@ class ConnectionHandler(object):
         Metrics().increment('sessions')
         Metrics().increment('sessions_video' if 'video' in session_info.media else 'sessions_audio')
         self.send(sylkrtc.AccountIncomingSessionEvent(account=account_info.id, session=session_info.id, originator=originator, sdp=sdp, call_id=call_id, **headers))
-        self.log.info('incoming session {session.id} from {session.remote_identity.uri!s}'.format(session=session_info))
+        self.log.info('incoming session {session.id} from {session.remote_identity.uri!s} sent over WebSocket to {endpoint}'.format(
+            session=session_info, endpoint=self._endpoint_description(account_info)))
+        self._log_incoming_call_endpoints(account_info, session_info)
+
+    def _endpoint_description(self, account_info):
+        host, port = self._client_addr()
+        address = '{}:{}'.format(host, port) if port is not None else host
+        return '{} at {}'.format(account_info.user_agent or 'unknown client', address)
+
+    def _log_incoming_call_endpoints(self, account_info, session_info):
+        # The proxy forks the INVITE to every registered contact, and each
+        # WebSocket connection gets its own copy, so every endpoint that
+        # receives the call logs the line above. Once per call, also log
+        # all endpoints of the account connected to this server and their
+        # registration state, so an endpoint that is online but did not get
+        # the call (not registered) stands out.
+        if self.protocol is None:
+            return
+        now = time.monotonic()
+        for key, logged_at in list(_incoming_call_endpoints_logged.items()):
+            if now - logged_at > 60:
+                del _incoming_call_endpoints_logged[key]
+        key = (account_info.id, session_info.call_id or session_info.id)
+        if key in _incoming_call_endpoints_logged:
+            return
+        _incoming_call_endpoints_logged[key] = now
+        endpoints = []
+        for protocol in list(self.protocol.factory.connections):
+            handler = getattr(protocol, 'connection_handler', None)
+            account = handler.accounts_map.get(account_info.id) if handler is not None else None
+            if account is None:
+                continue
+            endpoints.append('{} [{}]'.format(handler._endpoint_description(account), account.registration_state or 'not registered'))
+        self.log.info('incoming session {session.id} for {account}: {count} WebRTC endpoint(s) connected to this server: {endpoints}'.format(
+            session=session_info, account=account_info.id, count=len(endpoints), endpoints=', '.join(endpoints) or 'none'))
 
     def sip_account_missed_session(self, account_info, originator):
         self.send(sylkrtc.AccountMissedSessionEvent(account=account_info.id, originator=originator))
