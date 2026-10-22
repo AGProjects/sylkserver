@@ -16,8 +16,10 @@ from twisted.internet import reactor
 from zope.interface import implementer
 
 from sylk.applications import ApplicationLogger, SylkApplication
+from sylk.applications.echo.configuration import EchoConfig
 from sylk.bonjour import BonjourService
 from sylk.configuration import ServerConfig, SIPConfig
+from sylk.rtpstatistics import RTPStatisticsLogger
 
 log = ApplicationLogger(__package__)
 
@@ -129,6 +131,7 @@ class EchoHandler(object):
         self.chat_stream = chat_stream
 
         self.end_timer = None
+        self.stats_logger = None
 
     def run(self):
         notification_center = NotificationCenter()
@@ -158,7 +161,20 @@ class EchoHandler(object):
             stream.bridge.remove(stream.device)
             stream.mixer.connect_slots(stream.producer_slot, stream.consumer_slot)
 
+    def _start_statistics(self):
+        if self.stats_logger is not None or self.session is None:
+            return
+        EchoConfig.read()
+        self.stats_logger = RTPStatisticsLogger.start_for(self.session, self.caller,
+                                                          EchoConfig.rtp_statistics_enabled,
+                                                          EchoConfig.rtp_statistics_log,
+                                                          EchoConfig.rtp_statistics_interval, log)
+
     def _cleanup(self):
+        if self.stats_logger is not None:
+            self.stats_logger.stop()
+            self.stats_logger = None
+
         notification_center = NotificationCenter()
 
         notification_center.remove_observer(self, sender=self.session)
@@ -195,6 +211,7 @@ class EchoHandler(object):
             self._log_audio_stream(audio_stream)
             self._make_audio_stream_echo(audio_stream)
             notification.center.add_observer(self, sender=audio_stream)
+            self._start_statistics()
         self.audio_stream = audio_stream
         if chat_stream is not None:
             notification.center.add_observer(self, sender=chat_stream)
@@ -231,6 +248,7 @@ class EchoHandler(object):
                 self._log_audio_stream(stream)
                 self._make_audio_stream_echo(stream)
                 self.audio_stream = stream
+                self._start_statistics()
             elif stream.type == 'chat':
                 self.chat_stream = stream
 

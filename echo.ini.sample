@@ -1,0 +1,10 @@
+; Echo application configuration
+
+[Echo]
+; commented values are the defaults
+
+; Log per-call RTP statistics (RTT, loss, RX/TX bandwidth), one line per
+; stream every rtp_statistics_interval seconds, prefixed by Call-ID and caller
+; rtp_statistics_enabled = False
+; rtp_statistics_log = /var/log/sylkserver/echo/rtp.log
+; rtp_statistics_interval = 5
