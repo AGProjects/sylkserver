@@ -1588,6 +1588,20 @@ class Session(object):
             self.greenlet = None
             self.state = 'terminated'
 
+    def send_message(self, content_type, content, extra_headers=None):
+        """
+        Send a SIP MESSAGE inside the dialog of this session. Only the
+        device that is party to the call gets it. Synchronous, raises
+        SIPCoreError on failure; the SIP stack does not report the final
+        response. Needs a SIP SIMPLE SDK whose Invitation supports in-dialog
+        MESSAGE.
+        """
+        if self._invitation is None:
+            raise IllegalStateError('cannot send message: session has no invitation')
+        if not hasattr(self._invitation, 'send_message'):
+            raise SIPCoreError('in-dialog MESSAGE is not supported by this SIP SIMPLE SDK')
+        self._invitation.send_message(content_type, content, extra_headers or [])
+
     @property
     def local_identity(self):
         if self._invitation is not None and self._invitation.local_identity is not None:
@@ -2048,6 +2062,11 @@ class Session(object):
     def _NH_SIPInvitationGotSDPUpdate(self, notification):
         if self.greenlet is not None:
             self._channel.send(notification)
+
+    def _NH_SIPInvitationGotMessage(self, notification):
+        # An in-dialog MESSAGE (already answered with 200 OK by the SIP stack),
+        # re-posted on the session so its users can observe it per session.
+        notification.center.post_notification('SIPSessionGotMessage', sender=self, data=notification.data)
 
     def _NH_SIPInvitationTransferNewIncoming(self, notification):
         self._invitation.notify_transfer_progress(500)

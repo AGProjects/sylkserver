@@ -36,6 +36,11 @@ class WebRTCGatewayApplication(SylkApplication):
 
     def start(self):
         log.info(f'Using application directory {GeneralConfig.application_dir}')
+        backend_map = GeneralConfig.sip_backend_accounts
+        log.info('SIP backend: {} (default){}{}'.format(
+            GeneralConfig.sip_backend,
+            ', per account: {}'.format(', '.join('%s:%s' % item for item in sorted(list(backend_map.accounts.items()) + list(backend_map.domains.items())))) if backend_map else '',
+            ', clients may override' if GeneralConfig.sip_backend_override else ''))
         self.web_handler.start()
         self.admin_web_handler.start()
         # Real-time audio-level UDP client. Subscribes to the conference
