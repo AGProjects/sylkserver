@@ -1841,7 +1841,7 @@ class ConnectionHandler(object):
         identity = str(session.account.uri)
         if session.account.display_name:
             identity = '"%s" <%s>' % (session.account.display_name, identity)
-        self.log.info("sending in dialag message from '%s' to '%s' " % (identity, session.remote_identity.uri))
+        self.log.info("sending in dialog message from '%s' to '%s'" % (identity, session.remote_identity.uri))
 
         from_uri = SIPURI.parse(session.account.uri)
         sip_uri = SIPURI.parse('sip:%s' % session.remote_identity.uri)
@@ -2536,7 +2536,6 @@ class ConnectionHandler(object):
             direction=session_info.direction, id=session_info.id, jsep=jsep_type))
 
     def _RH_session_message(self, request):
-        self.log.info("Sending janus in dialog message")
         try:
             session_info = self.sip_sessions[request.session]
         except KeyError:
