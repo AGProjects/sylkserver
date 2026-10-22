@@ -164,6 +164,7 @@ class SIPBackendListener(object):
     def sip_session_established(self, session_info): pass
     def sip_session_update_received(self, session_info, sdp): pass
     def sip_session_updated(self, session_info, sdp=None): pass
+    def sip_session_update_failed(self, session_info, reason, sdp=None): pass
     def sip_session_terminated(self, session_info, reason, code=None): pass
     def sip_session_slow_link(self, session_info, uplink): pass
     def sip_session_media(self, session_info, medium, receiving): pass

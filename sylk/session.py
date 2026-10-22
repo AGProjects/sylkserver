@@ -413,6 +413,7 @@ class Session(object):
         self._local_identity = None
         self._remote_identity = None
         self._lock = RLock()
+        self.request_headers = {}  # headers of the INVITE, for incoming sessions
 
     def init_incoming(self, invitation, data):
         remote_sdp = invitation.sdp.proposed_remote
@@ -458,6 +459,7 @@ class Session(object):
         self.direction = 'incoming'
         self.state = 'incoming'
         self.transport = invitation.transport
+        self.request_headers = data.headers
         self._invitation = invitation
         self.conference = ConferenceHandler(self)
         if 'isfocus' in invitation.remote_contact_header.parameters:
@@ -1601,6 +1603,19 @@ class Session(object):
         if not hasattr(self._invitation, 'send_message'):
             raise SIPCoreError('in-dialog MESSAGE is not supported by this SIP SIMPLE SDK')
         self._invitation.send_message(content_type, content, extra_headers or [])
+
+    def send_info(self, content_type, content, extra_headers=None):
+        """
+        Send a SIP INFO (e.g. application/dtmf-relay) inside the dialog of
+        this session. Synchronous, raises SIPCoreError on failure; the SIP
+        stack does not report the final response. Needs a SIP SIMPLE SDK
+        whose Invitation has send_info.
+        """
+        if self._invitation is None:
+            raise IllegalStateError('cannot send INFO: session has no invitation')
+        if not hasattr(self._invitation, 'send_info'):
+            raise SIPCoreError('in-dialog INFO is not supported by this SIP SIMPLE SDK')
+        self._invitation.send_info(content_type, content, extra_headers or [])
 
     @property
     def local_identity(self):

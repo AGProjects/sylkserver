@@ -3483,6 +3483,19 @@ class ConnectionHandler(object):
         else:
             self.log.info('{session.direction} session {session.id} update completed (was {state})'.format(session=session_info, state=previous_state))
 
+    def sip_session_update_failed(self, session_info, reason, sdp=None):
+        # A local re-INVITE (session-update offer from the client) was
+        # rejected or failed; the session goes on with the media it had. sdp,
+        # when given, is the answer that closes the client's pending
+        # renegotiation while keeping the previous media.
+        previous_state = session_info.state
+        session_info.state = 'established'
+        if sdp is not None:
+            self.send(sylkrtc.SessionUpdateEvent(session=session_info.id, state='failed', reason=reason, sdp=sdp))
+        else:
+            self.send(sylkrtc.SessionUpdateEvent(session=session_info.id, state='failed', reason=reason))
+        self.log.info('{session.direction} session {session.id} update failed: {reason} (was {state})'.format(session=session_info, reason=reason, state=previous_state))
+
     def sip_session_terminated(self, session_info, reason, code=None):
         # code is the SIP status code when the termination came from the SIP
         # side, None when it came from the media side (e.g. the

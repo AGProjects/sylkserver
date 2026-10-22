@@ -25,10 +25,24 @@ plain SDP pointing to Janus, process() turns the remote answer into the
 JSEP answer for the browser) and Janus relays the RTP between the browser
 and the remote party.
 
-Implemented: outgoing calls (with early media), hangup from either side,
-in-dialog MESSAGE. Not implemented yet: incoming calls (rejected with 480),
-re-INVITEs (session-update), DTMF with SIP INFO (RFC 4733 DTMF is relayed
-in the RTP).
+Implemented: outgoing calls (with early media), incoming calls (answer,
+decline, cancel/missed), hangup from either side, in-dialog MESSAGE, DTMF
+with SIP INFO (needs an SDK with Invitation.send_info), re-INVITEs in both
+directions (session-update), including a rejected local re-INVITE, after
+which the call goes on with the previous media. Not implemented yet: MSRP
+streams (only the audio and video of an offer are used).
+
+Re-INVITEs:
+  - local (session-update offer from the client): NoSIP converts the new
+    offer, the session sends it (Session.update_streams, or add_streams for
+    new media lines), and the remote answer goes back through NoSIP to the
+    client. When the remote party rejects it, NoSIP gets an answer made of
+    the previously negotiated media (new lines rejected), and the client gets
+    SessionUpdateEvent(state=failed) with the JSEP answer for that, so its
+    PeerConnection stays on the previous media.
+  - remote: the offer goes through NoSIP to the client (state received);
+    the session waits for the client's session-update answer (up to
+    REMOTE_UPDATE_TIMEOUT) before answering the re-INVITE.
 """
 
 import secrets
@@ -38,15 +52,17 @@ from application.python import Null
 from sipsimple.core import (ContactHeader, Credentials, FromHeader, Header, Registration, RouteHeader, SDPConnection, SDPMediaStream,
                             SDPSession, SIPURI, SIPCoreError, ToHeader)
 from sipsimple.streams import IMediaStream, UnknownStreamError
+from eventlib import api, coros
 from sipsimple.threading import run_in_twisted_thread
 from sipsimple.threading.green import call_in_green_thread
+from twisted.internet import reactor
 from zope.interface import implementer
 
 from sylk.accounts import DefaultAccount
 from sylk.session import Session
 
 from ..janus import JanusBackend, JanusError, NoSIPPluginHandle, _is_pstn_uri
-from ..models import janus
+from ..models import janus, sylkrtc
 from .base import SIPAccountBackend, SIPBackend, SIPBackendError, SIPCallBackend
 
 
@@ -57,6 +73,7 @@ CONTACT_APP_PARAMETER = 'x-sylk-app'
 CONTACT_TOKEN_PARAMETER = 'x-sylk-gw'
 
 REGISTRATION_DURATION = 600  # seconds, same as the Janus SIP plugin's register_ttl
+REMOTE_UPDATE_TIMEOUT = 20   # seconds to wait for the client's answer to a remote re-INVITE
 
 _contacts = {}  # contact token -> SIPSimpleAccount
 
@@ -86,6 +103,27 @@ def user_agent(account_info):
 
 def _text(value):
     return value.decode() if isinstance(value, bytes) else value
+
+
+def _aor(uri):
+    """user@host of a SIP URI (the form the sylkrtc protocol uses)"""
+    return '{}@{}'.format(_text(uri.user), _text(uri.host)) if uri.user else _text(uri.host)
+
+
+def _forwarded_headers(headers, prefixes):
+    # The INVITE headers whose name starts with one of the account's
+    # incoming_header_prefixes (default X-), as {name: value}, like the
+    # Janus SIP plugin gives them in the incoming call event.
+    prefixes = tuple(prefix.lower() for prefix in prefixes or ())
+    forwarded = {}
+    for name, header in (headers or {}).items():
+        if not prefixes or not name.lower().startswith(prefixes):
+            continue
+        header = header[0] if isinstance(header, (list, tuple)) and header else header
+        value = getattr(header, 'body', header)
+        if value is not None:
+            forwarded[name] = _text(value) if isinstance(value, bytes) else str(value)
+    return forwarded
 
 
 @implementer(IObserver)
@@ -266,7 +304,7 @@ class RelayedRTPStream(object):
         NotificationCenter().post_notification('MediaStreamDidInitialize', sender=self)
 
     def get_local_media(self, remote_sdp=None, index=0, *args, **kw):
-        return self.call.local_media(self)
+        return self.call.local_media(self, remote_sdp)
 
     def start(self, local_sdp, remote_sdp, stream_index):
         self.call.stream_started(self, remote_sdp)
@@ -275,7 +313,7 @@ class RelayedRTPStream(object):
         return True
 
     def update(self, local_sdp, remote_sdp, stream_index):
-        pass
+        self.call.stream_updated(self, remote_sdp)
 
     def hold(self):
         pass
@@ -297,6 +335,8 @@ class RelayedRTPStream(object):
 class SIPSimpleCall(SIPCallBackend):
     def __init__(self, backend, session_info, account):
         super(SIPSimpleCall, self).__init__(backend, session_info)
+        self.direction = 'outgoing'
+        self._announced = session_info is not None  # the handler knows about the session
         self.account = account          # SIPSimpleAccount
         self.janus_handle = None        # NoSIPPluginHandle
         self.session = None             # sylk.session.Session
@@ -308,6 +348,14 @@ class SIPSimpleCall(SIPCallBackend):
         self._answer_jsep = None        # the JSEP answer for the browser, until the call is accepted
         self._early_media = False
         self._ended = False
+        self._negotiation = 'initial'   # what the awaited answer is for: the 'initial' offer or an 'update'
+        self._answered_offer = None     # the remote offer (as text) the current local SDP answers
+        self._remote_update = None      # event set when the client answered a remote re-INVITE
+        self._pending_proposal = None   # streams of a remote re-INVITE adding media, until the client answers
+        self._proposal_timer = None
+        self._local_update_pending = False
+        self._previous_local_sdp = None
+        self._added_streams = []        # streams of a local update that adds media lines
 
     # Outgoing call
 
@@ -341,6 +389,79 @@ class SIPSimpleCall(SIPCallBackend):
         self.log.info('sipsimple: calling {} via {} with {}'.format(target, route.uri, ', '.join(stream.type for stream in self.streams)))
         self.handler.post_backend_event(self.handler.sip_session_calling, session_info)
 
+    # Incoming call
+
+    def setup_incoming(self, session):
+        # Called in the reactor thread, as soon as the INVITE arrived, so that
+        # a CANCEL is not missed while the offer is converted.
+        self.session = session
+        self.direction = 'incoming'
+        NotificationCenter().add_observer(self, sender=session)
+
+    def start_incoming(self):
+        # should only be called from a green thread (the operations queue)
+        session = self.session
+        if self._ended or session.state != 'incoming':
+            return
+        remote_sdp = session._invitation.sdp.proposed_remote
+        relayed_media = []  # (index in the remote SDP, media type)
+        for index, media in enumerate(remote_sdp.media):
+            media_type = _text(media.media)
+            if media.port != 0 and media_type in ('audio', 'video'):
+                relayed_media.append((index, media_type))
+        if not relayed_media:
+            self.log.info('sipsimple: rejecting incoming call from {}, it has no audio or video'.format(session.remote_identity.uri))
+            call_in_green_thread(session.reject, 488)
+            return
+
+        # NoSIP only gets the audio and video lines; their order is kept, so
+        # the n-th line of its answer belongs to the n-th relayed stream
+        offer = SDPSession.new(remote_sdp)
+        offer.media = [SDPMediaStream.new(remote_sdp.media[index]) for index, media_type in relayed_media]
+        self.streams = []
+        for position, (index, media_type) in enumerate(relayed_media):
+            stream = RelayedRTPStream(self, media_type, position)
+            stream.index = index
+            self.streams.append(stream)
+
+        try:
+            self.janus_handle = NoSIPPluginHandle(self.handler.janus_session, event_handler=self._janus_event_handler)
+            result, jsep = self.janus_handle.process(str(offer), 'offer')
+        except JanusError as e:
+            self.log.warning('sipsimple: Janus could not use the offer of {}: {}'.format(session.remote_identity.uri, e))
+            self._end(detach=True)
+            call_in_green_thread(session.reject, 488)
+            return
+        if self._ended or session.state != 'incoming':  # cancelled meanwhile
+            self._end(detach=True)
+            return
+
+        # only the relayed streams will be accepted (MSRP etc. get port 0)
+        session.proposed_streams = list(self.streams)
+
+        account_info = self.account.account_info
+        call_id = session.call_id
+        remote_uri = session.remote_identity.uri
+        originator = sylkrtc.SIPIdentity(uri=_aor(remote_uri), display_name=_text(session.remote_identity.display_name) or None)
+
+        from ..handler import SIPSessionInfo
+        session_info = SIPSessionInfo(self.handler._callid_to_uuid(call_id))
+        session_info.janus_handle = self.janus_handle
+        session_info.backend = self
+        session_info.init_incoming(account_info, originator.uri, originator.display_name)
+        session_info.call_id = call_id
+        session_info.update_media(jsep.sdp, remote=True)
+        self.session_info = session_info
+        self._announced = True
+
+        try:
+            session.send_ring_indication()  # the Janus SIP plugin answers 180 right away as well
+        except Exception:
+            pass
+        headers = _forwarded_headers(getattr(session, 'request_headers', None), account_info.incoming_header_prefixes)
+        self.log.info('sipsimple: incoming call from {} with {}'.format(remote_uri, ', '.join(stream.type for stream in self.streams)))
+        self.handler.sip_account_incoming_session(account_info, session_info, originator, sdp=jsep.sdp, call_id=call_id, headers=headers or None)
+
     def _extra_headers(self, headers):
         forbidden = {'to', 'from', 'via', 'contact', 'route', 'record-route', 'user-agent'}
         extra_headers = list(self.account.extra_headers)
@@ -355,7 +476,35 @@ class SIPSimpleCall(SIPCallBackend):
     def _set_local_sdp(self, sdp):
         self.local_sdp = SDPSession.parse(sdp.encode() if isinstance(sdp, str) else sdp)
 
-    def local_media(self, stream):
+    def _filtered_sdp(self, sdp, streams):
+        # The lines of sdp (a remote SDP) for the given streams, in the order of
+        # the NoSIP SDP (sdp_index), which is the form NoSIP needs; a stream
+        # without a line in sdp gets its local line with port 0
+        filtered = SDPSession.new(sdp)
+        media = []
+        for stream in sorted(streams, key=lambda item: item.sdp_index):
+            if stream.index is not None and stream.index < len(sdp.media):
+                media.append(SDPMediaStream.new(sdp.media[stream.index]))
+            else:
+                line = SDPMediaStream.new(self.local_sdp.media[stream.sdp_index])
+                line.port = 0
+                media.append(line)
+        filtered.media = media
+        return filtered
+
+    def local_media(self, stream, remote_sdp=None):
+        session = self.session
+        if remote_sdp is not None and session is not None and session.state == 'received_proposal' and str(remote_sdp) != self._answered_offer:
+            # a re-INVITE from the remote party: the client has to answer it first
+            self._negotiate_remote_offer(remote_sdp)
+        if stream.sdp_index >= len(self.local_sdp.media):
+            # NoSIP's SDP has no line for this stream (should not happen): disable it
+            if remote_sdp is None or stream.index is None or stream.index >= len(remote_sdp.media):
+                raise SIPBackendError('no media line for the {} stream'.format(stream.type))
+            media = SDPMediaStream.new(remote_sdp.media[stream.index])
+            media.port = 0
+            media.attributes = []
+            return media
         media = SDPMediaStream.new(self.local_sdp.media[stream.sdp_index])
         if media.connection is None and self.local_sdp.connection is not None:
             # NoSIP puts the Janus address in the session level c= line, but
@@ -365,31 +514,164 @@ class SIPSimpleCall(SIPCallBackend):
 
     def stream_started(self, stream, remote_sdp):
         # called by Session (in its green thread) for every stream the remote party accepted
+        self._remote_sdp(stream, remote_sdp, started=True)
+
+    def stream_updated(self, stream, remote_sdp):
+        # called by Session for every stream once a re-INVITE completed
+        self._remote_sdp(stream, remote_sdp, started=False)
+
+    def _remote_sdp(self, stream, remote_sdp, started):
         if not self._awaiting_answer:
-            NotificationCenter().post_notification('MediaStreamDidStart', sender=stream)
+            if started:
+                NotificationCenter().post_notification('MediaStreamDidStart', sender=stream)
             return
-        self._answer_waiters.append(stream)
+        self._answer_waiters.append((stream, started))
         if not self._processing_answer:
             self._processing_answer = True
-            call_in_green_thread(self._process_answer, str(remote_sdp))
+            call_in_green_thread(self._process_answer, remote_sdp)
 
-    def _process_answer(self, sdp):
+    def _process_answer(self, remote_sdp):
         notification_center = NotificationCenter()
-        waiters, self._answer_waiters = self._answer_waiters, []
+        negotiation = self._negotiation
         try:
-            result, jsep = self.janus_handle.process(sdp, 'answer')
+            answer = self._filtered_sdp(remote_sdp, self.streams + self._added_streams)
+            result, jsep = self.janus_handle.process(str(answer), 'answer')
         except JanusError as e:
-            self.log.warning('sipsimple: Janus could not use the answer of {}: {}'.format(self.session_info.remote_identity.uri, e))
-            for stream in waiters:
-                notification_center.post_notification('MediaStreamDidFail', sender=stream, data=NotificationData(context='starting', reason='Janus: {}'.format(e)))
+            waiters, self._answer_waiters = self._answer_waiters, []
+            self.log.warning('sipsimple: Janus could not use the answer of {}: {}'.format(self.session.remote_identity.uri, e))
+            if negotiation == 'update':
+                self._awaiting_answer = False
+                self.handler.post_backend_event(self._local_update_failed, 'Janus could not use the answer: {}'.format(e))
+            for stream, started in waiters:
+                if started:
+                    notification_center.post_notification('MediaStreamDidFail', sender=stream, data=NotificationData(context='starting', reason='Janus: {}'.format(e)))
         else:
+            waiters, self._answer_waiters = self._answer_waiters, []
             self._awaiting_answer = False
-            early = getattr(self.session._invitation, 'state', None) == 'early'
-            self.handler.post_backend_event(self._remote_answer, jsep.sdp if jsep is not None else None, early)
-            for stream in waiters:
-                notification_center.post_notification('MediaStreamDidStart', sender=stream)
+            sdp = jsep.sdp if jsep is not None else None
+            if negotiation == 'update':
+                self.handler.post_backend_event(self._local_update_answered, sdp)
+            else:
+                early = getattr(self.session._invitation, 'state', None) == 'early'
+                self.handler.post_backend_event(self._remote_answer, sdp, early)
+            for stream, started in waiters:
+                if started:
+                    notification_center.post_notification('MediaStreamDidStart', sender=stream)
         finally:
             self._processing_answer = False
+
+    # Remote re-INVITE
+
+    def _negotiate_remote_offer(self, remote_sdp):
+        # Runs in the session's green thread while it builds the answer to a
+        # re-INVITE: blocks until the client answered (or the timeout).
+        self._answered_offer = str(remote_sdp)
+        offer = self._filtered_sdp(remote_sdp, self.streams)
+        event = self._remote_update = coros.event()
+        try:
+            result, jsep = self.janus_handle.process(str(offer), 'offer')
+        except (JanusError, AttributeError) as e:
+            self._remote_update = None
+            self.log.warning('sipsimple: Janus could not use the re-INVITE offer of {}: {}, keeping the current media'.format(self.session.remote_identity.uri, e))
+            return
+        self.handler.post_backend_event(self._remote_offer_received, jsep.sdp)
+        try:
+            with api.timeout(REMOTE_UPDATE_TIMEOUT):
+                event.wait()
+        except api.TimeoutError:
+            self.log.warning('sipsimple: the client did not answer the re-INVITE of {} in {}s, keeping the current media'.format(self.session.remote_identity.uri, REMOTE_UPDATE_TIMEOUT))
+            self.handler.post_backend_event(self._remote_update_abandoned, 'no answer from the client')
+        finally:
+            self._remote_update = None
+
+    def _remote_offer_received(self, sdp):
+        if not self._ended:
+            self.handler.sip_session_update_received(self.session_info, sdp)
+
+    def _remote_proposal(self, proposed_streams):
+        # A re-INVITE from the remote party that adds media lines
+        session = self.session
+        if self._ended or session.state != 'received_proposal':
+            return
+        new_streams = []
+        for proposed in proposed_streams:
+            if proposed.type in ('audio', 'video'):
+                stream = RelayedRTPStream(self, proposed.type, len(self.streams) + len(new_streams))
+                stream.index = proposed.index
+                new_streams.append(stream)
+        if not new_streams:
+            self.log.info('sipsimple: rejecting re-INVITE of {} adding {}, not supported'.format(session.remote_identity.uri, ', '.join(stream.type for stream in proposed_streams)))
+            call_in_green_thread(session.reject_proposal, 488)
+            return
+        session.proposed_streams = new_streams  # only these are accepted
+        remote_sdp = session._invitation.sdp.proposed_remote
+        self._answered_offer = str(remote_sdp)
+        try:
+            offer = self._filtered_sdp(remote_sdp, self.streams + new_streams)
+            result, jsep = self.janus_handle.process(str(offer), 'offer')
+        except JanusError as e:
+            self.log.warning('sipsimple: Janus could not use the re-INVITE offer of {}: {}'.format(session.remote_identity.uri, e))
+            call_in_green_thread(session.reject_proposal, 488)
+            return
+        self._pending_proposal = new_streams
+        self._proposal_timer = reactor.callLater(REMOTE_UPDATE_TIMEOUT, self._remote_proposal_timeout)
+        self.handler.sip_session_update_received(self.session_info, jsep.sdp)
+
+    def _remote_proposal_timeout(self):
+        self._proposal_timer = None
+        if self._pending_proposal is not None and self.session.state == 'received_proposal':
+            self._pending_proposal = None
+            self.log.warning('sipsimple: the client did not answer the re-INVITE of {} in {}s, rejecting it'.format(self.session.remote_identity.uri, REMOTE_UPDATE_TIMEOUT))
+            call_in_green_thread(self.session.reject_proposal, 488)
+            self.handler.post_backend_event(self._remote_update_abandoned, 'no answer from the client')
+
+    def _remote_update_abandoned(self, reason):
+        # the client got a remote offer (update state received) that will not be used
+        if not self._ended and self.session_info.state == 'remote-updating':
+            self.handler.sip_session_update_failed(self.session_info, reason)
+
+    # Local re-INVITE
+
+    def _local_update_answered(self, sdp):
+        if self._ended:
+            return
+        self._local_update_pending = False
+        self._previous_local_sdp = None
+        self.handler.sip_session_accepted(self.session_info, sdp=sdp)  # local-updating -> established, update accepted
+
+    def _local_update_failed(self, reason):
+        if self._ended or not self._local_update_pending:
+            return
+        self._local_update_pending = False
+        self._awaiting_answer = False
+        self._negotiation = 'initial'
+        rejected_sdp = self.local_sdp
+        added_streams, self._added_streams = self._added_streams, []
+        if self._previous_local_sdp is not None:
+            self.local_sdp, self._previous_local_sdp = self._previous_local_sdp, None
+        # Close the client's pending negotiation with an answer that keeps the
+        # previously negotiated media: the active remote SDP for the existing
+        # lines, the new lines rejected (port 0).
+        sdp = None
+        try:
+            active_remote = self.session._invitation.sdp.active_remote
+            answer = SDPSession.new(active_remote)
+            lines = []
+            for index, line in enumerate(rejected_sdp.media):
+                stream = next((item for item in self.streams if item.sdp_index == index), None)
+                if stream is not None and stream.index is not None and stream.index < len(active_remote.media):
+                    lines.append(SDPMediaStream.new(active_remote.media[stream.index]))
+                else:
+                    line = SDPMediaStream.new(line)
+                    line.port = 0
+                    lines.append(line)
+            answer.media = lines
+            result, jsep = self.janus_handle.process(str(answer), 'answer')
+            sdp = jsep.sdp if jsep is not None else None
+        except Exception as e:
+            self.log.warning('sipsimple: could not restore the previous media after the failed update: {}'.format(e))
+        self.log.info('sipsimple: update of session {} failed ({}){}'.format(self.session_info.id, reason, ', removed {}'.format(', '.join(stream.type for stream in added_streams)) if added_streams else ''))
+        self.handler.sip_session_update_failed(self.session_info, reason, sdp=sdp)
 
     def _remote_answer(self, sdp, early):
         if self._ended or sdp is None:
@@ -404,17 +686,82 @@ class SIPSimpleCall(SIPCallBackend):
     # Requests from the client
 
     def answer(self, sdp, headers=None):
-        raise SIPBackendError('incoming calls are not implemented yet in the sipsimple SIP backend')
+        if self.direction != 'incoming' or self.session is None or self.session.state != 'incoming':
+            raise SIPBackendError('the session cannot be answered')
+        try:
+            result = self.janus_handle.generate(sdp, 'answer')
+        except JanusError as e:
+            raise SIPBackendError('Janus could not use the answer: {}'.format(e))
+        self._set_local_sdp(result.sdp)
+        self._answered_offer = str(self.session._invitation.sdp.proposed_remote)
+        self.session.accept(self.streams, extra_headers=self._extra_headers(headers))
 
     def decline(self, code):
-        raise SIPBackendError('incoming calls are not implemented yet in the sipsimple SIP backend')
+        if self.session is not None and self.session.state == 'incoming':
+            self.session.reject(code)
 
     def hangup(self):
         if self.session is not None:
             call_in_green_thread(self.session.end)
 
     def update(self, sdp, jsep_type, headers=None):
-        raise SIPBackendError('session updates (re-INVITE) are not implemented yet in the sipsimple SIP backend')
+        if self.janus_handle is None or self.session is None:
+            raise SIPBackendError('the session ended')
+        if jsep_type == 'answer':
+            self._answer_remote_update(sdp)
+        else:
+            self._send_local_update(sdp, headers)
+
+    def _answer_remote_update(self, sdp):
+        # the client's answer to a re-INVITE from the remote party
+        event, proposal = self._remote_update, self._pending_proposal
+        try:
+            result = self.janus_handle.generate(sdp, 'answer')
+        except JanusError as e:
+            if event is not None:
+                event.send(False)
+            if proposal is not None:
+                self._pending_proposal = None
+                call_in_green_thread(self.session.reject_proposal, 488)
+            raise SIPBackendError('Janus could not use the answer: {}'.format(e))
+        self._set_local_sdp(result.sdp)
+        if event is not None:
+            event.send(True)  # the session answers the re-INVITE with the new local SDP
+        elif proposal is not None:
+            self._pending_proposal = None
+            if self._proposal_timer is not None and self._proposal_timer.active():
+                self._proposal_timer.cancel()
+            self._proposal_timer = None
+            self.session.accept_proposal(proposal)
+        self.handler.post_backend_event(self.handler.sip_session_updated, self.session_info)
+
+    def _send_local_update(self, sdp, headers):
+        if self.session.state != 'connected':
+            raise SIPBackendError('the session cannot be updated now ({})'.format(self.session.state))
+        try:
+            result = self.janus_handle.generate(sdp, 'offer')
+        except JanusError as e:
+            raise SIPBackendError('Janus could not use the offer: {}'.format(e))
+        self._previous_local_sdp = self.local_sdp
+        self._set_local_sdp(result.sdp)
+        count = len(self.streams)
+        self._added_streams = [RelayedRTPStream(self, _text(media.media), index) for index, media in enumerate(self.local_sdp.media)
+                               if index >= count and media.port != 0 and _text(media.media) in ('audio', 'video')]
+        self._negotiation = 'update'
+        self._awaiting_answer = True
+        self._local_update_pending = True
+        try:
+            if self._added_streams:
+                self.session.add_streams(self._added_streams)
+            else:
+                self.session.update_streams(extra_headers=self._extra_headers(headers))
+        except Exception as e:
+            self._awaiting_answer = False
+            self._local_update_pending = False
+            self._added_streams = []
+            self.local_sdp, self._previous_local_sdp = self._previous_local_sdp, None
+            raise SIPBackendError('could not send the update: {}'.format(e))
+        self.log.info('sipsimple: sending re-INVITE for session {}{}'.format(self.session_info.id, ', adding {}'.format(', '.join(stream.type for stream in self._added_streams)) if self._added_streams else ''))
 
     def trickle(self, candidates):
         if self.janus_handle is None:
@@ -431,7 +778,12 @@ class SIPSimpleCall(SIPCallBackend):
         self.handler.post_backend_event(self.handler.sip_session_message_delivery, self.session_info, 202, 'Sent')
 
     def send_dtmf_info(self, digit, duration=None):
-        raise SIPBackendError('DTMF with SIP INFO is not available in the sipsimple SIP backend (RFC 4733 DTMF is relayed in the RTP)')
+        # the same application/dtmf-relay body the Janus SIP plugin sends
+        body = 'Signal={}\r\nDuration={}\r\n'.format(digit, int(duration) if duration else 160)
+        try:
+            self.session.send_info('application/dtmf-relay', body)
+        except (SIPCoreError, AttributeError) as e:
+            raise SIPBackendError('could not send DTMF with SIP INFO: {}'.format(e))
 
     def cleanup(self):
         self._end(detach=True)
@@ -460,7 +812,7 @@ class SIPSimpleCall(SIPCallBackend):
         self.handler.post_backend_event(self._handle_janus_event, event)
 
     def _handle_janus_event(self, event):
-        if self._ended or not isinstance(event, janus.CoreEvent):
+        if self._ended or self.session_info is None or not isinstance(event, janus.CoreEvent):
             return
         session_info = self.session_info
         if event.janus == 'webrtcup':
@@ -483,10 +835,14 @@ class SIPSimpleCall(SIPCallBackend):
         handler(notification)
 
     def _NH_SIPSessionGotProvisionalResponse(self, notification):
+        if self.direction != 'outgoing':
+            return
         self.session_info.call_id = self.session.call_id
         self.handler.post_backend_event(self.handler.sip_session_proceeding, self.session_info, notification.data.code)
 
     def _NH_SIPSessionGotRingIndication(self, notification):
+        if self.direction != 'outgoing':
+            return
         self.handler.post_backend_event(self.handler.sip_session_ringing, self.session_info)
 
     def _NH_SIPSessionDidStart(self, notification):
@@ -501,6 +857,9 @@ class SIPSimpleCall(SIPCallBackend):
 
     def _NH_SIPSessionDidFail(self, notification):
         NotificationCenter().discard_observer(self, sender=notification.sender)
+        if not self._announced:  # an incoming call that ended before the client was told about it
+            self.handler.post_backend_event(self._end, True)
+            return
         data = notification.data
         if data.code:
             code, reason = data.code, '{} {}'.format(data.code, _text(data.reason))
@@ -517,6 +876,28 @@ class SIPSimpleCall(SIPCallBackend):
         if self.session is not None and self.session.call_id:
             self.session_info.call_id = self.session.call_id
         self.handler.sip_session_terminated(self.session_info, reason, code=code)  # calls cleanup()
+
+    def _NH_SIPSessionNewProposal(self, notification):
+        if notification.data.originator == 'remote':
+            self.handler.post_backend_event(self._remote_proposal, list(notification.data.proposed_streams))
+
+    def _NH_SIPSessionProposalAccepted(self, notification):
+        accepted = [stream for stream in notification.data.accepted_streams if isinstance(stream, RelayedRTPStream) and stream not in self.streams]
+        self.streams.extend(accepted)
+        self._added_streams = [stream for stream in self._added_streams if stream not in accepted]
+
+    def _NH_SIPSessionProposalRejected(self, notification):
+        if notification.data.originator == 'local':
+            self.handler.post_backend_event(self._local_update_failed, '{} {}'.format(notification.data.code, _text(notification.data.reason)))
+
+    def _NH_SIPSessionHadProposalFailure(self, notification):
+        if notification.data.originator == 'local':
+            self.handler.post_backend_event(self._local_update_failed, _text(notification.data.failure_reason) or 'update failed')
+
+    def _NH_SIPSessionDidNotUpdateStreams(self, notification):
+        data = notification.data
+        reason = '{} {}'.format(data.code, _text(data.reason)) if data.code else _text(data.reason)
+        self.handler.post_backend_event(self._local_update_failed, reason)
 
     def _NH_SIPSessionGotMessage(self, notification):
         data = notification.data
@@ -551,8 +932,9 @@ class SIPSimpleBackend(SIPBackend):
     def incoming_session(session):
         """An INVITE sent to a contact registered by this backend (see the webrtcgateway application)"""
         account = find_contact(session.request_uri)
-        if account is None:
+        if account is None or account.handler.state != 'started':
             session.reject(480)  # stale contact, the client is gone
-        else:
-            account.log.info('sipsimple: rejecting incoming call from {}, calls are not implemented yet'.format(session.remote_identity.uri))
-            session.reject(480)
+            return
+        call = SIPSimpleCall(account.backend, None, account)
+        call.setup_incoming(session)
+        account.handler.post_backend_event(call.start_incoming)
