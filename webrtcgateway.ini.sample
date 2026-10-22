@@ -124,6 +124,17 @@
 ; files (< 50MB) will be removed after 2 * filetransfer_expire_days
 ; filetransfer_expire_days = 15
 
+; SIP signalling backend used for the accounts of WebRTC clients:
+;   janus     - the Janus SIP plugin (Sofia-SIP) does the SIP signalling
+;   sipsimple - SylkServer's own SIP stack does the SIP signalling, Janus
+;               (NoSIP plugin) is used only for the media
+; sip_backend = janus
+
+; Allow clients to select the SIP backend per account, using the
+; sip_backend field of the account-add request. Useful to test a backend
+; with a few accounts while the others keep using the default one.
+; sip_backend_override = False
+
 [Janus]
 ; URL pointing to the Janus API endpoint (only WebSocket is supported)
 ; api_url = ws://127.0.0.1:8188

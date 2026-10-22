@@ -1,9 +1,9 @@
 
 """SIP signalling backends for the WebRTC gateway"""
 
-from .base import SIPBackend, SIPAccountBackend, SIPCallBackend
+from .base import SIPBackendError, SIPBackend, SIPAccountBackend, SIPCallBackend
 
-__all__ = 'SIPBackend', 'SIPAccountBackend', 'SIPCallBackend', 'backend_names', 'get_backend_class'
+__all__ = 'SIPBackendError', 'SIPBackend', 'SIPAccountBackend', 'SIPCallBackend', 'backend_names', 'get_backend_class'
 
 
 def _janus_backend():
@@ -11,8 +11,16 @@ def _janus_backend():
     return JanusSIPBackend
 
 
+def _sipsimple_backend():
+    from .sipsimple import SIPSimpleBackend
+    return SIPSimpleBackend
+
+
+# Keep in sync with configuration.SIPBackendName and the sip_backend
+# property of sylkrtc.AccountAddRequest
 _backend_factories = {
     'janus': _janus_backend,
+    'sipsimple': _sipsimple_backend,
 }
 
 backend_names = tuple(_backend_factories)

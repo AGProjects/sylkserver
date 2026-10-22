@@ -692,6 +692,7 @@ class AccountAddRequest(AccountRequestBase):
     display_name = StringProperty(optional=True)
     user_agent = StringProperty(optional=True)
     incoming_header_prefixes = ArrayProperty(IncomingHeaderPrefixes, optional=True)
+    sip_backend = LimitedChoiceProperty(['janus', 'sipsimple'], optional=True)  # only honoured with [General] sip_backend_override
 
 
 class AccountRemoveRequest(AccountRequestBase):

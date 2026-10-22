@@ -117,6 +117,18 @@ class AuthType(str):
         return str.__new__(cls, value)
 
 
+class SIPBackendName(str):
+    # Keep in sync with sip_backends.backend_names (not imported here, to keep
+    # the configuration module free of the backend dependencies)
+    allowed_values = ('janus', 'sipsimple')
+
+    def __new__(cls, value):
+        value = value.strip().lower()
+        if value not in cls.allowed_values:
+            raise ValueError('invalid value, allowed values are: %s' % ' | '.join(cls.allowed_values))
+        return str.__new__(cls, value)
+
+
 class SIPAddressList(object):
     """A list of SIP uris separated by commas"""
 
@@ -219,6 +231,13 @@ class GeneralConfig(ConfigSection):
     xcap_url = ConfigSetting(type=URL, value='')
     local_sip_messages = False
     filetransfer_expire_days = 15
+    # SIP signalling backend for the accounts of WebRTC clients: 'janus' (the
+    # Janus SIP plugin) or 'sipsimple' (SylkServer's own SIP stack, with Janus
+    # NoSIP for the media). With sip_backend_override enabled, clients may
+    # pick one per account in account-add, which allows testing a backend on
+    # a few accounts.
+    sip_backend = ConfigSetting(type=SIPBackendName, value=SIPBackendName('janus'))
+    sip_backend_override = False
 
 
 class JanusConfig(ConfigSection):

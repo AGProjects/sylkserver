@@ -22,7 +22,11 @@ they go through handler.post_backend_event(), which runs the callable from
 the connection's operations queue.
 """
 
-__all__ = 'SIPBackend', 'SIPAccountBackend', 'SIPCallBackend', 'SIPBackendListener'
+__all__ = 'SIPBackendError', 'SIPBackend', 'SIPAccountBackend', 'SIPCallBackend', 'SIPBackendListener'
+
+
+class SIPBackendError(Exception):
+    """A request cannot be carried out by the backend; the message is returned to the client"""
 
 
 class SIPBackend(object):

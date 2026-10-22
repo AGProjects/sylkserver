@@ -59,7 +59,7 @@ from .logger import ConnectionLogger, VideoroomLogger
 from .metadata import metadata_cpim_header, metadata_from_cpim_headers, sanitize_metadata
 from .metrics import Metrics
 from .models import janus, sylkrtc
-from .sip_backends import get_backend_class
+from .sip_backends import SIPBackendError, get_backend_class
 from .sip_handlers import MessageHandler, log_uri
 from .storage import MessageStorage, TokenStorage
 
@@ -1903,7 +1903,7 @@ class ConnectionHandler(object):
         request = operation.data
         try:
             handler(request)
-        except (APIError, DNSLookupError, JanusError) as e:
+        except (APIError, DNSLookupError, JanusError, SIPBackendError) as e:
             self.log.error('{operation.name}: {exception!s}'.format(operation=operation, exception=e))
             self.send(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
         except Exception as e:
@@ -1947,14 +1947,20 @@ class ConnectionHandler(object):
         account_info = AccountInfo(request.account, request.password, request.display_name, request.user_agent, request.incoming_header_prefixes)
         # get the auth config for domain
         account_info.auth_handle = AuthHandler(account_info, self)
-        account_info.sip_backend = self._get_sip_backend('janus').create_account(account_info)
+        backend_name = GeneralConfig.sip_backend
+        if request.sip_backend is not None and request.sip_backend != backend_name:
+            if GeneralConfig.sip_backend_override:
+                backend_name = request.sip_backend
+            else:
+                self.log.warning('ignoring SIP backend {request.sip_backend} requested for {request.account}, sip_backend_override is disabled'.format(request=request))
+        account_info.sip_backend = self._get_sip_backend(backend_name).create_account(account_info)
         self.accounts_map[account_info.id] = account_info
         self.devices_map[self.device_id] = account_info.id
         self.connections_map[self.protocol.peer] = account_info.id
         notification_center = NotificationCenter()
         notification_center.add_observer(self, sender=account_info.id)
         self.log.debug(f'Incoming header prefixes: {request.incoming_header_prefixes}')
-        self.log.info('added using {request.user_agent}'.format(request=request))
+        self.log.info('added using {request.user_agent} (SIP backend {backend})'.format(request=request, backend=account_info.sip_backend.backend.name))
 
     def _RH_account_remove(self, request):
         try:
@@ -2035,7 +2041,7 @@ class ConnectionHandler(object):
             return  # the account was removed (or replaced) while we were waiting
         try:
             self._register_account(account_info)
-        except (APIError, DNSLookupError, JanusError) as e:
+        except (APIError, DNSLookupError, JanusError, SIPBackendError) as e:
             account_info.registration_failure_count += 1
             self.log.warning('deferred registration attempt failed: {exception!s}'.format(exception=e))
         except Exception as e:

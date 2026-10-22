@@ -1047,6 +1047,7 @@ class AdminWebHandler(object, metaclass=Singleton):
                         'display_name': account.display_name,
                         'user_agent': account.user_agent,
                         'registration_state': account.registration_state,
+                        'sip_backend': account.sip_backend.backend.name if account.sip_backend is not None else None,
                     })
             endpoints.append({
                 'ip': host,
@@ -1098,6 +1099,7 @@ class AdminWebHandler(object, metaclass=Singleton):
                     'address': address,
                     'slow_download': bool(getattr(session, 'slow_download', False)),
                     'slow_upload': bool(getattr(session, 'slow_upload', False)),
+                    'sip_backend': session.backend.backend.name if getattr(session, 'backend', None) is not None else None,
                 })
         sessions.sort(key=lambda s: (-(s['duration'] or 0), s['account'] or '~'))
         return json.dumps({'total': len(sessions), 'sessions': sessions})
