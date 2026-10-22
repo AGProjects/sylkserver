@@ -1,6 +1,8 @@
 
 import json
+import os
 import re
+from binascii import b2a_hex as hex_encode
 
 from application.notification import (IObserver, NotificationCenter,
                                       NotificationData)
@@ -90,7 +92,7 @@ class JanusClientProtocol(WebSocketClientProtocol):
         else:
             assert isinstance(message, janus.PluginResponse)
             plugin_data = message.plugindata.data
-            if isinstance(plugin_data, (janus.SIPErrorEvent, janus.VideoroomErrorEvent)):
+            if isinstance(plugin_data, (janus.SIPErrorEvent, janus.NoSIPErrorEvent, janus.VideoroomErrorEvent)):
                 deferred.errback(JanusError(plugin_data.error_code, plugin_data.error))
             else:
                 deferred.callback(message)
@@ -179,11 +181,13 @@ class JanusClientProtocol(WebSocketClientProtocol):
     def detach_plugin(self, session_id, handle_id):
         return self._send_request(janus.PluginDetachRequest(session_id=session_id, handle_id=handle_id))
 
-    def message(self, session_id, handle_id, body, jsep=None):
+    def message(self, session_id, handle_id, body, jsep=None, transaction=None):
+        kw = dict(session_id=session_id, handle_id=handle_id, body=body)
         if jsep is not None:
-            return self._send_request(janus.MessageRequest(session_id=session_id, handle_id=handle_id, body=body, jsep=jsep))
-        else:
-            return self._send_request(janus.MessageRequest(session_id=session_id, handle_id=handle_id, body=body))
+            kw['jsep'] = jsep
+        if transaction is not None:
+            kw['transaction'] = transaction
+        return self._send_request(janus.MessageRequest(**kw))
 
     def trickle(self, session_id, handle_id, candidates):
         return self._send_request(janus.TrickleRequest(session_id=session_id, handle_id=handle_id, candidates=candidates))
@@ -246,8 +250,8 @@ class JanusBackend(object, metaclass=Singleton):
     def detach_plugin(self, session_id, handle_id):
         return self.protocol.detach_plugin(session_id, handle_id)
 
-    def message(self, session_id, handle_id, body, jsep=None):
-        return self.protocol.message(session_id, handle_id, body, jsep)
+    def message(self, session_id, handle_id, body, jsep=None, transaction=None):
+        return self.protocol.message(session_id, handle_id, body, jsep, transaction=transaction)
 
     def trickle(self, session_id, handle_id, candidates):
         return self.protocol.trickle(session_id, handle_id, candidates)
@@ -379,6 +383,103 @@ class SIPPluginHandle(JanusPluginHandle):
         if duration is not None:
             parameters['duration'] = duration
         self.message(janus.SIPDtmfInfo(**parameters))
+
+
+class NoSIPPluginHandle(JanusPluginHandle):
+    """
+    Janus NoSIP plugin: relays media between the WebRTC PeerConnection of
+    the handle and a plain RTP/SRTP peer, leaving the signalling to us.
+
+    The plugin requests are asynchronous: Janus acks them and later sends
+    the result as an event carrying the request's transaction. generate()
+    and process() wait for that event (they block the calling green
+    thread), so they can be used like normal function calls. All other
+    events (webrtcup, media, slowlink, hangup, ...) go to event_handler.
+    """
+
+    plugin = 'janus.plugin.nosip'
+    request_timeout = 10
+
+    def __init__(self, session, event_handler):
+        self._pending_requests = {}  # transaction -> Deferred waiting for the result event
+        self._event_handler = event_handler
+        super(NoSIPPluginHandle, self).__init__(session, self._handle_event)
+
+    def generate(self, sdp, sdp_type, srtp=None, info=None):
+        """
+        Convert a WebRTC offer/answer (JSEP) into a plain SDP for the remote
+        party. Returns janus.NoSIPResultGenerated (.type and .sdp). Janus
+        flags renegotiations of an established PeerConnection by itself.
+        """
+        request = janus.NoSIPGenerate(**_present(srtp=srtp, info=info))
+        jsep = janus.SDPOffer(sdp=sdp) if sdp_type == 'offer' else janus.SDPAnswer(sdp=sdp)
+        return self._request(request, jsep=jsep).plugindata.data.result
+
+    def process(self, sdp, sdp_type, srtp=None, update=None, info=None):
+        """
+        Convert a plain SDP offer/answer from the remote party into a JSEP
+        for the WebRTC side. Returns (janus.NoSIPResultProcessed, JSEP).
+        """
+        request = janus.NoSIPProcess(type=sdp_type, sdp=sdp, **_present(srtp=srtp, update=update, info=info))
+        event = self._request(request)
+        return event.plugindata.data.result, event.jsep
+
+    def hangup(self):
+        self._request(janus.NoSIPHangup())
+
+    def keyframe(self, user=False, peer=False):
+        self._request(janus.NoSIPKeyframe(user=user, peer=peer))
+
+    def detach(self):
+        super(NoSIPPluginHandle, self).detach()
+        self._fail_pending(JanusError(499, 'NoSIP handle detached'))
+
+    def _request(self, body, jsep=None):
+        # should only be called from a green thread
+        transaction = hex_encode(os.urandom(16)).decode()
+        result = defer.Deferred()
+        self._pending_requests[transaction] = result
+        timer = reactor.callLater(self.request_timeout, self._timeout_request, transaction, body)
+
+        def stop_timer(value):
+            if timer.active():
+                timer.cancel()
+            return value
+
+        def request_failed(failure):
+            deferred = self._pending_requests.pop(transaction, None)
+            if deferred is not None:
+                deferred.errback(failure)
+
+        result.addBoth(stop_timer)
+        self.backend.message(self.session.id, self.id, body, jsep, transaction=transaction).addErrback(request_failed)
+        return block_on(result)
+
+    def _timeout_request(self, transaction, body):
+        deferred = self._pending_requests.pop(transaction, None)
+        if deferred is not None:
+            deferred.errback(JanusError(408, 'NoSIP {} request timed out'.format(body.__data__.get('request'))))
+
+    def _fail_pending(self, error):
+        pending, self._pending_requests = self._pending_requests, {}
+        for deferred in pending.values():
+            deferred.errback(error)
+
+    def _handle_event(self, event):
+        transaction = getattr(event, 'transaction', None)
+        deferred = self._pending_requests.pop(transaction, None) if transaction is not None else None
+        if deferred is not None and isinstance(event, janus.PluginEvent):
+            data = event.plugindata.data
+            if isinstance(data, janus.NoSIPErrorEvent):
+                deferred.errback(JanusError(data.error_code, data.error))
+            else:
+                deferred.callback(event)
+        elif self._event_handler is not None:
+            self._event_handler(event)
+
+
+def _present(**kw):
+    return {name: value for name, value in kw.items() if value is not None}
 
 
 class VideoroomPluginHandle(JanusPluginHandle):
