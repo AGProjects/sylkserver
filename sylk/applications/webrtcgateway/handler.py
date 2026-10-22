@@ -2061,7 +2061,7 @@ class ConnectionHandler(object):
         else:
             account_info.sip_backend.register(proxy)
             proxy_type = 'SIP Thor node' if ThorNodeConfig.outbound_proxy_enabled else 'SIP Proxy'
-            self.log.info('registering to {proxy_type} {proxy}...'.format(proxy_type=proxy_type, proxy=proxy))
+            self.log.info('registering to {proxy_type} {proxy} using SIP backend {backend}...'.format(proxy_type=proxy_type, proxy=proxy, backend=account_info.sip_backend.backend.name))
 
     def _RH_account_unregister(self, request):
         try:
@@ -3308,7 +3308,7 @@ class ConnectionHandler(object):
             Metrics().mark('accounts', account_info.id)
 
             self.send(sylkrtc.AccountRegisteredEvent(account=account_info.id))
-            self.log.info('registered')
+            self.log.info('registered using SIP backend {}'.format(account_info.sip_backend.backend.name))
             storage = MessageStorage()
             storage.add_account(account=account_info.id)
             if 'pn_app' in account_info.contact_params:
@@ -3323,8 +3323,8 @@ class ConnectionHandler(object):
             # retry we scheduled ourselves.
             account_info.registration_failure_count += 1
             self.send(sylkrtc.AccountRegistrationFailedEvent(account=account_info.id, reason=reason))
-            self.log.info('registration failed: {reason} (attempt {count})'.format(
-                reason=reason, count=account_info.registration_failure_count))
+            self.log.info('registration failed using SIP backend {backend}: {reason} (attempt {count})'.format(
+                backend=account_info.sip_backend.backend.name, reason=reason, count=account_info.registration_failure_count))
 
     def sip_account_incoming_session(self, account_info, session_info, originator, sdp, call_id, headers=None):
         # session_info was created by the backend, with janus_handle, backend
