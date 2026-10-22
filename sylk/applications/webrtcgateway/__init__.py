@@ -20,6 +20,7 @@ from sylk.session import IllegalStateError
 from .audio_level_udp import AudioLevelUDPClient
 from .configuration import GeneralConfig
 from .datatypes import FileTransferData
+from .sip_backends.sipsimple import SIPSimpleBackend, contact_token
 from .sip_handlers import FileTransferHandler, MessageHandler
 from .logger import log
 from .storage import TokenStorage, MessageStorage
@@ -93,6 +94,10 @@ class WebRTCGatewayApplication(SylkApplication):
         handler(notification)
 
     def incoming_session(self, session):
+        if contact_token(session.request_uri) is not None:
+            # sent to the contact of a WebRTC client account using the sipsimple SIP backend
+            SIPSimpleBackend.incoming_session(session)
+            return
         # TODO: handle diverted sessions?
         log.info('New incoming session {session.call_id} from sip:{uri.user}@{uri.host}'.format(session=session, uri=session.remote_identity.uri))
         transfer_streams = [stream for stream in session.proposed_streams if stream.type == 'file-transfer']
@@ -257,6 +262,14 @@ class WebRTCGatewayApplication(SylkApplication):
         request.reject(405)
 
     def incoming_message(self, message_request, data):
+        if contact_token(data.request_uri) is not None:
+            # A MESSAGE the proxy forked to the contact of a WebRTC client account
+            # using the sipsimple SIP backend. Messages reach the clients through
+            # the message storage, from the copy sent to this server, so like the
+            # Janus SIP plugin does for its contacts, accept it and drop it.
+            log.debug('dropping SIP MESSAGE sent to WebRTC client contact %s' % data.request_uri)
+            message_request.answer(200)
+            return
         content_type = data.headers.get('Content-Type', Null).content_type
         from_header = data.headers.get('From', Null)
         to_header = data.headers.get('To', Null)

@@ -1729,8 +1729,9 @@ class ConnectionHandler(object):
         uuidv4 = '%s-%s-%s-%s-%s' % (hexa[:8], hexa[8:12], hexa[12:16], hexa[16:20], hexa[20:])
         return uuidv4
 
-    def _lookup_sip_target_route(self, uri, sender=None):
-        if GeneralConfig.local_sip_messages:
+    def _lookup_sip_target_route(self, uri, sender=None, local=True):
+        # local=False ignores local_sip_messages (for requests that must reach the SIP proxy, e.g. REGISTER)
+        if local and GeneralConfig.local_sip_messages:
             return Route(address=SIPConfig.local_ip, port=SIPConfig.local_tcp_port, transport='tcp')
         if ThorNodeConfig.outbound_proxy_enabled:
             # route outgoing messages through the Thor node responsible for the sender
@@ -1947,12 +1948,7 @@ class ConnectionHandler(object):
         account_info = AccountInfo(request.account, request.password, request.display_name, request.user_agent, request.incoming_header_prefixes)
         # get the auth config for domain
         account_info.auth_handle = AuthHandler(account_info, self)
-        backend_name = GeneralConfig.sip_backend
-        if request.sip_backend is not None and request.sip_backend != backend_name:
-            if GeneralConfig.sip_backend_override:
-                backend_name = request.sip_backend
-            else:
-                self.log.warning('ignoring SIP backend {request.sip_backend} requested for {request.account}, sip_backend_override is disabled'.format(request=request))
+        backend_name, backend_source = self._select_sip_backend(request)
         account_info.sip_backend = self._get_sip_backend(backend_name).create_account(account_info)
         self.accounts_map[account_info.id] = account_info
         self.devices_map[self.device_id] = account_info.id
@@ -1960,7 +1956,23 @@ class ConnectionHandler(object):
         notification_center = NotificationCenter()
         notification_center.add_observer(self, sender=account_info.id)
         self.log.debug(f'Incoming header prefixes: {request.incoming_header_prefixes}')
-        self.log.info('added using {request.user_agent} (SIP backend {backend})'.format(request=request, backend=account_info.sip_backend.backend.name))
+        self.log.info('added using {request.user_agent} (SIP backend {backend}, {source})'.format(request=request, backend=backend_name, source=backend_source))
+
+    def _select_sip_backend(self, request):
+        # Returns (backend name, why it was chosen). Precedence: the client
+        # request (only with sip_backend_override), the sip_backend_accounts
+        # entry for the account or its domain, the sip_backend default.
+        configured = GeneralConfig.sip_backend_accounts.lookup(request.account)
+        if configured is not None:
+            backend_name, source = configured, 'from sip_backend_accounts'
+        else:
+            backend_name, source = GeneralConfig.sip_backend, 'default'
+        if request.sip_backend is not None and request.sip_backend != backend_name:
+            if GeneralConfig.sip_backend_override:
+                backend_name, source = request.sip_backend, 'requested by the client'
+            else:
+                self.log.warning('ignoring SIP backend {request.sip_backend} requested for {request.account}, sip_backend_override is disabled'.format(request=request))
+        return backend_name, source
 
     def _RH_account_remove(self, request):
         try:

@@ -130,9 +130,15 @@
 ;               (NoSIP plugin) is used only for the media
 ; sip_backend = janus
 
+; Use a different SIP backend for some accounts or whole domains, as a comma
+; separated list of account_or_domain:backend. An account entry takes
+; precedence over the entry for its domain. Useful to test a backend with a
+; few accounts while the others keep using the default one.
+; sip_backend_accounts = alice@example.com:sipsimple, test.example.com:sipsimple
+
 ; Allow clients to select the SIP backend per account, using the
-; sip_backend field of the account-add request. Useful to test a backend
-; with a few accounts while the others keep using the default one.
+; sip_backend field of the account-add request. Takes precedence over
+; sip_backend_accounts and sip_backend.
 ; sip_backend_override = False
 
 [Janus]

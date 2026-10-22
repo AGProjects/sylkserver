@@ -129,6 +129,45 @@ class SIPBackendName(str):
         return str.__new__(cls, value)
 
 
+class SIPBackendMap(object):
+    """
+    Comma separated list of account_or_domain:backend items, for example
+    'alice@example.com:sipsimple, test.example.com:sipsimple'. An account
+    (user@domain) entry takes precedence over the entry for its domain.
+    """
+
+    def __init__(self, value):
+        self.accounts = {}
+        self.domains = {}
+        for item in (item.strip() for item in (value or '').split(',')):
+            if not item:
+                continue
+            target, sep, backend = item.rpartition(':')
+            target = target.strip().lower()
+            if not sep or not target:
+                raise ValueError('invalid item %r, expected account_or_domain:backend' % item)
+            backend = SIPBackendName(backend)
+            if '@' in target:
+                self.accounts[target] = backend
+            else:
+                self.domains[target] = backend
+
+    def lookup(self, account):
+        """Return the backend configured for account (user@domain), or None"""
+        account = account.lower()
+        try:
+            return self.accounts[account]
+        except KeyError:
+            return self.domains.get(account.partition('@')[2])
+
+    def __bool__(self):
+        return bool(self.accounts or self.domains)
+
+    def __repr__(self):
+        items = ['%s:%s' % item for item in sorted(self.accounts.items())] + ['%s:%s' % item for item in sorted(self.domains.items())]
+        return '%s(%r)' % (self.__class__.__name__, ', '.join(items))
+
+
 class SIPAddressList(object):
     """A list of SIP uris separated by commas"""
 
@@ -233,10 +272,12 @@ class GeneralConfig(ConfigSection):
     filetransfer_expire_days = 15
     # SIP signalling backend for the accounts of WebRTC clients: 'janus' (the
     # Janus SIP plugin) or 'sipsimple' (SylkServer's own SIP stack, with Janus
-    # NoSIP for the media). With sip_backend_override enabled, clients may
-    # pick one per account in account-add, which allows testing a backend on
-    # a few accounts.
+    # NoSIP for the media). sip_backend_accounts selects a different backend
+    # for some accounts or domains (account_or_domain:backend, ...). With
+    # sip_backend_override enabled, clients may also pick one per account in
+    # account-add, which takes precedence over both.
     sip_backend = ConfigSetting(type=SIPBackendName, value=SIPBackendName('janus'))
+    sip_backend_accounts = ConfigSetting(type=SIPBackendMap, value=SIPBackendMap(''))
     sip_backend_override = False
 
 

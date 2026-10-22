@@ -51,6 +51,18 @@ class SIPPluginData(PluginDataBase):
             return cls.__plugin__, cls.sip.value, cls.result.object_type.event.value
 
 
+class NoSIPPluginData(PluginDataBase):
+    __plugin__ = 'nosip'
+
+    # noinspection PyMethodParameters,PyUnresolvedReferences
+    @classproperty
+    def __id__(cls):
+        if cls is NoSIPErrorEvent:
+            return cls.__plugin__, cls.nosip.value, cls.error.name
+        else:
+            return cls.__plugin__, cls.nosip.value, cls.result.object_type.event.value
+
+
 class VideoroomPluginData(PluginDataBase):
     __plugin__ = 'videoroom'
     __event__ = None  # for events, the name of the property that describes the event
@@ -91,7 +103,7 @@ class ErrorInfo(JSONObject):
 
 class PluginDataContainer(JSONObject):
     plugin = StringProperty()
-    data = AbstractObjectProperty()  # type: Union[SIPPluginData, VideoroomPluginData]
+    data = AbstractObjectProperty()  # type: Union[SIPPluginData, NoSIPPluginData, VideoroomPluginData]
 
 
 class SIPDataContainer(JSONObject):
@@ -293,6 +305,37 @@ class SIPDtmfInfo(JSONObject):
     request = FixedValueProperty('dtmf_info')
     digit = StringProperty()
     duration = IntegerProperty(optional=True)
+
+
+# NoSIP plugin messages (to be used as body for MessageRequest for the NoSIP plugin messages)
+
+class NoSIPGenerate(JSONObject):
+    # Convert the WebRTC JSEP sent along with the request into a plain (barebone) SDP
+    request = FixedValueProperty('generate')
+    info = StringProperty(optional=True)
+    srtp = LimitedChoiceProperty(['sdes_optional', 'sdes_mandatory'], optional=True)
+    srtp_profile = StringProperty(optional=True)
+
+
+class NoSIPProcess(JSONObject):
+    # Convert a plain SDP from the remote party into a JSEP for the WebRTC side
+    request = FixedValueProperty('process')
+    type = LimitedChoiceProperty(['offer', 'answer'])
+    sdp = StringProperty()
+    info = StringProperty(optional=True)
+    srtp = LimitedChoiceProperty(['sdes_optional', 'sdes_mandatory'], optional=True)
+    srtp_profile = StringProperty(optional=True)
+    update = BooleanProperty(optional=True)
+
+
+class NoSIPHangup(JSONObject):
+    request = FixedValueProperty('hangup')
+
+
+class NoSIPKeyframe(JSONObject):
+    request = FixedValueProperty('keyframe')
+    user = BooleanProperty(optional=True)  # send a PLI to the WebRTC side
+    peer = BooleanProperty(optional=True)  # send a PLI to the plain RTP side
 
 
 # Videoroom plugin messages (to be used as body for MessageRequest for videoroom plugin messages)
@@ -754,6 +797,59 @@ class SIPDTMFSentEvent(SIPPluginData):
     result = ObjectProperty(SIPResultDTMFSent)            # type: SIPResultDTMFSent
 
 
+# NoSIP plugin results
+
+class NoSIPResultGenerated(JSONObject):
+    event = FixedValueProperty('generated')
+    type = LimitedChoiceProperty(['offer', 'answer'])
+    sdp = StringProperty()
+    update = BooleanProperty(optional=True)
+    unique_id = StringProperty(optional=True)
+
+
+class NoSIPResultProcessed(JSONObject):
+    event = FixedValueProperty('processed')
+    srtp = LimitedChoiceProperty(['sdes_optional', 'sdes_mandatory'], optional=True)
+    update = BooleanProperty(optional=True)
+    unique_id = StringProperty(optional=True)
+
+
+class NoSIPResultHangingUp(JSONObject):
+    event = FixedValueProperty('hangingup')
+
+
+class NoSIPResultKeyframeSent(JSONObject):
+    event = FixedValueProperty('keyframesent')
+
+
+# NoSIP plugin data messages
+
+class NoSIPErrorEvent(NoSIPPluginData):
+    nosip = FixedValueProperty('event')
+    error_code = IntegerProperty()
+    error = StringProperty()
+
+
+class NoSIPGeneratedEvent(NoSIPPluginData):
+    nosip = FixedValueProperty('event')
+    result = ObjectProperty(NoSIPResultGenerated)     # type: NoSIPResultGenerated
+
+
+class NoSIPProcessedEvent(NoSIPPluginData):
+    nosip = FixedValueProperty('event')
+    result = ObjectProperty(NoSIPResultProcessed)     # type: NoSIPResultProcessed
+
+
+class NoSIPHangingUpEvent(NoSIPPluginData):
+    nosip = FixedValueProperty('event')
+    result = ObjectProperty(NoSIPResultHangingUp)     # type: NoSIPResultHangingUp
+
+
+class NoSIPKeyframeSentEvent(NoSIPPluginData):
+    nosip = FixedValueProperty('event')
+    result = ObjectProperty(NoSIPResultKeyframeSent)  # type: NoSIPResultKeyframeSent
+
+
 # Videoroom plugin data messages
 
 class VideoroomCreated(VideoroomPluginData):
@@ -991,6 +1087,30 @@ class SIPDataHandler(PluginDataHandler):
             else:
                 data_key = cls.__plugin__, sip
         except KeyError:
+            raise ProtocolError('could not get {!s} plugin data type from {!r}'.format(cls.__plugin__, data))
+        try:
+            data_class = cls.__classmap__[data_key]
+        except KeyError:
+            raise ProtocolError('unknown {!s} plugin data: {!r}'.format(cls.__plugin__, data))
+        return data_class(**data)
+
+
+class NoSIPDataHandler(PluginDataHandler):
+    __plugin__ = 'nosip'
+
+    __classmap__ = {cls.__id__: cls for cls in subclasses(NoSIPPluginData) if cls.__plugin__ in cls.__properties__}
+
+    @classmethod
+    def decode(cls, data):
+        try:
+            nosip = data[cls.__plugin__]
+            if 'error' in data:
+                data_key = cls.__plugin__, nosip, 'error'
+            elif 'result' in data:
+                data_key = cls.__plugin__, nosip, data['result']['event']
+            else:
+                data_key = cls.__plugin__, nosip
+        except (KeyError, TypeError):
             raise ProtocolError('could not get {!s} plugin data type from {!r}'.format(cls.__plugin__, data))
         try:
             data_class = cls.__classmap__[data_key]
