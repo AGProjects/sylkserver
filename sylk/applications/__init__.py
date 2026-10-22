@@ -25,6 +25,21 @@ __all__ = 'ISylkApplication', 'ApplicationRegistry', 'SylkApplication', 'Incomin
 
 
 SYLK_APP_HEADER = 'X-Sylk-App'
+SYLK_APP_URI_PARAMETER = 'x-sylk-app'
+
+
+def _uri_parameter(uri, name):
+    # SIPURI parameters may be keyed and valued by str or bytes
+    parameters = getattr(uri, 'parameters', None) or {}
+    for key in (name, name.encode()):
+        try:
+            value = parameters[key]
+        except (KeyError, TypeError):
+            continue
+        if isinstance(value, bytes):
+            value = value.decode('utf-8', 'replace')
+        return value
+    return None
 
 
 def find_builtin_applications():
@@ -216,6 +231,13 @@ class IncomingRequestHandler(object, metaclass=Singleton):
             # incoming_session runs — so routing decisions are visible regardless
             # of which application ends up handling the request.
             log.debug('Application %r selected by %s header for %s' % (application_name, SYLK_APP_HEADER, ruri))
+        elif _uri_parameter(ruri, SYLK_APP_URI_PARAMETER):
+            # A contact registered by a SylkServer application on behalf of
+            # someone else (e.g. the WebRTC gateway registering the accounts
+            # of its clients) carries the application in a URI parameter,
+            # which the proxy keeps when it retargets a request to it.
+            application_name = _uri_parameter(ruri, SYLK_APP_URI_PARAMETER).strip()
+            log.debug('Application %r selected by %s URI parameter for %s' % (application_name, SYLK_APP_URI_PARAMETER, ruri))
         else:
             application_name = ServerConfig.default_application
             uri_matched = False

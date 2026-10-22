@@ -29,6 +29,17 @@ from sylk.accounts import DefaultAccount
 from sylk.configuration import SIPConfig
 
 
+def _overrides_connection(stream, media):
+    # Whether the session replaces the connection (c=) line of the media a
+    # stream produced with the local SIP address. Streams whose media is not
+    # handled by this host (e.g. relayed by Janus, see the webrtcgateway
+    # sipsimple backend) set preserve_connection to keep their own address.
+    # Media with ICE attributes keeps its connection too, as before.
+    if getattr(stream, 'preserve_connection', False):
+        return False
+    return media.connection is None or (not media.has_ice_attributes and not media.has_ice_candidates)
+
+
 class InvitationDisconnectedError(Exception):
     def __init__(self, invitation, data):
         self.invitation = invitation
@@ -519,7 +530,7 @@ class Session(object):
             for index, stream in enumerate(self.proposed_streams):
                 stream.index = index
                 media = stream.get_local_media(remote_sdp=None, index=index)
-                if media.connection is None or (media.connection is not None and not media.has_ice_attributes and not media.has_ice_candidates):
+                if _overrides_connection(stream, media):
                     media.connection = connection
                 local_sdp.media.append(media)
             route_header = RouteHeader(self.route.uri)
@@ -760,7 +771,7 @@ class Session(object):
                 stream = stream_map.get(index, None)
                 if stream is not None:
                     media = stream.get_local_media(remote_sdp=remote_sdp, index=index)
-                    if not media.has_ice_attributes and not media.has_ice_candidates:
+                    if not getattr(stream, 'preserve_connection', False) and not media.has_ice_attributes and not media.has_ice_candidates:
                         media.connection = connection
                 else:
                     media = SDPMediaStream.new(media)
@@ -978,7 +989,7 @@ class Session(object):
                 stream = stream_map.get(index, None)
                 if stream is not None:
                     media = stream.get_local_media(remote_sdp=remote_sdp, index=index)
-                    if not media.has_ice_attributes and not media.has_ice_candidates:
+                    if not getattr(stream, 'preserve_connection', False) and not media.has_ice_attributes and not media.has_ice_candidates:
                         media.connection = connection
                     if index < len(local_sdp.media):
                         local_sdp.media[index] = media
@@ -1370,6 +1381,107 @@ class Session(object):
             self.greenlet = None
             if self._hold_in_progress:
                 self._send_hold()
+
+    @transition_state('connected', 'sending_proposal')
+    @run_in_green_thread
+    def update_streams(self, extra_headers=None):
+        """
+        Send a re-INVITE with the current local media of the existing streams
+        (stream.get_local_media(remote_sdp=None) is called for each of them),
+        for streams whose parameters changed without being added or removed,
+        e.g. media relayed from elsewhere that renegotiated (codecs, ports,
+        direction). Posts SIPSessionDidUpdateStreams when the remote party
+        accepted the offer, or SIPSessionDidNotUpdateStreams when it was
+        rejected, failed or timed out (the re-INVITE is then cancelled); in
+        both cases the session stays up. A rejected update leaves the
+        previously negotiated SDP active; it is up to the streams' owner to
+        restore their state from it.
+        """
+        self.greenlet = api.getcurrent()
+        notification_center = NotificationCenter()
+        settings = SIPSimpleSettings()
+        unhandled_notifications = []
+        failure = None  # (code, reason) if the update did not succeed
+        failed_streams = []
+        local_sdp = remote_sdp = None
+
+        try:
+            local_sdp = SDPSession.new(self._invitation.sdp.active_local)
+            local_sdp.version += 1
+            for stream in self.streams:
+                local_sdp.media[stream.index] = stream.get_local_media(remote_sdp=None, index=stream.index)
+            self._invitation.send_reinvite(sdp=local_sdp, extra_headers=extra_headers or [])
+
+            received_invitation_state = False
+            received_sdp_update = False
+            cancelled = False
+            timeout = settings.sip.invite_timeout
+            while not received_invitation_state or (not received_sdp_update and failure is None):
+                try:
+                    with api.timeout(timeout):
+                        notification = self._channel.wait()
+                except MediaStreamDidFailError as e:
+                    # handled once the re-INVITE transaction is over (the stream is removed or the session ended)
+                    failed_streams.append((e.stream, e.data))
+                    continue
+                except api.TimeoutError:
+                    if cancelled:
+                        failure = (408, 'Timeout')
+                        break
+                    # No final response: cancel the re-INVITE and wait (briefly) for its outcome,
+                    # the remote party may still have accepted it before getting the CANCEL.
+                    cancelled = True
+                    timeout = self.short_reinvite_timeout
+                    try:
+                        self._invitation.cancel_reinvite()
+                    except SIPCoreError:
+                        failure = (408, 'Timeout')
+                        break
+                    continue
+                if notification.name == 'SIPInvitationGotSDPUpdate':
+                    received_sdp_update = True
+                    if notification.data.succeeded:
+                        local_sdp = notification.data.local_sdp
+                        remote_sdp = notification.data.remote_sdp
+                        for stream in self.streams:
+                            stream.update(local_sdp, remote_sdp, stream.index)
+                    else:
+                        failure = (0, 'SDP negotiation failed: %s' % notification.data.error)
+                elif notification.name == 'SIPInvitationChangedState':
+                    if notification.data.state == 'connected' and notification.data.sub_state == 'normal':
+                        received_invitation_state = True
+                        if notification.data.code >= 300:
+                            failure = (notification.data.code, notification.data.reason)
+                    elif notification.data.state == 'disconnected':
+                        raise InvitationDisconnectedError(notification.sender, notification.data)
+                    # other sub states (sending_proposal) need no handling, as in add_streams
+                else:
+                    unhandled_notifications.append(notification)
+        except InvitationDisconnectedError as e:
+            self.greenlet = None
+            self.state = 'connected'
+            notification = Notification('SIPInvitationChangedState', e.invitation, e.data)
+            notification.center = notification_center
+            self.handle_notification(notification)
+            return
+        except SIPCoreError as e:
+            failure = (0, 'SIP core error: %s' % str(e))
+
+        self.greenlet = None
+        self.state = 'connected'
+        if failure is None:
+            notification_center.post_notification('SIPSessionDidUpdateStreams', self, NotificationData(originator='local', local_sdp=local_sdp, remote_sdp=remote_sdp, streams=self.streams[:]))
+        else:
+            code, reason = failure
+            notification_center.post_notification('SIPSessionDidNotUpdateStreams', self, NotificationData(originator='local', code=code, reason=reason, streams=self.streams[:]))
+        for notification in unhandled_notifications:
+            self.handle_notification(notification)
+        for stream, data in failed_streams:
+            notification = Notification('MediaStreamDidFail', stream, data)
+            notification.center = notification_center
+            self.handle_notification(notification)
+        if self._hold_in_progress:
+            self._send_hold()
 
     @run_in_green_thread
     def hold(self):
@@ -1865,7 +1977,7 @@ class Session(object):
                         for index, stream in enumerate(self.streams):
                             stream.reset(index)
                             media = stream.get_local_media(remote_sdp=None, index=index)
-                            if media.connection is not None:
+                            if media.connection is not None and not getattr(stream, 'preserve_connection', False):
                                 media.connection.address = connection_address
                             local_sdp.media[stream.index] = media
                         self._invitation.send_response(200, sdp=local_sdp)
