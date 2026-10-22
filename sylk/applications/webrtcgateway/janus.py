@@ -6,6 +6,7 @@ from application.notification import (IObserver, NotificationCenter,
                                       NotificationData)
 from application.python import Null
 from application.python.types import Singleton
+from autobahn.exception import Disconnected
 from autobahn.twisted.websocket import (WebSocketClientFactory,
                                         WebSocketClientProtocol, connectWS)
 from eventlib.twistedutil import block_on
@@ -40,6 +41,7 @@ class JanusClientProtocol(WebSocketClientProtocol):
     _pending_transactions = None
     _keepalive_timers = None
     _keepalive_interval = 45
+    _connection_lost = False
 
     notification_center = NotificationCenter()
 
@@ -95,6 +97,17 @@ class JanusClientProtocol(WebSocketClientProtocol):
 
     def connectionLost(self, reason):
         super(JanusClientProtocol, self).connectionLost(reason)
+        self._connection_lost = True
+        # The Janus sessions died with the connection (e.g. Janus restarted):
+        # stop their keepalives and fail the requests still waiting for an
+        # answer, so nothing sends on, or waits for, the closed connection.
+        for timer in (self._keepalive_timers or {}).values():
+            if timer.active():
+                timer.cancel()
+        self._keepalive_timers = {}
+        pending, self._pending_transactions = self._pending_transactions or {}, {}
+        for request, deferred in pending.values():
+            deferred.errback(JanusError(503, 'Janus connection lost'))
         self.notification_center.post_notification('JanusBackendDisconnected', sender=self, data=NotificationData(reason=reason.getErrorMessage()))
 
     def disconnect(self, code=1000, reason=''):
@@ -105,10 +118,15 @@ class JanusClientProtocol(WebSocketClientProtocol):
             keepalive_timer = self._keepalive_timers.get(request.session_id, None)
             if keepalive_timer is not None and keepalive_timer.active():
                 keepalive_timer.reset(self._keepalive_interval)
+        if self._connection_lost or self._pending_transactions is None:
+            return defer.fail(JanusError(503, 'Janus connection is not available'))
         deferred = defer.Deferred()
         message = json.dumps(request.__data__)
         self.notification_center.post_notification('WebRTCJanusTrace', sender=self, data=NotificationData(direction='OUTGOING', message=message, peer=self.peer))
-        self.sendMessage(message.encode())
+        try:
+            self.sendMessage(message.encode())
+        except Disconnected:
+            return defer.fail(JanusError(503, 'Janus connection is not available'))
         self._pending_transactions[request.transaction] = request, deferred
         return deferred
 
@@ -128,7 +146,9 @@ class JanusClientProtocol(WebSocketClientProtocol):
 
     def _keepalive_callback(self, result, session_id):
         if isinstance(result, Failure):
-            self._keepalive_timers.pop(session_id)
+            self._keepalive_timers.pop(session_id, None)
+        elif self._connection_lost:
+            pass
         else:
             self._keepalive_timers[session_id] = reactor.callLater(self._keepalive_interval, self._send_keepalive, session_id)
 
