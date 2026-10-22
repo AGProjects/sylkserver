@@ -456,5 +456,11 @@ Blink Cocoa: `RadioPTT.py`, `ChatController.py` (button state and press),
 participant radio state), `ContactCell.py` (participant icon),
 `icons/radio_ptt.png`, `icons/radio_ptt_tx.png`.
 
-Not done yet: Blink Qt and Sylk mobile; webrtcgateway relay for WebRTC
-participants.
+Blink Qt: `blink/radio_ptt.py` (element, participant radio state, command,
+pictures drawn with QPainter), `blink/sessions.py` (`ConferenceParticipant.radios`,
+participant row shows the radio picture spanning both lines in place of the
+audio icon), `blink/chatwindow.py` (MSRP sessions window: button at the right
+end of the bottom bar after the session wheel, pulse timer, press/release, MSRP
+reports logged).
+
+Not done yet: Sylk mobile; webrtcgateway relay for WebRTC participants.
