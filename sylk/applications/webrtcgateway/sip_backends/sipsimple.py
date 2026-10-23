@@ -133,18 +133,71 @@ def _plain_rtp_lines(sdp, indexes):
     return [index for index in lines if index not in with_crypto]
 
 
+# WebRTC attributes that mean nothing to a SIP endpoint. NoSIP's SDP is the
+# browser offer with only the ICE/DTLS layer removed, so it still carries
+# them all: a video line has 80+ attributes and the SDP is 3+ KB, which
+# overflows UDP and pjmedia's attribute limit, and confuses simple phones.
+#   extmap, extmap-allow-mixed     RTP header extensions (browser specific)
+#   mid, msid, msid-semantic, group  BUNDLE / MediaStream ids, no BUNDLE on SIP
+#   ssrc, ssrc-group, rtcp-rsize   WebRTC transport details
+_WEBRTC_ONLY_ATTRIBUTES = {'extmap', 'extmap-allow-mixed', 'mid', 'msid', 'msid-semantic', 'group',
+                           'ssrc', 'ssrc-group', 'rtcp-rsize'}
+# RTCP feedback a SIP peer can take part in; goog-remb and transport-cc need
+# browser congestion control feedback that SIP endpoints never send
+_SIP_RTCP_FEEDBACK = {'nack', 'nack pli', 'ccm fir'}
+
 # pjmedia keeps at most PJMEDIA_MAX_SDP_ATTR (2 * PJMEDIA_MAX_SDP_FMT + 4 = 68)
-# attributes per media line when parsing an SDP and silently drops the rest.
-# The NoSIP SDP of a browser video offer easily has 80+ (rtcp-fb for every
-# codec, extmap), with a=mid, a=msid and a=crypto at the end, so the video
-# line would go out without SRTP next to SRTP audio.
+# attributes per media line when parsing an SDP and silently drops the rest,
+# a=crypto included when it comes last. Trimmed SDPs stay far below that;
+# _fit_sdp_attributes is only a safety net.
 MAX_SDP_MEDIA_ATTRIBUTES = 68
 
-# attributes that must survive, in this order; the rest keep their order
+# attributes that must survive the safety net, in this order; the rest keep their order
 _ESSENTIAL_ATTRIBUTES = ('crypto', 'sendrecv', 'sendonly', 'recvonly', 'inactive', 'rtpmap', 'fmtp',
-                         'rtcp', 'rtcp-mux', 'rtcp-rsize', 'mid', 'ptime', 'maxptime')
-# what goes first when a media line has too many attributes
-_EXPENDABLE_ATTRIBUTES = ('ssrc', 'ssrc-group', 'msid', 'extmap', 'rtcp-fb')
+                         'rtcp', 'rtcp-mux', 'ptime', 'maxptime')
+# what the safety net drops first when a media line has too many attributes
+_EXPENDABLE_ATTRIBUTES = ('rtcp-fb',)
+
+
+def _sdp_lines(sdp):
+    if isinstance(sdp, bytes):
+        sdp = sdp.decode()
+    newline = '\r\n' if '\r\n' in sdp else '\n'
+    lines = sdp.split(newline)
+    trailing = bool(lines) and lines[-1] == ''
+    if trailing:
+        lines = lines[:-1]
+    return lines, newline, trailing
+
+
+def _sdp_text(lines, newline, trailing):
+    return newline.join(lines) + (newline if trailing else '')
+
+
+def _attribute_name(line):
+    return line[2:].split(':', 1)[0].split(' ', 1)[0]
+
+
+def _trim_sdp_for_sip(sdp):
+    """
+    The NoSIP SDP without the WebRTC only attributes (see
+    _WEBRTC_ONLY_ATTRIBUTES), and with only the RTCP feedback types a SIP
+    endpoint can use. Codecs, crypto, direction and the rest are kept.
+    """
+    lines, newline, trailing = _sdp_lines(sdp)
+    output = []
+    for line in lines:
+        if line.startswith('a='):
+            name = _attribute_name(line)
+            if name in _WEBRTC_ONLY_ATTRIBUTES:
+                continue
+            if name == 'rtcp-fb':
+                # a=rtcp-fb:<pt> <type> [<parameter>]
+                feedback = line.split(':', 1)[1].split(' ', 1)[1] if ' ' in line else ''
+                if feedback.strip() not in _SIP_RTCP_FEEDBACK:
+                    continue
+        output.append(line)
+    return _sdp_text(output, newline, trailing)
 
 
 def _fit_sdp_attributes(sdp):
@@ -153,13 +206,7 @@ def _fit_sdp_attributes(sdp):
     attributes, so that pjmedia keeps all the important ones, and a list of
     (media type, number of dropped attributes) for the lines that were reduced.
     """
-    if isinstance(sdp, bytes):
-        sdp = sdp.decode()
-    newline = '\r\n' if '\r\n' in sdp else '\n'
-    lines = sdp.split(newline)
-    trailing = lines and lines[-1] == ''
-    if trailing:
-        lines = lines[:-1]
+    lines, newline, trailing = _sdp_lines(sdp)
     sections = [[]]
     for line in lines:
         if line.startswith('m='):
@@ -172,22 +219,19 @@ def _fit_sdp_attributes(sdp):
         if len(attributes) <= MAX_SDP_MEDIA_ATTRIBUTES:
             output.extend(section)
             continue
-        name = lambda line: line[2:].split(':', 1)[0].split(' ', 1)[0]
         keep_count = MAX_SDP_MEDIA_ATTRIBUTES
-        essential = [line for line in attributes if name(line) in _ESSENTIAL_ATTRIBUTES][:keep_count]
-        others = [line for line in attributes if name(line) not in _ESSENTIAL_ATTRIBUTES]
+        essential = [line for line in attributes if _attribute_name(line) in _ESSENTIAL_ATTRIBUTES][:keep_count]
+        others = [line for line in attributes if _attribute_name(line) not in _ESSENTIAL_ATTRIBUTES]
         # drop the most expendable kinds first, from the end of the line
         for kind in reversed(_EXPENDABLE_ATTRIBUTES):
-            while len(essential) + len(others) > keep_count and any(name(line) == kind for line in others):
-                index = max(i for i, line in enumerate(others) if name(line) == kind)
+            while len(essential) + len(others) > keep_count and any(_attribute_name(line) == kind for line in others):
+                index = max(i for i, line in enumerate(others) if _attribute_name(line) == kind)
                 del others[index]
         others = others[:max(keep_count - len(essential), 0)]
         kept = set(id(line) for line in essential + others)
-        new_section = [line for line in section if not line.startswith('a=') or id(line) in kept]
-        output.extend(new_section)
+        output.extend(line for line in section if not line.startswith('a=') or id(line) in kept)
         reduced.append((section[0][2:].split(' ', 1)[0], len(attributes) - len(essential) - len(others)))
-    text = newline.join(output) + (newline if trailing else '')
-    return text, reduced
+    return _sdp_text(output, newline, trailing), reduced
 
 
 def _forwarded_headers(headers, prefixes):
@@ -560,7 +604,8 @@ class SIPSimpleCall(SIPCallBackend):
     # SDP
 
     def _set_local_sdp(self, sdp):
-        sdp, reduced = _fit_sdp_attributes(sdp)
+        # the SDP sent on the SIP side: NoSIP's, without the WebRTC only parts
+        sdp, reduced = _fit_sdp_attributes(_trim_sdp_for_sip(sdp))
         for media_type, count in reduced:
             self.log.info('sipsimple: dropped {} {} SDP attributes above the pjmedia limit of {}'.format(count, media_type, MAX_SDP_MEDIA_ATTRIBUTES))
         self.local_sdp = SDPSession.parse(sdp.encode())
