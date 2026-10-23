@@ -7,7 +7,8 @@ __all__ = 'SIPBackendError', 'SIPBackend', 'SIPAccountBackend', 'SIPCallBackend'
 
 
 def _janus_backend():
-    from .janus_sip import JanusSIPBackend
+    # the Janus SIP plugin (Sofia-SIP)
+    from .sofia import JanusSIPBackend
     return JanusSIPBackend
 
 
