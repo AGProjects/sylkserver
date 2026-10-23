@@ -72,6 +72,27 @@ _SIP_URI_RE = re.compile(r'^sips?:[^\s@]+@[^\s@]+$')
 _incoming_call_endpoints_logged = {}
 
 
+def _text(value):
+    return value.decode() if isinstance(value, bytes) else value
+
+
+def _aor_text(uri):
+    """user@host of a URI given as text (with or without scheme and parameters)"""
+    uri = str(uri)
+    prefix, sep, suffix = uri.partition(':')
+    if sep and prefix in ('sip', 'sips'):
+        uri = suffix
+    return uri.split(';', 1)[0].split('?', 1)[0]
+
+
+def _is_chat_content_type(content_type):
+    """Session messages of these types are chat: sent on an MSRP chat stream when the call has one (text/* journaled, IMDN relayed)"""
+    content_type = (content_type or '').lower()
+    if content_type == 'text/pgp-public-key':
+        return False
+    return content_type.startswith('text/') or content_type == 'message/imdn+xml'
+
+
 def _is_bridge_uri(uri):
     """True if a SIP URI identifies the sylk-janus-audio-bridge.
 
@@ -2567,8 +2588,59 @@ class ConnectionHandler(object):
         if session_info.state not in ('established', 'accepted'):
             raise APIError('Invalid state session {session.id}: {session.state} for sending messages'.format(session=session_info))
 
+        metadata = sanitize_metadata(getattr(request, 'metadata', None))
+        if session_info.backend.chat_active and _is_chat_content_type(request.content_type):
+            # the call has an MSRP chat stream (sipsimple backend): chat goes there
+            self._send_session_chat_message(session_info, request, metadata)
+            return
+
         self._send_in_dialog_sip_message(session_info, message_id=request.message_id, content=request.content, content_type=request.content_type, timestamp=request.timestamp,
-                                         metadata=sanitize_metadata(getattr(request, 'metadata', None)))
+                                         metadata=metadata)
+
+    def _send_session_chat_message(self, session_info, request, metadata):
+        # A session message sent on the MSRP chat stream of a call. This is chat,
+        # so it is journaled as an outgoing message of the account and copied to
+        # the account's other devices, as for account-message. Disposition
+        # notifications are only relayed.
+        account_info = session_info.account
+        contact = _aor_text(session_info.remote_identity.uri)
+        message_id = request.message_id
+        content_type = request.content_type
+        timestamp = request.timestamp or str(ISOTimestamp.now())
+        journaled = content_type != IMDNDocument.content_type
+
+        ns = CPIMNamespace('urn:ietf:params:imdn', 'imdn')
+        additional_headers = [CPIMHeader('Message-ID', ns, message_id)]
+        if journaled:
+            additional_headers.append(CPIMHeader('Disposition-Notification', ns, 'positive-delivery, display'))
+        metadata_header = metadata_cpim_header(metadata)
+        if metadata_header is not None:
+            additional_headers.append(metadata_header)
+
+        self.log.info('sending {content_type} chat message {message_id} to {uri} in session {session}'.format(content_type=content_type, message_id=message_id, uri=contact, session=session_info.id))
+        session_info.backend.send_chat_message(request.content, content_type, message_id, timestamp=timestamp, additional_headers=additional_headers)
+
+        if not journaled:
+            return
+        MessageStorage().add(account=account_info.id,
+                             contact=contact,
+                             direction='outgoing',
+                             content=request.content,
+                             content_type=content_type,
+                             timestamp=timestamp,
+                             disposition_notification=['positive-delivery', 'display'],
+                             message_id=message_id,
+                             state='pending',
+                             metadata=metadata)
+        content = sylkrtc.AccountMessageRequest(transaction=str(uuid.uuid4()),
+                                                account=account_info.id,
+                                                uri=contact,
+                                                message_id=message_id,
+                                                content=request.content,
+                                                content_type=content_type,
+                                                timestamp=timestamp,
+                                                metadata=metadata)
+        self._fork_event_to_online_accounts(account_info, sylkrtc.AccountSyncEvent(account=account_info.id, type='message', action='add', content=content))
 
     def _RH_session_dtmf_info(self, request):
         try:
@@ -3587,6 +3659,112 @@ class ConnectionHandler(object):
                                                   disposition_notification=disposition,
                                                   message_id=message_id,
                                                   metadata=metadata))
+
+    def sip_session_chat_message(self, session_info, message, msrp_message_id):
+        # A message received on the MSRP chat stream of a call (sipsimple
+        # backend). Unlike the in-dialog SIP MESSAGEs (metadata and control),
+        # this is chat: the device in the call gets it as a session message, and
+        # it is journaled as an incoming message of the account, with a live
+        # copy to the account's other devices (not to this one, which has it).
+        account_info = session_info.account
+        content_type = str(message.content_type)
+        content = message.content
+        if isinstance(content, bytes):
+            content = content.decode('utf-8', 'replace')
+        headers = message.additional_headers or []
+        message_id = next((header.value for header in headers if header.name == 'Message-ID'), None) or msrp_message_id
+        disposition = next(([item.strip() for item in header.value.split(',')] for header in headers if header.name == 'Disposition-Notification'), None)
+        metadata = metadata_from_cpim_headers(headers)
+        timestamp = str(message.timestamp) if message.timestamp is not None else str(ISOTimestamp.now())
+        if message.sender is not None:
+            sender_uri = message.sender.uri
+            sender = sylkrtc.SIPIdentity(uri='{}@{}'.format(_text(sender_uri.user), _text(sender_uri.host)), display_name=_text(message.sender.display_name) or None)
+        else:
+            sender = sylkrtc.SIPIdentity(uri=_aor_text(session_info.remote_identity.uri), display_name=session_info.remote_identity.display_name or None)
+        storage = MessageStorage()
+
+        if content_type == IMDNDocument.content_type:
+            try:
+                document = IMDNDocument.parse(content)
+            except Exception as e:
+                self.log.warning('invalid IMDN chat message from {}: {}'.format(sender.uri, e))
+                return
+            imdn_message_id = document.message_id.value
+            imdn_status = str(document.notification.status)
+            imdn_datetime = str(document.datetime)
+            self.log.info('received chat IMDN ({status}) for message {message_id} from {sender} in session {session}'.format(status=imdn_status, message_id=imdn_message_id, sender=sender.uri, session=session_info.id))
+            storage.update(account=account_info.id, state=imdn_status, message_id=imdn_message_id)
+            self.send(sylkrtc.SessionMessageDispositionNotificationEvent(session=session_info.id,
+                                                                         state=imdn_status,
+                                                                         message_id=imdn_message_id,
+                                                                         message_timestamp=imdn_datetime,
+                                                                         timestamp=timestamp,
+                                                                         code=200,
+                                                                         reason=''))
+            self._fork_event_to_online_accounts(account_info, sylkrtc.AccountDispositionNotificationEvent(account=account_info.id,
+                                                                                                         state=imdn_status,
+                                                                                                         message_id=imdn_message_id,
+                                                                                                         message_timestamp=imdn_datetime,
+                                                                                                         timestamp=timestamp,
+                                                                                                         code=200,
+                                                                                                         reason=''))
+            return
+
+        self.log.info('received {content_type} chat message {message_id} from {sender} in session {session}'.format(content_type=content_type, message_id=message_id, sender=sender.uri, session=session_info.id))
+        self.send(sylkrtc.SessionMessageEvent(session=session_info.id,
+                                              sender=sender,
+                                              content=content,
+                                              content_type=content_type,
+                                              timestamp=timestamp,
+                                              disposition_notification=disposition,
+                                              message_id=message_id,
+                                              metadata=metadata))
+        if not _is_chat_content_type(content_type):
+            return
+        storage.add(account=account_info.id,
+                    contact=sender.uri,
+                    direction='incoming',
+                    content=content,
+                    content_type=content_type,
+                    timestamp=timestamp,
+                    disposition_notification=disposition,
+                    message_id=message_id,
+                    state='received',
+                    metadata=metadata)
+        self._fork_event_to_online_accounts(account_info, sylkrtc.AccountMessageEvent(account=account_info.id,
+                                                                                     sender=sender,
+                                                                                     content=content,
+                                                                                     content_type=content_type,
+                                                                                     timestamp=timestamp,
+                                                                                     disposition_notification=disposition,
+                                                                                     message_id=message_id,
+                                                                                     metadata=metadata))
+
+    def sip_session_chat_message_delivery(self, session_info, message_id, code, reason):
+        # MSRP report (or failure) for a message we sent on the chat stream of a call
+        account_info = session_info.account
+        if code == 200:
+            state = 'delivered'
+            self.log.info('chat message {} was delivered in session {}'.format(message_id, session_info.id))
+        else:
+            state = 'failed'
+            self.log.info('chat message {} was not delivered in session {}: {} {}'.format(message_id, session_info.id, code, reason))
+        now = str(ISOTimestamp.now())
+        MessageStorage().update(account=account_info.id, state=state, message_id=message_id)
+        self.send(sylkrtc.SessionMessageDispositionNotificationEvent(session=session_info.id,
+                                                                     code=code,
+                                                                     reason=reason or '',
+                                                                     state=state,
+                                                                     message_id=message_id,
+                                                                     message_timestamp=now,
+                                                                     timestamp=now))
+        self._fork_event_to_online_accounts(account_info, sylkrtc.AccountDispositionNotificationEvent(account=account_info.id,
+                                                                                                     state=state,
+                                                                                                     message_id=message_id,
+                                                                                                     message_timestamp=now,
+                                                                                                     timestamp=now,
+                                                                                                     code=code,
+                                                                                                     reason=reason or ''))
 
     def sip_session_message_delivery(self, session_info, code, reason):
         # Final response to an in-dialog MESSAGE we sent (see _send_in_dialog_sip_message)

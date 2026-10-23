@@ -130,6 +130,18 @@ class SIPCallBackend(object):
     def send_dtmf_info(self, digit, duration=None):
         raise NotImplementedError
 
+    @property
+    def chat_active(self):
+        """True when the call has an MSRP chat stream that messages can be sent on"""
+        return False
+
+    def send_chat_message(self, content, content_type, message_id, timestamp=None, additional_headers=None):
+        """
+        Send a message on the MSRP chat stream of the call. message_id is the
+        client's id, used to report the delivery (sip_session_chat_message_delivery).
+        """
+        raise SIPBackendError('the session has no chat stream')
+
     def cleanup(self):
         """The session terminated and was removed from the handler"""
         raise NotImplementedError
@@ -170,3 +182,5 @@ class SIPBackendListener(object):
     def sip_session_media(self, session_info, medium, receiving): pass
     def sip_session_message(self, session_info, content, content_type, sender_uri, sender_display_name=None): pass
     def sip_session_message_delivery(self, session_info, code, reason): pass
+    def sip_session_chat_message(self, session_info, message, msrp_message_id): pass  # message: sipsimple.streams.msrp.chat.Message
+    def sip_session_chat_message_delivery(self, session_info, message_id, code, reason): pass

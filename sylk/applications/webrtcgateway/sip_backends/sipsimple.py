@@ -29,8 +29,17 @@ Implemented: outgoing calls (with early media), incoming calls (answer,
 decline, cancel/missed), hangup from either side, in-dialog MESSAGE, DTMF
 with SIP INFO (needs an SDK with Invitation.send_info), re-INVITEs in both
 directions (session-update), including a rejected local re-INVITE, after
-which the call goes on with the previous media. Not implemented yet: MSRP
-streams (only the audio and video of an offer are used).
+which the call goes on with the previous media, and MSRP chat.
+
+MSRP chat: a chat stream offered by the remote party next to audio/video,
+in the INVITE or added later with a re-INVITE, is accepted, SylkServer
+being the MSRP endpoint (sylk.streams.ChatStream), for text/* and IMDN
+only (file transfers over MSRP are standalone sessions, not part of a
+call). We never offer one. The
+messages received on it go to the client as session messages and are
+journaled (see ConnectionHandler.sip_session_chat_message); the client's
+session messages go out on it (send_chat_message). A call made of chat
+only is rejected.
 
 Re-INVITEs:
   - local (session-update offer from the client): NoSIP converts the new
@@ -52,6 +61,7 @@ from application.python import Null
 from sipsimple.core import (ContactHeader, Credentials, FromHeader, Header, Registration, RouteHeader, SDPConnection, SDPMediaStream,
                             SDPSession, SIPURI, SIPCoreError, ToHeader)
 from sipsimple.streams import IMediaStream, UnknownStreamError
+from sipsimple.util import ISOTimestamp
 from eventlib import api, coros
 from sipsimple.threading import run_in_twisted_thread
 from sipsimple.threading.green import call_in_green_thread
@@ -74,6 +84,7 @@ CONTACT_TOKEN_PARAMETER = 'x-sylk-gw'
 
 REGISTRATION_DURATION = 600  # seconds, same as the Janus SIP plugin's register_ttl
 REMOTE_UPDATE_TIMEOUT = 20   # seconds to wait for the client's answer to a remote re-INVITE
+CHAT_WRAPPED_TYPES = ['text/*', 'message/imdn+xml']  # what the chat stream of a call accepts
 
 _contacts = {}  # contact token -> SIPSimpleAccount
 
@@ -480,6 +491,10 @@ class SIPSimpleCall(SIPCallBackend):
         self._local_update_pending = False
         self._previous_local_sdp = None
         self._added_streams = []        # streams of a local update that adds media lines
+        self._chat_offer = None         # the chat stream of an incoming INVITE, accepted with the call
+        self.chat_stream = None         # the MSRP chat stream, once started
+        self._chat_streams = set()      # chat streams observed
+        self._chat_messages = {}        # MSRP message id -> client message id, of the messages sent
 
     # Outgoing call
 
@@ -566,8 +581,10 @@ class SIPSimpleCall(SIPCallBackend):
             self._end(detach=True)
             return
 
-        # only the relayed streams will be accepted (MSRP etc. get port 0)
-        session.proposed_streams = list(self.streams)
+        # only the relayed streams and one chat stream will be accepted (the rest get port 0)
+        chat_streams = [stream for stream in session.proposed_streams if stream.type == 'chat'][:1]
+        self._chat_offer = chat_streams[0] if chat_streams else None
+        session.proposed_streams = list(self.streams) + chat_streams
 
         account_info = self.account.account_info
         call_id = session.call_id
@@ -589,7 +606,7 @@ class SIPSimpleCall(SIPCallBackend):
         except Exception:
             pass
         headers = _forwarded_headers(getattr(session, 'request_headers', None), account_info.incoming_header_prefixes)
-        self.log.info('sipsimple: incoming call from {} with {}'.format(remote_uri, ', '.join(stream.type for stream in self.streams)))
+        self.log.info('sipsimple: incoming call from {} with {}'.format(remote_uri, ', '.join(stream.type for stream in self.streams + chat_streams)))
         self.handler.sip_account_incoming_session(account_info, session_info, originator, sdp=jsep.sdp, call_id=call_id, headers=headers or None)
 
     def _extra_headers(self, headers):
@@ -755,11 +772,20 @@ class SIPSimpleCall(SIPCallBackend):
                 stream = RelayedRTPStream(self, proposed.type, len(self.streams) + len(new_streams))
                 stream.index = proposed.index
                 new_streams.append(stream)
-        if not new_streams:
+        has_chat = self.chat_stream is not None and self.chat_stream in session.streams
+        chat_streams = [] if has_chat else [stream for stream in proposed_streams if stream.type == 'chat'][:1]
+        if not new_streams and not chat_streams:
             self.log.info('sipsimple: rejecting re-INVITE of {} adding {}, not supported'.format(session.remote_identity.uri, ', '.join(stream.type for stream in proposed_streams)))
             call_in_green_thread(session.reject_proposal, 488)
             return
-        session.proposed_streams = new_streams  # only these are accepted
+        session.proposed_streams = new_streams + chat_streams  # only these are accepted
+        if not new_streams:
+            # only a chat stream is added: the media of the call does not change,
+            # so there is nothing for the client to answer
+            self.log.info('sipsimple: accepting chat stream added by {}'.format(session.remote_identity.uri))
+            self._observe_chat(chat_streams[0])
+            call_in_green_thread(session.accept_proposal, chat_streams)
+            return
         remote_sdp = session._invitation.sdp.proposed_remote
         self._answered_offer = str(remote_sdp)
         try:
@@ -772,7 +798,7 @@ class SIPSimpleCall(SIPCallBackend):
             self.log.warning('sipsimple: Janus could not use the re-INVITE offer of {}: {}'.format(session.remote_identity.uri, e))
             call_in_green_thread(session.reject_proposal, 488)
             return
-        self._pending_proposal = new_streams
+        self._pending_proposal = new_streams + chat_streams
         self._proposal_timer = reactor.callLater(REMOTE_UPDATE_TIMEOUT, self._remote_proposal_timeout)
         self.handler.sip_session_update_received(self.session_info, jsep.sdp)
 
@@ -853,7 +879,12 @@ class SIPSimpleCall(SIPCallBackend):
             raise SIPBackendError('Janus could not use the answer: {}'.format(e))
         self._set_local_sdp(result.sdp)
         self._answered_offer = str(self.session._invitation.sdp.proposed_remote)
-        self.session.accept(self.streams, extra_headers=self._extra_headers(headers))
+        streams = list(self.streams)
+        if self._chat_offer is not None:
+            self._observe_chat(self._chat_offer)
+            streams.append(self._chat_offer)
+            self._chat_offer = None
+        self.session.accept(streams, extra_headers=self._extra_headers(headers))
 
     def decline(self, code):
         if self.session is not None and self.session.state == 'incoming':
@@ -891,6 +922,9 @@ class SIPSimpleCall(SIPCallBackend):
             if self._proposal_timer is not None and self._proposal_timer.active():
                 self._proposal_timer.cancel()
             self._proposal_timer = None
+            for stream in proposal:
+                if stream.type == 'chat':
+                    self._observe_chat(stream)
             self.session.accept_proposal(proposal)
         self.handler.post_backend_event(self.handler.sip_session_updated, self.session_info)
 
@@ -955,6 +989,49 @@ class SIPSimpleCall(SIPCallBackend):
         except (SIPCoreError, AttributeError) as e:
             raise SIPBackendError('could not send DTMF with SIP INFO: {}'.format(e))
 
+    # MSRP chat
+
+    @property
+    def chat_active(self):
+        return self.chat_stream is not None and not self._ended
+
+    def send_chat_message(self, content, content_type, message_id, timestamp=None, additional_headers=None):
+        stream = self.chat_stream
+        if stream is None or self._ended:
+            raise SIPBackendError('the session has no chat stream')
+        try:
+            timestamp = ISOTimestamp(timestamp) if timestamp else None
+        except (TypeError, ValueError):
+            timestamp = None
+        # the MSRP message id is made by the stream (the client's may not be a valid one)
+        msrp_message_id = stream.send_message(content, content_type=content_type, timestamp=timestamp, additional_headers=additional_headers)
+        self._chat_messages[msrp_message_id] = message_id
+
+    def _observe_chat(self, stream):
+        # Only text and delivery notifications in a call: file transfers over
+        # MSRP are sessions of their own. Set before the stream builds its SDP
+        # (accept-wrapped-types); anything else gets a 415 report from the stream.
+        stream.accept_wrapped_types = CHAT_WRAPPED_TYPES
+        if stream not in self._chat_streams:
+            self._chat_streams.add(stream)
+            NotificationCenter().add_observer(self, sender=stream)
+
+    def _forget_chat(self, stream):
+        if stream in self._chat_streams:
+            self._chat_streams.discard(stream)
+            NotificationCenter().discard_observer(self, sender=stream)
+        if stream is self.chat_stream:
+            self.chat_stream = None
+
+    def _chat_message_received(self, message, msrp_message_id):
+        if not self._ended and self.session_info is not None:
+            self.handler.sip_session_chat_message(self.session_info, message, msrp_message_id)
+
+    def _chat_message_delivery(self, msrp_message_id, code, reason):
+        message_id = self._chat_messages.pop(msrp_message_id, None)
+        if message_id is not None and self.session_info is not None:
+            self.handler.sip_session_chat_message_delivery(self.session_info, message_id, code, reason)
+
     def cleanup(self):
         self._end(detach=True)
 
@@ -969,6 +1046,9 @@ class SIPSimpleCall(SIPCallBackend):
         self._ended = True
         if self.session is not None and self.session.state not in ('terminating', 'terminated'):
             call_in_green_thread(self.session.end)
+        for stream in list(self._chat_streams):
+            self._forget_chat(stream)
+        self._chat_offer = None
         handle, self.janus_handle = self.janus_handle, None
         if handle is not None:
             if detach:
@@ -1083,6 +1163,53 @@ class SIPSimpleCall(SIPCallBackend):
             body = body.decode('utf-8', 'replace')
         sender = str(from_header.uri)
         self.handler.post_backend_event(self.handler.sip_session_message, self.session_info, body, content_type.content_type, sender, from_header.display_name)
+
+    # Chat stream notifications
+
+    def _NH_MediaStreamDidStart(self, notification):
+        stream = notification.sender
+        if stream in self._chat_streams and not self._ended:
+            self.chat_stream = stream
+            self.log.info('sipsimple: chat with {} started for session {}'.format(self.session.remote_identity.uri, self.session_info.id if self.session_info else '-'))
+
+    def _NH_MediaStreamDidNotInitialize(self, notification):
+        self._chat_stream_gone(notification.sender, _text(getattr(notification.data, 'reason', None)) or 'not initialized')
+
+    def _NH_MediaStreamDidFail(self, notification):
+        self._chat_stream_gone(notification.sender, _text(getattr(notification.data, 'reason', None)) or 'failed')
+
+    def _NH_MediaStreamDidEnd(self, notification):
+        self._chat_stream_gone(notification.sender, getattr(notification.data, 'error', None) or 'ended')
+
+    def _chat_stream_gone(self, stream, reason):
+        if stream not in self._chat_streams:
+            return
+        if stream is self.chat_stream:
+            self.log.info('sipsimple: chat with {} ended ({})'.format(self.session.remote_identity.uri, reason))
+        self._forget_chat(stream)
+
+    def _NH_ChatStreamGotMessage(self, notification):
+        data = notification.data
+        try:
+            notification.sender.msrp_session.send_report(data.chunk, 200, 'OK')
+        except Exception as e:
+            self.log.warning('sipsimple: could not send MSRP report: {}'.format(e))
+        self.handler.post_backend_event(self._chat_message_received, data.message, data.chunk.message_id)
+
+    def _NH_ChatStreamGotComposingIndication(self, notification):
+        # not relayed to the client
+        try:
+            notification.sender.msrp_session.send_report(notification.data.chunk, 200, 'OK')
+        except Exception:
+            pass
+
+    def _NH_ChatStreamDidDeliverMessage(self, notification):
+        data = notification.data
+        self.handler.post_backend_event(self._chat_message_delivery, data.message_id, data.code, _text(data.reason))
+
+    def _NH_ChatStreamDidNotDeliverMessage(self, notification):
+        data = notification.data
+        self.handler.post_backend_event(self._chat_message_delivery, data.message_id, data.code, _text(data.reason))
 
 
 class SIPSimpleBackend(SIPBackend):
