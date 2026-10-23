@@ -1847,7 +1847,7 @@ class ConnectionHandler(object):
         identity = str(session.account.uri)
         if session.account.display_name:
             identity = '"%s" <%s>' % (session.account.display_name, identity)
-        self.log.info("sending in dialog message from '%s' to '%s'" % (identity, session.remote_identity.uri))
+        self.log.info("sending in dialog message (%s) to %s" % (content_type, log_uri(session.remote_identity.uri)))
 
         from_uri = SIPURI.parse(session.account.uri)
         sip_uri = SIPURI.parse('sip:%s' % session.remote_identity.uri)
