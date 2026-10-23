@@ -1805,7 +1805,12 @@ class Session(object):
                     self._invitation.end(extra_headers=[reason_header] if reason_header is not None else [])
                 with api.timeout(1):
                     while True:
-                        notification = self._channel.wait()
+                        try:
+                            notification = self._channel.wait()
+                        except (MediaStreamDidFailError, MediaStreamDidNotInitializeError):
+                            # another stream failing (e.g. every stream of a call
+                            # whose answer could not be used); we are failing already
+                            continue
                         if notification.name == 'SIPInvitationChangedState' and notification.data.state == 'disconnected':
                             break
             except (api.TimeoutError, SIPCoreError):
