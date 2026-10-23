@@ -99,10 +99,14 @@ class WebRTCGatewayApplication(SylkApplication):
         handler(notification)
 
     def incoming_session(self, session):
-        if contact_token(session.request_uri) is not None:
+        if contact_token(session.request_uri) is not None and not self._is_file_transfer(session):
             # sent to the contact of a WebRTC client account using the sipsimple SIP backend
             SIPSimpleBackend.incoming_session(session)
             return
+        # An MSRP file transfer is received here whichever way it arrived, also
+        # when sent to the contact of an account using the sipsimple backend
+        # (Janus only relays RTP): the file is stored and announced to the
+        # receiver exactly like one uploaded over the web API.
         # TODO: handle diverted sessions?
         log.info('New incoming session {session.call_id} from sip:{uri.user}@{uri.host}'.format(session=session, uri=session.remote_identity.uri))
         transfer_streams = [stream for stream in session.proposed_streams if stream.type == 'file-transfer']
@@ -154,6 +158,15 @@ class WebRTCGatewayApplication(SylkApplication):
         d1.addCallback(lambda result: self._handle_lookup_result(result, session, transfer_stream))
 
         NotificationCenter().add_observer(self, sender=session)
+
+    @staticmethod
+    def _is_file_transfer(session):
+        # a file transfer session: a file-transfer stream and no RTP media
+        if not any(stream.type == 'file-transfer' for stream in session.proposed_streams):
+            return False
+        remote_sdp = session._invitation.sdp.proposed_remote
+        media_types = {media.media.decode() if isinstance(media.media, bytes) else media.media for media in remote_sdp.media if media.port != 0}
+        return not media_types & {'audio', 'video'}
 
     def _check_receiver_session(self, account):
         if account is None:
