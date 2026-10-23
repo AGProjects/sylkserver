@@ -2,6 +2,7 @@
 import json
 import os
 import re
+import weakref
 from binascii import b2a_hex as hex_encode
 
 from application.notification import (IObserver, NotificationCenter,
@@ -110,6 +111,8 @@ class JanusClientProtocol(WebSocketClientProtocol):
         pending, self._pending_transactions = self._pending_transactions or {}, {}
         for request, deferred in pending.values():
             deferred.errback(JanusError(503, 'Janus connection lost'))
+        # NoSIP requests wait for their result event, which will not come either
+        NoSIPPluginHandle.fail_all_pending(JanusError(503, 'Janus connection lost'))
         self.notification_center.post_notification('JanusBackendDisconnected', sender=self, data=NotificationData(reason=reason.getErrorMessage()))
 
     def disconnect(self, code=1000, reason=''):
@@ -400,10 +403,18 @@ class NoSIPPluginHandle(JanusPluginHandle):
     plugin = 'janus.plugin.nosip'
     request_timeout = 10
 
+    _instances = weakref.WeakSet()
+
     def __init__(self, session, event_handler):
         self._pending_requests = {}  # transaction -> Deferred waiting for the result event
         self._event_handler = event_handler
         super(NoSIPPluginHandle, self).__init__(session, self._handle_event)
+        self._instances.add(self)
+
+    @classmethod
+    def fail_all_pending(cls, error):
+        for handle in list(cls._instances):
+            handle._fail_pending(error)
 
     def generate(self, sdp, sdp_type, srtp=None, info=None):
         """
