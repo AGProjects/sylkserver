@@ -110,6 +110,29 @@ def _aor(uri):
     return '{}@{}'.format(_text(uri.user), _text(uri.host)) if uri.user else _text(uri.host)
 
 
+def _has_crypto(media):
+    return any(_text(attribute.name) == 'crypto' for attribute in media.attributes)
+
+
+def _plain_rtp_lines(sdp, indexes):
+    """
+    Of the given media lines of sdp (in use, port != 0), the ones without
+    SDES (a=crypto), when others do use SDES; empty when they agree.
+
+    The Janus NoSIP plugin (1.1.2, and current master) keeps one remote SRTP
+    flag for the whole call: when the remote party uses SDES on one line and
+    plain RTP on another (e.g. SRTP audio, RTP video), NoSIP decrypts every
+    RTP packet with a per media context it never created and Janus crashes
+    (SIGSEGV) on the first packet of the plain RTP line, taking down every
+    WebRTC session on the server. Such SDPs must never reach NoSIP.
+    """
+    lines = [index for index in indexes if index < len(sdp.media) and sdp.media[index].port != 0]
+    with_crypto = [index for index in lines if _has_crypto(sdp.media[index])]
+    if not with_crypto or len(with_crypto) == len(lines):
+        return []
+    return [index for index in lines if index not in with_crypto]
+
+
 def _forwarded_headers(headers, prefixes):
     # The INVITE headers whose name starts with one of the account's
     # incoming_header_prefixes (default X-), as {name: value}, like the
@@ -409,6 +432,12 @@ class SIPSimpleCall(SIPCallBackend):
             media_type = _text(media.media)
             if media.port != 0 and media_type in ('audio', 'video'):
                 relayed_media.append((index, media_type))
+        plain_lines = _plain_rtp_lines(remote_sdp, [index for index, media_type in relayed_media])
+        if plain_lines:
+            # mixed SRTP and RTP, which NoSIP cannot handle: only the SRTP lines are used
+            self.log.warning('sipsimple: incoming call from {} offers {} without SRTP next to SRTP media, rejecting {}'.format(
+                session.remote_identity.uri, ', '.join(_text(remote_sdp.media[index].media) for index in plain_lines), 'it' if len(plain_lines) == 1 else 'them'))
+            relayed_media = [(index, media_type) for index, media_type in relayed_media if index not in plain_lines]
         if not relayed_media:
             self.log.info('sipsimple: rejecting incoming call from {}, it has no audio or video'.format(session.remote_identity.uri))
             call_in_green_thread(session.reject, 488)
@@ -476,14 +505,19 @@ class SIPSimpleCall(SIPCallBackend):
     def _set_local_sdp(self, sdp):
         self.local_sdp = SDPSession.parse(sdp.encode() if isinstance(sdp, str) else sdp)
 
-    def _filtered_sdp(self, sdp, streams):
+    def _filtered_sdp(self, sdp, streams, disabled_lines=()):
         # The lines of sdp (a remote SDP) for the given streams, in the order of
         # the NoSIP SDP (sdp_index), which is the form NoSIP needs; a stream
-        # without a line in sdp gets its local line with port 0
+        # without a line in sdp gets its local line with port 0, as do the
+        # lines (indexes in sdp) in disabled_lines
         filtered = SDPSession.new(sdp)
         media = []
         for stream in sorted(streams, key=lambda item: item.sdp_index):
-            if stream.index is not None and stream.index < len(sdp.media):
+            if stream.index is not None and stream.index < len(sdp.media) and stream.index in disabled_lines:
+                line = SDPMediaStream.new(sdp.media[stream.index])
+                line.port = 0
+                media.append(line)
+            elif stream.index is not None and stream.index < len(sdp.media):
                 media.append(SDPMediaStream.new(sdp.media[stream.index]))
             else:
                 line = SDPMediaStream.new(self.local_sdp.media[stream.sdp_index])
@@ -533,15 +567,29 @@ class SIPSimpleCall(SIPCallBackend):
     def _process_answer(self, remote_sdp):
         notification_center = NotificationCenter()
         negotiation = self._negotiation
+        plain_lines = []
         try:
-            answer = self._filtered_sdp(remote_sdp, self.streams + self._added_streams)
+            streams = self.streams + self._added_streams
+            plain_lines = _plain_rtp_lines(remote_sdp, [stream.index for stream in streams if stream.index is not None])
+            if plain_lines:
+                # The remote party would send plain RTP on these lines, which crashes
+                # NoSIP; the call cannot be relayed (see _plain_rtp_lines)
+                raise JanusError(488, 'the answer mixes SRTP and plain RTP ({} without SRTP), which Janus NoSIP cannot relay'.format(
+                    ', '.join(_text(remote_sdp.media[index].media) for index in plain_lines)))
+            answer = self._filtered_sdp(remote_sdp, streams)
             result, jsep = self.janus_handle.process(str(answer), 'answer')
         except JanusError as e:
             waiters, self._answer_waiters = self._answer_waiters, []
             self.log.warning('sipsimple: Janus could not use the answer of {}: {}'.format(self.session.remote_identity.uri, e))
             if negotiation == 'update':
                 self._awaiting_answer = False
-                self.handler.post_backend_event(self._local_update_failed, 'Janus could not use the answer: {}'.format(e))
+                if plain_lines:
+                    # The remote party accepted the update on the SIP side and will
+                    # send plain RTP that NoSIP cannot take: end the call right away.
+                    self.log.warning('sipsimple: ending session {}, {}'.format(self.session_info.id, e.reason))
+                    call_in_green_thread(self.session.end)
+                else:
+                    self.handler.post_backend_event(self._local_update_failed, 'Janus could not use the answer: {}'.format(e))
             for stream, started in waiters:
                 if started:
                     notification_center.post_notification('MediaStreamDidFail', sender=stream, data=NotificationData(context='starting', reason='Janus: {}'.format(e)))
@@ -566,7 +614,10 @@ class SIPSimpleCall(SIPCallBackend):
         # Runs in the session's green thread while it builds the answer to a
         # re-INVITE: blocks until the client answered (or the timeout).
         self._answered_offer = str(remote_sdp)
-        offer = self._filtered_sdp(remote_sdp, self.streams)
+        plain_lines = _plain_rtp_lines(remote_sdp, [stream.index for stream in self.streams if stream.index is not None])
+        if plain_lines:
+            self.log.warning('sipsimple: re-INVITE of {} mixes SRTP and plain RTP, rejecting the plain RTP lines'.format(self.session.remote_identity.uri))
+        offer = self._filtered_sdp(remote_sdp, self.streams, disabled_lines=plain_lines)
         event = self._remote_update = coros.event()
         try:
             result, jsep = self.janus_handle.process(str(offer), 'offer')
@@ -607,7 +658,10 @@ class SIPSimpleCall(SIPCallBackend):
         remote_sdp = session._invitation.sdp.proposed_remote
         self._answered_offer = str(remote_sdp)
         try:
-            offer = self._filtered_sdp(remote_sdp, self.streams + new_streams)
+            plain_lines = _plain_rtp_lines(remote_sdp, [stream.index for stream in self.streams + new_streams])
+            if plain_lines:
+                self.log.warning('sipsimple: re-INVITE of {} mixes SRTP and plain RTP, rejecting the plain RTP lines'.format(session.remote_identity.uri))
+            offer = self._filtered_sdp(remote_sdp, self.streams + new_streams, disabled_lines=plain_lines)
             result, jsep = self.janus_handle.process(str(offer), 'offer')
         except JanusError as e:
             self.log.warning('sipsimple: Janus could not use the re-INVITE offer of {}: {}'.format(session.remote_identity.uri, e))
@@ -735,11 +789,22 @@ class SIPSimpleCall(SIPCallBackend):
             self.session.accept_proposal(proposal)
         self.handler.post_backend_event(self.handler.sip_session_updated, self.session_info)
 
+    def _uses_srtp(self):
+        try:
+            active_remote = self.session._invitation.sdp.active_remote
+        except AttributeError:
+            return False
+        return any(_has_crypto(active_remote.media[stream.index]) for stream in self.streams
+                   if stream.index is not None and stream.index < len(active_remote.media) and active_remote.media[stream.index].port != 0)
+
     def _send_local_update(self, sdp, headers):
         if self.session.state != 'connected':
             raise SIPBackendError('the session cannot be updated now ({})'.format(self.session.state))
         try:
-            result = self.janus_handle.generate(sdp, 'offer')
+            # Offer SRTP only the way the call already uses it: SDES required if
+            # it uses SRTP, none if not, so that the remote party cannot answer
+            # new media lines with a mix of SRTP and RTP (see _plain_rtp_lines)
+            result = self.janus_handle.generate(sdp, 'offer', srtp='sdes_mandatory' if self._uses_srtp() else None)
         except JanusError as e:
             raise SIPBackendError('Janus could not use the offer: {}'.format(e))
         self._previous_local_sdp = self.local_sdp
