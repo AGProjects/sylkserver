@@ -133,6 +133,63 @@ def _plain_rtp_lines(sdp, indexes):
     return [index for index in lines if index not in with_crypto]
 
 
+# pjmedia keeps at most PJMEDIA_MAX_SDP_ATTR (2 * PJMEDIA_MAX_SDP_FMT + 4 = 68)
+# attributes per media line when parsing an SDP and silently drops the rest.
+# The NoSIP SDP of a browser video offer easily has 80+ (rtcp-fb for every
+# codec, extmap), with a=mid, a=msid and a=crypto at the end, so the video
+# line would go out without SRTP next to SRTP audio.
+MAX_SDP_MEDIA_ATTRIBUTES = 68
+
+# attributes that must survive, in this order; the rest keep their order
+_ESSENTIAL_ATTRIBUTES = ('crypto', 'sendrecv', 'sendonly', 'recvonly', 'inactive', 'rtpmap', 'fmtp',
+                         'rtcp', 'rtcp-mux', 'rtcp-rsize', 'mid', 'ptime', 'maxptime')
+# what goes first when a media line has too many attributes
+_EXPENDABLE_ATTRIBUTES = ('ssrc', 'ssrc-group', 'msid', 'extmap', 'rtcp-fb')
+
+
+def _fit_sdp_attributes(sdp):
+    """
+    The SDP text with every media line reduced to MAX_SDP_MEDIA_ATTRIBUTES
+    attributes, so that pjmedia keeps all the important ones, and a list of
+    (media type, number of dropped attributes) for the lines that were reduced.
+    """
+    if isinstance(sdp, bytes):
+        sdp = sdp.decode()
+    newline = '\r\n' if '\r\n' in sdp else '\n'
+    lines = sdp.split(newline)
+    trailing = lines and lines[-1] == ''
+    if trailing:
+        lines = lines[:-1]
+    sections = [[]]
+    for line in lines:
+        if line.startswith('m='):
+            sections.append([])
+        sections[-1].append(line)
+    output = list(sections[0])
+    reduced = []
+    for section in sections[1:]:
+        attributes = [line for line in section if line.startswith('a=')]
+        if len(attributes) <= MAX_SDP_MEDIA_ATTRIBUTES:
+            output.extend(section)
+            continue
+        name = lambda line: line[2:].split(':', 1)[0].split(' ', 1)[0]
+        keep_count = MAX_SDP_MEDIA_ATTRIBUTES
+        essential = [line for line in attributes if name(line) in _ESSENTIAL_ATTRIBUTES][:keep_count]
+        others = [line for line in attributes if name(line) not in _ESSENTIAL_ATTRIBUTES]
+        # drop the most expendable kinds first, from the end of the line
+        for kind in reversed(_EXPENDABLE_ATTRIBUTES):
+            while len(essential) + len(others) > keep_count and any(name(line) == kind for line in others):
+                index = max(i for i, line in enumerate(others) if name(line) == kind)
+                del others[index]
+        others = others[:max(keep_count - len(essential), 0)]
+        kept = set(id(line) for line in essential + others)
+        new_section = [line for line in section if not line.startswith('a=') or id(line) in kept]
+        output.extend(new_section)
+        reduced.append((section[0][2:].split(' ', 1)[0], len(attributes) - len(essential) - len(others)))
+    text = newline.join(output) + (newline if trailing else '')
+    return text, reduced
+
+
 def _forwarded_headers(headers, prefixes):
     # The INVITE headers whose name starts with one of the account's
     # incoming_header_prefixes (default X-), as {name: value}, like the
@@ -503,7 +560,10 @@ class SIPSimpleCall(SIPCallBackend):
     # SDP
 
     def _set_local_sdp(self, sdp):
-        self.local_sdp = SDPSession.parse(sdp.encode() if isinstance(sdp, str) else sdp)
+        sdp, reduced = _fit_sdp_attributes(sdp)
+        for media_type, count in reduced:
+            self.log.info('sipsimple: dropped {} {} SDP attributes above the pjmedia limit of {}'.format(count, media_type, MAX_SDP_MEDIA_ATTRIBUTES))
+        self.local_sdp = SDPSession.parse(sdp.encode())
 
     def _filtered_sdp(self, sdp, streams, disabled_lines=()):
         # The lines of sdp (a remote SDP) for the given streams, in the order of
