@@ -27,12 +27,57 @@ from .storage import TokenStorage, MessageStorage
 from .web import WebHandler, AdminWebHandler
 
 
+# A file transfer INVITE sent to an AOR is forked by the proxy to every
+# contact of the receiver, and the WebRTC accounts on the sipsimple backend
+# all register contacts pointing to this server, so the same INVITE can
+# arrive several times. Only the first copy is accepted.
+FILE_TRANSFER_FORK_WINDOW = 300  # seconds a file transfer INVITE is remembered
+
+
+_CALL_STATES = ('accepted', 'established', 'local-updating', 'remote-updating')
+
+
+def _in_audio_call(account, peer):
+    """True if a device of account (user@host) has an audio call with peer (user@host), whatever its SIP backend"""
+    from .factory import SylkWebSocketServerFactory
+    from .handler import _aor_text
+    peer = peer.lower()
+    for protocol in list(SylkWebSocketServerFactory.connections):
+        handler = getattr(protocol, 'connection_handler', None)
+        if handler is None or account not in handler.accounts_map:
+            continue
+        for session_info in handler.sip_sessions:
+            if (session_info.state in _CALL_STATES and 'audio' in session_info.media and session_info.account is not None
+                    and session_info.account.id == account and session_info.remote_identity is not None
+                    and _aor_text(session_info.remote_identity.uri).lower() == peer):
+                return True
+    return False
+
+
+def _aor(uri):
+    user, host = uri.user, uri.host
+    return '{}@{}'.format(user.decode() if isinstance(user, bytes) else user, host.decode() if isinstance(host, bytes) else host)
+
+
+def _invite_key(session):
+    # forks of an INVITE share the Call-ID and the From tag
+    invitation = session._invitation
+    from_header = getattr(invitation, 'from_header', None)
+    if from_header is None:
+        from_header = (getattr(session, 'request_headers', None) or {}).get('From', None)
+    tag = getattr(from_header, 'tag', None)
+    if isinstance(tag, bytes):
+        tag = tag.decode()
+    return invitation.call_id, tag
+
+
 @implementer(IObserver)
 class WebRTCGatewayApplication(SylkApplication):
     def __init__(self):
         self.web_handler = WebHandler()
         self.admin_web_handler = AdminWebHandler()
         self.audio_level_client = AudioLevelUDPClient()
+        self._file_transfer_invites = set()  # (Call-ID, From tag) of the file transfer INVITEs handled, see _invite_key
 
     def start(self):
         log.info(f'Using application directory {GeneralConfig.application_dir}')
@@ -106,13 +151,33 @@ class WebRTCGatewayApplication(SylkApplication):
         # An MSRP file transfer is received here whichever way it arrived, also
         # when sent to the contact of an account using the sipsimple backend
         # (Janus only relays RTP): the file is stored and announced to the
-        # receiver exactly like one uploaded over the web API.
+        # receiver exactly like one uploaded over the web API. A file sent to
+        # an account is only accepted from someone in an audio call with it,
+        # and only once when the INVITE was forked (see _invite_key).
         # TODO: handle diverted sessions?
         log.info('New incoming session {session.call_id} from sip:{uri.user}@{uri.host}'.format(session=session, uri=session.remote_identity.uri))
         transfer_streams = [stream for stream in session.proposed_streams if stream.type == 'file-transfer']
         if not transfer_streams:
             session.reject(488)
             return
+
+        sender_aor = _aor(session.remote_identity.uri)
+        receiver_aor = _aor(session.local_identity.uri)
+
+        if transfer_streams[0].direction != 'sendonly' and not _in_audio_call(receiver_aor, sender_aor):
+            # a file sent to a WebRTC account over MSRP is only accepted from
+            # someone the account is in an audio call with
+            log.info('Rejecting file transfer {session.call_id} from {sender} to {receiver}, no audio call between them'.format(session=session, sender=sender_aor, receiver=receiver_aor))
+            session.reject(403, 'No Call In Progress')
+            return
+
+        key = _invite_key(session)
+        if key in self._file_transfer_invites:
+            log.info('Rejecting file transfer {session.call_id} from sip:{uri.user}@{uri.host}, a fork of an INVITE already handled'.format(session=session, uri=session.remote_identity.uri))
+            session.reject(486)
+            return
+        self._file_transfer_invites.add(key)
+        reactor.callLater(FILE_TRANSFER_FORK_WINDOW, self._file_transfer_invites.discard, key)
 
         transfer_stream = transfer_streams[0]
 
