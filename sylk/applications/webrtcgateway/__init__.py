@@ -152,23 +152,14 @@ class WebRTCGatewayApplication(SylkApplication):
         # when sent to the contact of an account using the sipsimple backend
         # (Janus only relays RTP): the file is stored and announced to the
         # receiver exactly like one uploaded over the web API. A file sent to
-        # an account is only accepted from someone in an audio call with it,
-        # and only once when the INVITE was forked (see _invite_key).
+        # an account by a sender that is not a local account is only accepted
+        # during an audio call between them (see _handle_lookup_result), and
+        # only once when the INVITE was forked (see _invite_key).
         # TODO: handle diverted sessions?
         log.info('New incoming session {session.call_id} from sip:{uri.user}@{uri.host}'.format(session=session, uri=session.remote_identity.uri))
         transfer_streams = [stream for stream in session.proposed_streams if stream.type == 'file-transfer']
         if not transfer_streams:
             session.reject(488)
-            return
-
-        sender_aor = _aor(session.remote_identity.uri)
-        receiver_aor = _aor(session.local_identity.uri)
-
-        if transfer_streams[0].direction != 'sendonly' and not _in_audio_call(receiver_aor, sender_aor):
-            # a file sent to a WebRTC account over MSRP is only accepted from
-            # someone the account is in an audio call with
-            log.info('Rejecting file transfer {session.call_id} from {sender} to {receiver}, no audio call between them'.format(session=session, sender=sender_aor, receiver=receiver_aor))
-            session.reject(403, 'No Call In Progress')
             return
 
         key = _invite_key(session)
@@ -247,6 +238,15 @@ class WebRTCGatewayApplication(SylkApplication):
         if reject_session:
             self._reject_session(session, "Sender and receiver accounts for filetransfer were not found")
             return
+
+        sender_is_local = result[1][0] is True  # the sender account was found (see _check_sender_session)
+        if not sender_is_local:
+            sender, receiver = _aor(session.remote_identity.uri), _aor(session.local_identity.uri)
+            if not _in_audio_call(receiver, sender):
+                # a file from outside is only accepted from someone the receiver is in an audio call with
+                log.info('Rejecting file transfer {session.call_id} from {sender} to {receiver}, no audio call between them'.format(session=session, sender=sender, receiver=receiver))
+                session.reject(403, 'No Call In Progress')
+                return
 
         stream.handler.save_directory = session.transfer_data.path
         log.info('File transfer from {sender.uri} to {receiver.uri} will be saved to {path}/{filename}'.format(**session.transfer_data.__dict__))
