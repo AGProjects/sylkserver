@@ -1763,8 +1763,10 @@ class Room(object):
             return
         session = stream.session
         log.info('Room %s - session %s audio stream for %s timed out' % (self.name, session.call_id, session.remote_identity.uri))
-        if session.streams == [stream]:
-            session.end()
+        # No RTP for rtp.timeout seconds (the SDK does not time out a stream on hold): the client is
+        # gone. End the whole session, chat too: a chat stream through an MSRP relay outlives a client
+        # that died without a BYE (the relay keeps our leg open), so it proves nothing.
+        session.end()
 
     def _NH_ChatStreamGotMessage(self, notification):
         stream = notification.sender
