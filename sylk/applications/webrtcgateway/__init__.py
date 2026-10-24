@@ -144,17 +144,22 @@ class WebRTCGatewayApplication(SylkApplication):
         handler(notification)
 
     def incoming_session(self, session):
-        if contact_token(session.request_uri) is not None and not self._is_file_transfer(session):
+        if contact_token(session.request_uri) is not None:
             # sent to the contact of a WebRTC client account using the sipsimple SIP backend
+            if self._is_file_transfer(session):
+                # The proxy forks a file transfer to the registered contacts and to
+                # SylkServer itself, which receives it on behalf of all the devices
+                # (also the offline ones): the copies sent to the contacts are refused.
+                log.info('Refusing file transfer {session.call_id} sent to a WebRTC contact, SylkServer receives it for the account'.format(session=session))
+                session.reject(486)
+                return
             SIPSimpleBackend.incoming_session(session)
             return
-        # An MSRP file transfer is received here whichever way it arrived, also
-        # when sent to the contact of an account using the sipsimple backend
-        # (Janus only relays RTP): the file is stored and announced to the
-        # receiver exactly like one uploaded over the web API. A file sent to
-        # an account by a sender that is not a local account is only accepted
+        # An MSRP file transfer sent to an account: the file is stored and
+        # announced to the receiver exactly like one uploaded over the web API.
+        # A file from a sender that is not a local account is only accepted
         # during an audio call between them (see _handle_lookup_result), and
-        # only once when the INVITE was forked (see _invite_key).
+        # only once if the same INVITE arrives again (see _invite_key).
         # TODO: handle diverted sessions?
         log.info('New incoming session {session.call_id} from sip:{uri.user}@{uri.host}'.format(session=session, uri=session.remote_identity.uri))
         transfer_streams = [stream for stream in session.proposed_streams if stream.type == 'file-transfer']
