@@ -85,6 +85,7 @@ class SylkServer(SIPApplication):
         log.info('TLS verify server: %s' % settings.tls.verify_server)
         from sylk.streams import msrp_hostname
         log.info('MSRP hostname (%s): %s' % ('configured' if MSRPConfig.msrp_hostname else 'detected', msrp_hostname))
+        log.info('MSRP port for incoming sessions: %s' % (MSRPConfig.port or 'one per session, given by the system (not reachable behind NAT or port forwarding)'))
         contents = open(settings.tls.certificate, 'rb').read()
         if (contents):
             try:

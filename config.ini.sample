@@ -129,6 +129,13 @@ certificate = /etc/sylkserver/tls/default.crt
 ; hostname of the system is used
 ; msrp_hostname =
 
+; The TCP port where the MSRP connections of all incoming sessions (conference
+; rooms, file transfers) are taken: one listening socket, each connection given
+; to its session by the session id in the To-Path of its first chunk. Forward
+; this port when behind NAT or port forwarding (2855 is the MSRP relay's). 0
+; uses a port the system gives for each session, which cannot be reached that way.
+; port = 2856
+
 
 [RTP]
 

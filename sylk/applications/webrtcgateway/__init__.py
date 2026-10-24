@@ -27,10 +27,10 @@ from .storage import TokenStorage, MessageStorage
 from .web import WebHandler, AdminWebHandler
 
 
-# A file transfer INVITE sent to an AOR is forked by the proxy to every
-# contact of the receiver, and the WebRTC accounts on the sipsimple backend
-# all register contacts pointing to this server, so the same INVITE can
-# arrive several times. Only the first copy is accepted.
+# A file transfer INVITE is accepted only once, should the same INVITE
+# (same Call-ID and From tag) reach this application more than once. The
+# copies forked to the contacts of the sipsimple backend are refused before
+# (see incoming_session).
 FILE_TRANSFER_FORK_WINDOW = 300  # seconds a file transfer INVITE is remembered
 
 

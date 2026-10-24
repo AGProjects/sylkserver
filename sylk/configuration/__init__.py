@@ -84,6 +84,11 @@ class MSRPConfig(ConfigSection):
     # can match it against the TLS certificate. When not set, the fully
     # qualified hostname of the system is used.
     msrp_hostname = ConfigSetting(type=str, value=None)
+    # The TCP port where the MSRP connections of all incoming sessions are taken (one listening
+    # socket, each connection given to its session by the To-Path of its first chunk; 2855 is the
+    # MSRP relay's). 0: a port the system gives for each session, which cannot be reached behind
+    # NAT or port forwarding.
+    port = ConfigSetting(type=Port, value=2856)
 
 
 class RTPConfig(ConfigSection):

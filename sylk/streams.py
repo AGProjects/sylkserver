@@ -3,6 +3,7 @@ import random
 from collections import defaultdict
 from functools import partial
 
+from application import log
 from application.notification import NotificationCenter, NotificationData
 from eventlib import api
 from eventlib.coros import queue
@@ -28,6 +29,145 @@ from sylk.configuration import MSRPConfig, SIPConfig
 
 # the hostname advertised in MSRP URIs: configured, or detected from the system
 msrp_hostname = MSRPConfig.msrp_hostname or host.fqdn
+
+
+class _SharedMSRPPort(object):
+    """The one listening socket of [MSRP] port, for the MSRP connections of every incoming session.
+
+    A new connection is given to the session its first chunk is for: the session id of the last
+    To-Path URI (what the client's SDP had from us), which is all that is matched (sessmatch), so
+    the host and port the client used do not matter (NAT, port forwarding, msrp_hostname)."""
+
+    ports = {}      # (interface, port) -> _SharedMSRPPort
+
+    @classmethod
+    def get(cls, local_uri):
+        key = (local_uri.host, local_uri.port)
+        shared = cls.ports.get(key)
+        if shared is None:
+            shared = cls.ports[key] = cls(local_uri)
+        elif shared.use_tls != local_uri.use_tls:
+            raise MSRPStreamError('MSRP port %d is used with%s TLS already' % (local_uri.port, '' if shared.use_tls else 'out'))
+        return shared
+
+    def __init__(self, local_uri):
+        from twisted.internet import reactor
+        from gnutls.interfaces.twisted import TLSContext
+        from eventlib.twistedutil.protocol import SpawnFactory
+        from msrplib.transport import MSRPTransport
+        self.use_tls = local_uri.use_tls
+        self.waiting = {}       # session id -> SharedMSRPAcceptor
+        factory = SpawnFactory(self._incoming, MSRPTransport, None, logger=None, use_sessmatch=True)
+        if self.use_tls:
+            self.listening_port = reactor.listenTLS(local_uri.port, factory, TLSContext(local_uri.credentials), interface=local_uri.host)
+        else:
+            self.listening_port = reactor.listenTCP(local_uri.port, factory, interface=local_uri.host)
+        address = self.listening_port.getHost()
+        log.info('Listening for the MSRP connections of incoming sessions on %s:%d (%s)' % (address.host, address.port, 'TLS' if self.use_tls else 'TCP'))
+
+    def _incoming(self, msrp):
+        from msrplib.connect import MSRPBindSessionTimeout
+        peer = msrp.getPeer()
+        try:
+            with MSRPBindSessionTimeout.timeout():
+                chunk = msrp.read_chunk()
+        except Exception as e:
+            log.info('MSRP connection from %s:%d closed before it named its session: %s' % (peer.host, peer.port, e))
+            msrp.loseConnection(wait=False)
+            return
+        to_path = list(chunk.to_path or [])
+        session_id = to_path[-1].session_id if to_path else None
+        acceptor = self.waiting.pop(session_id, None) if chunk.method == 'SEND' else None
+        if acceptor is None:
+            log.info('MSRP connection from %s:%d for an unknown session %s: refused' % (peer.host, peer.port, session_id))
+            try:
+                msrp.write_response(chunk, 481, 'No such session', wait=False)
+            except Exception:
+                pass
+            msrp.loseConnection(wait=False)
+            return
+        acceptor.connected(msrp, chunk)
+
+    def expect(self, acceptor):
+        self.waiting[acceptor.local_uri.session_id] = acceptor
+
+    def forget(self, acceptor):
+        if self.waiting.get(acceptor.local_uri.session_id) is acceptor:
+            del self.waiting[acceptor.local_uri.session_id]
+
+
+class SharedMSRPAcceptor(object):
+    """An answering MSRP endpoint on the shared [MSRP] port, with the interface of msrplib's
+    DirectAcceptor (prepare, complete, cleanup) that sipsimple's MSRP streams use."""
+
+    def __init__(self, logger=None, use_sessmatch=True):
+        from eventlib import coros
+        self.logger = logger
+        self.local_uri = None
+        self.shared = None
+        self.remote_endpoint = None
+        self._connection = coros.event()
+
+    def __repr__(self):
+        return '<%s at %s local_uri=%s>' % (type(self).__name__, hex(id(self)), self.local_uri)
+
+    def prepare(self, local_uri=None):
+        local_uri.port = MSRPConfig.port
+        self.local_uri = local_uri
+        self.shared = _SharedMSRPPort.get(local_uri)
+        self.shared.expect(self)
+        return [local_uri]
+
+    def getHost(self):
+        return self.shared.listening_port.getHost()
+
+    def connected(self, msrp, chunk):
+        if not self._connection.ready():
+            self._connection.send((msrp, chunk))
+        else:
+            msrp.loseConnection(wait=False)
+
+    def complete(self, full_remote_path):
+        """The client's connection, bound (as DirectAcceptor.accept_binding, with the first chunk read already)."""
+        from msrplib.connect import MSRPIncomingConnectTimeout
+        from msrplib.transport import MSRPNoSuchSessionError
+        try:
+            with MSRPIncomingConnectTimeout.timeout():
+                msrp, chunk = self._connection.wait()
+        finally:
+            if self.shared is not None:
+                self.shared.forget(self)
+        remote_address = msrp.getPeer()
+        if self.logger is not None:
+            self.logger.info('Incoming %s connection from %s:%s', self.local_uri.scheme.upper(), remote_address.host, remote_address.port)
+            msrp.logger = self.logger
+        self.remote_endpoint = '%s:%s:%s' % (self.local_uri.scheme.upper(), remote_address.host, remote_address.port)
+        msrp.local_uri = self.local_uri
+        msrp.use_sessmatch = True
+        msrp._set_full_remote_path(full_remote_path)
+        error = msrp.check_incoming_SEND_chunk(chunk)
+        if error is not None:
+            msrp.write_response(chunk, error.code, error.comment)
+            msrp.loseConnection(wait=False)
+            raise MSRPNoSuchSessionError(error.comment)
+        msrp.write_response(chunk, 200, 'OK')
+        if 'Content-Type' in chunk.headers or chunk.size > 0:
+            # the first chunk carried data: give it to read_chunk() (as accept_binding does)
+            data = chunk.data
+            chunk.data = ''
+            msrp._data_start(chunk)
+            msrp._data_write(data, final=True)
+            msrp._data_end(chunk.contflag)
+        self.remote_uri = full_remote_path[0]
+        return msrp
+
+    def cleanup(self, wait=True):
+        if self.shared is not None:
+            self.shared.forget(self)
+        if self._connection.ready():
+            msrp, chunk = self._connection.wait()
+            if msrp is not None and getattr(msrp, 'local_uri', None) is not self.local_uri:
+                msrp.loseConnection(wait=False)      # connected, but never taken by complete()
 
 
 @run_in_green_thread
@@ -65,8 +205,11 @@ def MSRPStreamBase_initialize(self, session, direction):
                 self.msrp_connector = DirectAcceptor(logger=logger, use_sessmatch=True)
                 self.local_role = 'actpass' if outgoing else 'passive'
         local_uri = URI(host=SIPConfig.local_ip.normalized, port=0, use_tls=self.transport=='tls', credentials=self.session.account.tls_credentials)
+        if isinstance(self.msrp_connector, DirectAcceptor) and MSRPConfig.port:
+            # all incoming sessions on the one [MSRP] port (reachable through NAT and port forwarding)
+            self.msrp_connector = SharedMSRPAcceptor(logger=logger)
         full_local_path = self.msrp_connector.prepare(local_uri=local_uri)
-        if self.transport == 'tls' and msrp_hostname and isinstance(self.msrp_connector, DirectAcceptor):
+        if self.transport == 'tls' and msrp_hostname and isinstance(self.msrp_connector, (DirectAcceptor, SharedMSRPAcceptor)):
             # advertise the hostname instead of the local IP in the MSRP URI
             # put in the SDP, so that clients connecting to us can match the
             # TLS certificate against it (RFC 4975 section 14.4). The
