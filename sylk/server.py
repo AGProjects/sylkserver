@@ -31,6 +31,7 @@ from sylk.configuration.settings import (AccountExtension,
                                          BonjourAccountExtension,
                                          SylkServerSettingsExtension)
 from sylk.log import TraceLogManager
+from sylk.configwatch import ConfigWatcher
 from sylk.session import SessionManager
 from sylk.tls import log_certificate_file
 from sylk.web import WebServer
@@ -45,6 +46,7 @@ class SylkServer(SIPApplication):
         self.request_handler = Null
         self.thor_interface = Null
         self.web_server = Null
+        self.config_watcher = Null
 
         self.options = Null
 
@@ -127,7 +129,11 @@ class SylkServer(SIPApplication):
                        enable_colorbar_device=True,
                        # logging
                        log_level=settings.logs.pjsip_level if settings.logs.trace_pjsip else 0,
-                       trace_sip=settings.logs.trace_sip,
+                       # Always let the engine emit SIP traces so sip_trace can be toggled at
+                       # runtime (ConfigWatcher -> TraceLogManager). Whether they are written to
+                       # disk is gated by the sip_trace logger, which still starts according to
+                       # [Server] trace_sip, so the default on-disk behaviour is unchanged.
+                       trace_sip=True,
                        # events and requests to handle
                        events={'conference': ['application/conference-info+xml'],
                                'presence': ['application/pidf+xml'],
@@ -213,6 +219,8 @@ class SylkServer(SIPApplication):
         self.web_server.start()
         self.request_handler = IncomingRequestHandler()
         self.request_handler.start()
+        self.config_watcher = ConfigWatcher()
+        self.config_watcher.start()
         if ThorNodeConfig.enabled:
             from sylk.interfaces.sipthor import ConferenceNode
             self.thor_interface = ConferenceNode()
@@ -234,6 +242,8 @@ class SylkServer(SIPApplication):
         # terminate all sessions
         p = proc.spawn(session_manager.stop)
         p.wait()
+
+        self.config_watcher.stop()
 
         # shutdown SylkServer components
         procs = [proc.spawn(self.web_server.stop), proc.spawn(self.request_handler.stop), proc.spawn(self.thor_interface.stop)]

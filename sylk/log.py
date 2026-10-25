@@ -81,6 +81,44 @@ class TraceLogManager(object, metaclass=Singleton):
             logger.stop()
         self.started = False
 
+    def set_trace(self, name, enabled):
+        """Enable or disable a registered trace logger at runtime, without a
+        restart. 'name' is the logger file name: sip_trace, msrp_trace,
+        dns_trace, core_trace or notification_trace. Returns True iff the state
+        changed. sip_trace/core_trace additionally need the SIP Engine to be
+        emitting SIPEngineSIPTrace / SIPEngineLog; this only governs whether
+        those notifications are written to disk."""
+        if not self.started:
+            return False
+        logger = next((l for l in self.loggers if l.name == name), None)
+        if logger is None:
+            raise ValueError('unknown trace logger: %r' % name)
+        active = logger.logger is not None
+        if enabled == active:
+            return False
+        notification_center = NotificationCenter()
+        if enabled:
+            logger.enabled = True          # shadow the stale class-level snapshot
+            logger.start()
+            for n in logger.handled_notifications:
+                self.notification_map[n].add(logger)
+            try:
+                notification_center.add_observer(self)
+            except KeyError:
+                pass                        # already observing
+            log.info('TraceLogManager enabled %s' % name)
+        else:
+            for n in logger.handled_notifications:
+                self.notification_map[n].discard(logger)
+                if not self.notification_map[n]:
+                    del self.notification_map[n]
+            logger.stop()
+            logger.enabled = False
+            if not self.notification_map:
+                notification_center.discard_observer(self)
+            log.info('TraceLogManager disabled %s' % name)
+        return True
+
     @classmethod
     def register_logger(cls, logger):  # this is a class method for convenience
         if inspect.isclass(logger) and issubclass(logger, TraceLogger):
