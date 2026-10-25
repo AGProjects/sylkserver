@@ -57,8 +57,11 @@ def _parse_media_csv(value):
             value = value.decode()
         except Exception:
             return None
+    value = str(value).strip()
+    if len(value) >= 2 and value[0] == value[-1] == '"':
+        value = value[1:-1]     # a list needs quoting in a header parameter: media="audio,chat"
     items = set()
-    for token in str(value).split(','):
+    for token in value.split(','):
         token = token.strip().lower()
         if not token:
             continue

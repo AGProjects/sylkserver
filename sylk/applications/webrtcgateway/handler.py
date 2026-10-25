@@ -1111,6 +1111,18 @@ def _cached_lookup_sip_proxy(lookup_uri, transport_list, log):
     return routes
 
 
+def _is_phone_uri(uri):
+    """Whether a SIP URI is a telephone number (+31201234567@host, 0201234567@host, user=phone)."""
+    user = uri.user.decode() if isinstance(uri.user, bytes) else str(uri.user or '')
+    parameters = getattr(uri, 'parameters', None) or {}
+    kind = parameters.get('user', '')
+    kind = kind.decode() if isinstance(kind, bytes) else str(kind or '')
+    if kind.lower() == 'phone':
+        return True
+    digits = user.lstrip('+').replace('-', '').replace('.', '').replace(' ', '')
+    return bool(digits) and digits.isdigit()
+
+
 @implementer(IObserver)
 class SipFocusReferralHandler(object):
     def __init__(self, focus_uri, participant_uri, account, log, status_callback=None, method='INVITE', refer_to_extra_params=None):
@@ -1239,14 +1251,17 @@ class SipFocusReferralHandler(object):
                                      parameters=parameters)
                 refer_to_header = ReferToHeader(str(self.participant_uri))
                 refer_to_header.parameters['method'] = self.method
-                # `media=audio` only makes sense for INVITE — it tells
-                # the conference's IncomingReferralHandler to restrict
-                # the outgoing INVITE to the listed media (chat/MSRP
-                # then isn't offered). For BYE / MUTE / UNMUTE the
-                # focus doesn't look at media, so we skip it to keep
-                # the wire form clean for those branches.
+                # `media` only makes sense for INVITE — it tells the
+                # conference's IncomingReferralHandler which media to
+                # invite with. A SIP address gets audio and chat (it can
+                # add video itself, joining the video room); a telephone
+                # number gets audio only, as PSTN gateways and phones may
+                # reject a whole INVITE with an m= line they do not know
+                # (MSRP). The comma needs the value quoted (RFC 3261
+                # generic-param). For BYE / MUTE / UNMUTE the focus does
+                # not look at media, so it is left out for those.
                 if self.method == 'INVITE':
-                    refer_to_header.parameters['media'] = 'audio'
+                    refer_to_header.parameters['media'] = 'audio' if _is_phone_uri(self.participant_uri) else '"audio,chat"'
                 # Append any extra params the caller asked for (e.g.
                 # `participant_id=<token>` on a MUTE / UNMUTE REFER).
                 # Done after the standard params so the caller cannot
