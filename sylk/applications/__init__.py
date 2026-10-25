@@ -6,6 +6,7 @@ import os
 import socket
 import struct
 import sys
+import time
 
 from application import log
 from application.configuration.datatypes import NetworkRange
@@ -13,7 +14,8 @@ from application.notification import IObserver, NotificationCenter
 from application.python import Null
 from application.python.decorator import execute_once
 from application.python.types import Singleton
-from collections import defaultdict
+from collections import defaultdict, deque
+from datetime import datetime
 from itertools import chain
 from sipsimple.threading import run_in_twisted_thread
 from zope.interface import implementer
@@ -26,6 +28,10 @@ __all__ = 'ISylkApplication', 'ApplicationRegistry', 'SylkApplication', 'Incomin
 
 SYLK_APP_HEADER = 'X-Sylk-App'
 SYLK_APP_URI_PARAMETER = 'x-sylk-app'
+
+# Source IPs the INVITE-flood mitigator has blacklisted. Shared so the SIP
+# trace logger can drop packets to/from these peers too (see sylk.log).
+blacklisted_ips = set()
 
 
 def _uri_parameter(uri, name):
@@ -165,6 +171,82 @@ class ApplicationNotLoadedError(Exception):
     pass
 
 
+class BlacklistHandler(object):
+    """Per-source-IP INVITE-flood detector and runtime blacklist.
+
+    Counts 403-rejected INVITEs per source IP in a sliding window; an IP that
+    reaches blacklist_threshold within blacklist_window (both in [SIP]) is
+    blacklisted for the lifetime of the process. State is in-memory;
+    blacklist.txt (runtime_dir) is truncated at startup and not read back,
+    blacklist.log (trace_dir) is append-only. Only sources that fail the
+    trusted-peer ACL are ever counted; threshold 0 disables.
+    """
+
+    def __init__(self):
+        self.events = defaultdict(deque)   # source IP -> deque of rejection timestamps (monotonic)
+        self.blacklisted = blacklisted_ips # shared module-level set of blacklisted source IPs
+        self._txt_path = None
+        self._log_path = None
+        self._write_warned = False
+
+    @property
+    def enabled(self):
+        return SIPConfig.blacklist_threshold > 0
+
+    def start(self):
+        if not self.enabled:
+            return
+        self._txt_path = os.path.join(ServerConfig.runtime_dir.normalized, 'blacklist.txt')
+        self._log_path = os.path.join(ServerConfig.trace_dir.normalized, 'blacklist.log')
+        # runtime snapshot, not a persisted ACL: start empty each run
+        try:
+            os.makedirs(ServerConfig.runtime_dir.normalized, exist_ok=True)
+            open(self._txt_path, 'w').close()
+        except OSError as e:
+            log.warning('INVITE-flood mitigator: could not initialise %s: %s' % (self._txt_path, e))
+            self._txt_path = None
+
+    def is_blacklisted(self, ip_str):
+        return ip_str in self.blacklisted
+
+    def record_rejection(self, ip_str):
+        """Note one rejected INVITE from ip_str and blacklist the source once
+        it crosses the configured rate. Returns True iff this call tripped
+        the blacklist."""
+        if not self.enabled or ip_str in self.blacklisted:
+            return False
+        window = SIPConfig.blacklist_window
+        now = time.monotonic()
+        events = self.events[ip_str]
+        events.append(now)
+        cutoff = now - window
+        while events and events[0] < cutoff:
+            events.popleft()
+        if len(events) >= SIPConfig.blacklist_threshold:
+            self._blacklist(ip_str, len(events), window)
+            self.events.pop(ip_str, None)
+            return True
+        return False
+
+    def _blacklist(self, ip_str, count, window):
+        self.blacklisted.add(ip_str)
+        message = 'blacklisted %s after %d rejected INVITEs within %ds' % (ip_str, count, window)
+        log.info(message)
+        self._append(self._txt_path, '%s\n' % ip_str)
+        self._append(self._log_path, '%s %s\n' % (datetime.now().isoformat(), message))
+
+    def _append(self, path, line):
+        if not path:
+            return
+        try:
+            with open(path, 'a') as f:
+                f.write(line)
+        except OSError as e:
+            if not self._write_warned:  # warn once; never break call handling
+                log.warning('INVITE-flood mitigator: could not write %s: %s' % (path, e))
+                self._write_warned = True
+
+
 @implementer(IObserver)
 class IncomingRequestHandler(object, metaclass=Singleton):
     """Handle incoming requests and match them to applications"""
@@ -195,6 +277,7 @@ class IncomingRequestHandler(object, metaclass=Singleton):
             log.info(txt[:-1])
         self.authorization_handler = AuthorizationHandler()
         self.call_limit_handler = CallLimitHandler()
+        self.blacklist_handler = BlacklistHandler()
 
     def start(self):
         for app in self.application_registry:
@@ -203,6 +286,7 @@ class IncomingRequestHandler(object, metaclass=Singleton):
             except Exception as e:
                 log.exception('Failed to start {app.__appname__!r} application: {exception!s}'.format(app=app, exception=e))
         self.authorization_handler.start()
+        self.blacklist_handler.start()
         notification_center = NotificationCenter()
         notification_center.add_observer(self, name='SIPSessionNewIncoming')
         notification_center.add_observer(self, name='SIPIncomingSubscriptionGotSubscribe')
@@ -318,13 +402,18 @@ class IncomingRequestHandler(object, metaclass=Singleton):
 
     def _NH_SIPSessionNewIncoming(self, notification):
         session = notification.sender
+        peer_ip = self._peer_ip(session.peer_address)
+        if self.blacklist_handler.is_blacklisted(peer_ip):
+            session.reject(403)  # known flooder: drop without logging
+            return
         try:
             self.authorization_handler.authorize_source(session.peer_address.ip)
         except UnauthorizedRequest as e:
             log.info('rejected 403 INVITE %s from peer %s, From %s — %s' % (
-                session.request_uri, self._peer_ip(session.peer_address),
+                session.request_uri, peer_ip,
                 session.remote_identity.uri, e))
             session.reject(403)
+            self.blacklist_handler.record_rejection(peer_ip)
             return
         try:
             self.call_limit_handler.check(session.peer_address.ip)

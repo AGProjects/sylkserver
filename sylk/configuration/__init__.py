@@ -36,6 +36,8 @@ class ServerConfig(ConfigSection):
     trace_notifications = False
     log_level = ConfigSetting(type=LogLevel, value=LogLevel('info'))
     spool_dir = ConfigSetting(type=Path, value=Path(VarResources.get('spool/sylkserver')))
+    # Runtime (non-persistent) state directory, e.g. blacklist.txt.
+    runtime_dir = ConfigSetting(type=Path, value=Path(VarResources.get('run/sylkserver')))
 
 
 class SIPConfig(ConfigSection):
@@ -73,6 +75,14 @@ class SIPConfig(ConfigSection):
     maximum_call_count = ConfigSetting(type=NonNegativeInteger, value=200)
     maximum_call_count_per_ip = ConfigSetting(type=NonNegativeInteger, value=10)
     maximum_call_count_exclude_ips = ConfigSetting(type=NetworkRangeList, value=NetworkRangeList('none'))
+
+    # Per-IP INVITE-flood blacklisting. A source IP that reaches
+    # blacklist_threshold 403-rejected INVITEs within blacklist_window seconds
+    # is blacklisted; further INVITEs from it are refused 403 without logging.
+    # Only untrusted sources (those that fail the trusted-peer ACL) are
+    # counted, so trusted peers are never affected. 0 disables.
+    blacklist_threshold = ConfigSetting(type=NonNegativeInteger, value=5)
+    blacklist_window = ConfigSetting(type=NonNegativeInteger, value=60)
 
 
 class MSRPConfig(ConfigSection):

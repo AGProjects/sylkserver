@@ -17,7 +17,7 @@ from itertools import chain
 from sipsimple.threading import run_in_thread
 from zope.interface import implementer
 
-from sylk.applications import find_applications
+from sylk.applications import blacklisted_ips, find_applications
 from sylk.configuration import ServerConfig
 
 
@@ -287,6 +287,10 @@ class SIPTraceLogger(TraceLogger):
     formatter = SIPTraceFormatter()
 
     def _NH_SIPEngineSIPTrace(self, notification):
+        data = notification.data
+        remote_ip = data.source_ip if data.received else data.destination_ip
+        if remote_ip in blacklisted_ips:  # don't trace known flooders
+            return
         self.logger.log_notification(notification)
 
 
