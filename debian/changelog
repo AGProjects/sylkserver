@@ -1,3 +1,36 @@
+sylkserver (7.1.0) unstable; urgency=medium
+
+  * Added DOS attack mitigator
+  * webrtcgateway: Fix timeout for idle sessions
+  * Incoming MSRP file transfer fixes
+  * Allow SylkServer to use only one port for incoming MSRP connections
+  * webrtcgateway: accept MSRP file transfers from non-local senders only during an audio call
+  * webrtcgateway: accept MSRP file transfers during an audio call, once per forked INVITE
+  * webrtcgateway: accept MSRP chat in sipsimple calls, journal session chat
+  * webrtcgateway: receive MSRP file transfers sent to the contact of sipsimple backend accounts, delivered like web API uploads
+  * webrtcgateway: log the content type of in dialog messages sent
+  * webrtcgateway: send SIP peers the NoSIP SDP without WebRTC-only attributes; keep pjmedia's 68-attribute cut as a safety net
+  * Session: a further stream failure while failing no longer aborts _fail (client kept ringing)
+  * webrtcgateway: added sipsimple backend
+  * webrtcgateway: stop Janus keepalives and fail pending requests when the Janus connection is lost
+  * Session: preserve_connection for relayed streams, update_streams() re-INVITE; select application by x-sylk-app URI parameter
+  * xmppgateway: do not load ca_file as our certificate chain; log TLS setup errors
+  * Added RTP statistics to echo application
+  * Added RTP statistics for playback app
+  * Added Radio PTT functionality to conference app
+  * Fix sending conference-info Notify in conference app
+  * webrtcgateway: Added per account server storage
+  * webrtcgateway:  Added utility to create missing tables
+  * webrtcgateway: Allow request of journal entries for certain content types
+  * webrtcgateway: Answer SIP PGP key lookup with 200/404/500 after checking storage
+    Do not report a failed Cassandra public key query as no key
+  * webrtcgateway: Add bulk removal of messages from the account journal
+  * webrtcgateway: Give client hint about total journal size
+  * Remove obsolete CAs
+ 
+
+ -- Tijmen de Mes <agp@xnode01>  Sun, 25 Oct 2026 13:47:06 +0100
+
 sylkserver (7.0.0) unstable; urgency=medium
 
   * [webrtcgateway] Fix authenticating non websocket clients
