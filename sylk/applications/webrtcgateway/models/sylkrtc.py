@@ -860,6 +860,9 @@ class VideoroomJoinRequest(VideoroomRequestBase):
     sdp = StringProperty()
     audio = BooleanProperty(optional=True, default=True)
     video = BooleanProperty(optional=True, default=True)
+    # the SIP instance-id (RFC 5626 +sip.instance) of the client's own SIP stack, when it also joins
+    # the room's conference over SIP (Blink: chat over MSRP): that endpoint is this device, not a caller
+    sip_instance = StringProperty(optional=True)
 
 
 class VideoroomLeaveRequest(VideoroomRequestBase):

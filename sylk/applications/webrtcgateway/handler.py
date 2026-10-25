@@ -375,6 +375,7 @@ class VideoroomSessionInfo(object):
         self.owner = owner                # type: ConnectionHandler
         self.janus_handle = janus_handle  # type: VideoroomPluginHandle
         self.chat_handler = None          # type: Optional[VideoroomChatHandler]
+        self.sip_instance = None          # the client's own SIP stack's instance-id (videoroom-join), its focus participant_id
         self.account = None               # type: Optional[AccountInfo]
         self.room = None                  # type: Optional[Videoroom]
         self.bitrate = None
@@ -1109,6 +1110,20 @@ def _cached_lookup_sip_proxy(lookup_uri, transport_list, log):
     routes = DNSLookup().lookup_sip_proxy(lookup_uri, list(transport_list)).wait()
     _SIP_PROXY_LOOKUP_CACHE[key] = (routes, now + _SIP_PROXY_LOOKUP_TTL)
     return routes
+
+
+def _sip_instance_participant_id(value):
+    """The focus's participant_id for a +sip.instance (conference Room._device_id_from_contact):
+    the urn:uuid wrapper and quoting stripped, only token-safe characters kept; None if empty."""
+    if not value:
+        return None
+    value = str(value).strip().strip('"').strip()
+    if value.startswith('<') and value.endswith('>'):
+        value = value[1:-1].strip()
+    if value.lower().startswith('urn:uuid:'):
+        value = value[len('urn:uuid:'):]
+    value = re.sub(r'[^A-Za-z0-9._~-]', '', value)
+    return value or None
 
 
 def _is_phone_uri(uri):
@@ -2721,6 +2736,9 @@ class ConnectionHandler(object):
 
         videoroom_session = VideoroomSessionInfo(request.session, owner=self, janus_handle=videoroom_handle)
         videoroom_session.init_publisher(account=account_info, room=videoroom)
+        videoroom_session.sip_instance = _sip_instance_participant_id(getattr(request, 'sip_instance', None))
+        if videoroom_session.sip_instance:
+            self.log.info('room {room}: its SIP leg with instance {instance} is this device'.format(room=request.uri, instance=videoroom_session.sip_instance))
         self.log.info('publish {media} to room {room}'.format(room=request.uri, media=media))
         self.videoroom_sessions.add(videoroom_session)
 
@@ -4714,6 +4732,10 @@ class VideoroomChatHandler(object):
             instance_id = getattr(getattr(session, 'owner', None), 'sip_instance_id', None)
             if instance_id is not None:
                 webrtc_by_instance[str(instance_id)] = session
+            # the client's own SIP stack in the conference (Blink's MSRP chat), as it announced on join
+            client_instance = getattr(session, 'sip_instance', None)
+            if client_instance:
+                webrtc_by_instance[client_instance] = session
 
         # Find the bridge participant up front so we can log its admin
         # + UDP endpoints on every fresh arrival below. The bridge is
