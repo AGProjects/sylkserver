@@ -54,6 +54,7 @@ Re-INVITEs:
     REMOTE_UPDATE_TIMEOUT) before answering the re-INVITE.
 """
 
+import re
 import secrets
 
 from application.notification import IObserver, NotificationCenter, NotificationData
@@ -123,6 +124,34 @@ def _aor(uri):
 
 def _has_crypto(media):
     return any(_text(attribute.name) == 'crypto' for attribute in media.attributes)
+
+
+# The SIP SIMPLE core keeps opus as opus/48000/1 inside: its opus-fix module
+# rewrites a received opus/48000/2 rtpmap to /1, and an outgoing /1 to /2. A
+# relayed line must therefore be opus/48000/1 when given to the core (else
+# pjmedia_sdp_neg matches the local opus/48000/2 against the received, rewritten
+# /1, finds no common codec and disables the line), and opus/48000/2 when given
+# to NoSIP (what WebRTC and the wire use).
+_OPUS_RTPMAP = re.compile(r'^(\d+\s+opus/48000)(?:/\d+)?\s*$', re.IGNORECASE)
+
+
+def _set_opus_channels(media, channels):
+    """Rewrite the opus rtpmap of an audio line (SDPMediaStream, changed in place) to opus/48000/<channels>."""
+    if _text(media.media) != 'audio':
+        return media
+    for attribute in media.attributes:
+        if _text(attribute.name) == 'rtpmap':
+            match = _OPUS_RTPMAP.match(_text(attribute.value))
+            if match is not None:
+                attribute.value = '{}/{}'.format(match.group(1), channels).encode()
+    return media
+
+
+def _nosip_sdp(sdp):
+    """The text of an SDP (SDPSession) for NoSIP: a copy with opus/48000/2."""
+    sdp = SDPSession.new(sdp)
+    sdp.media = [_set_opus_channels(SDPMediaStream.new(media), 2) for media in sdp.media]
+    return str(sdp)
 
 
 def _plain_rtp_lines(sdp, indexes):
@@ -571,7 +600,7 @@ class SIPSimpleCall(SIPCallBackend):
 
         try:
             self.janus_handle = NoSIPPluginHandle(self.handler.janus_session, event_handler=self._janus_event_handler)
-            result, jsep = self.janus_handle.process(str(offer), 'offer')
+            result, jsep = self.janus_handle.process(_nosip_sdp(offer), 'offer')
         except JanusError as e:
             self.log.warning('sipsimple: Janus could not use the offer of {}: {}'.format(session.remote_identity.uri, e))
             self._end(detach=True)
@@ -666,7 +695,7 @@ class SIPSimpleCall(SIPCallBackend):
             # NoSIP puts the Janus address in the session level c= line, but
             # only the media lines are copied to the session's SDP
             media.connection = SDPConnection.new(self.local_sdp.connection)
-        return media
+        return _set_opus_channels(media, 1)     # the core's own form (see _set_opus_channels)
 
     def stream_started(self, stream, remote_sdp):
         # called by Session (in its green thread) for every stream the remote party accepted
@@ -699,7 +728,7 @@ class SIPSimpleCall(SIPCallBackend):
                 raise JanusError(488, 'the answer mixes SRTP and plain RTP ({} without SRTP), which Janus NoSIP cannot relay'.format(
                     ', '.join(_text(remote_sdp.media[index].media) for index in plain_lines)))
             answer = self._filtered_sdp(remote_sdp, streams)
-            result, jsep = self.janus_handle.process(str(answer), 'answer')
+            result, jsep = self.janus_handle.process(_nosip_sdp(answer), 'answer')
         except JanusError as e:
             waiters, self._answer_waiters = self._answer_waiters, []
             self.log.warning('sipsimple: Janus could not use the answer of {}: {}'.format(self.session.remote_identity.uri, e))
@@ -742,7 +771,7 @@ class SIPSimpleCall(SIPCallBackend):
         offer = self._filtered_sdp(remote_sdp, self.streams, disabled_lines=plain_lines)
         event = self._remote_update = coros.event()
         try:
-            result, jsep = self.janus_handle.process(str(offer), 'offer')
+            result, jsep = self.janus_handle.process(_nosip_sdp(offer), 'offer')
         except (JanusError, AttributeError) as e:
             self._remote_update = None
             self.log.warning('sipsimple: Janus could not use the re-INVITE offer of {}: {}, keeping the current media'.format(self.session.remote_identity.uri, e))
@@ -793,7 +822,7 @@ class SIPSimpleCall(SIPCallBackend):
             if plain_lines:
                 self.log.warning('sipsimple: re-INVITE of {} mixes SRTP and plain RTP, rejecting the plain RTP lines'.format(session.remote_identity.uri))
             offer = self._filtered_sdp(remote_sdp, self.streams + new_streams, disabled_lines=plain_lines)
-            result, jsep = self.janus_handle.process(str(offer), 'offer')
+            result, jsep = self.janus_handle.process(_nosip_sdp(offer), 'offer')
         except JanusError as e:
             self.log.warning('sipsimple: Janus could not use the re-INVITE offer of {}: {}'.format(session.remote_identity.uri, e))
             call_in_green_thread(session.reject_proposal, 488)
@@ -851,7 +880,7 @@ class SIPSimpleCall(SIPCallBackend):
                     line.port = 0
                     lines.append(line)
             answer.media = lines
-            result, jsep = self.janus_handle.process(str(answer), 'answer')
+            result, jsep = self.janus_handle.process(_nosip_sdp(answer), 'answer')
             sdp = jsep.sdp if jsep is not None else None
         except Exception as e:
             self.log.warning('sipsimple: could not restore the previous media after the failed update: {}'.format(e))
