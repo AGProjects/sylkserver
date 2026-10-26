@@ -123,6 +123,11 @@ class VideoroomPublisher(JSONObject):
     # feed-attach and mute routing). One identifier per participant.
     type = LimitedChoiceProperty(['webrtc', 'sip', 'bridge'], optional=True)
     muted = BooleanProperty(optional=True)
+    # An extra video of a participant (a second camera, an RTSP camera): `parent` is the id of
+    # the participant's own publisher, `label` its name ("Camera 1"). Clients that know them
+    # show it under the participant; others see one more publisher named "<name> <label>".
+    parent = StringProperty(optional=True)
+    label = StringProperty(optional=True)
 
 
 class VideoroomPublishers(JSONArray):
@@ -258,8 +263,17 @@ class ErrorResponse(SylkRTCResponseBase):
 
 # Connection events
 
+class GatewayFeatures(StringArray):
+    list_validator = UniqueItemsValidator()
+
+
 class ReadyEvent(JSONObject):
     sylkrtc = FixedValueProperty('ready-event')
+    # what this gateway does beyond the base protocol, for clients to offer it only where it works
+    # (an older gateway sends none and ignores the request fields it does not know):
+    #   sip-instance          videoroom-join sip_instance: the client's own SIP leg to the room is not another participant
+    #   multiple-video-feeds  videoroom-join parent/label: more video feeds of a publisher, shown under it, no chat leg
+    features = ArrayProperty(GatewayFeatures, optional=True)
 
 
 class LookupPublicKeyEvent(JSONObject):
@@ -863,6 +877,10 @@ class VideoroomJoinRequest(VideoroomRequestBase):
     # the SIP instance-id (RFC 5626 +sip.instance) of the client's own SIP stack, when it also joins
     # the room's conference over SIP (Blink: chat over MSRP): that endpoint is this device, not a caller
     sip_instance = StringProperty(optional=True)
+    # an extra video of this connection's publisher in the room (its session id): video only,
+    # no chat leg of its own, shown under the participant with `label` as its name
+    parent = StringProperty(optional=True)
+    label = StringProperty(optional=True)
 
 
 class VideoroomLeaveRequest(VideoroomRequestBase):

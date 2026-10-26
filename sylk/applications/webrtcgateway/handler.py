@@ -376,6 +376,8 @@ class VideoroomSessionInfo(object):
         self.janus_handle = janus_handle  # type: VideoroomPluginHandle
         self.chat_handler = None          # type: Optional[VideoroomChatHandler]
         self.sip_instance = None          # the client's own SIP stack's instance-id (videoroom-join), its focus participant_id
+        self.parent_feed = None           # for an extra video of a participant: the participant's own publisher session
+        self.label = None                 # and its name ("Camera 1")
         self.account = None               # type: Optional[AccountInfo]
         self.room = None                  # type: Optional[Videoroom]
         self.bitrate = None
@@ -1112,6 +1114,18 @@ def _cached_lookup_sip_proxy(lookup_uri, transport_list, log):
     return routes
 
 
+GATEWAY_FEATURES = ['sip-instance', 'multiple-video-feeds']      # announced in the ready event (sylkrtc.ReadyEvent)
+MAX_EXTRA_VIDEOS = 4     # extra videos (videoroom-join with parent) per participant
+
+
+def _extra_video_fields(session):
+    """parent and label of an extra video of a participant, for its publisher entry (none otherwise)."""
+    parent = getattr(session, 'parent_feed', None)
+    if parent is None:
+        return {}
+    return dict(parent=parent.id, label=session.label or 'Camera')
+
+
 def _sip_instance_participant_id(value):
     """The focus's participant_id for a +sip.instance (conference Room._device_id_from_contact):
     the urn:uuid wrapper and quoting stripped, only token-safe characters kept; None if empty."""
@@ -1456,7 +1470,7 @@ class ConnectionHandler(object):
             if self._stop_pending:
                 self.stop()
             else:
-                self.send(sylkrtc.ReadyEvent())
+                self.send(sylkrtc.ReadyEvent(features=GATEWAY_FEATURES))
 
     def stop(self):
         if self.state in (None, 'starting'):
@@ -1552,8 +1566,17 @@ class ConnectionHandler(object):
         if session in self.videoroom_sessions:
             self.videoroom_sessions.remove(session)
             if session.type == 'publisher':
-                notification_center = NotificationCenter()
-                notification_center.remove_observer(self, sender=session.chat_handler)
+                # its extra videos go with it
+                for child in [other for other in self.videoroom_sessions if other.parent_feed is session]:
+                    try:
+                        child.janus_handle.leave()
+                    except Exception:
+                        pass
+                    self.send(sylkrtc.VideoroomSessionTerminatedEvent(session=child.id, reason='its participant left'))
+                    self._cleanup_videoroom_session(child)
+                if session.parent_feed is None:
+                    notification_center = NotificationCenter()
+                    notification_center.remove_observer(self, sender=session.chat_handler)
                 session.room.discard(session)
                 session.feeds.clear()
                 session.janus_handle.detach()
@@ -2696,6 +2719,18 @@ class ConnectionHandler(object):
         except KeyError:
             raise APIError('Unknown account specified: {request.account}'.format(request=request))
 
+        parent_feed = None
+        if getattr(request, 'parent', None):
+            # an extra video of a participant: its own publisher must be in the room, from this connection
+            try:
+                parent_feed = self.videoroom_sessions[request.parent]
+            except KeyError:
+                raise APIError('Unknown parent session: {request.parent}'.format(request=request))
+            if parent_feed.type != 'publisher' or parent_feed.parent_feed is not None or parent_feed.room.uri != request.uri:
+                raise APIError('Session {request.parent} is not a publisher in room {request.uri}'.format(request=request))
+            if sum(1 for session in self.videoroom_sessions if session.parent_feed is parent_feed) >= MAX_EXTRA_VIDEOS:
+                raise APIError('At most {} extra videos per participant'.format(MAX_EXTRA_VIDEOS))
+
         try:
             videoroom = self.protocol.factory.videorooms[request.uri]
         except KeyError:
@@ -2726,7 +2761,13 @@ class ConnectionHandler(object):
                         raise
                 else:
                     self.log.info('created room {room}'.format(room=request.uri))
-                videoroom_handle.join(room=videoroom.id, sdp=request.sdp, display_name=account_info.display_name, audio=videoroom.audio, video=videoroom.video)
+                if parent_feed is not None:
+                    label = (getattr(request, 'label', None) or 'Camera').strip()
+                    owner_name = account_info.display_name or request.account.partition('@')[0]
+                    display_name = '{} {}'.format(owner_name, label)
+                else:
+                    display_name = account_info.display_name
+                videoroom_handle.join(room=videoroom.id, sdp=request.sdp, display_name=display_name, audio=videoroom.audio, video=videoroom.video)
             except Exception:
                 videoroom_handle.detach()
                 raise
@@ -2739,12 +2780,19 @@ class ConnectionHandler(object):
         videoroom_session.sip_instance = _sip_instance_participant_id(getattr(request, 'sip_instance', None))
         if videoroom_session.sip_instance:
             self.log.info('room {room}: its SIP leg with instance {instance} is this device'.format(room=request.uri, instance=videoroom_session.sip_instance))
-        self.log.info('publish {media} to room {room}'.format(room=request.uri, media=media))
         self.videoroom_sessions.add(videoroom_session)
 
-        notification_center = NotificationCenter()
-        notification_center.add_observer(self, sender=videoroom_session.chat_handler)
-        videoroom_session.chat_handler.start()
+        if parent_feed is not None:
+            videoroom_session.parent_feed = parent_feed
+            videoroom_session.label = (getattr(request, 'label', None) or 'Camera').strip()
+            self.log.info('publish {media} to room {room}: {label}, an extra video of session {parent}'.format(
+                room=request.uri, media=media, label=videoroom_session.label, parent=parent_feed.id))
+        else:
+            self.log.info('publish {media} to room {room}'.format(room=request.uri, media=media))
+            # the participant's chat leg to the room's focus; an extra video has none of its own
+            notification_center = NotificationCenter()
+            notification_center.add_observer(self, sender=videoroom_session.chat_handler)
+            videoroom_session.chat_handler.start()
 
         self.send(sylkrtc.VideoroomSessionProgressEvent(session=videoroom_session.id))
 
@@ -2958,7 +3006,7 @@ class ConnectionHandler(object):
             return s.split(';', 1)[0].lower()
         webrtc_publishers = {}
         for session in room:
-            if session.type != 'publisher' or session.account is None:
+            if session.type != 'publisher' or session.account is None or getattr(session, 'parent_feed', None) is not None:
                 continue
             webrtc_publishers[_aor(session.account.id)] = session
 
@@ -4001,6 +4049,7 @@ class ConnectionHandler(object):
                     uri=publisher_session.account.id,
                     display_name=publisher.display or '',
                     type='webrtc',
+                    **_extra_video_fields(publisher_session)
                 ))
         # Append SIP callers behind the bridge as surrogate participants so a
         # late joiner's initial list is complete in this one event. They have
@@ -4071,7 +4120,8 @@ class ConnectionHandler(object):
                     type=_classify_external_publisher(room, ext_uri, publisher.id, self.log),
                 ))
                 continue
-            publishers.append(dict(id=publisher_session.id, uri=publisher_session.account.id, display_name=publisher.display or ''))
+            publishers.append(dict(id=publisher_session.id, uri=publisher_session.account.id, display_name=publisher.display or '',
+                                   **_extra_video_fields(publisher_session)))
         self.send(sylkrtc.VideoroomPublishersJoinedEvent(session=videoroom_session.id, publishers=publishers))
 
     def _EH_janus_videoroom_event_leaving(self, event):
@@ -4726,7 +4776,7 @@ class VideoroomChatHandler(object):
         # further down uses instead of matching by AoR.
         webrtc_by_instance = {}
         for session in self.room:
-            if session.type != 'publisher' or session.account is None:
+            if session.type != 'publisher' or session.account is None or getattr(session, 'parent_feed', None) is not None:
                 continue
             webrtc_publishers[session.account.id] = session
             instance_id = getattr(getattr(session, 'owner', None), 'sip_instance_id', None)
