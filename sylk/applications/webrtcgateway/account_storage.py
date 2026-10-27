@@ -19,7 +19,7 @@ from .configuration import AccountStorageConfig, CassandraConfig
 from .logger import log
 from .storage import CASSANDRA_MODULES_AVAILABLE
 
-__all__ = ('AccountStorage', 'AccountStorageError', 'NotFound', 'PreconditionFailed', 'TooLarge', 'QuotaExceeded', 'InvalidName',
+__all__ = ('AccountStorage', 'AccountStorageError', 'NotFound', 'PreconditionFailed', 'TooLarge', 'QuotaExceeded', 'InvalidName', 'Forbidden', 'check_client_write',
            'RESERVED_NAMESPACES', 'announce_change', 'check_object', 'normalize_device_id', 'normalize_device_name', 'writer')
 
 STORAGE_CHANGED_CONTENT_TYPE = 'application/sylk-storage-changed'
@@ -31,6 +31,7 @@ class PreconditionFailed(AccountStorageError): pass
 class TooLarge(AccountStorageError): pass
 class QuotaExceeded(AccountStorageError): pass
 class InvalidName(AccountStorageError): pass
+class Forbidden(AccountStorageError): pass
 
 
 NAME_RE = re.compile(r'^[A-Za-z0-9_-][A-Za-z0-9._-]{0,127}$')
@@ -43,7 +44,10 @@ META_PREFIX = '.meta-'
 # the fixed ids keep the exemption from being used as free storage.
 #   keys/pgp-private: the clients' escrow of the account's PGP keypair, the
 #   private key encrypted with the account password (docs/PRIVATE-KEY-STORAGE.md).
-RESERVED_NAMESPACES = {'keys': {'ids': frozenset({'pgp-private'}), 'max_object_size': 65536}}
+#   devices/<device id>: the devices that used the account (devices.py), written
+#   by the server only; a client may read them, and delete one to forget it.
+RESERVED_NAMESPACES = {'keys': {'ids': frozenset({'pgp-private'}), 'max_object_size': 65536},
+                       'devices': {'ids': None, 'max_object_size': 4096, 'server_only': True}}
 
 
 def normalize_account(account):
@@ -69,11 +73,18 @@ def check_object(namespace, object_id, data):
         if len(data) > AccountStorageConfig.max_object_size:
             raise TooLarge(f'object larger than {AccountStorageConfig.max_object_size} bytes')
         return False
-    if object_id not in rules['ids']:
+    if rules['ids'] is not None and object_id not in rules['ids']:
         raise InvalidName(f'invalid id for namespace {namespace}')
     if len(data) > rules['max_object_size']:
         raise TooLarge(f'object larger than {rules["max_object_size"]} bytes')
     return True
+
+
+def check_client_write(namespace):
+    """A client (HTTP, WebSocket) may not write a namespace the server keeps."""
+    rules = RESERVED_NAMESPACES.get(namespace)
+    if rules and rules.get('server_only'):
+        raise Forbidden(f'namespace {namespace} is written by the server')
 
 
 def normalize_content_type(content_type):

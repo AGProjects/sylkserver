@@ -35,6 +35,7 @@ from sylk.web import (File, Klein, StaticFileResource,
                       TrackedUploadHTTPChannel, server)
 
 from . import account_storage
+from . import devices
 from .account_storage import AccountStorage
 from .audio_level_udp import AudioLevelUDPClient
 from .configuration import (BUILTIN_WEBSERVER, AccountStorageConfig,
@@ -371,6 +372,7 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
                 #log.warning(f'Token authentication error for {account}')
                 raise ApiTokenAuthError()
             else:
+                self._device_seen(request, account)
                 return self.get_account_messages(request, account, msg_id)
         else:
             log.debug(f'Token not found for {account}')
@@ -535,6 +537,7 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
     def _storage_failure(failure, request):
         errors = {ApiTokenAuthError: (401, 'unauthorized'),
                   account_storage.InvalidName: (400, None),
+                  account_storage.Forbidden: (403, None),
                   account_storage.NotFound: (404, 'not found'),
                   account_storage.PreconditionFailed: (412, 'precondition failed'),
                   account_storage.TooLarge: (413, None),
@@ -562,6 +565,7 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
             return self._storage_failure(Failure(e), request)
         deferred = defer.maybeDeferred(MessageStorage().get_account_token, account)
         deferred.addCallback(lambda token: self._check_api_token(request, account, token))
+        deferred.addCallback(lambda _: self._device_seen(request, account))
         deferred.addCallback(lambda _: threads.deferToThread(operation, AccountStorage(), account))
         deferred.addCallback(render)
         deferred.addErrback(self._storage_failure, request)
@@ -572,6 +576,17 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
         """X-Sylk-Device-Name: UTF-8, percent-encoded (a header is latin-1), e.g. Blink%20on%20Adri%C3%A1n's%20Mac."""
         value = request.getHeader('X-Sylk-Device-Name')
         return account_storage.normalize_device_name(urllib.parse.unquote(value)) if value else None
+
+    def _device_seen(self, request, account):
+        """A request with a valid token: the device that sent it used the account (devices.py).
+        Only a device that names itself (X-Sylk-Device-Id) is recorded here."""
+        device_id = request.getHeader('X-Sylk-Device-Id')
+        if device_id:
+            # no user_agent: over HTTP a client sends its HTTP library's (python-requests,
+            # Python-urllib), which would replace the real one from SIP or the WebSocket
+            peer = request.getClientAddress()
+            devices.seen(account, device_id, self._device_name(request), None,
+                         devices.forwarded_ip(request.getHeader('X-Forwarded-For'), getattr(peer, 'host', None)), 'https')
 
     def _storage_changed(self, request, account, namespace, object_id, op, meta):
         account_storage.announce_change(account, namespace, object_id, op, meta,
@@ -624,6 +639,11 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
             return self._storage_request(request, account, lambda storage, account: storage.get(account, namespace, object_id), render)
 
         if method == b'PUT':
+            try:
+                account_storage.check_client_write(namespace)
+            except account_storage.Forbidden as e:
+                self._storage_cors(request)
+                return self._storage_failure(Failure(e), request)
             length = request.getHeader('Content-Length')
             if length is not None and length.isdigit() and int(length) > AccountStorageConfig.max_object_size:
                 self._storage_cors(request)

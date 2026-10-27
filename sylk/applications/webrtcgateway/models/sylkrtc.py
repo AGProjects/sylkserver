@@ -728,6 +728,8 @@ class AccountAddRequest(AccountRequestBase):
     user_agent = StringProperty(optional=True)
     incoming_header_prefixes = ArrayProperty(IncomingHeaderPrefixes, optional=True)
     sip_backend = LimitedChoiceProperty(['janus', 'sipsimple'], optional=True)  # only honoured with [General] sip_backend_override
+    deviceId = StringProperty(optional=True)    # this device, recorded in the account's devices (devices.py)
+    deviceName = StringProperty(optional=True)  # for humans: "Sylk on motorola razr 60 ultra (Android)"
 
 
 class AccountRemoveRequest(AccountRequestBase):

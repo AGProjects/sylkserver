@@ -51,6 +51,7 @@ from . import push
 from .addressbook import get_addressbook, update_addressbook
 from .contact_avatars import apply_contact_avatar, attach_avatars, remove_contact_avatar
 from .private_key import fetch_private_key, store_private_key
+from . import devices
 from .auth import AuthHandler
 from .configuration import (ExternalAuthConfig, GeneralConfig, JanusConfig,
                             get_room_config)
@@ -201,6 +202,8 @@ class AccountInfo(object):
             self.incoming_header_prefixes = incoming_header_prefixes.__data__
         self.auth_handle = None
         self.auth_state = False
+        self.device_id = None           # this device (account-add deviceId/deviceName), for devices.py
+        self.device_name = None
         # Contact id -> etag of the pictures this client holds, once it asked
         # for avatars on a fetch; None for clients that never did.
         self.avatar_etags = None
@@ -2021,6 +2024,8 @@ class ConnectionHandler(object):
 
         # Create and store our mapping
         account_info = AccountInfo(request.account, request.password, request.display_name, request.user_agent, request.incoming_header_prefixes)
+        account_info.device_id = request.deviceId
+        account_info.device_name = request.deviceName
         # get the auth config for domain
         account_info.auth_handle = AuthHandler(account_info, self)
         backend_name, backend_source = self._select_sip_backend(request)
@@ -3502,6 +3507,9 @@ class ConnectionHandler(object):
             Metrics().mark('accounts', account_info.id)
 
             self.send(sylkrtc.AccountRegisteredEvent(account=account_info.id))
+            # the device proved it is the account's: record it (devices.py)
+            devices.seen(account_info.id, account_info.device_id, account_info.device_name, account_info.user_agent,
+                         self._client_ip(), 'websocket')
             contact = account_info.sip_backend.contact
             if contact:
                 self.log.info('registered contact {} using SIP backend {}'.format(contact, account_info.sip_backend.backend.name))

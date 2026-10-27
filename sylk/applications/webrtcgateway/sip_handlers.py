@@ -4,6 +4,7 @@ import os
 import random
 import re
 import secrets
+import urllib.parse
 import uuid
 import zlib
 
@@ -172,6 +173,41 @@ class MessageHandler(object):
         return ParsedSIPMessage(body, content_type, sender=sender, disposition=disposition, message_id=message_id, timestamp=timestamp, destination=destination,
                                 metadata=message_metadata)
 
+    def _header_text(self, name):
+        """The value of a header of the incoming request, as text, or None."""
+        headers = getattr(self, 'sip_headers', None) or {}
+        header = headers.get(name)
+        if isinstance(header, (list, tuple)):
+            header = header[0] if header else None
+        if header is None or header is Null:
+            return None
+        value = getattr(header, 'body', header)
+        if isinstance(value, bytes):
+            value = value.decode(errors='replace')
+        value = str(value).strip() if value is not None else ''
+        return value or None
+
+    def _device_name_header(self):
+        """X-Sylk-Device-Name: percent-encoded UTF-8, as over HTTP."""
+        value = self._header_text('X-Sylk-Device-Name')
+        return urllib.parse.unquote(value) if value else None
+
+    def _sip_client_ip(self):
+        """Where the request came from: the bottom Via (the client's own), its received
+        parameter (set by the first proxy) or else its host."""
+        headers = getattr(self, 'sip_headers', None) or {}
+        vias = headers.get('Via')
+        if not vias or vias is Null:
+            return None
+        if not isinstance(vias, (list, tuple)):
+            vias = [vias]
+        via = vias[-1]
+        parameters = getattr(via, 'parameters', None) or {}
+        value = parameters.get('received') or getattr(via, 'host', None)
+        if isinstance(value, bytes):
+            value = value.decode(errors='replace')
+        return str(value) if value else None
+
     def _send_public_key(self, from_header, to_header, public_key):
         if public_key:
             self.outgoing_message(from_header, public_key, 'text/pgp-public-key', str(to_header))
@@ -187,6 +223,10 @@ class MessageHandler(object):
             return
         log.info(f'Adding {account} for storing messages (token request to {destination})')
         self.message_storage.add_account(account)
+        # a SIP-authenticated request: the device that sent it used the account (devices.py)
+        from . import devices
+        devices.seen(account, self._header_text('X-Sylk-Device-Id'), self._device_name_header(),
+                     self._header_text('User-Agent'), self._sip_client_ip(), 'sip')
 
         def send_token(existing_token=None):
             # Idempotent issuance: if a valid token is already stored, re-send
@@ -604,6 +644,7 @@ class MessageHandler(object):
                     get_unread_messages(messages=messages, originator=message.sender)
 
     def incoming_message(self, data, content_type=None):
+        self.sip_headers = data.headers
         self.content_type = content_type if content_type is not None else data.headers.get('Content-Type', Null).content_type
         self.from_header = data.headers.get('From', Null)
         self.to_header = data.headers.get('To', Null)
