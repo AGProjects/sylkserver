@@ -526,7 +526,8 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
         deferred = defer.maybeDeferred(MessageStorage().get_account_token, account)
         deferred.addCallback(lambda token: self._check_api_token(request, account, token))
         deferred.addCallback(lambda _: self._device_seen(request, account))
-        deferred.addCallback(lambda _: threads.deferToThread(self._journal_summary, account))
+        content_types = self._history_content_types(request)       # ?content_type=..., as for the history
+        deferred.addCallback(lambda _: threads.deferToThread(self._journal_summary, account, content_types))
         deferred.addCallback(lambda result: self._json_response(request, result))
 
         def failed(failure):
@@ -542,9 +543,10 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
         return deferred
 
     @staticmethod
-    def _journal_summary(account):
-        """In a thread: {account, backend, total, oldest, newest, conversations, by_type: {content
-        type: {total, in, out}}}. Only the columns needed are read."""
+    def _journal_summary(account, content_types=None):
+        """In a thread: {account, backend, content_types, total, oldest, newest, conversations,
+        by_type: {content type: {total, in, out}}, by_contact: {contact: {total, in, out}}}, of the
+        entries of the content types given (all when None). Only the columns needed are read."""
         use_cassandra = CASSANDRA_MODULES_AVAILABLE and CassandraConfig.cluster_contact_points
         if use_cassandra:
             from .models.storage.cassandra import ChatMessage
@@ -560,17 +562,21 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
             except (OSError, IOError, ValueError):
                 rows = []
             get = lambda row, name: row.get(name) if isinstance(row, dict) else None
-        total, by_type, contacts = 0, {}, set()
+        total, by_type, by_contact = 0, {}, {}
         oldest = newest = None
         for row in rows:
-            total += 1
             content_type = (get(row, 'content_type') or 'unknown').lower()
+            if content_types is not None and content_type not in content_types:
+                continue
+            total += 1
+            direction = 'out' if get(row, 'direction') == 'outgoing' else 'in'
             entry = by_type.setdefault(content_type, {'total': 0, 'in': 0, 'out': 0})
             entry['total'] += 1
-            entry['out' if get(row, 'direction') == 'outgoing' else 'in'] += 1
-            contact = (get(row, 'contact') or '').strip().lower()
-            if contact:
-                contacts.add(contact)
+            entry[direction] += 1
+            contact = (get(row, 'contact') or '').strip().lower() or 'unknown'
+            entry = by_contact.setdefault(contact, {'total': 0, 'in': 0, 'out': 0})
+            entry['total'] += 1
+            entry[direction] += 1
             created = get(row, 'created_at')
             if hasattr(created, 'isoformat'):
                 if created.tzinfo is None:
@@ -581,9 +587,111 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
             if created:
                 oldest = created if oldest is None or created < oldest else oldest
                 newest = created if newest is None or created > newest else newest
-        return {'account': account, 'backend': 'cassandra' if use_cassandra else 'file', 'total': total,
-                'oldest': oldest, 'newest': newest, 'conversations': len(contacts),
-                'by_type': dict(sorted(by_type.items(), key=lambda item: -item[1]['total']))}
+        return {'account': account, 'backend': 'cassandra' if use_cassandra else 'file',
+                'content_types': sorted(content_types) if content_types is not None else None, 'total': total,
+                'oldest': oldest, 'newest': newest, 'conversations': len(by_contact),
+                'by_type': dict(sorted(by_type.items(), key=lambda item: -item[1]['total'])),
+                'by_contact': dict(sorted(by_contact.items(), key=lambda item: -item[1]['total']))}
+
+    # The account's files in the file-transfer store, without downloading them:
+    # what it sent (kept under its own sender folders) and what it received
+    # (under the folders of the senders), by type, size and age, and when the
+    # housekeeper removes them. Authorised by the account API token.
+    @app.route('/transfers/summary/<string:account>', methods=['OPTIONS', 'GET'])
+    def transfers_summary(self, request, account):
+        self._storage_cors(request)
+        if request.method == b'OPTIONS':
+            return b''
+        try:
+            account = account_storage.normalize_account(account)
+        except account_storage.InvalidName:
+            request.setResponseCode(400)
+            return json.dumps({'ok': False, 'error': 'invalid account'})
+        deferred = defer.maybeDeferred(MessageStorage().get_account_token, account)
+        deferred.addCallback(lambda token: self._check_api_token(request, account, token))
+        deferred.addCallback(lambda _: self._device_seen(request, account))
+        deferred.addCallback(lambda _: threads.deferToThread(self._transfers_summary, account))
+        deferred.addCallback(lambda result: self._json_response(request, result))
+
+        def failed(failure):
+            request.setHeader('Content-Type', 'application/json')
+            if failure.check(ApiTokenAuthError):
+                request.setResponseCode(401)
+                return json.dumps({'ok': False, 'error': 'unauthorized'})
+            log.error(f'File transfer summary of {account} failed: {failure.getErrorMessage()}')
+            request.setResponseCode(500)
+            return json.dumps({'ok': False, 'error': 'internal error'})
+        deferred.addErrback(failed)
+        return deferred
+
+    def _transfers_summary(self, account):
+        """In a thread: {account, sent, received, expiry}; sent and received are {files, bytes,
+        oldest, newest (ISO, UTC), by_type: {audio|image|video|file: {files, bytes}},
+        contacts: [{contact, files, bytes}] (the largest first)}."""
+        # the file-transfer store's helpers are the admin pages' (AdminWebHandler)
+        root = GeneralConfig.file_transfer_dir.normalized
+        names = {account, AdminWebHandler._hash_uri(account), AdminWebHandler._hash_uri('sip:' + account)}
+
+        def tally():
+            return {'files': 0, 'bytes': 0, 'oldest': None, 'newest': None,
+                    'by_type': {transfer_type: {'files': 0, 'bytes': 0} for transfer_type in AdminWebHandler.TRANSFER_TYPES},
+                    'contacts': {}}
+
+        def add(result, contact, folder):
+            # folder: <contact>/ under a sender, holding <transfer id>/<file>
+            for dirpath, dirnames, filenames in os.walk(folder):
+                for filename in filenames:
+                    try:
+                        info = os.stat(os.path.join(dirpath, filename))
+                    except OSError:
+                        continue
+                    result['files'] += 1
+                    result['bytes'] += info.st_size
+                    kind = AdminWebHandler._transfer_type(None, filename)
+                    result['by_type'][kind]['files'] += 1
+                    result['by_type'][kind]['bytes'] += info.st_size
+                    entry = result['contacts'].setdefault(contact, {'contact': contact, 'files': 0, 'bytes': 0})
+                    entry['files'] += 1
+                    entry['bytes'] += info.st_size
+                    stamp = info.st_mtime
+                    result['oldest'] = stamp if result['oldest'] is None else min(result['oldest'], stamp)
+                    result['newest'] = stamp if result['newest'] is None else max(result['newest'], stamp)
+
+        sent, received = tally(), tally()
+        try:
+            letters = os.listdir(root)
+        except OSError:
+            letters = []
+        for letter in letters:
+            try:
+                senders = os.listdir(os.path.join(root, letter))
+            except OSError:
+                continue
+            for sender in senders:
+                base = os.path.join(root, letter, sender)
+                if sender in names:
+                    try:
+                        receivers = os.listdir(base)
+                    except OSError:
+                        continue
+                    for receiver in receivers:
+                        add(sent, receiver, os.path.join(base, receiver))
+                else:
+                    for name in names:
+                        folder = os.path.join(base, name)
+                        if os.path.isdir(folder):
+                            add(received, sender, folder)
+
+        def finish(result):
+            for name in ('oldest', 'newest'):
+                if result[name] is not None:
+                    result[name] = datetime.datetime.fromtimestamp(result[name], datetime.timezone.utc).isoformat()
+            result['contacts'] = sorted(result['contacts'].values(), key=lambda entry: -entry['bytes'])[:20]
+            return result
+
+        days = GeneralConfig.filetransfer_expire_days
+        return {'account': account, 'sent': finish(sent), 'received': finish(received),
+                'expiry': {'large_bytes': 50 * 1024 * 1024, 'large_days': days, 'days': 2 * days}}
 
     # Private per-account object storage (see account_storage.py), authorised
     # by the account API token. Changes are announced to the account devices
