@@ -41,8 +41,8 @@ META_PREFIX = '.meta-'
 # Namespaces with fixed object ids and their own size limit. They are outside
 # the account quota, so a namespace full of avatars can never block them, and
 # the fixed ids keep the exemption from being used as free storage.
-#   keys/pgp-private: the account's PGP private key, encrypted by the client
-#   with the user's backup passphrase (docs/PRIVATE-KEY-STORAGE.md).
+#   keys/pgp-private: the clients' escrow of the account's PGP keypair, the
+#   private key encrypted with the account password (docs/PRIVATE-KEY-STORAGE.md).
 RESERVED_NAMESPACES = {'keys': {'ids': frozenset({'pgp-private'}), 'max_object_size': 65536}}
 
 
