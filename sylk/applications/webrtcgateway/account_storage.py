@@ -19,7 +19,7 @@ from .configuration import AccountStorageConfig, CassandraConfig
 from .logger import log
 from .storage import CASSANDRA_MODULES_AVAILABLE
 
-__all__ = 'AccountStorage', 'AccountStorageError', 'NotFound', 'PreconditionFailed', 'TooLarge', 'QuotaExceeded', 'InvalidName', 'announce_change'
+__all__ = 'AccountStorage', 'AccountStorageError', 'NotFound', 'PreconditionFailed', 'TooLarge', 'QuotaExceeded', 'InvalidName', 'RESERVED_NAMESPACES', 'announce_change', 'check_object'
 
 STORAGE_CHANGED_CONTENT_TYPE = 'application/sylk-storage-changed'
 
@@ -37,6 +37,13 @@ ACCOUNT_RE = re.compile(r'^[^/\\\x00@]+@[A-Za-z0-9.-]+$')
 CONTENT_TYPE_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,63}/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,63}$')
 META_PREFIX = '.meta-'
 
+# Namespaces with fixed object ids and their own size limit. They are outside
+# the account quota, so a namespace full of avatars can never block them, and
+# the fixed ids keep the exemption from being used as free storage.
+#   keys/pgp-private: the account's PGP private key, encrypted by the client
+#   with the user's backup passphrase (docs/PRIVATE-KEY-STORAGE.md).
+RESERVED_NAMESPACES = {'keys': {'ids': frozenset({'pgp-private'}), 'max_object_size': 65536}}
+
 
 def normalize_account(account):
     account = (account or '').strip().lower()
@@ -51,6 +58,21 @@ def check_name(name, what):
     if not isinstance(name, str) or not NAME_RE.match(name) or name in ('.', '..'):
         raise InvalidName(f'invalid {what}')
     return name
+
+
+def check_object(namespace, object_id, data):
+    """Validate an object about to be stored. Returns True when it is
+    outside the account quota (a reserved namespace)."""
+    rules = RESERVED_NAMESPACES.get(namespace)
+    if rules is None:
+        if len(data) > AccountStorageConfig.max_object_size:
+            raise TooLarge(f'object larger than {AccountStorageConfig.max_object_size} bytes')
+        return False
+    if object_id not in rules['ids']:
+        raise InvalidName(f'invalid id for namespace {namespace}')
+    if len(data) > rules['max_object_size']:
+        raise TooLarge(f'object larger than {rules["max_object_size"]} bytes')
+    return True
 
 
 def normalize_content_type(content_type):
@@ -182,20 +204,20 @@ class FileAccountStorage(object):
     def put(self, account, namespace, object_id, data, content_type, if_match=None, if_none_match=None, device_id=None):
         """Store an object. Returns (meta, created)."""
         folder, path, meta_path = self._paths(account, namespace, object_id)
-        if len(data) > AccountStorageConfig.max_object_size:
-            raise TooLarge(f'object larger than {AccountStorageConfig.max_object_size} bytes')
+        exempt = check_object(namespace, object_id, data)
         with self._lock(normalize_account(account)):
             current = self._read_meta(meta_path) if os.path.isfile(path) else None
             if if_match is not None and (current is None or not etag_matches(if_match, current['etag'])):
                 raise PreconditionFailed()
             if if_none_match is not None and current is not None and etag_matches(if_none_match, current['etag']):
                 raise PreconditionFailed()
-            used, count = self.usage(account)
-            if current is not None:
-                used -= current.get('size', 0)
-                count -= 1
-            if used + len(data) > AccountStorageConfig.max_account_size or count + 1 > AccountStorageConfig.max_objects:
-                raise QuotaExceeded()
+            if not exempt:
+                used, count = self.usage(account)
+                if current is not None:
+                    used -= current.get('size', 0)
+                    count -= 1
+                if used + len(data) > AccountStorageConfig.max_account_size or count + 1 > AccountStorageConfig.max_objects:
+                    raise QuotaExceeded()
             meta = _new_meta(object_id, data, content_type, device_id)
             os.makedirs(folder, exist_ok=True)
             self._write_atomic(path, data)
@@ -336,19 +358,19 @@ class CassandraAccountStorage(object):
         account = normalize_account(account)
         check_name(namespace, 'namespace')
         check_name(object_id, 'id')
-        if len(data) > AccountStorageConfig.max_object_size:
-            raise TooLarge(f'object larger than {AccountStorageConfig.max_object_size} bytes')
+        exempt = check_object(namespace, object_id, data)
         current = self._current(account, namespace, object_id)
         if if_match is not None and (current is None or not etag_matches(if_match, current.etag)):
             raise PreconditionFailed()
         if if_none_match is not None and current is not None and etag_matches(if_none_match, current.etag):
             raise PreconditionFailed()
-        used, count = self.usage(account)
-        if current is not None:
-            used -= current.size or 0
-            count -= 1
-        if used + len(data) > AccountStorageConfig.max_account_size or count + 1 > AccountStorageConfig.max_objects:
-            raise QuotaExceeded()
+        if not exempt:
+            used, count = self.usage(account)
+            if current is not None:
+                used -= current.size or 0
+                count -= 1
+            if used + len(data) > AccountStorageConfig.max_account_size or count + 1 > AccountStorageConfig.max_objects:
+                raise QuotaExceeded()
         meta = _new_meta(object_id, data, content_type, device_id)
         values = dict(etag=meta['etag'], size=meta['size'], content_type=meta['content_type'], modified=meta['modified'],
                       device_id=meta.get('device_id'), data=data)
