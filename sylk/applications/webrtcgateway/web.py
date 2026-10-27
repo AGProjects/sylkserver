@@ -372,7 +372,7 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
             else:
                 return self.get_account_messages(request, account, msg_id)
         else:
-            log.warning(f'Token not found for {account}')
+            log.debug(f'Token not found for {account}')
             raise ApiTokenAuthError()
 
     def tokenError(self, error, request):
