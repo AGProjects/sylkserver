@@ -409,7 +409,7 @@ class CassandraAccountStorage(object):
 class AccountStorage(object, metaclass=Singleton):
     def __new__(cls):
         if CASSANDRA_MODULES_AVAILABLE and CassandraConfig.cluster_contact_points:
-            log.info('Using cassandra backend for account storage')
+            # log.info('Using cassandra backend for account storage')
             return CassandraAccountStorage()
         log.info(f'Using file backend for account storage: {AccountStorageConfig.storage_dir.normalized}')
         return FileAccountStorage()
