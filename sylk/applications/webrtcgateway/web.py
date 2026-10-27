@@ -571,6 +571,13 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
                                         request.getHeader('X-Sylk-Device-Id'))
 
     @staticmethod
+    def _storage_writer(namespace, device_id):
+        # A change of the private key must be traceable to the device that made it
+        if namespace not in account_storage.RESERVED_NAMESPACES:
+            return ''
+        return f' by device {account_storage.normalize_device_id(device_id) or "unknown"}'
+
+    @staticmethod
     def _json_response(request, data, code=200):
         request.setResponseCode(code)
         request.setHeader('Content-Type', 'application/json')
@@ -624,7 +631,7 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
 
             def render(result):
                 normalized, (meta, created) = result
-                log.info(f'Account storage: {normalized} {"created" if created else "updated"} {namespace}/{object_id} ({meta["size"]} bytes)')
+                log.info(f'Account storage: {normalized} {"created" if created else "updated"} {namespace}/{object_id} ({meta["size"]} bytes){self._storage_writer(namespace, device_id)}')
                 self._storage_changed(request, normalized, namespace, object_id, 'put', meta)
                 request.setHeader('ETag', f'"{meta["etag"]}"')
                 return self._json_response(request, meta, 201 if created else 200)
@@ -638,7 +645,7 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
 
             def render(result):
                 normalized, meta = result
-                log.info(f'Account storage: {normalized} removed {namespace}/{object_id}')
+                log.info(f'Account storage: {normalized} removed {namespace}/{object_id}{self._storage_writer(namespace, request.getHeader("X-Sylk-Device-Id"))}')
                 self._storage_changed(request, normalized, namespace, object_id, 'delete', meta)
                 request.setResponseCode(204)
                 return b''
