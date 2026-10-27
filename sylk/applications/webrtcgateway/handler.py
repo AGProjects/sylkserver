@@ -2137,6 +2137,7 @@ class ConnectionHandler(object):
     def _register_account(self, account_info):
         # should only be called from a green thread (the proxy lookup blocks)
         proxy = account_info.sip_backend.lookup_proxy()
+        account_info.sip_backend.proxy = proxy
 
         account_info.last_register_time = time.monotonic()
 
@@ -3488,8 +3489,8 @@ class ConnectionHandler(object):
             # retry we scheduled ourselves.
             account_info.registration_failure_count += 1
             self.send(sylkrtc.AccountRegistrationFailedEvent(account=account_info.id, reason=reason))
-            self.log.info('registration failed using SIP backend {backend}: {reason} (attempt {count})'.format(
-                backend=account_info.sip_backend.backend.name, reason=reason, count=account_info.registration_failure_count))
+            self.log.info('registration failed via {proxy} using SIP backend {backend}: {reason} (attempt {count})'.format(
+                proxy=account_info.sip_backend.proxy, backend=account_info.sip_backend.backend.name, reason=reason, count=account_info.registration_failure_count))
 
     def sip_account_incoming_session(self, account_info, session_info, originator, sdp, call_id, headers=None):
         # session_info was created by the backend, with janus_handle, backend

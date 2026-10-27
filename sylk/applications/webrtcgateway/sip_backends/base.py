@@ -65,6 +65,7 @@ class SIPAccountBackend(object):
     def __init__(self, backend, account_info):
         self.backend = backend
         self.account_info = account_info
+        self.proxy = None  # where the last REGISTER was sent
 
     @property
     def handler(self):
