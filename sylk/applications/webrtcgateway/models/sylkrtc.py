@@ -356,6 +356,26 @@ class AccountAddressBookFetchedEvent(AccountEventBase):
     addressbook = ObjectProperty(AddressBook)
 
 
+class PrivateKey(JSONObject):
+    # The account's private key backup in account storage (private_key.py).
+    # `data` (base64) only when the client does not have it yet; `code` is
+    # the outcome (200, 201, 304, 404, 412, ...), `error` when it failed.
+    etag = StringProperty(optional=True)
+    contentType = StringProperty(optional=True)
+    size = IntegerProperty(optional=True)
+    modified = IntegerProperty(optional=True)
+    deviceId = StringProperty(optional=True)
+    data = StringProperty(optional=True)
+    code = IntegerProperty(optional=True)
+    error = StringProperty(optional=True)
+
+
+class AccountPrivateKeyEvent(AccountEventBase):
+    event = FixedValueProperty('private-key')
+    action = LimitedChoiceProperty(['fetched', 'stored'])
+    privateKey = ObjectProperty(PrivateKey)
+
+
 class AccountAddressBookUpdatedEvent(AccountEventBase):
     event = FixedValueProperty('addressbook-updated')
     type = LimitedChoiceProperty(["contact", "group", "policy"])
@@ -796,6 +816,20 @@ class AccountFetchAddressbookRequest(AccountRequestBase):
     # contacts come back with their avatar, with data only where it changed.
     # Absent: no avatars, as before (contact_avatars.py).
     avatars = ArrayProperty(AvatarEtags, optional=True)
+
+
+class AccountFetchPrivateKeyRequest(AccountRequestBase):
+    sylkrtc = FixedValueProperty('account-fetch-private-key')
+    etag = StringProperty(optional=True)        # the one the client has: no data if unchanged
+
+
+class AccountStorePrivateKeyRequest(AccountRequestBase):
+    sylkrtc = FixedValueProperty('account-store-private-key')
+    data = StringProperty()                     # base64 of the passphrase-encrypted key
+    contentType = StringProperty(optional=True)
+    deviceId = StringProperty(optional=True)
+    ifMatch = StringProperty(optional=True)     # replace only this etag
+    ifNoneMatch = StringProperty(optional=True) # '*': create only
 
 
 class AccountUpdateAddressBookRequest(AccountRequestBase):

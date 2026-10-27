@@ -50,6 +50,7 @@ from sylk.session import Session
 from . import push
 from .addressbook import get_addressbook, update_addressbook
 from .contact_avatars import apply_contact_avatar, attach_avatars, remove_contact_avatar
+from .private_key import fetch_private_key, store_private_key
 from .auth import AuthHandler
 from .configuration import (ExternalAuthConfig, GeneralConfig, JanusConfig,
                             get_room_config)
@@ -2445,6 +2446,33 @@ class ConnectionHandler(object):
             addressbook.addCallback(lambda result: attach_avatars(account_info, result, account_info.avatar_etags))
         addressbook.addCallback(lambda result: self.send(sylkrtc.AccountAddressBookFetchedEvent(addressbook=result, account=account_info.id)))
         return addressbook
+
+    def _RH_account_fetch_private_key(self, request):
+        try:
+            account_info = self.accounts_map[request.account]
+        except KeyError:
+            raise APIError('Unknown account specified: {request.account}'.format(request=request))
+
+        if not account_info.auth_state:
+            raise APIError("Account not authenticated")
+
+        fetched = fetch_private_key(account_info, request.etag)
+        fetched.addCallback(lambda key: self.send(sylkrtc.AccountPrivateKeyEvent(account=account_info.id, action='fetched', privateKey=key)))
+        return fetched
+
+    def _RH_account_store_private_key(self, request):
+        try:
+            account_info = self.accounts_map[request.account]
+        except KeyError:
+            raise APIError('Unknown account specified: {request.account}'.format(request=request))
+
+        if not account_info.auth_state:
+            raise APIError("Account not authenticated")
+
+        # The other devices learn of it from the storage change notification
+        stored = store_private_key(account_info, request)
+        stored.addCallback(lambda key: self.send(sylkrtc.AccountPrivateKeyEvent(account=account_info.id, action='stored', privateKey=key)))
+        return stored
 
     def _RH_account_update_addressbook(self, request):
         try:
