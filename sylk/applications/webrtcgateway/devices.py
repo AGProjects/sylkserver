@@ -19,7 +19,7 @@ A client that says nothing about itself is kept under an id made from its
 User-Agent (ua-<hash>). The first sighting is written at once and announced
 with application/sylk-storage-changed (a new device used the account); after
 that last_seen is refreshed at most every REFRESH_INTERVAL, unannounced.
-See docs/PRIVATE-KEY-STORAGE.md ("Devices").
+See docs/ACCOUNT-DEVICES.md.
 """
 
 import hashlib

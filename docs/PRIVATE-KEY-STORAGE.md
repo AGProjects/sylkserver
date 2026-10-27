@@ -151,7 +151,7 @@ clients follow them.
 | 1 | SylkServer: changes 1–4. Deployed 27 Oct 2026 | curl PUT/GET/DELETE on `keys/pgp-private`; quota full of avatars still accepts the key; WebSocket fetch/store from a test client |
 | 2 | Blink Qt, Phase 1 (done 27 Oct 2026) | Key appears in storage, XCAP unchanged, clean profile restores from storage |
 | 3 | Blink for macOS, Phase 1, ported from Qt (done 27 Oct 2026; from scratch: copied the phone's escrow, same etag as Qt's copy) | Replace the key on Mac → Qt sees the newer record live; write one from an old build → both copy it to storage |
-| 4 | Sylk Mobile, Phase 1 (react-native-sylkrtc patch + app/keyStorage.js + app.js; code done 27 Oct 2026, not yet run on a phone), store release | Live on both stores |
+| 4 | Sylk Mobile, Phase 1 (react-native-sylkrtc patch + app/keyStorage.js + app.js; tested 27 Oct 2026), store release | Live on both stores |
 | 5 | Wait ~3 months, or until no XCAP-only key writers are seen | |
 | 6 | Phase 2, same client order | Mobile Phase 2 live |
 | 7 | Wait ~1 month | |
@@ -180,6 +180,11 @@ The escrow record also says which device escrowed the key (`device`), which is
 not always the one that stored the object: a copy keeps the record as it is.
 
 `sylk-account` (python3-sylkrtc) lists, shows and deletes the objects.
+
+## Devices
+
+The list of the devices that use the account (namespace `devices`) is in
+`docs/ACCOUNT-DEVICES.md`.
 
 ## sylk-desktop
 
