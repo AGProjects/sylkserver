@@ -510,6 +510,81 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
         removed.addCallback(done)
         return removed
 
+    # The journal of an account at a glance, without downloading it: how many
+    # entries, of which content types, in and out, the oldest and the newest.
+    # Authorised by the account API token like the history; no content leaves.
+    @app.route('/messages/summary/<string:account>', methods=['OPTIONS', 'GET'])
+    def messages_summary(self, request, account):
+        self._storage_cors(request)
+        if request.method == b'OPTIONS':
+            return b''
+        try:
+            account = account_storage.normalize_account(account)
+        except account_storage.InvalidName:
+            request.setResponseCode(400)
+            return json.dumps({'ok': False, 'error': 'invalid account'})
+        deferred = defer.maybeDeferred(MessageStorage().get_account_token, account)
+        deferred.addCallback(lambda token: self._check_api_token(request, account, token))
+        deferred.addCallback(lambda _: self._device_seen(request, account))
+        deferred.addCallback(lambda _: threads.deferToThread(self._journal_summary, account))
+        deferred.addCallback(lambda result: self._json_response(request, result))
+
+        def failed(failure):
+            if failure.check(ApiTokenAuthError):
+                request.setResponseCode(401)
+                request.setHeader('Content-Type', 'application/json')
+                return json.dumps({'ok': False, 'error': 'unauthorized'})
+            log.error(f'Journal summary of {account} failed: {failure.getErrorMessage()}')
+            request.setResponseCode(500)
+            request.setHeader('Content-Type', 'application/json')
+            return json.dumps({'ok': False, 'error': 'internal error'})
+        deferred.addErrback(failed)
+        return deferred
+
+    @staticmethod
+    def _journal_summary(account):
+        """In a thread: {account, backend, total, oldest, newest, conversations, by_type: {content
+        type: {total, in, out}}}. Only the columns needed are read."""
+        use_cassandra = CASSANDRA_MODULES_AVAILABLE and CassandraConfig.cluster_contact_points
+        if use_cassandra:
+            from .models.storage.cassandra import ChatMessage
+            rows = ChatMessage.objects(ChatMessage.account == account).only(
+                ['contact', 'created_at', 'direction', 'content_type']).limit(None)
+            get = lambda row, name: getattr(row, name, None)
+        else:
+            try:
+                path = os.path.join(FileStorageConfig.storage_dir.normalized, 'conversations',
+                                    account[0], '{}_messages.json'.format(account))
+                with open(path) as f:
+                    rows = json.load(f)
+            except (OSError, IOError, ValueError):
+                rows = []
+            get = lambda row, name: row.get(name) if isinstance(row, dict) else None
+        total, by_type, contacts = 0, {}, set()
+        oldest = newest = None
+        for row in rows:
+            total += 1
+            content_type = (get(row, 'content_type') or 'unknown').lower()
+            entry = by_type.setdefault(content_type, {'total': 0, 'in': 0, 'out': 0})
+            entry['total'] += 1
+            entry['out' if get(row, 'direction') == 'outgoing' else 'in'] += 1
+            contact = (get(row, 'contact') or '').strip().lower()
+            if contact:
+                contacts.add(contact)
+            created = get(row, 'created_at')
+            if hasattr(created, 'isoformat'):
+                if created.tzinfo is None:
+                    created = created.replace(tzinfo=datetime.timezone.utc)     # Cassandra hands back naive UTC
+                created = created.isoformat()
+            else:
+                created = str(created or '')
+            if created:
+                oldest = created if oldest is None or created < oldest else oldest
+                newest = created if newest is None or created > newest else newest
+        return {'account': account, 'backend': 'cassandra' if use_cassandra else 'file', 'total': total,
+                'oldest': oldest, 'newest': newest, 'conversations': len(contacts),
+                'by_type': dict(sorted(by_type.items(), key=lambda item: -item[1]['total']))}
+
     # Private per-account object storage (see account_storage.py), authorised
     # by the account API token. Changes are announced to the account devices
     # with an application/sylk-storage-changed MESSAGE.
