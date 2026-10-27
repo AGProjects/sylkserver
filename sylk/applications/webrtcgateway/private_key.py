@@ -10,8 +10,8 @@ clients (Sylk Mobile, sylk-desktop) use two requests:
   action `fetched`, carrying `privateKey` = {etag, contentType, size,
   modified, deviceId, code}, plus `data` (base64) when the client's etag
   differs (code 200). Same etag: no data, code 304. None stored: code 404.
-- account-store-private-key {data, contentType?, deviceId?, ifMatch?,
-  ifNoneMatch?}: answered with a `private-key` event, action `stored`,
+- account-store-private-key {data, contentType?, deviceId?, deviceName?,
+  ifMatch?, ifNoneMatch?}: answered with a `private-key` event, action `stored`,
   carrying the stored meta (code 201 or 200, no data) or {code, error}
   (412 when the precondition failed: another device replaced it first).
 
@@ -49,7 +49,7 @@ def _code(exception):
 def _key(meta, data=None, code=200):
     return sylkrtc.PrivateKey(etag=meta['etag'], contentType=meta.get('content_type'),
                               size=meta.get('size'), modified=meta.get('modified'),
-                              deviceId=meta.get('device_id'), code=code,
+                              deviceId=meta.get('device_id'), deviceName=meta.get('device_name'), code=code,
                               data=base64.b64encode(data).decode() if data is not None else None)
 
 
@@ -79,7 +79,7 @@ def fetch_private_key(account_info, etag=None):
     return deferred
 
 
-def _put(account, data, content_type, if_match, if_none_match, device_id):
+def _put(account, data, content_type, if_match, if_none_match, device_id, device_name):
     storage = account_storage.AccountStorage()
     account = account_storage.normalize_account(account)
     try:
@@ -89,7 +89,7 @@ def _put(account, data, content_type, if_match, if_none_match, device_id):
     if not data:
         raise account_storage.InvalidName('private key data is empty')
     meta, created = storage.put(account, NAMESPACE, OBJECT_ID, data, content_type or CONTENT_TYPE,
-                                if_match=if_match, if_none_match=if_none_match, device_id=device_id)
+                                if_match=if_match, if_none_match=if_none_match, device_id=device_id, device_name=device_name)
     return account, meta, created
 
 
@@ -97,18 +97,18 @@ def store_private_key(account_info, request):
     """Store the key a client sent. Deferred: the PrivateKey to echo. Never fails."""
     if not AccountStorageConfig.enabled:
         return defer.succeed(sylkrtc.PrivateKey(code=404, error='account storage disabled'))
-    device_id = request.deviceId
+    device_id, device_name = request.deviceId, request.deviceName
 
     def stored(result):
         account, meta, created = result
-        log.info('Account storage: %s %s %s/%s (%d bytes, WebSocket) by device %s'
+        log.info('Account storage: %s %s %s/%s (%d bytes, WebSocket) by %s'
                  % (account, 'created' if created else 'updated', NAMESPACE, OBJECT_ID, meta['size'],
-                    account_storage.normalize_device_id(device_id) or 'unknown'))
-        account_storage.announce_change(account, NAMESPACE, OBJECT_ID, 'put', meta, device_id)
+                    account_storage.writer(device_id, device_name)))
+        account_storage.announce_change(account, NAMESPACE, OBJECT_ID, 'put', meta, device_id, device_name)
         return _key(meta, code=201 if created else 200)
 
     deferred = threads.deferToThread(_put, account_info.id, request.data, request.contentType,
-                                     request.ifMatch, request.ifNoneMatch, device_id)
+                                     request.ifMatch, request.ifNoneMatch, device_id, device_name)
     deferred.addCallback(stored)
     deferred.addErrback(_failed(account_info, 'store'))
     return deferred

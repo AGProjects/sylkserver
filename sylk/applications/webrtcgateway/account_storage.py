@@ -19,7 +19,8 @@ from .configuration import AccountStorageConfig, CassandraConfig
 from .logger import log
 from .storage import CASSANDRA_MODULES_AVAILABLE
 
-__all__ = 'AccountStorage', 'AccountStorageError', 'NotFound', 'PreconditionFailed', 'TooLarge', 'QuotaExceeded', 'InvalidName', 'RESERVED_NAMESPACES', 'announce_change', 'check_object'
+__all__ = ('AccountStorage', 'AccountStorageError', 'NotFound', 'PreconditionFailed', 'TooLarge', 'QuotaExceeded', 'InvalidName',
+           'RESERVED_NAMESPACES', 'announce_change', 'check_object', 'normalize_device_id', 'normalize_device_name', 'writer')
 
 STORAGE_CHANGED_CONTENT_TYPE = 'application/sylk-storage-changed'
 
@@ -201,7 +202,7 @@ class FileAccountStorage(object):
             raise NotFound()
         return meta, data
 
-    def put(self, account, namespace, object_id, data, content_type, if_match=None, if_none_match=None, device_id=None):
+    def put(self, account, namespace, object_id, data, content_type, if_match=None, if_none_match=None, device_id=None, device_name=None):
         """Store an object. Returns (meta, created)."""
         folder, path, meta_path = self._paths(account, namespace, object_id)
         exempt = check_object(namespace, object_id, data)
@@ -218,7 +219,7 @@ class FileAccountStorage(object):
                     count -= 1
                 if used + len(data) > AccountStorageConfig.max_account_size or count + 1 > AccountStorageConfig.max_objects:
                     raise QuotaExceeded()
-            meta = _new_meta(object_id, data, content_type, device_id)
+            meta = _new_meta(object_id, data, content_type, device_id, device_name)
             os.makedirs(folder, exist_ok=True)
             self._write_atomic(path, data)
             self._write_atomic(meta_path, json.dumps(meta), mode='w')
@@ -253,7 +254,7 @@ class FileAccountStorage(object):
         return count, size
 
 
-def announce_change(account, namespace, object_id, op, meta, device_id=None):
+def announce_change(account, namespace, object_id, op, meta, device_id=None, device_name=None):
     """Tell every device of the account that an object changed: a MESSAGE
     from the account to itself, never journalled. Used by the HTTP routes and
     the WebSocket requests alike."""
@@ -264,6 +265,9 @@ def announce_change(account, namespace, object_id, op, meta, device_id=None):
     device_id = normalize_device_id(device_id)
     if device_id:
         payload['device_id'] = device_id
+    device_name = normalize_device_name(device_name)
+    if device_name:
+        payload['device_name'] = device_name
     uri = f'sip:{account}'
     MessageHandler().outgoing_message(uri, json.dumps(payload), STORAGE_CHANGED_CONTENT_TYPE, uri)
 
@@ -274,7 +278,21 @@ def normalize_device_id(device_id):
     return value or None
 
 
-def _new_meta(object_id, data, content_type, device_id=None):
+def normalize_device_name(device_name):
+    """The X-Sylk-Device-Name of a writer as stored ("Blink Qt on ag-xps (Linux)"), or None."""
+    value = ' '.join(str(device_name or '').split())[:100]
+    return ''.join(char for char in value if char.isprintable()) or None
+
+
+def writer(device_id=None, device_name=None):
+    """Who wrote an object, for the log: its name, else its id."""
+    name, device_id = normalize_device_name(device_name), normalize_device_id(device_id)
+    if name and device_id:
+        return f'{name} ({device_id})'
+    return name or device_id or 'unknown'
+
+
+def _new_meta(object_id, data, content_type, device_id=None, device_name=None):
     meta = {'id': object_id,
             'etag': hashlib.sha256(data).hexdigest()[:40],
             'size': len(data),
@@ -284,13 +302,16 @@ def _new_meta(object_id, data, content_type, device_id=None):
     device_id = normalize_device_id(device_id)
     if device_id:
         meta['device_id'] = device_id
+    device_name = normalize_device_name(device_name)
+    if device_name:
+        meta['device_name'] = device_name
     return meta
 
 
 class CassandraAccountStorage(object):
     """One partition per account; concurrent writers on other servers are serialised with lightweight transactions."""
 
-    META_FIELDS = ('namespace', 'object_id', 'etag', 'size', 'content_type', 'modified', 'device_id')
+    META_FIELDS = ('namespace', 'object_id', 'etag', 'size', 'content_type', 'modified', 'device_id', 'device_name')
 
     @property
     def model(self):
@@ -302,6 +323,8 @@ class CassandraAccountStorage(object):
         meta = {'id': row.object_id, 'etag': row.etag, 'size': row.size, 'content_type': row.content_type, 'modified': row.modified}
         if row.device_id:
             meta['device_id'] = row.device_id
+        if row.device_name:
+            meta['device_name'] = row.device_name
         return meta
 
     def _rows(self, account, namespace=None):
@@ -353,7 +376,7 @@ class CassandraAccountStorage(object):
             raise NotFound()
         return self._meta(row), bytes(row.data or b'')
 
-    def put(self, account, namespace, object_id, data, content_type, if_match=None, if_none_match=None, device_id=None):
+    def put(self, account, namespace, object_id, data, content_type, if_match=None, if_none_match=None, device_id=None, device_name=None):
         from cassandra.cqlengine.query import LWTException
         account = normalize_account(account)
         check_name(namespace, 'namespace')
@@ -371,9 +394,9 @@ class CassandraAccountStorage(object):
                 count -= 1
             if used + len(data) > AccountStorageConfig.max_account_size or count + 1 > AccountStorageConfig.max_objects:
                 raise QuotaExceeded()
-        meta = _new_meta(object_id, data, content_type, device_id)
+        meta = _new_meta(object_id, data, content_type, device_id, device_name)
         values = dict(etag=meta['etag'], size=meta['size'], content_type=meta['content_type'], modified=meta['modified'],
-                      device_id=meta.get('device_id'), data=data)
+                      device_id=meta.get('device_id'), device_name=meta.get('device_name'), data=data)
         try:
             if current is None:
                 self.model.if_not_exists().create(account=account, namespace=namespace, object_id=object_id, **values)

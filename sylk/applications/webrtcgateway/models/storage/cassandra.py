@@ -80,4 +80,5 @@ class AccountObject(Model):
     content_type     = columns.Text()
     modified         = columns.BigInt()
     device_id        = columns.Text(required=False)    # X-Sylk-Device-Id of the uploader
+    device_name      = columns.Text(required=False)    # X-Sylk-Device-Name of the uploader, for humans
     data             = columns.Blob()

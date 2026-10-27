@@ -7,11 +7,11 @@ addressbook they already use:
 
 - account-fetch-addressbook may carry `avatars`: [{id, etag}], the pictures
   the client has cached. Every contact with a stored picture then gets
-  `avatar` = {etag, contentType, size, modified, deviceId}, plus `data`
+  `avatar` = {etag, contentType, size, modified, deviceId, deviceName}, plus `data`
   (base64) when the client's etag differs. Without `avatars` in the request
   nothing changes, so older clients are unaffected.
 - account-update-addressbook for a contact may carry `avatar` = {data,
-  contentType, deviceId} to store a picture, or {remove: true, deviceId}
+  contentType, deviceId, deviceName} to store a picture, or {remove: true, deviceId, deviceName}
   to delete it. Deleting the contact deletes its picture. The avatar is
   never written to XCAP. The result echoed to the devices carries the
   stored avatar with its data, {code: 204} after a removal, or {code, error}
@@ -54,7 +54,7 @@ def _code(exception):
 def _avatar(meta, data=None):
     return xcap.ContactAvatar(etag=meta['etag'], contentType=meta.get('content_type'),
                               size=meta.get('size'), modified=meta.get('modified'),
-                              deviceId=meta.get('device_id'),
+                              deviceId=meta.get('device_id'), deviceName=meta.get('device_name'),
                               data=base64.b64encode(data).decode() if data is not None else None)
 
 
@@ -137,7 +137,7 @@ def _put(account, object_id, avatar):
     except (ValueError, TypeError):
         raise account_storage.InvalidName('avatar data is not base64')
     meta, created = storage.put(account, NAMESPACE, object_id, data, avatar.contentType or 'image/jpeg',
-                                device_id=avatar.deviceId)
+                                device_id=avatar.deviceId, device_name=avatar.deviceName)
     return account, meta, data
 
 
@@ -156,14 +156,14 @@ def apply_contact_avatar(account_info, contact, avatar):
     removed, or {code, error} when that failed."""
     if not AccountStorageConfig.enabled:
         return defer.succeed(xcap.ContactAvatar(code=404, error='account storage disabled'))
-    device_id = avatar.deviceId
+    device_id, device_name = avatar.deviceId, avatar.deviceName
 
     if avatar.remove:
         def removed(result):
             account, meta = result
             if meta is not None:
                 log.info('Account storage: %s removed %s/%s (contact update)' % (account, NAMESPACE, contact.id))
-                account_storage.announce_change(account, NAMESPACE, contact.id, 'delete', meta, device_id)
+                account_storage.announce_change(account, NAMESPACE, contact.id, 'delete', meta, device_id, device_name)
             if account_info.avatar_etags is not None:
                 account_info.avatar_etags.pop(contact.id, None)
             return xcap.ContactAvatar(code=204)
@@ -173,7 +173,7 @@ def apply_contact_avatar(account_info, contact, avatar):
         def stored(result):
             account, meta, data = result
             log.info('Account storage: %s stored %s/%s (%d bytes, contact update)' % (account, NAMESPACE, contact.id, meta['size']))
-            account_storage.announce_change(account, NAMESPACE, contact.id, 'put', meta, device_id)
+            account_storage.announce_change(account, NAMESPACE, contact.id, 'put', meta, device_id, device_name)
             if account_info.avatar_etags is not None:
                 account_info.avatar_etags[contact.id] = meta['etag']
             return _avatar(meta, data)

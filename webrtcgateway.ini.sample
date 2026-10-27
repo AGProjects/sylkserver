@@ -188,13 +188,14 @@ api_secret = 0745f2f74f34451c89343afcdcae5809
 ;     GET    /webrtcgateway/storage/<account>/<namespace>           (index)
 ;     GET    /webrtcgateway/storage/<account>/<namespace>/<id>
 ;     PUT    /webrtcgateway/storage/<account>/<namespace>/<id>      (If-Match / If-None-Match)
+;            X-Sylk-Device-Id and X-Sylk-Device-Name (percent-encoded UTF-8) say who wrote it
 ;     DELETE /webrtcgateway/storage/<account>/<namespace>/<id>
 ; Every change is announced to the account devices with a SIP MESSAGE of type
 ; application/sylk-storage-changed
 ; With the Cassandra backend the objects are kept in this table, which must be
 ; created by hand:
 ;     CREATE TABLE IF NOT EXISTS account_storage (account text, namespace text, object_id text,
-;         etag text, size int, content_type text, modified bigint, device_id text, data blob,
+;         etag text, size int, content_type text, modified bigint, device_id text, device_name text, data blob,
 ;         PRIMARY KEY (account, namespace, object_id));
 ; tools/sylk-create-cassandra-tables creates it, and brings existing tables to
 ; the schema of the models (models/storage/cassandra.py).

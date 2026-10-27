@@ -365,6 +365,7 @@ class PrivateKey(JSONObject):
     size = IntegerProperty(optional=True)
     modified = IntegerProperty(optional=True)
     deviceId = StringProperty(optional=True)
+    deviceName = StringProperty(optional=True)
     data = StringProperty(optional=True)
     code = IntegerProperty(optional=True)
     error = StringProperty(optional=True)
@@ -828,6 +829,7 @@ class AccountStorePrivateKeyRequest(AccountRequestBase):
     data = StringProperty()                     # base64 of the passphrase-encrypted key
     contentType = StringProperty(optional=True)
     deviceId = StringProperty(optional=True)
+    deviceName = StringProperty(optional=True)  # for humans: "Sylk on motorola razr 60 ultra (Android)"
     ifMatch = StringProperty(optional=True)     # replace only this etag
     ifNoneMatch = StringProperty(optional=True) # '*': create only
 

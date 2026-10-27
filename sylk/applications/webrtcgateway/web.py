@@ -9,6 +9,7 @@ import mimetypes
 import os
 import secrets
 import time
+import urllib.parse
 import uuid
 from shutil import copyfileobj, rmtree
 
@@ -516,8 +517,8 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
     def _storage_cors(request):
         request.setHeader('Access-Control-Allow-Origin', '*')
         request.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, PUT, DELETE, OPTIONS')
-        request.setHeader('Access-Control-Allow-Headers', 'content-type, authorization, if-match, if-none-match, x-sylk-device-id')
-        request.setHeader('Access-Control-Expose-Headers', 'etag, content-length, content-type, x-sylk-device-id')
+        request.setHeader('Access-Control-Allow-Headers', 'content-type, authorization, if-match, if-none-match, x-sylk-device-id, x-sylk-device-name')
+        request.setHeader('Access-Control-Expose-Headers', 'etag, content-length, content-type, x-sylk-device-id, x-sylk-device-name')
 
     @staticmethod
     def _check_api_token(request, account, token):
@@ -566,16 +567,22 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
         deferred.addErrback(self._storage_failure, request)
         return deferred
 
+    @staticmethod
+    def _device_name(request):
+        """X-Sylk-Device-Name: UTF-8, percent-encoded (a header is latin-1), e.g. Blink%20on%20Adri%C3%A1n's%20Mac."""
+        value = request.getHeader('X-Sylk-Device-Name')
+        return account_storage.normalize_device_name(urllib.parse.unquote(value)) if value else None
+
     def _storage_changed(self, request, account, namespace, object_id, op, meta):
         account_storage.announce_change(account, namespace, object_id, op, meta,
-                                        request.getHeader('X-Sylk-Device-Id'))
+                                        request.getHeader('X-Sylk-Device-Id'), self._device_name(request))
 
     @staticmethod
-    def _storage_writer(namespace, device_id):
+    def _storage_writer(namespace, device_id, device_name):
         # A change of the private key must be traceable to the device that made it
         if namespace not in account_storage.RESERVED_NAMESPACES:
             return ''
-        return f' by device {account_storage.normalize_device_id(device_id) or "unknown"}'
+        return f' by {account_storage.writer(device_id, device_name)}'
 
     @staticmethod
     def _json_response(request, data, code=200):
@@ -607,6 +614,8 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
                 request.setHeader('Cache-Control', 'private, no-cache')
                 if meta.get('device_id'):
                     request.setHeader('X-Sylk-Device-Id', meta['device_id'])
+                if meta.get('device_name'):
+                    request.setHeader('X-Sylk-Device-Name', urllib.parse.quote(meta['device_name'], safe=" '()"))
                 if account_storage.etag_matches(request.getHeader('If-None-Match'), meta['etag']):
                     request.setResponseCode(304)
                     return b''
@@ -624,14 +633,15 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
             if_match = request.getHeader('If-Match')
             if_none_match = request.getHeader('If-None-Match')
             device_id = request.getHeader('X-Sylk-Device-Id')
+            device_name = self._device_name(request)
 
             def put(storage, account):
                 return account, storage.put(account, namespace, object_id, data, content_type,
-                                            if_match=if_match, if_none_match=if_none_match, device_id=device_id)
+                                            if_match=if_match, if_none_match=if_none_match, device_id=device_id, device_name=device_name)
 
             def render(result):
                 normalized, (meta, created) = result
-                log.info(f'Account storage: {normalized} {"created" if created else "updated"} {namespace}/{object_id} ({meta["size"]} bytes){self._storage_writer(namespace, device_id)}')
+                log.info(f'Account storage: {normalized} {"created" if created else "updated"} {namespace}/{object_id} ({meta["size"]} bytes){self._storage_writer(namespace, device_id, device_name)}')
                 self._storage_changed(request, normalized, namespace, object_id, 'put', meta)
                 request.setHeader('ETag', f'"{meta["etag"]}"')
                 return self._json_response(request, meta, 201 if created else 200)
@@ -645,7 +655,7 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
 
             def render(result):
                 normalized, meta = result
-                log.info(f'Account storage: {normalized} removed {namespace}/{object_id}{self._storage_writer(namespace, request.getHeader("X-Sylk-Device-Id"))}')
+                log.info(f'Account storage: {normalized} removed {namespace}/{object_id}{self._storage_writer(namespace, request.getHeader("X-Sylk-Device-Id"), self._device_name(request))}')
                 self._storage_changed(request, normalized, namespace, object_id, 'delete', meta)
                 request.setResponseCode(204)
                 return b''

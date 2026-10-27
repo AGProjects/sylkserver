@@ -29,13 +29,14 @@ class ContactAvatar(JSONObject):
     size = IntegerProperty(optional=True)
     modified = IntegerProperty(optional=True)
     deviceId = StringProperty(optional=True)
+    deviceName = StringProperty(optional=True)
     data = StringProperty(optional=True)        # base64
     remove = BooleanProperty(optional=True)     # update: delete the stored picture
     code = IntegerProperty(optional=True)       # echo of an update: storing failed (413, 507, ...)
     error = StringProperty(optional=True)
 
     def __init__(self, **data):
-        for old, new in (('content_type', 'contentType'), ('device_id', 'deviceId')):
+        for old, new in (('content_type', 'contentType'), ('device_id', 'deviceId'), ('device_name', 'deviceName')):
             if old in data and new not in data:
                 data[new] = data.pop(old)
         super().__init__(**data)
