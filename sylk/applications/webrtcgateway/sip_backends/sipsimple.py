@@ -364,6 +364,13 @@ class SIPSimpleAccount(SIPAccountBackend):
         NotificationCenter().discard_observer(self, sender=registration)
         self._registration = None
 
+    @property
+    def contact(self):
+        if self.contact_header is None:
+            return None
+        uri = self.contact_header.uri
+        return '{}:{}:{}'.format(uri.parameters.get('transport', 'udp'), uri.host, uri.port)
+
     def _build_contact_header(self, route):
         base = DefaultAccount().contact[route]  # the SIP address of this server for the route's transport
         user = SIPURI.parse(self.account_info.uri).user

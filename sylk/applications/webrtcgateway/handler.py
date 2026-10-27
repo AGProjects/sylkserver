@@ -3474,7 +3474,11 @@ class ConnectionHandler(object):
             Metrics().mark('accounts', account_info.id)
 
             self.send(sylkrtc.AccountRegisteredEvent(account=account_info.id))
-            self.log.info('registered using SIP backend {}'.format(account_info.sip_backend.backend.name))
+            contact = account_info.sip_backend.contact
+            if contact:
+                self.log.info('registered contact {} using SIP backend {}'.format(contact, account_info.sip_backend.backend.name))
+            else:
+                self.log.info('registered using SIP backend {}'.format(account_info.sip_backend.backend.name))
             storage = MessageStorage()
             storage.add_account(account=account_info.id)
             if 'pn_app' in account_info.contact_params:

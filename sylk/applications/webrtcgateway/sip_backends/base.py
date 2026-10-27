@@ -75,6 +75,11 @@ class SIPAccountBackend(object):
     def log(self):
         return self.backend.handler.log
 
+    @property
+    def contact(self):
+        """The registered contact as transport:host:port, None if the backend does not know it"""
+        return None
+
     def lookup_proxy(self):
         """Find where to send the REGISTER. Blocks (green thread)"""
         raise NotImplementedError
