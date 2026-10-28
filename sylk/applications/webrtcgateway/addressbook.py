@@ -323,7 +323,7 @@ def _send_fetch_addressbook(account, destination, raise_on_error=False):
 
     if resp.code == 404:
         yield readBody(resp)
-        log.info("No addressbook found for account %s", account.id)
+        log.debug("No addressbook found for account %s", account.id)
         if raise_on_error:
             raise Exception("No addressbook found for account %s" % account.id)
         return xcap.AddressBook(contacts=[], groups=[], policies=[])
@@ -340,7 +340,7 @@ def _send_fetch_addressbook(account, destination, raise_on_error=False):
         body = yield readBody(resp)
         payload = json.loads(body)
         addressbook = xcap.XCAPMapper.from_payload(payload)
-        log.info('Fetched addressbook for %s from %s: %d contacts',
+        log.debug('Fetched addressbook for %s from %s: %d contacts',
                  account.id, destination, len(addressbook.contacts or []))
         return addressbook
     except (ValueError, TypeError) as e:

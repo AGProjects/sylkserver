@@ -117,6 +117,15 @@ def _text(value):
     return value.decode() if isinstance(value, bytes) else value
 
 
+def _m_lines(sdp):
+    """The m= lines of an SDP for the log: 'audio 4000 RTP/SAVP 0 8 101, message 2855 TCP/TLS/MSRP *'."""
+    lines = []
+    for media in getattr(sdp, 'media', None) or []:
+        formats = ' '.join(_text(item) for item in (getattr(media, 'formats', None) or []))
+        lines.append(' '.join(part for part in (_text(media.media), str(media.port), _text(getattr(media, 'transport', '') or ''), formats) if part))
+    return ', '.join(lines) or 'none'
+
+
 def _aor(uri):
     """user@host of a SIP URI (the form the sylkrtc protocol uses)"""
     return '{}@{}'.format(_text(uri.user), _text(uri.host)) if uri.user else _text(uri.host)
@@ -369,7 +378,8 @@ class SIPSimpleAccount(SIPAccountBackend):
         if self.contact_header is None:
             return None
         uri = self.contact_header.uri
-        return '{}:{}:{}'.format(uri.parameters.get('transport', 'udp'), uri.host, uri.port)
+        # the SIP core hands back bytes
+        return '{}:{}:{}'.format(_text(uri.parameters.get('transport', 'udp')), _text(uri.host), uri.port)
 
     def _build_contact_header(self, route):
         base = DefaultAccount().contact[route]  # the SIP address of this server for the route's transport
@@ -591,7 +601,8 @@ class SIPSimpleCall(SIPCallBackend):
                 session.remote_identity.uri, ', '.join(_text(remote_sdp.media[index].media) for index in plain_lines), 'it' if len(plain_lines) == 1 else 'them'))
             relayed_media = [(index, media_type) for index, media_type in relayed_media if index not in plain_lines]
         if not relayed_media:
-            self.log.info('sipsimple: rejecting incoming call from {}, it has no audio or video'.format(session.remote_identity.uri))
+            self.log.info('sipsimple: rejecting incoming call from {}, it has no audio or video (m= {})'.format(
+                session.remote_identity.uri, _m_lines(remote_sdp)))
             call_in_green_thread(session.reject, 488)
             return
 

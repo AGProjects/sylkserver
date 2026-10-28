@@ -1892,7 +1892,7 @@ class ConnectionHandler(object):
             #self._message_queue.append((message_id, content, content_type))
             message_request.send()
 
-    def _send_simple_sip_message(self, account, uri, content, content_type='text/plain'):
+    def _send_simple_sip_message(self, account, uri, content, content_type='text/plain', message_id=None):
         route = self._lookup_sip_target_route(uri, sender=str(account))
         sip_uri = SIPURI.parse('sip:%s' % uri)
         if route:
@@ -1900,7 +1900,8 @@ class ConnectionHandler(object):
             from_uri = SIPURI.parse(f'sip:{identity}')
             content = content if isinstance(content, bytes) else content.encode()
             if content_type not in ('application/sylk-conversation-read'):
-                self.log.info("sending %s message from %s to %s via %s" % (content_type, log_uri(identity), log_uri(uri), log_uri(route)))
+                self.log.debug("sending %s%s message from %s to %s via %s" % (content_type, f' for message {message_id}' if message_id else '',
+                                                                            log_uri(identity), log_uri(uri), log_uri(route)))
 
             message_request = Message(FromHeader(from_uri),
                                       ToHeader(sip_uri),
@@ -2354,7 +2355,8 @@ class ConnectionHandler(object):
         event = sylkrtc.AccountSyncEvent(account=account_info.id, type='message', action='remove', content=content)
         self._fork_event_to_online_accounts(account_info, event)
 
-        self._send_simple_sip_message(contact, account_info.id, json.dumps(content.__data__), 'application/sylk-message-remove')
+        self._send_simple_sip_message(contact, account_info.id, json.dumps(content.__data__), 'application/sylk-message-remove',
+                                      message_id=getattr(content, 'message_id', None))
 
         # Delete from receiver
         def receiver_remove_message(msg_id, messages):
@@ -2382,7 +2384,7 @@ class ConnectionHandler(object):
                     event = sylkrtc.AccountSyncEvent(account=account, type='message', action='remove', content=content)
                     account_object = type('account_object', (object,), {'id': account})
                     self._fork_event_to_online_accounts(account_object, event)
-                    self.log.info("Removed receiver message")
+                    self.log.debug(f"Removed message {message_id} from the journal of its receiver {account}")
                     break
         messages = storage[[contact, '']]
         if isinstance(messages, defer.Deferred):

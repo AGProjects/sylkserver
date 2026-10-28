@@ -424,7 +424,7 @@ class MessageHandler(object):
 
                     event = sylkrtc.AccountSyncEvent(account=account, type='message', action='remove', content=content)
                     notification_center.post_notification(name='SIPApplicationGotAccountRemoveMessage', sender=account, data=event)
-                    log.info("Removed receiver message")
+                    log.debug(f"Removed message {message_id} from the journal of its receiver {account}")
                     break
 
         def update_other_endpoints(result):
@@ -468,7 +468,7 @@ class MessageHandler(object):
         message = None
 
         if self.skip_journal is not Null:
-            log.info('not storing {content_type} message {message_id} for account {originator} to {destination.uri} (skip journal set)'.format(content_type=self.parsed_message.content_type, message_id=self.parsed_message.message_id, originator=account.account, destination=self.parsed_message.destination))
+            log.debug('not storing {content_type} message {message_id} for account {originator} to {destination.uri} (skip journal set)'.format(content_type=self.parsed_message.content_type, message_id=self.parsed_message.message_id, originator=account.account, destination=self.parsed_message.destination))
         else:
             log.info('storing {content_type} message {message_id} for account {originator} to {destination.uri}'.format(content_type=self.parsed_message.content_type, message_id=self.parsed_message.message_id, originator=account.account, destination=self.parsed_message.destination))
             self.message_storage.add(account=account.account,
@@ -561,7 +561,7 @@ class MessageHandler(object):
             if self.parsed_message.content_type in unjournaled_content_types:
                 log.debug('not storing {content_type} message for account {account}'.format(content_type=self.parsed_message.content_type, account=account.account))
             elif self.skip_journal is not Null:
-                log.info('not storing {content_type} message {message_id} for account {account} from {originator.uri} (skip journal set)'.format(content_type=self.parsed_message.content_type, message_id=self.parsed_message.message_id, originator=self.parsed_message.sender, account=account.account))
+                log.debug('not storing {content_type} message {message_id} for account {account} from {originator.uri} (skip journal set)'.format(content_type=self.parsed_message.content_type, message_id=self.parsed_message.message_id, originator=self.parsed_message.sender, account=account.account))
             else:
                 log.info('storing {content_type} message {message_id} for account {account} from {originator.uri}'.format(content_type=self.parsed_message.content_type, message_id=self.parsed_message.message_id, originator=self.parsed_message.sender, account=account.account))
                 self.message_storage.add(account=account.account,
