@@ -9,10 +9,18 @@ from sylk.log import TraceLogger
 from .configuration import GeneralConfig, JanusConfig
 
 
-__all__ = 'log', 'ConnectionLogger', 'VideoroomLogger'
+__all__ = 'log', 'ConnectionLogger', 'VideoroomLogger', 'QUIET_CONTENT_TYPES'
 
 
 log = ApplicationLogger(__package__)
+
+# Message payload types too frequent to log at info level; sending and
+# receiving them is logged at debug.
+QUIET_CONTENT_TYPES = frozenset({
+    'message/imdn+xml',
+    'application/sylk-api-conversation-read',
+    'application/sylk-conversation-read',
+})
 
 
 class ConnectionLogger(ContextualLogger):

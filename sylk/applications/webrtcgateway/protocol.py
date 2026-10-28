@@ -53,7 +53,7 @@ class SylkWebSocketServerProtocol(WebSocketServerProtocol):
     def onClose(self, clean, code, reason):
         if self.connection_handler is None:  # Connection was closed very early before onOpen was even called
             return
-        self.connection_handler.log.info('websocket disconnected from {address}'.format(address=self.peer))
+        self.connection_handler.log.debug('websocket disconnected from {address}'.format(address=self.peer))
         self.factory.connections.discard(self)
         self.connection_handler.stop()
         self.connection_handler = None

@@ -2155,7 +2155,7 @@ class ConnectionHandler(object):
         else:
             account_info.sip_backend.register(proxy)
             proxy_type = 'SIP Thor node' if ThorNodeConfig.outbound_proxy_enabled else 'SIP Proxy'
-            self.log.info('registering to {proxy_type} {proxy} using SIP backend {backend}...'.format(proxy_type=proxy_type, proxy=proxy, backend=account_info.sip_backend.backend.name))
+            self.log.debug('registering to {proxy_type} {proxy} using SIP backend {backend}...'.format(proxy_type=proxy_type, proxy=proxy, backend=account_info.sip_backend.backend.name))
 
     def _RH_account_unregister(self, request):
         try:

@@ -33,7 +33,7 @@ from . import push
 from .configuration import GeneralConfig
 from .datatypes import FileTransferData
 from .location import LOCATION_CONTENT_TYPE, location_envelope
-from .logger import log
+from .logger import log, QUIET_CONTENT_TYPES
 from .metadata import metadata_from_cpim_headers
 from .models import sylkrtc
 from .storage import MessageStorage
@@ -470,7 +470,7 @@ class MessageHandler(object):
         if self.skip_journal is not Null:
             log.debug('not storing {content_type} message {message_id} for account {originator} to {destination.uri} (skip journal set)'.format(content_type=self.parsed_message.content_type, message_id=self.parsed_message.message_id, originator=account.account, destination=self.parsed_message.destination))
         else:
-            log.info('storing {content_type} message {message_id} for account {originator} to {destination.uri}'.format(content_type=self.parsed_message.content_type, message_id=self.parsed_message.message_id, originator=account.account, destination=self.parsed_message.destination))
+            log.debug('storing {content_type} message {message_id} for account {originator} to {destination.uri}'.format(content_type=self.parsed_message.content_type, message_id=self.parsed_message.message_id, originator=account.account, destination=self.parsed_message.destination))
             self.message_storage.add(account=account.account,
                                      contact=f'{self.to_header.uri.user}@{self.to_header.uri.host}',
                                      direction="outgoing",
@@ -563,7 +563,7 @@ class MessageHandler(object):
             elif self.skip_journal is not Null:
                 log.debug('not storing {content_type} message {message_id} for account {account} from {originator.uri} (skip journal set)'.format(content_type=self.parsed_message.content_type, message_id=self.parsed_message.message_id, originator=self.parsed_message.sender, account=account.account))
             else:
-                log.info('storing {content_type} message {message_id} for account {account} from {originator.uri}'.format(content_type=self.parsed_message.content_type, message_id=self.parsed_message.message_id, originator=self.parsed_message.sender, account=account.account))
+                log.debug('storing {content_type} message {message_id} for account {account} from {originator.uri}'.format(content_type=self.parsed_message.content_type, message_id=self.parsed_message.message_id, originator=self.parsed_message.sender, account=account.account))
                 self.message_storage.add(account=account.account,
                                          contact=str(self.parsed_message.sender.uri),
                                          direction='incoming',
@@ -731,7 +731,8 @@ class MessageHandler(object):
                 log.warning("refusing to send self-addressed %s message from '%s' to '%s' (loop suppression)" % (content_type, log_uri(identity), log_uri(uri)))
                 return
 
-            log.info("sending %s message from %s to %s via %s" % (content_type, log_uri(identity), log_uri(uri), log_uri(route)))
+            log_message = log.debug if content_type in QUIET_CONTENT_TYPES else log.info
+            log_message("sending %s message from %s to %s via %s" % (content_type, log_uri(identity), log_uri(uri), log_uri(route)))
             headers = [Header('X-Sylk-To-Sip', 'yes')] + extra_headers
             self._outgoing_message(uri, identity, content, content_type, headers=headers, route=route)
 

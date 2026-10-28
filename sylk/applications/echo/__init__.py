@@ -331,7 +331,7 @@ class MessageHandler(object):
             self.content_type = content_type if content_type is not None else data.headers.get('Content-Type', Null).content_type
 
         self.timestamp = str(cpim_message.timestamp) if cpim_message is not None and cpim_message.timestamp is not None else str(ISOTimestamp.now())
-        self.log.info(f'Incoming {self.content_type} message from {strip_sip_prefix(self.from_header.uri)} to {strip_sip_prefix(self.to_header.uri)}')
+        self.log.debug(f'Incoming {self.content_type} message {self.message_id} from {strip_sip_prefix(self.from_header.uri)} to {strip_sip_prefix(self.to_header.uri)}')
         self.handle_incoming_message()
 
 
@@ -373,7 +373,7 @@ class MessageHandler(object):
 
     @run_in_green_thread
     def imdn_message(self):
-        if 'positive-delivery' not in self.disposition:
+        if not self.disposition or 'positive-delivery' not in self.disposition:
             return
 
         notification = DeliveryNotification('delivered')
@@ -385,7 +385,7 @@ class MessageHandler(object):
             log.error("No route found for imdn message to %s" % strip_sip_prefix(to_uri))
             return
 
-        self.log.info('sending IMDN delivered message to: {uri}'.format(uri=strip_sip_prefix(to_uri)))
+        self.log.debug('sending IMDN delivered for message {id} to {uri}'.format(id=self.message_id, uri=strip_sip_prefix(to_uri)))
 
         # Swap from and to since it is a reply
         self._send_message(self.from_header, self.to_header, content, IMDNDocument.content_type, route, observe=False)

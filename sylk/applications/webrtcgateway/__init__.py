@@ -22,7 +22,7 @@ from .configuration import GeneralConfig
 from .datatypes import FileTransferData
 from .sip_backends.sipsimple import SIPSimpleBackend, contact_token
 from .sip_handlers import FileTransferHandler, MessageHandler
-from .logger import log
+from .logger import log, QUIET_CONTENT_TYPES
 from .storage import TokenStorage, MessageStorage
 from .web import WebHandler, AdminWebHandler
 
@@ -397,13 +397,11 @@ class WebRTCGatewayApplication(SylkApplication):
             message_request.answer(200)
             return
 
+        log_message = log.debug if content_type in QUIET_CONTENT_TYPES else log.info
         if message_id is not None:
-            if content_type in ('message/imdn+xml'):
-                log.debug('received SIP %s message %s from %s to %s' % (content_type, message_id, from_account, to_account))
-            else:
-                log.info('received SIP %s message %s from %s to %s' % (content_type, message_id, from_account, to_account))
+            log_message('received SIP %s message %s from %s to %s' % (content_type, message_id, from_account, to_account))
         else:
-            log.info('received SIP %s message from %s to %s' % (content_type, from_account, to_account))
+            log_message('received SIP %s message from %s to %s' % (content_type, from_account, to_account))
 
         if content_type == 'application/sylk-api-pgp-key-lookup':
             self._answer_public_key_lookup(message_request, data, to_account)

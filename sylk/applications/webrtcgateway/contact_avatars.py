@@ -105,7 +105,7 @@ def _attach(account, addressbook, known):
                 collected += 1
             except account_storage.AccountStorageError:
                 pass
-    log.info('Addressbook avatars for %s: %d stored, %d sent with data, %d orphans deleted'
+    log.debug('Addressbook avatars for %s: %d stored, %d sent with data, %d orphans deleted'
              % (account, len(objects), sent, collected))
     return held
 
