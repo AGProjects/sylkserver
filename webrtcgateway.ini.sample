@@ -125,16 +125,16 @@
 ; filetransfer_expire_days = 15
 
 ; SIP signalling backend used for the accounts of WebRTC clients:
-;   janus     - the Janus SIP plugin (Sofia-SIP) does the SIP signalling
 ;   sipsimple - SylkServer's own SIP stack does the SIP signalling, Janus
-;               (NoSIP plugin) is used only for the media
-; sip_backend = janus
+;               (NoSIP plugin) is used only for the media (the default)
+;   janus     - the Janus SIP plugin (Sofia-SIP) does the SIP signalling
+; sip_backend = sipsimple
 
 ; Use a different SIP backend for some accounts or whole domains, as a comma
 ; separated list of account_or_domain:backend. An account entry takes
 ; precedence over the entry for its domain. Useful to test a backend with a
 ; few accounts while the others keep using the default one.
-; sip_backend_accounts = alice@example.com:sipsimple, test.example.com:sipsimple
+; sip_backend_accounts = alice@example.com:janus, test.example.com:janus
 
 ; Allow clients to select the SIP backend per account, using the
 ; sip_backend field of the account-add request. Takes precedence over

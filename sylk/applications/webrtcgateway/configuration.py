@@ -276,7 +276,7 @@ class GeneralConfig(ConfigSection):
     # for some accounts or domains (account_or_domain:backend, ...). With
     # sip_backend_override enabled, clients may also pick one per account in
     # account-add, which takes precedence over both.
-    sip_backend = ConfigSetting(type=SIPBackendName, value=SIPBackendName('janus'))
+    sip_backend = ConfigSetting(type=SIPBackendName, value=SIPBackendName('sipsimple'))
     sip_backend_accounts = ConfigSetting(type=SIPBackendMap, value=SIPBackendMap(''))
     sip_backend_override = False
 
