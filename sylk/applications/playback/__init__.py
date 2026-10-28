@@ -2,14 +2,16 @@
 import json
 import os
 import random
+import uuid
 
 from application.notification import IObserver, NotificationCenter
 from application.python import Null
 from eventlib import api, proc
 from sipsimple.account.bonjour import BonjourPresenceState
 from sipsimple.audio import WavePlayer, WavePlayerError
-from sipsimple.streams.msrp.chat import CPIMParserError, CPIMPayload
+from sipsimple.streams.msrp.chat import ChatIdentity, CPIMHeader, CPIMNamespace, CPIMParserError, CPIMPayload
 from sipsimple.threading.green import run_in_green_thread
+from sipsimple.util import ISOTimestamp
 from twisted.internet import defer, reactor
 from twisted.web.client import Agent, readBody
 from twisted.web.http_headers import Headers
@@ -121,8 +123,10 @@ class PlaybackApplication(SylkApplication):
         if not config.enable_chuck_norris_reply:
             log.info("Message rejected for %s: Chuck Norris reply is disabled. Even Chuck can't reply right now."  % strip_sip_prefix(request_uri))
             request.answer(404)
+            return
 
-        log.info('received %s message from %s to %s' % (content_type, strip_sip_prefix(from_header.uri), '%s@%s' % (to_header.uri.user, to_header.uri.host)))
+        message_id = next((header.value for header in cpim_message.additional_headers if header.name == 'Message-ID'), None) if cpim_message is not None else None
+        log.debug('received %s message %s from %s to %s' % (content_type, message_id, strip_sip_prefix(from_header.uri), '%s@%s' % (to_header.uri.user, to_header.uri.host)))
 
         request.answer(200)
 
@@ -332,7 +336,8 @@ class ChuckNorrisMessageHandler(EchoMessageHandler):
 
     def handle_incoming_message(self):
         if self.content_type in ('text/plain', 'text/html'):
-            self.imdn_message()
+            if self.disposition:
+                self.imdn_message()
             fetcher = defer.maybeDeferred(self.fetch_chuck_fact)
             fetcher.addCallback(self.send_chuck_norris_fact_message)
 
@@ -344,8 +349,23 @@ class ChuckNorrisMessageHandler(EchoMessageHandler):
             self.log.error("No route found for reply message to %s" % strip_sip_prefix(to_uri))
             return
 
-        self.log.info("Playback fact message to %s using proxy %s" % (strip_sip_prefix(to_uri), strip_sip_prefix(route)))
-        self._send_message(self.from_header, self.to_header, content, 'text/plain', route)
+        # Wrap the reply in CPIM with a Disposition-Notification that does not
+        # ask for delivery or display, so clients send no IMDN back to us. A
+        # missing header is not enough: Sylk Mobile treats it as "display
+        # requested".
+        message_id = str(uuid.uuid4())
+        ns = CPIMNamespace('urn:ietf:params:imdn', 'imdn')
+        payload = CPIMPayload(content,
+                              'text/plain',
+                              charset='utf-8',
+                              sender=ChatIdentity(self.to_header.uri, None),
+                              recipients=[ChatIdentity(to_uri, None)],
+                              timestamp=str(ISOTimestamp.now().replace(microsecond=0)),
+                              additional_headers=[CPIMHeader('Message-ID', ns, message_id),
+                                                  CPIMHeader('Disposition-Notification', ns, 'negative-delivery')])
+        payload, content_type = payload.encode()
+        self.log.info("Playback fact message %s to %s using proxy %s" % (message_id, strip_sip_prefix(to_uri), strip_sip_prefix(route)))
+        self._send_message(self.from_header, self.to_header, payload, content_type, route)
 
     def _NH_SIPMessageDidSucceed(self, notification):
         notification_center = NotificationCenter()
