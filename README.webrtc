@@ -2,79 +2,221 @@
 SylkServer WebRTC gateway
 -------------------------
 
-The WebRTC gateway application enables web based clients to communicate
-transparently with SIP endpoints using WebRTC suite of standards and
-protocols.
+The WebRTC gateway application (webrtcgateway) lets WebRTC clients use SIP
+accounts without a SIP stack of their own: they register, call SIP
+endpoints, take part in video conferences and exchange messages, while the
+gateway speaks SIP on their behalf. Clients talk to it with the sylkRTC
+protocol over a WebSocket and with an HTTPS API; the media goes through
+Janus.
 
-To perform this function SylkServer must run on a computer with a public
-reachable IP adddress.
+SylkServer must run on a host with a publicly reachable IP address.
 
-A ready to go client is available, see Sylk WebRTC client for more
-information.
+Ready to go clients: Sylk Mobile (Android, iOS), sylk-desktop and the Sylk
+web client. Blink (macOS, Linux) uses the gateway for video conferencing,
+the message journal and the account storage. See "Client libraries" below
+for writing your own.
 
 
 Architecture
 ------------
 
- +--------+          +---------+ +-------------+       +----------+
- |        |          |         | |   Janus     |  RTP  |  SIP     |
- | WebRTC | SylkRTC  | Sylk    | |   SFU       +<----->|  A/V     |
- | client +<-------->+ Server  | |   Server    |       |  client  |
- |        |  WebAPI  | webrtc  | +-------------+       +----------+
- +--------+          | gateway |          SIP          +----------+
-               +---->| app     | <---------------------|  SIP     |
-               |     |         | <---+                 |  Message |
-               |     +---------+     |                 |  client  |
-               |     +---------------+-----+  MSRP     +----------+
-           SIP |     | Sylk MSRP switch    |<------+   +----------+
-               |     | Conference          |       |   |  SIP     |
-               |     | application         |<--+   +---+  Chat    |
-               |     +---------------------+   |       |  client  |
- +--------+    |     +---------------------+   | MUC   +----------+
- | XMPP   |    +-----| Sylk XMPP           |---+       +----------+
- | chat   |  XMPP    | Server 2 Server     |    SIP    |  SIP     |
- | client |--------->| gateway application |---------->|  Message |
- +--------+          +---------------------+           +----------+
-                                                       
+ +--------+  sylkRTC   +-----------+  Janus API  +--------------------+
+ | WebRTC |  WebSocket |  Sylk     |  WebSocket  |  Janus             |
+ | client +<---------->+  Server   +<----------->+  videoroom (SFU)   |
+ |        |  HTTPS API |  webrtc   |             |  SIP plugin        |
+ +---+----+            |  gateway  |             |  NoSIP plugin      |
+     |                 |           |             +---------+----------+
+     |  ICE/DTLS-SRTP  |           |                       |  RTP/SRTP
+     +---------------->|  SIP:     |                       |
+       (to Janus)      |  janus or |   SIP (own stack)     |   +----------+
+                       |  sipsimple+---------------------------+  SIP     |
+                       |  backend  |                       +-->+  A/V     |
+                       |           |   SIP (Janus plugin)      |  client  |
+                       |           |  .....................    +----------+
+                       +-----+-----+                           +----------+
+                             |   SIP MESSAGE, MSRP             |  SIP     |
+                             +-------------------------------->+  Message |
+                             |                                 |  client  |
+                       +-----+---------------+   MSRP          +----------+
+                       | Sylk conference     |<--------------> SIP chat
+                       | (MSRP switch)       |                 clients
+                       +---------------------+
+                       +---------------------+   XMPP
+                       | Sylk XMPP gateway   |<--------------> XMPP clients
+                       +---------------------+
+
+The media of a call goes from the browser (ICE, DTLS-SRTP) to Janus, and from
+Janus as plain RTP or SRTP to the SIP endpoint. The gateway does no
+transcoding.
+
+
+SIP backends
+------------
+
+The SIP side of a WebRTC client's account (registration, calls) is done by
+one of two backends, chosen per account:
+
+ * sipsimple (the default): SylkServer's own SIP stack (SIP SIMPLE SDK)
+   does the signalling, and Janus only the media, through the NoSIP
+   plugin, which converts between the WebRTC PeerConnection and plain
+   RTP/SRTP.
+   sip_backends/sipsimple.py. Each account registers a contact pointing to
+   this SylkServer (x-sylk-app=webrtcgateway), so requests to it reach the
+   gateway. Implemented: outgoing calls with early media, incoming calls,
+   re-INVITEs both ways, in-dialog MESSAGE, DTMF with SIP INFO, and MSRP
+   chat offered next to audio/video (SylkServer is the MSRP endpoint).
+
+ * janus: the Janus SIP plugin (Sofia-SIP) does both the SIP signalling and
+   the media. Every registered account has a SIP plugin handle, every call
+   a handle of its own. sip_backends/sofia.py.
+
+Both backends implement the same interface (sip_backends/base.py), so the
+clients see no difference. The backend is chosen with [General] sip_backend,
+overridden for some accounts or domains with sip_backend_accounts
+(alice@example.com:janus, test.example.com:janus), and, with
+sip_backend_override enabled, by the client in account-add (sip_backend).
+
 
 End-point requirements
 ----------------------
 
-WebRTC gateway doesn't do media transcoding, so after taking care of the
-WebRTC-specific media features (ICE and DTLS mainly), endpoints will
-exchange plain RTP media between them, therefore SIP end-points must have a
-set of compatible audio (Opus) and video codecs (H.264 and VP8).
+There is no transcoding: after the WebRTC specific media features (ICE,
+DTLS) are taken care of, the endpoints exchange RTP directly, so SIP
+endpoints must support Opus for audio and H.264, VP8 or VP9 for video (the
+video codec of a room is set per room, see video_codec).
 
-As a WebRTC client, a standard browser with WebRTC support can be used
-(e.g.  Firefox or Google Chrome).
+Any browser with WebRTC support works as a client, as do the native Sylk
+clients.
 
 
 Features
 --------
 
- * SIP account registration
- * One-to-One Audio / video calling between SIP and Web clients
- * Multi-party conferencing (WebRTC end-points only)
- * One-to-one messaging between end-points
- * Real time message synchronization between multiple devices
- * Offline storage for messaging
- * Codec agnostic
+Accounts and calls
+
+ * SIP account registration (or none: an account can be added just to use
+   the conferences and the messaging, without forking calls to the gateway)
+ * One-to-one audio and video calls between WebRTC and SIP endpoints, early
+   media, DTMF, re-INVITEs, in-call messages, MSRP chat (sipsimple backend)
+ * Push notifications for incoming calls and messages (Firebase, Apple
+   PushKit), through the Sylk push server (sylk_push_url); a push proxy
+   under /webrtcgateway/push
+ * Authentication with the SIP credentials, or against an IMAP server
+   ([Auth])
+
+Video conferencing
+
+ * Rooms on the Janus videoroom plugin (an SFU): audio, video, screen
+   sharing, chat and file sharing in the room
+ * Several videos per participant (gateway feature multiple-video-feeds)
+ * Moderation: speakers, mute one or all participants, raised hands,
+   invite and remove participants
+ * SIP participants through the conference audio bridge, with their audio
+   levels
+ * Per room policies, bitrate, codec, recording and participants invited
+   when the room starts ([room:...] sections)
+
+Messaging
+
+ * One-to-one messages between WebRTC and SIP endpoints, with delivery and
+   display notifications (IMDN) and composing indications
+ * The message journal: every message and operation (removal, read,
+   conversation removal, bulk delete) of an account, kept by the server so
+   that all its devices, WebRTC and SIP, stay in sync and get what they
+   missed while offline
+ * File transfers over HTTPS: upload, download, cancel, expiry
+   (filetransfer_expire_days)
+ * Location sharing (application/sylk-location-sharing): the coordinates
+   are end-to-end encrypted, the server reads only the envelope
+ * End-to-end encryption with OpenPGP: public key lookup, and escrow of the
+   private key for the account's own devices
+
+Account data
+
+ * The addressbook (XCAP, xcap_url), shared by all the Sylk and Blink
+   clients, fetched and updated over the WebSocket
+ * Account storage: a private per-account object store over HTTPS
+   ([AccountStorage]): contact avatars (namespace avatars), the PGP private
+   key (keys), the devices of the account (devices); changes are announced
+   to the account's devices with application/sylk-storage-changed
+ * The devices that use an account, when and from where (docs/ACCOUNT-DEVICES.md)
+
+Management
+
+ * An admin API and web interface (http_management_interface,
+   https_management_interface): rooms and participants (kick, mute, audio
+   levels, events), sessions, endpoints, push tokens, storage, file
+   transfers, accounts (info, purge), daily metrics
 
 
 SylkRTC API
 -----------
 
-Desktop API
+WebSocket: wss://<host>/webrtcgateway/ws, subprotocol sylkRTC-2.
 
-A JavaScript library implementing SylkRTC API is available at:
+Requests are JSON objects with a sylkrtc name and a transaction id, answered
+with an ack or an error. Everything else is an event: ready-event (with the
+features of the gateway), account-event, session-event, videoroom-event.
 
-https://github.com/AGProjects/sylkrtc.js
+  account     account-add, account-remove, account-register,
+              account-unregister, account-devicetoken, account-message,
+              account-disposition-notification, account-sync-conversations,
+              account-mark-conversation-read, account-remove-message,
+              account-remove-conversation, account-fetch-addressbook,
+              account-update-addressbook, account-store-private-key,
+              account-fetch-private-key, lookup-public-key
+  calls       session-create, session-answer, session-trickle,
+              session-terminate, session-message, session-dtmf-info,
+              session-update
+  rooms       videoroom-join, videoroom-leave, videoroom-configure,
+              videoroom-feed-attach, videoroom-feed-answer,
+              videoroom-feed-detach, videoroom-session-trickle,
+              videoroom-session-update, videoroom-message,
+              videoroom-composing-indication, videoroom-invite,
+              videoroom-remove, videoroom-mute-participant,
+              videoroom-mute-audio-participants, videoroom-toggle-hand
 
-Mobile API
+The definitions are in sylk/applications/webrtcgateway/models/sylkrtc.py.
 
-A React native API is available at:
+HTTPS, below /webrtcgateway, authorised with the account's API token:
 
-https://github.com/AGProjects/react-native-sylkrtc.js
+  /messages/history/<account>        the message journal (since a message id)
+  /messages/history/<account>/remove remove entries from it
+  /messages/summary/<account>        the journal counted by content type
+  /transfers/summary/<account>       the files kept for the account
+  /filetransfer/...                  file transfers (upload, download, cancel)
+  /storage/<account>/...             the account storage
+  /push/...                          the push proxy
+
+The API token is handed out over SIP: a SIP device sends, through the
+trusted SIP Proxy, a SIP MESSAGE of type application/sylk-api-token to
+SylkServer, and gets back the token and the URLs. Every request with the
+token may say which device sends it (X-Sylk-Device-Id, X-Sylk-Device-Name).
+
+
+Client libraries
+----------------
+
+  JavaScript (desktop, web)  https://github.com/AGProjects/sylkrtc.js
+                             used by sylk-desktop and the Sylk web client
+  React Native (mobile)      https://github.com/AGProjects/react-native-sylkrtc.js
+                             used by Sylk Mobile
+  Python                     https://github.com/AGProjects/python3-sylkrtc
+                             discovery, connection, video rooms, calls,
+                             addressbook, the HTTPS API, with a GStreamer
+                             webrtcbin media backend (optional: a client can
+                             bring its own); its command line tools
+                             (sylk-conference, sylk-session, sylk-addressbook,
+                             sylk-account, sylk-journal) are a quick way to
+                             test a gateway
+
+A client finds the gateway of a domain from the DNS TXT record
+_sylkserver.<domain>, which names a configuration document with the
+WebSocket server (wsServer), the ICE servers and the conference domains.
+
+Blink keeps messages in sync with the gateway's journal; see
+https://github.com/AGProjects/blink-cocoa and
+https://github.com/AGProjects/blink-qt for a SIP client using the HTTPS API.
 
 
 SIP Proxy
@@ -86,115 +228,84 @@ A guide for setting up a SIP Proxy is available here:
 
 https://sylkserver.com/download/#sip-proxy-setup
 
-To benefit of offline messaging functions, the SIP Proxy must fork all SIP
-Messages to SylkServer.
-
-
-SIP Messaging
--------------
-
-External SIP devices can be synchronized in real time with webrtc end-points.
-
-The devices can poll a web server resource served by SylkServer web server
-component.  The web server will return a journal with all messages and
-operations related to them since the timestamp of a given message id. 
-
-Authorization is performed by the means of a token generated by SylkServer
-for each SIP client.  To request an authorization token and the
-correspondent web server address, a SIP device must send via the trusted SIP
-Proxy, a SIP Message with the Content Type application/sylk-api-token to
-SylkServer.  A message will be returned back with the token and URL, that
-can be stored and used for future requests.
-
-Several operations are available like, message deletion, delivery and
-display information.
-
-See Blink SIP client implementation as an example:
-
-https://github.com/AGProjects/blink-cocoa/blob/master/SMSWindowManager.py
+For the message journal and offline messaging, the SIP Proxy must fork all
+SIP MESSAGEs to SylkServer.
 
 
 Janus
 -----
 
-For implementing WebRTC capabilities, SylkServer uses an external component
-called Janus.
+The media is done by Janus:
 
 https://github.com/meetecho/janus-gateway
 
-Janus can be installed by following the instructions on its README file:
+SylkServer talks to it over the Janus WebSocket API, so Janus must be built
+with WebSocket support. The Debian package (Janus 1.1.2 on bookworm) is the
+tested one.
 
-https://github.com/meetecho/janus-gateway/blob/master/README.md
+The Janus settings relevant to the gateway (Janus 1.x .jcfg files in
+/etc/janus; see their own comments):
 
-The only requirement is that Janus is compiled with WebSocket supports,
-since that's the transport SylkServer uses in order to communicate with
-Janus.
+1. janus.jcfg
 
-To configure janus the following settings are relevant for WebRTC gateway
-(read their description in the janus configuration files):
+general: {
+    api_secret = "some_secret_key_shared_with_sylkserver"
+}
+nat: {
+    ice_lite = true
+    ice_tcp = true
+}
+plugins: {
+    # keep janus.plugin.videoroom, janus.plugin.sip and janus.plugin.nosip
+    disable = "libjanus_voicemail.so,libjanus_recordplay.so,libjanus_streaming.so,libjanus_echotest.so,libjanus_videocall.so,libjanus_textroom.so"
+}
+transports: {
+    disable = "libjanus_http.so,libjanus_rabbitmq.so,libjanus_pfunix.so,libjanus_mqtt.so,libjanus_nanomsg.so"
+}
 
-1. janus.cfg
+2. janus.plugin.sip.jcfg (the janus backend)
 
-[general]
-api_secret = some_secret_key_shared_with_sylkserver
-;debug_level = 5
+general: {
+    keepalive_interval = 0
+    user_agent = "SylkServer (WebRTC gateway)"
+    register_ttl = 600
+    #local_ip = "ip_for_sip"
+    #rtp_port_range = "20000-40000"
+}
 
-[nat]
-ice_lite = true
-ice_tcp = true
-;ice_enforce_list = ip_or_interface
-;ice_ignore_list = vmnet
+3. janus.plugin.videoroom.jcfg
 
-[media]
-force-bundle = true
-force-rtcp-mux = true
+No static rooms: comment out the rooms defined in it (an empty file is
+fine). SylkServer creates the rooms as they are joined.
 
-[plugins]
-disable = libjanus_voicemail.so,libjanus_recordplay.so,libjanus_streaming.so,libjanus_echotest.so,libjanus_videocall.so,libjanus_textroom.so
+4. janus.transport.websockets.jcfg
 
-[transports]
-disable = libjanus_http.so,libjanus_rabbitmq.so,libjanus_pfunix.so
-
-2. janus.plugin.sip.cfg
-
-[general]
-;local_ip = ip_for_sip
-keepalive_interval = 0
-user_agent = SylkServer (WebRTC gateway)
-register_ttl = 600
-;rtp_port_range = 20000-40000
-
-3. janus.plugin.videoroom.cfg
-
-; comment out the rooms defined in this file to prevent janus from
-; creating some static rooms (having an empty file for it is fine)
-
-4. janus.transport.websockets.cfg
-
-[general]
-ws = yes
-ws_interface = lo
-ws_port = 8188
-wss = no
-
-[admin]
-admin_ws = no
+general: {
+    ws = true
+    ws_port = 8188
+    ws_interface = "lo"
+    wss = false
+}
+admin: {
+    admin_ws = false
+}
 
 
 Running
 -------
 
-After installing SylkServer with WebRTC capability, start the server and
-point your web browser to:
+After installing SylkServer with WebRTC support, start it and point a
+browser to:
 
 https://hostname:10888/webrtcgateway/
 
-It's recommended to change the API secret used between SylkServer and Janus,
-check the webrtcgateway.ini and janus.cfg configuration files.
+(the port is local_port of [WebServer] in config.ini).
+
+Change the API secret shared by SylkServer and Janus: api_secret in
+webrtcgateway.ini and in janus.jcfg.
 
 
 Configuration
 -------------
 
-See  webrtcgateway.ini.sample sample file for available options and their
-meaning.
+See webrtcgateway.ini.sample for the available options and their meaning.
