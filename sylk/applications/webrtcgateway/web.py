@@ -765,10 +765,11 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
         Only a device that names itself (X-Sylk-Device-Id) is recorded here."""
         device_id = request.getHeader('X-Sylk-Device-Id')
         if device_id:
-            # no user_agent: over HTTP a client sends its HTTP library's (python-requests,
-            # Python-urllib), which would replace the real one from SIP or the WebSocket
+            # the client's SIP/WebRTC user agent in X-Sylk-User-Agent; never User-Agent, over HTTP
+            # that is its HTTP library's (python-requests, Python-urllib)
+            user_agent = request.getHeader('X-Sylk-User-Agent')
             peer = request.getClientAddress()
-            devices.seen(account, device_id, self._device_name(request), None,
+            devices.seen(account, device_id, self._device_name(request), user_agent,
                          devices.forwarded_ip(request.getHeader('X-Forwarded-For'), getattr(peer, 'host', None)), 'https')
 
     def _storage_changed(self, request, account, namespace, object_id, op, meta):

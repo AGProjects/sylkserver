@@ -39,7 +39,7 @@ A device is recorded when it proves it is the account's:
 |---|---|---|---|
 | `websocket` | `account-register` succeeded | `account-add` fields `deviceId`, `deviceName` | the WebSocket peer |
 | `sip` | an `application/sylk-api-token` MESSAGE (SIP-authenticated) | SIP headers `X-Sylk-Device-Id`, `X-Sylk-Device-Name` | the bottom Via: its `received` parameter, else its host |
-| `https` | a request with a valid API token (message history, account storage) | HTTP headers `X-Sylk-Device-Id`, `X-Sylk-Device-Name` | the first `X-Forwarded-For` entry, else the peer |
+| `https` | a request with a valid API token (message history, account storage) | HTTP headers `X-Sylk-Device-Id`, `X-Sylk-Device-Name`, `X-Sylk-User-Agent` (the client's SIP/WebRTC user agent; `User-Agent` is ignored, it is the HTTP library's) | the first `X-Forwarded-For` entry, else the peer |
 
 - `X-Sylk-Device-Name` is UTF-8, percent-encoded (a header is latin-1).
 - Over HTTPS only a request carrying `X-Sylk-Device-Id` is recorded, and it

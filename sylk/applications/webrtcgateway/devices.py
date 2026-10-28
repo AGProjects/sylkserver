@@ -13,7 +13,8 @@ A device is seen when it proves it is the account's:
   sip        an application/sylk-api-token request (headers X-Sylk-Device-Id,
              X-Sylk-Device-Name; the client address is the bottom Via)
   https      a request with a valid API token (history, storage) carrying
-             X-Sylk-Device-Id (and X-Sylk-Device-Name)
+             X-Sylk-Device-Id (and X-Sylk-Device-Name); its user agent is
+             X-Sylk-User-Agent, never User-Agent (the HTTP library's)
 
 A client that says nothing about itself is kept under an id made from its
 User-Agent (ua-<hash>). The first sighting is written at once and announced
