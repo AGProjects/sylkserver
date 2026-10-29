@@ -345,30 +345,47 @@ class MessageHandler(object):
         account = defer.maybeDeferred(self.message_storage.get_account, from_account)
         account.addCallback(lambda result: remove_conversation(result))
 
-    def _handle_messages_bulk_delete(self):
-        """Store the bulk delete criteria in the journal and relay them to all devices of the account."""
+    # Requests a device sends to its own account, relayed to all its devices: the server journals the
+    # payload under its own id, so offline devices get it at their next sync, and sends it live to every
+    # device, the sender's included (which skips it by device_id). The payload is never interpreted here.
+    # api content type: (what it is, for the log; content type relayed; the payload field with its id)
+    OWN_DEVICE_REQUESTS = {
+        'application/sylk-api-messages-bulk-delete': ('Bulk delete', 'application/sylk-messages-bulk-delete', 'bulk_delete_id'),
+        # files removed from a device to free disk space, the messages kept (Blink docs/messaging/files-purge.md)
+        'application/sylk-api-files-purge': ('Files purge', 'application/sylk-files-purge', 'files_purge_id'),
+    }
+
+    def _handle_own_device_request(self):
+        """Store the criteria of a request to the account's own devices in the journal and relay them."""
+        label = self.OWN_DEVICE_REQUESTS[self.parsed_message.content_type][0]
         account = f'{self.from_header.uri.user}@{self.from_header.uri.host}'
         target = f'{self.to_header.uri.user}@{self.to_header.uri.host}'
         if account != target:
-            log.warning(f'Bulk delete from {account} to {target} refused')
+            log.warning(f'{label} from {account} to {target} refused')
             return
         try:
             payload = json.loads(self.parsed_message.content)
         except (TypeError, ValueError) as e:
-            log.warning(f'Bulk delete from {account} refused, parsing error {e}')
+            log.warning(f'{label} from {account} refused, parsing error {e}')
             return
-        self.relay_bulk_delete(account, payload)
+        self.relay_own_device_request(account, self.parsed_message.content_type, payload)
 
     def relay_bulk_delete(self, account, payload):
+        self.relay_own_device_request(account, 'application/sylk-api-messages-bulk-delete', payload)
+
+    def relay_files_purge(self, account, payload):
+        self.relay_own_device_request(account, 'application/sylk-api-files-purge', payload)
+
+    def relay_own_device_request(self, account, api_content_type, payload):
+        label, content_type, id_field = self.OWN_DEVICE_REQUESTS[api_content_type]
         if isinstance(payload, dict):
-            log.info(f'Bulk delete request {payload.get("bulk_delete_id")} received from {account} device {payload.get("device_id")}')
+            log.info(f'{label} request {payload.get(id_field)} received from {account} device {payload.get("device_id")}')
         if not isinstance(payload, dict) or not isinstance(payload.get('criteria'), dict):
-            log.warning(f'Bulk delete from {account} refused, it has no criteria')
+            log.warning(f'{label} from {account} refused, it has no criteria')
             return
-        content_type = 'application/sylk-messages-bulk-delete'
         content = json.dumps(payload)
         timestamp = payload.get('timestamp') or str(ISOTimestamp.now())
-        message_id = str(payload.get('bulk_delete_id') or uuid.uuid4())
+        message_id = str(payload.get(id_field) or uuid.uuid4())
 
         def relay(result):
             if result is None:
@@ -394,7 +411,7 @@ class MessageHandler(object):
             criteria = dict(payload['criteria'])
             if isinstance(criteria.get('ids'), list):
                 criteria['ids'] = len(criteria['ids'])
-            log.info(f'Bulk delete {message_id} for {account}: {json.dumps(criteria)}')
+            log.info(f'{label} {message_id} for {account}: {json.dumps(criteria)}')
 
         stored = defer.maybeDeferred(self.message_storage.get_account, account)
         stored.addCallback(relay)
@@ -677,8 +694,8 @@ class MessageHandler(object):
             self._handle_conversation_remove()
             return
 
-        if self.parsed_message.content_type == 'application/sylk-api-messages-bulk-delete':
-            self._handle_messages_bulk_delete()
+        if self.parsed_message.content_type in self.OWN_DEVICE_REQUESTS:
+            self._handle_own_device_request()
             return
 
         if self.from_sip is not Null:

@@ -2208,14 +2208,16 @@ class ConnectionHandler(object):
         uri = request.uri
         content_type = request.content_type
 
-        if content_type == 'application/sylk-api-messages-bulk-delete':
+        if content_type in MessageHandler.OWN_DEVICE_REQUESTS:
+            # a bulk delete or a files purge: from the account to itself, relayed to all its devices
+            label = MessageHandler.OWN_DEVICE_REQUESTS[content_type][0]
             if uri != account_info.id:
-                raise APIError('A bulk delete is sent by an account to itself')
+                raise APIError(f'A {label.lower()} is sent by an account to itself')
             try:
                 payload = json.loads(request.content)
             except (TypeError, ValueError):
-                raise APIError('Invalid bulk delete')
-            MessageHandler().relay_bulk_delete(account_info.id, payload)
+                raise APIError(f'Invalid {label.lower()}')
+            MessageHandler().relay_own_device_request(account_info.id, content_type, payload)
             return
 
         content = request.content if content_type.startswith('text') else request.content.encode('latin1')
