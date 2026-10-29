@@ -2,6 +2,8 @@ sylkserver (7.1.0) unstable; urgency=medium
 
   * Added DOS attack mitigator
   * webrtcgateway: Fix timeout for idle sessions
+  * webrtcgateway: allow participants to publish multiple video feeds
+  * webrtcgateway: update HTTP endpoints for SIP devices
   * Incoming MSRP file transfer fixes
   * Allow SylkServer to use only one port for incoming MSRP connections
   * webrtcgateway: accept MSRP file transfers from non-local senders only during an audio call
@@ -20,16 +22,16 @@ sylkserver (7.1.0) unstable; urgency=medium
   * Added Radio PTT functionality to conference app
   * Fix sending conference-info Notify in conference app
   * webrtcgateway: Added per account server storage
-  * webrtcgateway:  Added utility to create missing tables
+  * webrtcgateway: Added utility to create missing tables
   * webrtcgateway: Allow request of journal entries for certain content types
   * webrtcgateway: Answer SIP PGP key lookup with 200/404/500 after checking storage
     Do not report a failed Cassandra public key query as no key
   * webrtcgateway: Add bulk removal of messages from the account journal
   * webrtcgateway: Give client hint about total journal size
+  * Don't ask for imdns in playback app
   * Remove obsolete CAs
  
-
- -- Tijmen de Mes <agp@xnode01>  Sun, 25 Oct 2026 13:47:06 +0100
+ -- Adrian Georgescu <ag@ag-projects.com>  Thu, 29 Oct 2026 10:36:55 -0300
 
 sylkserver (7.0.0) unstable; urgency=medium
 
