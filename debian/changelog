@@ -1,3 +1,13 @@
+sylkserver (7.1.1) unstable; urgency=medium
+
+  * Added README for janus patches
+  * Added folder with janus patches
+  * NoSIP: offer crypto on media lines added in a re-offer
+  * Log video negotiation failures for video conference rooms
+  * Force H.264 Constrained Baseline (42e01f) in h264 videorooms via Janus h264_profile (configurable)
+
+ -- Adrian Georgescu <ag@ag-projects.com>  Mon, 02 Nov 2026 13:44:46 -0300
+
 sylkserver (7.1.0) unstable; urgency=medium
 
   * Added DOS attack mitigator
