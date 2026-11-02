@@ -1144,6 +1144,59 @@ def _sip_instance_participant_id(value):
     return value or None
 
 
+# Video negotiation, for the log: why a participant sends or gets no video
+
+_AUXILIARY_CODECS = ('RTX', 'RED', 'ULPFEC', 'FLEXFEC-03')
+
+
+def _sdp_video(sdp):
+    """(state, codecs) of the m=video of an SDP: state is its direction, or 'no m=video' / 'rejected (port 0)';
+    codecs are 'H264/90000 (PT 96, profile-level-id=42e01f;packetization-mode=1)', RTX / RED / FEC left out."""
+    sdp = sdp or ''
+    match = re.search(r'^m=video (\d+) [^ ]+ ([^\r\n]*)', sdp, re.M)
+    if match is None:
+        return 'no m=video', []
+    rest = sdp[match.end():]
+    next_media = re.search(r'^m=', rest, re.M)
+    section = rest[:next_media.start()] if next_media else rest
+    if match.group(1) == '0' and 'a=bundle-only' not in section:
+        return 'rejected (port 0)', []
+    direction = re.search(r'^a=(sendrecv|sendonly|recvonly|inactive)\s*$', section, re.M)
+    codecs = []
+    for pt in match.group(2).split():
+        rtpmap = re.search(r'^a=rtpmap:%s ([^\r\n]+)' % re.escape(pt), section, re.M)
+        name = rtpmap.group(1).strip() if rtpmap else 'PT %s' % pt
+        if name.partition('/')[0].upper() in _AUXILIARY_CODECS:
+            continue
+        fmtp = re.search(r'^a=fmtp:%s ([^\r\n]+)' % re.escape(pt), section, re.M)
+        codecs.append('%s (PT %s, %s)' % (name, pt, fmtp.group(1).strip()) if fmtp else '%s (PT %s)' % (name, pt))
+    return direction.group(1) if direction else 'sendrecv', codecs
+
+
+def _video_text(sdp):
+    """'H264/90000 (PT 96, ...), sendonly', or 'none: rejected (port 0)'."""
+    state, codecs = _sdp_video(sdp)
+    if not codecs:
+        return 'none: %s' % (state if state in ('no m=video', 'rejected (port 0)') else '%s, no codecs' % state)
+    return '%s, %s' % (', '.join(codecs), state)
+
+
+def _has_video(sdp):
+    state, codecs = _sdp_video(sdp)
+    return bool(codecs) and state != 'inactive'
+
+
+def _room_video_rule(room):
+    """What the room's Janus configuration asks of video."""
+    if not room.video:
+        return 'video is disabled in this room'
+    config = room.config
+    rule = 'room codec %s' % config.video_codec
+    if 'h264' in str(config.video_codec).split(',') and getattr(config, 'h264_profile', None):
+        rule += ' profile-level-id %s' % config.h264_profile
+    return rule
+
+
 def _is_phone_uri(uri):
     """Whether a SIP URI is a telephone number (+31201234567@host, 0201234567@host, user=phone)."""
     user = uri.user.decode() if isinstance(uri.user, bytes) else str(uri.user or '')
@@ -2796,9 +2849,10 @@ class ConnectionHandler(object):
                     videoroom_handle.create(room=videoroom.id, config=videoroom.config, publishers=10)
                 except JanusError as e:
                     if e.code != 427:  # 427 means room already exists
+                        self.log.error('Janus could not create room {room} ({rule}): {error}'.format(room=request.uri, rule=_room_video_rule(videoroom), error=e))
                         raise
                 else:
-                    self.log.info('created room {room}'.format(room=request.uri))
+                    self.log.info('created room {room} ({rule}, max bitrate {bitrate})'.format(room=request.uri, rule=_room_video_rule(videoroom), bitrate=videoroom.config.max_bitrate))
                 if parent_feed is not None:
                     label = (getattr(request, 'label', None) or 'Camera').strip()
                     owner_name = account_info.display_name or request.account.partition('@')[0]
@@ -2815,6 +2869,8 @@ class ConnectionHandler(object):
 
         videoroom_session = VideoroomSessionInfo(request.session, owner=self, janus_handle=videoroom_handle)
         videoroom_session.init_publisher(account=account_info, room=videoroom)
+        videoroom_session.offered_video = _video_text(request.sdp)
+        self.log.info('room {room}: {account} offers video {video}'.format(room=request.uri, account=request.account, video=videoroom_session.offered_video))
         videoroom_session.sip_instance = _sip_instance_participant_id(getattr(request, 'sip_instance', None))
         if videoroom_session.sip_instance:
             self.log.info('room {room}: its SIP leg with instance {instance} is this device'.format(room=request.uri, instance=videoroom_session.sip_instance))
@@ -2934,6 +2990,16 @@ class ConnectionHandler(object):
             media = 'unknown'
 
         self.log.debug('{media} media accepted by room {session.room.uri}'.format(media=media, session=videoroom_session))
+        offered = getattr(videoroom_session, 'offered_video', '')
+        if not offered.startswith('none'):
+            publisher_name = self._feed_publisher_name(videoroom_session)
+            account = videoroom_session.parent_session.account.id
+            if _has_video(request.sdp):
+                self.log.info('room {session.room.uri}: {account} takes the video of {publisher}: {video}'.format(
+                    session=videoroom_session, account=account, publisher=publisher_name, video=_video_text(request.sdp)))
+            else:
+                self.log.warning('room {session.room.uri}: {account} REFUSES the video of {publisher}: answer {answer}; the room offered {offered} (a codec or profile it cannot decode?)'.format(
+                    session=videoroom_session, account=account, publisher=publisher_name, answer=_video_text(request.sdp), offered=offered))
         videoroom_session.janus_handle.feed_start(sdp=request.sdp)
 
     def _RH_videoroom_feed_detach(self, request):
@@ -3936,12 +4002,13 @@ class ConnectionHandler(object):
 
     def _EH_janus_videoroom_error(self, event):
         # fixme: implement error handling
-        self.log.error('got videoroom error event: {}'.format(event.__data__))
         try:
             videoroom_session = self.videoroom_sessions[event.sender]
         except KeyError:
+            self.log.error('got videoroom error event: {}'.format(event.__data__))
             self.log.warning('could not find room session with handle ID {event.sender} for error event'.format(event=event))
             return
+        self.log.error('room {session.room.uri}: Janus error on the {session.type} session {session.id}: {data}'.format(session=videoroom_session, data=event.__data__))
         if videoroom_session.type == 'publisher':
             pass
         else:
@@ -3983,7 +4050,29 @@ class ConnectionHandler(object):
             videoroom_session.slow_upload = True
 
     def _EH_janus_videoroom_media(self, event):
-        pass
+        # Janus starts / stops getting media on a handle (no_media_timer): for a publisher, whether its
+        # audio and video really arrive, the first thing to know when nobody sees someone
+        try:
+            videoroom_session = self.videoroom_sessions[event.sender]
+        except KeyError:
+            return
+        if videoroom_session.type != 'publisher':
+            self.log.debug('room {session.room.uri}: Janus {state} {event.type} on feed {session.id}'.format(
+                session=videoroom_session, event=event, state='receiving' if event.receiving else 'stopped receiving'))
+            return
+        account = videoroom_session.account.id if videoroom_session.account is not None else videoroom_session.id
+        if event.receiving:
+            self.log.info('room {session.room.uri}: Janus is receiving {event.type} from {account}'.format(session=videoroom_session, event=event, account=account))
+        else:
+            self.log.warning('room {session.room.uri}: Janus stopped receiving {event.type} from {account}{after}'.format(
+                session=videoroom_session, event=event, account=account, after=' (nothing for %s s)' % event.seconds if event.seconds else ''))
+
+    def _feed_publisher_name(self, videoroom_session):
+        """The account of the publisher a feed (subscriber session) is of, or its Janus id (an external publisher)."""
+        try:
+            return videoroom_session.room[videoroom_session.publisher_id].account.id
+        except (KeyError, AttributeError):
+            return 'janus:{}'.format(videoroom_session.publisher_id)
 
     def _EH_janus_videoroom_detached(self, event):
         pass
@@ -4055,6 +4144,13 @@ class ConnectionHandler(object):
         user_agent = getattr(videoroom_session.account, 'user_agent', None) or 'unknown'
         self.log.info('{session.account.id} joined room {session.room.uri} with {media} (user agent: {ua})'.format(session=videoroom_session, media=media, ua=user_agent))
         self.log.debug('joined room {session.room.uri} with session {session.id}'.format(session=videoroom_session))
+        if _has_video(event.jsep.sdp):
+            self.log.info('room {session.room.uri} takes video from {session.account.id}: {video}'.format(session=videoroom_session, video=_video_text(event.jsep.sdp)))
+        elif getattr(videoroom_session, 'offered_video', '').startswith('none'):
+            self.log.info('room {session.room.uri}: {session.account.id} publishes no video'.format(session=videoroom_session))
+        else:
+            self.log.warning('room {session.room.uri} takes NO video from {session.account.id}: answer {answer}; offered {offered}; {rule}'.format(
+                session=videoroom_session, answer=_video_text(event.jsep.sdp), offered=getattr(videoroom_session, 'offered_video', '?'), rule=_room_video_rule(videoroom_session.room)))
         data = event.plugindata.data  # type: janus.VideoroomJoined
         videoroom_session.publisher_id = data.id
         room = videoroom_session.room
@@ -4129,6 +4225,14 @@ class ConnectionHandler(object):
             media = 'unknown'
 
         self.log.debug('{media} media proposed to room {session.room.uri}'.format(session=videoroom_session, media=media))
+        videoroom_session.offered_video = _video_text(event.jsep.sdp)
+        publisher_name = self._feed_publisher_name(videoroom_session)
+        if _has_video(event.jsep.sdp):
+            self.log.info('room {session.room.uri}: feed of {publisher} to {account}, the room offers video {video}'.format(
+                session=videoroom_session, publisher=publisher_name, account=base_session.account.id, video=videoroom_session.offered_video))
+        else:
+            self.log.info('room {session.room.uri}: feed of {publisher} to {account} has no video ({video})'.format(
+                session=videoroom_session, publisher=publisher_name, account=base_session.account.id, video=videoroom_session.offered_video))
         self.send(sylkrtc.VideoroomFeedAttachedEvent(session=base_session.id, feed=videoroom_session.id, sdp=event.jsep.sdp))
 
     def _EH_janus_videoroom_slow_link(self, event):
