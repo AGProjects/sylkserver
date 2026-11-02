@@ -165,6 +165,14 @@ api_secret = 0745f2f74f34451c89343afcdcae5809
 ; Possible values are: h264, vp8 and vp9. Default is vp9.
 ; video_codec = vp9
 
+; The H.264 profile-level-id that all publishers must use when the room's
+; video codec is h264. Without one, Janus keeps whatever profile each
+; publisher offers first (Chrome: Baseline 42001f, macOS libwebrtc: Constrained
+; High 640c1f), and a subscriber that cannot decode it gets no video. Empty
+; or none lets each publisher choose. Default is 42e01f (Constrained Baseline,
+; level 3.1), which all clients offer.
+; h264_profile = 42e01f
+
 ; code used to decline the calls (usually, 486 busy, 603 busy everywhere).
 ; For 4XX codes, tipically a SIP Proxy will wait until other devices answer,
 ; for 6XX codes, tipically a SIP Proxy will end the call forking
@@ -216,6 +224,7 @@ api_secret = 0745f2f74f34451c89343afcdcae5809
 ; allow = domain1.com, test1@example.com, test2@example.com
 ; max_bitrate = 512000
 ; video_codec = h264
+; h264_profile = 42e01f
 ; video_disabled = False
 ; invite_participants = test@example.com
 ; persistent = False

@@ -347,6 +347,7 @@ class VideoroomCreate(JSONObject):
     description = StringProperty(optional=True)
     publishers = IntegerProperty(optional=True, default=10)
     videocodec = StringProperty(optional=True)  # don't need a validator, as the value comes from the configuration and it's validated there
+    h264_profile = StringProperty(optional=True)  # profile-level-id forced on H.264 publishers (validated by the configuration)
     bitrate = IntegerProperty(optional=True)    # don't need a validator, as the value comes from the configuration and it's validated there
     record = BooleanProperty(optional=True, default=False)
     rec_dir = StringProperty(optional=True)

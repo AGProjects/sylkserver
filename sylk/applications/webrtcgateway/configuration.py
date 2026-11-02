@@ -27,6 +27,18 @@ class AccessPolicyValue(str):
         return str.__new__(cls, value)
 
 
+class H264Profile(str):
+    """An H.264 profile-level-id (6 hex digits, e.g. 42e01f), or empty for none."""
+
+    def __new__(cls, value):
+        value = str(value).strip().lower()
+        if value in ('', 'none'):
+            return str.__new__(cls, '')
+        if not re.match(r'^[0-9a-f]{6}$', value):
+            raise ValueError('illegal H.264 profile-level-id: %s, must be 6 hex digits (e.g. 42e01f)' % value)
+        return str.__new__(cls, value)
+
+
 class Domain(str):
     domain_re = re.compile(r"^[a-zA-Z0-9\-_]+(\.[a-zA-Z0-9\-_]+)*$")
 
@@ -290,6 +302,11 @@ class JanusConfig(ConfigSection):
     trace_janus = False
     max_bitrate = ConfigSetting(type=VideoBitrate, value=VideoBitrate(2016000))  # ~2 MBits/s
     video_codec = ConfigSetting(type=VideoCodec, value=VideoCodec('vp9'))
+    # The H.264 profile all publishers of an h264 room must use. Without it Janus keeps each
+    # publisher's first H.264 entry: Chrome's is Baseline (42001f), which libwebrtc's ObjC
+    # decoder factory (Blink) does not take, macOS libwebrtc's is Constrained High (640c1f).
+    # Constrained Baseline level 3.1 is what every client offers.
+    h264_profile = ConfigSetting(type=H264Profile, value=H264Profile('42e01f'))
     decline_code = 486
 
 
@@ -329,6 +346,7 @@ class RoomConfig(ConfigSection):
     deny = ConfigSetting(type=PolicySettingValue, value=PolicySettingValue('none'))
     max_bitrate = ConfigSetting(type=VideoBitrate, value=JanusConfig.max_bitrate)
     video_codec = ConfigSetting(type=VideoCodec, value=JanusConfig.video_codec)
+    h264_profile = ConfigSetting(type=H264Profile, value=JanusConfig.h264_profile)
     video_disabled = False
     invite_participants = ConfigSetting(type=SIPAddressList, value=[])
     persistent = False
@@ -336,6 +354,7 @@ class RoomConfig(ConfigSection):
 
 class VideoroomConfiguration(object):
     video_codec = 'vp9'
+    h264_profile = '42e01f'
     max_bitrate = 2016000
     record = False
     recording_dir = None
@@ -358,9 +377,12 @@ class VideoroomConfiguration(object):
 
     @property
     def janus_data(self):
-        return dict(videocodec=self.video_codec, bitrate=self.max_bitrate, record=self.record, rec_dir=self.recording_dir,
+        data = dict(videocodec=self.video_codec, bitrate=self.max_bitrate, record=self.record, rec_dir=self.recording_dir,
                     audiolevel_ext=self.audiolevel_ext, audiolevel_event=self.audiolevel_event,
                     audio_active_packets=self.audio_active_packets, audio_level_average=self.audio_level_average)
+        if 'h264' in str(self.video_codec).split(',') and self.h264_profile:
+            data['h264_profile'] = str(self.h264_profile)
+        return data
 
 
 def get_room_config(room):
