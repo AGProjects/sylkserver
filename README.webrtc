@@ -241,7 +241,8 @@ https://github.com/meetecho/janus-gateway
 
 SylkServer talks to it over the Janus WebSocket API, so Janus must be built
 with WebSocket support. The Debian package (Janus 1.1.2 on bookworm) is the
-tested one.
+tested one, rebuilt with the patches in patches/janus (see its README.md for
+what they fix and how to build it).
 
 The Janus settings relevant to the gateway (Janus 1.x .jcfg files in
 /etc/janus; see their own comments):
