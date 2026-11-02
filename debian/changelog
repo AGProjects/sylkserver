@@ -1,5 +1,7 @@
-sylkserver (7.1.1) unstable; urgency=medium
+sylkserver (7.2.0) unstable; urgency=medium
 
+  * Moved sounds to the separate sylkserver-sounds source package
+  * Depend on sylkserver-sounds (>= 7.2.0)
   * Added README for janus patches
   * Added folder with janus patches
   * NoSIP: offer crypto on media lines added in a re-offer

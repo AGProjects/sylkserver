@@ -40,5 +40,5 @@ setup(
     scripts=['sylk-server', 'sylk-db'] + sorted(glob.glob('tools/sylk-*')),
     data_files=[('/etc/sylkserver', glob.glob('*.ini.sample')),
                 ('/etc/sylkserver/tls', glob.glob('resources/tls/*.crt')),
-                ('share/sylkserver/tools', ['tools/audio_level_monitor.py'])] + list_resources('resources', destination_directory='share/sylkserver')
+                ('share/sylkserver/tools', ['tools/audio_level_monitor.py'])] + list_resources('resources/html', destination_directory='share/sylkserver/html') + list_resources('resources/tls', destination_directory='share/sylkserver/tls')
 )
