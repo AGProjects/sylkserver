@@ -21,6 +21,7 @@ The SIP plugin doesn't have this problem because it keeps per-media flags (`has_
 
 - **Per-line decision:** SDES-SRTP is used on a media line only when the SRTP contexts of that line exist in both directions (`janus_nosip_srtp_active()`). This covers incoming RTP and RTCP, outgoing RTP and RTCP, and the PLI sent to the peer.
 - **No crypto on plain lines:** when the peer already uses SDES on other lines, no `a=crypto` is added to a line where it doesn't (`janus_nosip_srtp_plain_line()`). That applies to answers to such an offer and to later re-offers, so we don't advertise keys for a line that is plain RTP.
+  A line counts as plain only once the peer has negotiated it (it has a remote port): a line that is new in a re-offer, e.g. video added to an SRTP audio call, has no remote SRTP context yet only because the peer hasn't answered it, and gets crypto like the other lines.
 
 Lines where both sides use SDES behave exactly as before.
 
@@ -43,6 +44,8 @@ plain offer: audio port 30000, video port 30002
 answer processed (SRTP audio, RTP video)
 Janus is alive
 ```
+
+`repro_nosip_add_video_srtp.py` covers the re-offer case: an SDES audio call, then a re-offer adding video with `"srtp": "sdes_mandatory"`; every active line of the generated offer must carry `a=crypto`, and the SDES answer for both lines must be processed.
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 

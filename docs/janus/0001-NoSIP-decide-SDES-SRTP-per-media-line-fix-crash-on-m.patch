@@ -1,4 +1,4 @@
-From 1351e2b8ab7216e8e7c07e679b11508d6f3a8165 Mon Sep 17 00:00:00 2001
+From 617d399e550d4efce2a2a7ba6bb436e617861181 Mon Sep 17 00:00:00 2001
 From: Adrian Georgescu <ag@ag-projects.com>
 Date: Thu, 22 Oct 2026 21:34:09 -0300
 Subject: [PATCH] NoSIP: decide SDES-SRTP per media line, fix crash on mixed
@@ -16,19 +16,22 @@ protected, which the peer cannot decode.
 
 SRTP is now used on a media line only when the contexts for that line
 exist, in both directions, and no crypto attribute is added to a line in
-our SDP when the peer uses SDES on other lines but not on this one.
+our SDP when the peer uses SDES on other lines but not on this one. A line
+the peer has not negotiated yet (no remote port, e.g. video added to an
+SRTP audio call in a re-offer) is not considered plain and gets crypto.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01YQg7tP7KC57FB25JMcccJ4
+Claude-Session: https://claude.ai/code/session_016fxRD2AC9DoE2swjZMVLMz
 ---
- src/plugins/janus_nosip.c | 33 ++++++++++++++++++++++++++-------
- 1 file changed, 26 insertions(+), 7 deletions(-)
+ src/plugins/janus_nosip.c | 39 ++++++++++++++++++++++++++++++++-------
+ 1 file changed, 32 insertions(+), 7 deletions(-)
 
 diff --git a/src/plugins/janus_nosip.c b/src/plugins/janus_nosip.c
-index 689f08b9..55659d3e 100644
+index 689f08b9..1d1aa743 100644
 --- a/src/plugins/janus_nosip.c
 +++ b/src/plugins/janus_nosip.c
-@@ -659,6 +659,25 @@ static void janus_nosip_message_free(janus_nosip_message *msg) {
+@@ -659,6 +659,31 @@ static void janus_nosip_message_free(janus_nosip_message *msg) {
  
  
  /* SRTP stuff (in case we need SDES) */
@@ -44,9 +47,15 @@ index 689f08b9..55659d3e 100644
 +	return session->media.audio_srtp_in != NULL && session->media.audio_srtp_out != NULL;
 +}
 +/* Whether the peer uses SDES-SRTP on some media lines but not on this one:
-+ * then we must not add a crypto attribute to this line in our SDP */
++ * then we must not add a crypto attribute to this line in our SDP. Only a
++ * line the peer has already negotiated (it has a remote port) can be a plain
++ * line: a line that is new in a re-offer (e.g., video added to an audio call)
++ * has no remote SRTP context yet only because the peer has not answered it,
++ * and must be offered with crypto like the other lines. */
 +static gboolean janus_nosip_srtp_plain_line(janus_nosip_session *session, gboolean video) {
 +	if(!session->media.has_srtp_remote)
++		return FALSE;
++	if((video ? session->media.remote_video_rtp_port : session->media.remote_audio_rtp_port) == 0)
 +		return FALSE;
 +	return (video ? session->media.video_srtp_in : session->media.audio_srtp_in) == NULL;
 +}
@@ -54,7 +63,7 @@ index 689f08b9..55659d3e 100644
  static int janus_nosip_srtp_set_local(janus_nosip_session *session, gboolean video, char **profile, char **crypto) {
  	if(session == NULL)
  		return -1;
-@@ -1895,7 +1914,7 @@ void janus_nosip_incoming_rtp(janus_plugin_session *handle, janus_plugin_rtp *pa
+@@ -1895,7 +1920,7 @@ void janus_nosip_incoming_rtp(janus_plugin_session *handle, janus_plugin_rtp *pa
  			/* Save the frame if we're recording */
  			janus_recorder_save_frame(video ? session->vrc : session->arc, buf, len);
  			/* Is SRTP involved? */
@@ -63,7 +72,7 @@ index 689f08b9..55659d3e 100644
  				char sbuf[2048];
  				memcpy(&sbuf, buf, len);
  				int protected = len;
-@@ -1956,7 +1975,7 @@ void janus_nosip_incoming_rtcp(janus_plugin_session *handle, janus_plugin_rtcp *
+@@ -1956,7 +1981,7 @@ void janus_nosip_incoming_rtcp(janus_plugin_session *handle, janus_plugin_rtcp *
  				(video ? session->media.video_ssrc : session->media.audio_ssrc),
  				(video ? session->media.video_ssrc_peer : session->media.audio_ssrc_peer));
  			/* Is SRTP involved? */
@@ -72,7 +81,7 @@ index 689f08b9..55659d3e 100644
  				char sbuf[2048];
  				memcpy(&sbuf, buf, len);
  				int protected = len;
-@@ -2782,7 +2801,7 @@ char *janus_nosip_sdp_manipulate(janus_nosip_session *session, janus_sdp *sdp, g
+@@ -2782,7 +2807,7 @@ char *janus_nosip_sdp_manipulate(janus_nosip_session *session, janus_sdp *sdp, g
  		m->proto = g_strdup(session->media.require_srtp ? "RTP/SAVP" : "RTP/AVP");
  		if(m->type == JANUS_SDP_AUDIO) {
  			m->port = session->media.local_audio_rtp_port;
@@ -81,7 +90,7 @@ index 689f08b9..55659d3e 100644
  				if(!session->media.audio_srtp_local_profile || !session->media.audio_srtp_local_crypto) {
  					janus_nosip_srtp_set_local(session, FALSE, &session->media.audio_srtp_local_profile, &session->media.audio_srtp_local_crypto);
  				}
-@@ -2794,7 +2813,7 @@ char *janus_nosip_sdp_manipulate(janus_nosip_session *session, janus_sdp *sdp, g
+@@ -2794,7 +2819,7 @@ char *janus_nosip_sdp_manipulate(janus_nosip_session *session, janus_sdp *sdp, g
  			}
  		} else if(m->type == JANUS_SDP_VIDEO) {
  			m->port = session->media.local_video_rtp_port;
@@ -90,7 +99,7 @@ index 689f08b9..55659d3e 100644
  				if(!session->media.video_srtp_local_profile || !session->media.video_srtp_local_crypto) {
  					janus_nosip_srtp_set_local(session, TRUE, &session->media.video_srtp_local_profile, &session->media.video_srtp_local_crypto);
  				}
-@@ -3389,7 +3408,7 @@ static void *janus_nosip_relay_thread(void *data) {
+@@ -3389,7 +3414,7 @@ static void *janus_nosip_relay_thread(void *data) {
  							video ? session->media.video_ssrc_peer : session->media.audio_ssrc_peer);
  					}
  					/* Is this SRTP? */
@@ -99,7 +108,7 @@ index 689f08b9..55659d3e 100644
  						int buflen = bytes;
  						srtp_err_status_t res = srtp_unprotect(
  							(video ? session->media.video_srtp_in : session->media.audio_srtp_in),
-@@ -3455,7 +3474,7 @@ static void *janus_nosip_relay_thread(void *data) {
+@@ -3455,7 +3480,7 @@ static void *janus_nosip_relay_thread(void *data) {
  						/* Not an RTCP packet? */
  						continue;
  					}
@@ -108,7 +117,7 @@ index 689f08b9..55659d3e 100644
  						int buflen = bytes;
  						srtp_err_status_t res = srtp_unprotect_rtcp(
  							(video ? session->media.video_srtp_in : session->media.audio_srtp_in),
-@@ -3504,7 +3523,7 @@ static void janus_nosip_rtcp_pli_send(janus_nosip_session *session) {
+@@ -3504,7 +3529,7 @@ static void janus_nosip_rtcp_pli_send(janus_nosip_session *session) {
  		session, session->media.video_ssrc, session->media.video_ssrc_peer);
  	janus_rtcp_fix_ssrc(NULL, (char *)rtcp_buf, rtcp_len, 1, session->media.video_ssrc, session->media.video_ssrc_peer);
  	/* Is SRTP involved? */
