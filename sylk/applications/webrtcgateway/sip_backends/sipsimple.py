@@ -144,6 +144,13 @@ def _has_crypto(media):
 _OPUS_RTPMAP = re.compile(r'^(\d+\s+opus/48000)(?:/\d+)?\s*$', re.IGNORECASE)
 
 
+def _match_transport(media, offered):
+    """Answer an SDES line (SDPMediaStream, changed in place) with the RTP/AVP or RTP/SAVP profile of the offered line: pjmedia_sdp_neg disables a line whose profile differs."""
+    if _text(media.transport) in ('RTP/AVP', 'RTP/SAVP') and _text(offered.transport) in ('RTP/AVP', 'RTP/SAVP') and _has_crypto(media):
+        media.transport = offered.transport
+    return media
+
+
 def _set_opus_channels(media, channels):
     """Rewrite the opus rtpmap of an audio line (SDPMediaStream, changed in place) to opus/48000/<channels>."""
     if _text(media.media) != 'audio':
@@ -713,6 +720,8 @@ class SIPSimpleCall(SIPCallBackend):
             # NoSIP puts the Janus address in the session level c= line, but
             # only the media lines are copied to the session's SDP
             media.connection = SDPConnection.new(self.local_sdp.connection)
+        if remote_sdp is not None and stream.index is not None and stream.index < len(remote_sdp.media):
+            _match_transport(media, remote_sdp.media[stream.index])
         return _set_opus_channels(media, 1)     # the core's own form (see _set_opus_channels)
 
     def stream_started(self, stream, remote_sdp):
