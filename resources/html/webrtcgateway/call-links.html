@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Temporary call links</title>
+<style>
+:root { --bg: #fff; --fg: #1d1d1f; --muted: #6e6e73; --line: #e3e3e6; --accent: #0a66d8; --danger: #c62828; --row: #f7f7f9; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #1c1c1e; --fg: #f2f2f7; --muted: #a1a1a6; --line: #3a3a3c; --accent: #4c9aff; --danger: #ff6b6b; --row: #242426; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 980px; margin: 0 auto; padding: 24px 16px 48px; }
+h1 { font-size: 22px; margin: 0 0 4px; }
+.sub { color: var(--muted); margin: 0 0 20px; }
+form.add { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 20px; }
+input[type=text] { flex: 1 1 240px; min-width: 0; padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); font: inherit; }
+select { padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); font: inherit; }
+button { padding: 6px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--row); color: var(--fg); font: inherit; cursor: pointer; white-space: nowrap; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.danger { color: var(--danger); }
+button:disabled { opacity: .5; cursor: default; }
+table { width: 100%; border-collapse: collapse; }
+th { text-align: left; font-weight: 600; color: var(--muted); font-size: 13px; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+td { padding: 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+td.name input { width: 100%; }
+td.link code { font-size: 13px; word-break: break-all; }
+td.actions { white-space: nowrap; text-align: right; }
+tr.expired td { color: var(--muted); }
+.meta { color: var(--muted); font-size: 12px; }
+#status { min-height: 1.4em; margin: 12px 0; color: var(--muted); }
+#status.error { color: var(--danger); }
+@media (max-width: 680px) {
+  thead { display: none; }
+  tr { display: block; border-bottom: 1px solid var(--line); padding: 6px 0; }
+  td { display: block; border: 0; padding: 4px 0; }
+  td.actions { text-align: left; }
+}
+</style>
+</head>
+<body>
+<main>
+  <h1>Temporary call links</h1>
+  <p class="sub" id="account"></p>
+  <form class="add" id="add">
+    <input type="text" id="new-name" maxlength="100" placeholder="Who the link is for" required>
+    <select id="new-validity" aria-label="Valid for"></select>
+    <button class="primary" type="submit">Create link</button>
+  </form>
+  <div id="status"></div>
+  <table id="links" hidden>
+    <thead><tr><th style="width:30%">Name</th><th style="width:22%">Valid until</th><th>Link</th><th></th></tr></thead>
+    <tbody></tbody>
+  </table>
+</main>
+<script>
+(function () {
+  'use strict';
+  var DAY = 86400000;
+  var LINK_DOMAIN = 'anonymous.invalid';
+  var VALIDITY = [['1 hour', DAY / 24], ['1 day', DAY], ['3 days', 3 * DAY], ['1 week', 7 * DAY], ['1 month', 30 * DAY], ['3 months', 91 * DAY], ['1 year', 365 * DAY]];
+  var session = {};
+
+  function store(key, value) { try { sessionStorage.setItem(key, value); } catch (e) {} }
+  function load(key) { try { return sessionStorage.getItem(key); } catch (e) { return null; } }
+
+  (function () {
+    var params = new URLSearchParams(location.hash.replace(/^#/, ''));
+    ['account', 'token', 'base'].forEach(function (key) {
+      var value = params.get(key);
+      if (value) { store('call-links-' + key, value); }
+      session[key] = value || load('call-links-' + key) || '';
+    });
+    if (location.hash) { history.replaceState(null, '', location.pathname); }
+  })();
+
+  var tbody = document.querySelector('#links tbody');
+  var statusLine = document.getElementById('status');
+
+  function status(text, error) {
+    statusLine.textContent = text || '';
+    statusLine.className = error ? 'error' : '';
+  }
+
+  function linkUrl(link) {
+    var base = (session.base || location.origin).replace(/\/+$/, '');
+    return base + '/call/' + link.token + '@' + LINK_DOMAIN;
+  }
+
+  function when(ms) {
+    return new Date(ms).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  }
+
+  function api(method, path, body) {
+    var options = { method: method, headers: { 'Authorization': 'Apikey ' + session.token } };
+    if (body !== undefined) {
+      options.headers['Content-Type'] = 'application/json';
+      options.body = JSON.stringify(body);
+    }
+    return fetch('call-links/' + encodeURIComponent(session.account) + (path ? '/' + path : ''), options).then(function (response) {
+      if (response.status === 204) { return null; }
+      return response.json().catch(function () { return {}; }).then(function (data) {
+        if (response.status === 401) { throw new Error('Not authorised. Open this page again from your Sylk client.'); }
+        if (!response.ok) { throw new Error(data.error || ('The server answered HTTP ' + response.status)); }
+        return data;
+      });
+    });
+  }
+
+  function validitySelect(select, withKeep) {
+    select.innerHTML = '';
+    if (withKeep) { select.add(new Option('Extend…', '')); }
+    VALIDITY.forEach(function (entry) { select.add(new Option(entry[0], String(entry[1]))); });
+  }
+
+  function copy(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text);
+    }
+    var area = document.createElement('textarea');
+    area.value = text;
+    document.body.appendChild(area);
+    area.select();
+    document.execCommand('copy');
+    document.body.removeChild(area);
+    return Promise.resolve();
+  }
+
+  function mail(link) {
+    var url = linkUrl(link);
+    var body = 'You can call me with a web browser at ' + url + ' until ' + when(link.expires) + '.';
+    location.href = 'mailto:?subject=' + encodeURIComponent('Call me') + '&body=' + encodeURIComponent(body);
+  }
+
+  function button(text, cls, handler) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = text;
+    if (cls) { b.className = cls; }
+    b.addEventListener('click', handler);
+    return b;
+  }
+
+  function row(link) {
+    var tr = document.createElement('tr');
+    if (link.expired) { tr.className = 'expired'; }
+
+    var nameCell = document.createElement('td');
+    nameCell.className = 'name';
+    var name = document.createElement('input');
+    name.type = 'text';
+    name.maxLength = 100;
+    name.value = link.name;
+    function saveName() {
+      var value = name.value.trim();
+      if (!value || value === link.name) { name.value = link.name; return; }
+      api('PUT', link.id, { name: value }).then(function (updated) {
+        link.name = updated.name;
+        name.value = updated.name;
+        status('Renamed to “' + updated.name + '”');
+      }).catch(function (error) { name.value = link.name; status(error.message, true); });
+    }
+    name.addEventListener('keydown', function (event) {
+      if (event.key === 'Enter') { name.blur(); }
+      if (event.key === 'Escape') { name.value = link.name; name.blur(); }
+    });
+    name.addEventListener('blur', saveName);
+    nameCell.appendChild(name);
+    var meta = document.createElement('div');
+    meta.className = 'meta';
+    meta.textContent = (link.calls ? link.calls + (link.calls === 1 ? ' call' : ' calls') + ', last ' + when(link.last_call) : 'Not called yet');
+    nameCell.appendChild(meta);
+    tr.appendChild(nameCell);
+
+    var expiresCell = document.createElement('td');
+    var expires = document.createElement('div');
+    expires.textContent = (link.expired ? 'Expired ' : '') + when(link.expires);
+    expiresCell.appendChild(expires);
+    var extend = document.createElement('select');
+    validitySelect(extend, true);
+    extend.addEventListener('change', function () {
+      if (!extend.value) { return; }
+      api('PUT', link.id, { expires: Date.now() + Number(extend.value) }).then(function () {
+        status('Validity of “' + link.name + '” changed');
+        refresh();
+      }).catch(function (error) { extend.value = ''; status(error.message, true); });
+    });
+    expiresCell.appendChild(extend);
+    tr.appendChild(expiresCell);
+
+    var linkCell = document.createElement('td');
+    linkCell.className = 'link';
+    var code = document.createElement('code');
+    code.textContent = linkUrl(link);
+    linkCell.appendChild(code);
+    tr.appendChild(linkCell);
+
+    var actions = document.createElement('td');
+    actions.className = 'actions';
+    var copyButton = button('Copy', '', function () {
+      copy(linkUrl(link)).then(function () { status('Link for “' + link.name + '” copied'); });
+    });
+    var mailButton = button('E-mail…', '', function () { mail(link); });
+    copyButton.disabled = mailButton.disabled = !!link.expired;
+    actions.appendChild(copyButton);
+    actions.appendChild(document.createTextNode(' '));
+    actions.appendChild(mailButton);
+    actions.appendChild(document.createTextNode(' '));
+    actions.appendChild(button('Remove', 'danger', function () {
+      if (!confirm('Remove the link for “' + link.name + '”? It can no longer be called.')) { return; }
+      api('DELETE', link.id).then(function () {
+        status('Link for “' + link.name + '” removed');
+        refresh();
+      }).catch(function (error) { status(error.message, true); });
+    }));
+    tr.appendChild(actions);
+    return tr;
+  }
+
+  function show(links) {
+    tbody.innerHTML = '';
+    links.forEach(function (link) { tbody.appendChild(row(link)); });
+    document.getElementById('links').hidden = !links.length;
+  }
+
+  function refresh() {
+    return api('GET').then(function (data) {
+      show(data.links || []);
+      if (!(data.links || []).length) { status('No links yet. Create one and send it to whom you want to be able to call you.'); }
+    }).catch(function (error) { status(error.message, true); });
+  }
+
+  validitySelect(document.getElementById('new-validity'), false);
+  document.getElementById('new-validity').value = String(3 * DAY);
+
+  document.getElementById('add').addEventListener('submit', function (event) {
+    event.preventDefault();
+    var input = document.getElementById('new-name');
+    var name = input.value.trim();
+    if (!name) { return; }
+    var validFor = Number(document.getElementById('new-validity').value);
+    api('POST', '', { name: name, expires: Date.now() + validFor }).then(function (link) {
+      input.value = '';
+      return refresh().then(function () {
+        return copy(linkUrl(link)).then(function () { status('Link for “' + link.name + '” created and copied'); },
+                                        function () { status('Link for “' + link.name + '” created'); });
+      });
+    }).catch(function (error) { status(error.message, true); });
+  });
+
+  if (!session.account || !session.token) {
+    document.getElementById('add').hidden = true;
+    status('Open this page from your Sylk client.', true);
+    return;
+  }
+  document.getElementById('account').textContent = 'Links that call ' + session.account + ' without showing the address to the caller.';
+  refresh();
+})();
+</script>
+</body>
+</html>

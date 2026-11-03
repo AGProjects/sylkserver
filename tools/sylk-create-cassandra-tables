@@ -76,6 +76,12 @@ def ask(question):
 
 
 def quote(name):
+    try:
+        from cassandra.metadata import maybe_escape_name
+    except ImportError:
+        pass
+    else:
+        return maybe_escape_name(name)      # also quotes reserved words (token, ...)
     return name if name.islower() and name.replace('_', '').isalnum() else '"%s"' % name.replace('"', '""')
 
 

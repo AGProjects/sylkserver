@@ -371,6 +371,35 @@ class PrivateKey(JSONObject):
     error = StringProperty(optional=True)
 
 
+class CallLink(JSONObject):
+    # A temporary call link (call_links.py); times in milliseconds
+    id = StringProperty()
+    token = StringProperty()
+    name = StringProperty()
+    created = IntegerProperty(optional=True)
+    expires = IntegerProperty()
+    device_id = StringProperty(optional=True)
+    device_name = StringProperty(optional=True)
+    calls = IntegerProperty(optional=True)
+    last_call = IntegerProperty(optional=True)
+    expired = BooleanProperty(optional=True)
+
+
+class CallLinks(JSONArray):
+    item_type = CallLink
+
+
+class AccountCallLinksEvent(AccountEventBase):
+    # The answer to account-call-links: the link acted upon and all the links
+    # of the account; code 200, or 400, 404, 409, 500 with error
+    event = FixedValueProperty('call-links')
+    action = LimitedChoiceProperty(['list', 'create', 'update', 'remove'])
+    code = IntegerProperty()
+    error = StringProperty(optional=True)
+    link = ObjectProperty(CallLink, optional=True)
+    links = ArrayProperty(CallLinks, optional=True)
+
+
 class AccountPrivateKeyEvent(AccountEventBase):
     event = FixedValueProperty('private-key')
     action = LimitedChoiceProperty(['fetched', 'stored'])
@@ -834,6 +863,16 @@ class AccountStorePrivateKeyRequest(AccountRequestBase):
     deviceName = StringProperty(optional=True)  # for humans: "Sylk on motorola razr 60 ultra (Android)"
     ifMatch = StringProperty(optional=True)     # replace only this etag
     ifNoneMatch = StringProperty(optional=True) # '*': create only
+
+
+class AccountCallLinksRequest(AccountRequestBase):
+    sylkrtc = FixedValueProperty('account-call-links')
+    action = LimitedChoiceProperty(['list', 'create', 'update', 'remove'])
+    id = StringProperty(optional=True)          # update, remove
+    name = StringProperty(optional=True)        # create, update
+    expires = IntegerProperty(optional=True)    # create, update: milliseconds since the epoch
+    deviceId = StringProperty(optional=True)
+    deviceName = StringProperty(optional=True)
 
 
 class AccountUpdateAddressBookRequest(AccountRequestBase):

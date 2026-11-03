@@ -36,7 +36,7 @@ from sipsimple.streams.msrp.chat import (ChatIdentity, CPIMHeader,
 from sipsimple.threading import run_in_thread, run_in_twisted_thread
 from sipsimple.threading.green import call_in_green_thread, run_in_green_thread
 from sipsimple.util import ISOTimestamp
-from twisted.internet import defer, reactor
+from twisted.internet import defer, reactor, threads
 from twisted.web.client import Agent
 from twisted.web.http_headers import Headers
 from twisted.web.iweb import IBodyProducer
@@ -47,13 +47,15 @@ from sylk.accounts import DefaultAccount
 from sylk.configuration import SIPConfig, ThorNodeConfig
 from sylk.session import Session
 
+from . import call_links
+from .call_policy import CallPolicies, is_anonymous
 from . import push
 from .addressbook import get_addressbook, update_addressbook
 from .contact_avatars import apply_contact_avatar, attach_avatars, remove_contact_avatar
 from .private_key import fetch_private_key, store_private_key
 from . import devices
 from .auth import AuthHandler
-from .configuration import (ExternalAuthConfig, GeneralConfig, JanusConfig,
+from .configuration import (CallLinksConfig, ExternalAuthConfig, GeneralConfig, JanusConfig,
                             get_room_config)
 from .janus import (JanusBackend, JanusError, JanusSession,
                     VideoroomPluginHandle)
@@ -298,6 +300,7 @@ class SIPSessionInfo(object):
         self.media_ports = {}          # media type -> far-end RTP endpoint 'ip:port'
         self.slow_download = False
         self.slow_upload = False
+        self.call_link = None          # dict(account, id, name, display_name) when calling a temporary call link
         self._message_queue = deque()
 
     def update_media(self, sdp, remote=False):
@@ -2501,6 +2504,7 @@ class ConnectionHandler(object):
             raise APIError("Account not authenticated")
 
         addressbook = defer.maybeDeferred(get_addressbook, account_info)
+        addressbook.addCallback(self._learn_call_policy, account_info)
         if request.avatars is not None:
             # The client told us which pictures it has: from now on its
             # addressbooks carry avatars, with data only where they changed.
@@ -2508,6 +2512,59 @@ class ConnectionHandler(object):
             addressbook.addCallback(lambda result: attach_avatars(account_info, result, account_info.avatar_etags))
         addressbook.addCallback(lambda result: self.send(sylkrtc.AccountAddressBookFetchedEvent(addressbook=result, account=account_info.id)))
         return addressbook
+
+    def _learn_call_policy(self, addressbook, account_info):
+        try:
+            CallPolicies().learn_from_addressbook(account_info.id, addressbook)
+        except Exception as e:
+            self.log.warning('cannot learn the call policy: {}'.format(e))
+        return addressbook
+
+    def _RH_account_call_links(self, request):
+        try:
+            account_info = self.accounts_map[request.account]
+        except KeyError:
+            raise APIError('Unknown account specified: {request.account}'.format(request=request))
+
+        if not account_info.auth_state:
+            raise APIError("Account not authenticated")
+
+        account, action = account_info.id, request.action
+        links = call_links.CallLinks()
+        errors = ((call_links.InvalidRequest, 400), (call_links.NotFound, 404), (call_links.LimitExceeded, 409))
+
+        def work():
+            if not CallLinksConfig.enabled:
+                raise call_links.NotFound('call links are disabled')
+            link = None
+            if action == 'create':
+                link = links.create(account, request.name, request.expires, request.deviceId, request.deviceName)
+            elif action == 'update':
+                link = links.update(account, request.id, name=request.name, expires=request.expires)
+            elif action == 'remove':
+                link = links.delete(account, request.id)
+            return link, links.list(account)
+
+        def done(result):
+            link, all_links = result
+            if link is not None:
+                op = {'create': 'created', 'update': 'updated', 'remove': 'removed'}[action]
+                self.log.info('call links: {} {} link {} ({}) by {}'.format(account, op, link['id'], link['name'], request.deviceName or account_info.user_agent or 'unknown client'))
+            extra = {'link': link} if link is not None else {}
+            self.send(sylkrtc.AccountCallLinksEvent(account=account, action=action, code=200, links=all_links, **extra))
+
+        def failed(failure):
+            code = next((code for error, code in errors if failure.check(error)), 500)
+            if code == 500:
+                self.log.error('call links {} failed: {}'.format(action, failure.getErrorMessage()))
+            error = str(failure.value) or ('not found' if code == 404 else 'internal error')
+            self.send(sylkrtc.AccountCallLinksEvent(account=account, action=action, code=code, error=error))
+
+        if not hasattr(self, '_call_links_lock'):
+            self._call_links_lock = defer.DeferredLock()     # answered in the order asked
+        deferred = self._call_links_lock.run(threads.deferToThread, work)
+        deferred.addCallbacks(done, failed)
+        return deferred
 
     def _RH_account_fetch_private_key(self, request):
         try:
@@ -2558,6 +2615,11 @@ class ConnectionHandler(object):
             self._fork_event_to_online_accounts(account_info, event)
 
         def addressbook_updated(result):
+            if request.type == 'contact' and request.action in ('add', 'update'):
+                try:
+                    CallPolicies().learn_from_contact(account_info.id, request.data)
+                except Exception as e:
+                    self.log.warning('cannot learn the call policy: {}'.format(e))
             if request.type == 'contact' and request.action == 'delete':
                 remove_contact_avatar(account_info, request.data.id)
             elif avatar is not None and (avatar.remove or avatar.data):
@@ -2633,7 +2695,23 @@ class ConnectionHandler(object):
             extra_headers.append({'name': 'X-Sylk-Client-Port', 'value': client_port})
 
         session_info = SIPSessionInfo(request.session)
-        session_info.backend = account_info.sip_backend.backend.create_outgoing_session(account_info, session_info, request.uri, request.sdp, extra_headers)
+        target = request.uri
+        resolved = self._resolve_call_link(request.uri)
+        if resolved is not None:
+            owner, link = resolved
+            target = owner
+            caller = account_info.display_name or ''
+            session_info.call_link = {'account': owner, 'id': link['id'], 'name': link['name'],
+                                      'display_name': f'{caller} (via {link["name"]})' if caller else f'{link["name"]} (call link)'}
+            extra_headers.append({'name': call_links.CALL_LINK_HEADER,
+                                  'value': '{}; name="{}"'.format(link['id'], urllib.parse.quote(link['name'], safe=" '()"))})
+            self.log.info('outgoing session {} to call link {} of {} ({})'.format(request.session, link['id'], owner, link['name']))
+            threads.deferToThread(call_links.CallLinks().count_call, owner, link).addErrback(
+                lambda failure: self.log.warning('call link {}: cannot count the call: {}'.format(link['id'], failure.getErrorMessage())))
+        elif is_anonymous(account_info.id) and block_on(CallPolicies().rejects_anonymous(_aor_text(request.uri))):
+            self.log.info('outgoing session {} from {} to {} refused: anonymous calls are not accepted'.format(request.session, account_info.id, _aor_text(request.uri)))
+            raise APIError('Anonymous calls are not accepted')
+        session_info.backend = account_info.sip_backend.backend.create_outgoing_session(account_info, session_info, target, request.sdp, extra_headers)
         session_info.init_outgoing(account_info, request.uri)
         session_info.update_media(request.sdp)
         Metrics().increment('sessions')
@@ -2641,6 +2719,19 @@ class ConnectionHandler(object):
         self.sip_sessions.add(session_info)
 
         self.log.info('outgoing session {request.session} to {request.uri}'.format(request=request))
+
+    def _resolve_call_link(self, uri):
+        """(account, link) when uri is the token of a temporary call link: <token>@anonymous.invalid, alone or with another domain."""
+        if not CallLinksConfig.enabled:
+            return None
+        user, sep, domain = _aor_text(uri).partition('@')
+        token = user.lower()
+        if not call_links.is_token(token):
+            return None
+        resolved = block_on(threads.deferToThread(call_links.CallLinks().resolve, token))
+        if resolved is None and (not sep or domain.lower() == call_links.LINK_DOMAIN):
+            raise APIError('Unknown or expired call link')
+        return resolved
 
     def _RH_session_answer(self, request):
         try:
@@ -2731,6 +2822,8 @@ class ConnectionHandler(object):
 
         if session_info.state not in ('established', 'accepted'):
             raise APIError('Invalid state session {session.id}: {session.state} for sending messages'.format(session=session_info))
+        if session_info.call_link is not None:
+            raise APIError('Messages are not available in a call to a call link')
 
         metadata = sanitize_metadata(getattr(request, 'metadata', None))
         if session_info.backend.chat_active and _is_chat_content_type(request.content_type):
@@ -3668,6 +3761,8 @@ class ConnectionHandler(object):
         self.log.debug('{session.direction} session {session.id} state: {session.state}'.format(session=session_info))
 
     def sip_session_accepted(self, session_info, sdp=None, call_id=None, headers=None):
+        if session_info.call_link is not None:
+            headers = None
         # sdp is the remote answer (outgoing sessions) or the remote answer to
         # a local re-INVITE (local-updating), already converted to WebRTC.
         if session_info.state in ('local-updating', 'remote-updating'):
@@ -3796,6 +3891,8 @@ class ConnectionHandler(object):
 
     def sip_session_message(self, session_info, content, content_type, sender_uri, sender_display_name=None):
         # An in-dialog SIP MESSAGE
+        if session_info.call_link is not None:
+            return
         cpim_message = None
         if content_type in ("application/im-iscomposing+xml", "text/pgp-public-key"):
             return
@@ -3858,6 +3955,8 @@ class ConnectionHandler(object):
         # this is chat: the device in the call gets it as a session message, and
         # it is journaled as an incoming message of the account, with a live
         # copy to the account's other devices (not to this one, which has it).
+        if session_info.call_link is not None:
+            return
         account_info = session_info.account
         content_type = str(message.content_type)
         content = message.content

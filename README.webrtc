@@ -214,6 +214,22 @@ A client finds the gateway of a domain from the DNS TXT record
 _sylkserver.<domain>, which names a configuration document with the
 WebSocket server (wsServer), the ICE servers and the conference domains.
 
+Temporary call links: <web>/call/<token>@anonymous.invalid calls the account that made the link
+until it expires, without showing the account address to the caller. The links
+are managed on the page /webrtcgateway/call-links.html, which clients open with
+#account=<account>&token=<api token>&base=<web> when the configuration document
+has "temporaryCallLinks": true (see [CallLinks] in webrtcgateway.ini.sample); the page is
+call-links.html under the web root derived from wsServer.
+The call reaches the account with an X-Sylk-Call-Link: <link id>; name="<name>"
+header and the caller display name followed by "(via <name>)".
+
+Anonymous callers: when a WebSocket client fetches or writes the addressbook,
+the reject_anonymous attribute of the account's own contact is kept by the
+server (table call_policies, or files). A guest calling such an account through
+the gateway is refused before any INVITE is sent (call links excepted), and the
+push proxy drops the incoming call pushes, and their cancels, of anonymous SIP
+callers to it.
+
 Blink keeps messages in sync with the gateway's journal; see
 https://github.com/AGProjects/blink-cocoa and
 https://github.com/AGProjects/blink-qt for a SIP client using the HTTPS API.

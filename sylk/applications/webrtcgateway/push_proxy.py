@@ -10,6 +10,8 @@ before the forward completes, and the push server's response is logged rather
 than relayed.
 
 PushProxy.decide is the extension point for dropping or rewriting a request.
+Pushes of calls the callee does not accept (call_policy.py) are dropped after
+the caller has been answered.
 """
 
 import hmac
@@ -31,6 +33,7 @@ from zope.interface import implementer
 
 from sylk.configuration import ThorNodeConfig
 
+from .call_policy import CallPolicies
 from .configuration import GeneralConfig
 from .logger import log
 from .push import BytesProducer
@@ -328,7 +331,22 @@ class PushProxy(object, metaclass=Singleton):
                      (context.description, decision.reason or 'no reason given'))
             return 202, {'success': True, 'queued': False, 'reason': decision.reason}
 
-        self._forward(context, context.body if decision.body is None else decision.body)
+        body = context.body if decision.body is None else decision.body
+        if context.action != 'push':
+            self._forward(context, body)
+            return 202, {'success': True, 'queued': True}
+
+        def screened(reason):
+            if reason:
+                log.info('push proxy: dropped %s from %s: %s' % (context.description, context.originator, reason))
+            else:
+                self._forward(context, body)
+
+        def screening_failed(failure):
+            log.warning('push proxy: cannot screen %s, forwarding it: %s' % (context.description, failure.getErrorMessage()))
+            self._forward(context, body)
+        screening = CallPolicies().screen_push(context.account_key, context.event, context.originator, context.call_id)
+        screening.addCallbacks(screened, screening_failed)
         return 202, {'success': True, 'queued': True}
 
     def target_url(self, context):

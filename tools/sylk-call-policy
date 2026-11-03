@@ -1,0 +1,121 @@
+#!/usr/bin/env python3
+"""Show the call policies SylkServer keeps (webrtcgateway call_policy.py).
+
+  sylk-call-policy                 every account that has one
+  sylk-call-policy <account>       one account
+
+A policy is copied from the account's own contact whenever a WebSocket client
+fetches or writes the addressbook, and kept only when it rejects anonymous calls.
+"""
+import argparse
+import datetime
+import json
+import logging
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from application import log
+from application.process import process
+
+logging.getLogger('cassandra').setLevel(logging.WARNING)
+
+FIELDS = ('reject_anonymous',)
+
+
+def _when(ms):
+    try:
+        return datetime.datetime.fromtimestamp(int(ms) / 1000).strftime('%Y-%m-%d %H:%M:%S')
+    except (TypeError, ValueError, OverflowError, OSError):
+        return '-'
+
+
+def _aor(account):
+    account = account.strip().lower()
+    return account[4:] if account.startswith('sip:') else account
+
+
+def cassandra_policies(account=None):
+    from cassandra.cluster import EXEC_PROFILE_DEFAULT, Cluster, ExecutionProfile, NoHostAvailable
+    from cassandra.cqlengine import connection
+    from cassandra.policies import DCAwareRoundRobinPolicy
+    from sylk.applications.webrtcgateway.configuration import CassandraConfig
+    from sylk.applications.webrtcgateway.models.storage.cassandra import CallPolicy
+    profile = ExecutionProfile(load_balancing_policy=DCAwareRoundRobinPolicy(), request_timeout=60)
+    cluster = Cluster(CassandraConfig.cluster_contact_points, protocol_version=4, execution_profiles={EXEC_PROFILE_DEFAULT: profile})
+    try:
+        session = cluster.connect()
+    except NoHostAvailable:
+        log.warning("Can't connect to Cassandra cluster")
+        sys.exit(1)
+    connection.set_session(session)
+    CallPolicy.__keyspace__ = CassandraConfig.keyspace
+    print(f'Cassandra {", ".join(CassandraConfig.cluster_contact_points)}, keyspace {CassandraConfig.keyspace}, table {CallPolicy.__table_name__}\n')
+    try:
+        rows = CallPolicy.objects(account=account) if account else CallPolicy.objects.all().limit(None)
+        return [dict({name: getattr(row, name) for name in FIELDS}, account=row.account, updated=row.updated) for row in rows]
+    finally:
+        cluster.shutdown()
+
+
+def file_policies(account=None):
+    from sylk.applications.webrtcgateway.configuration import GeneralConfig
+    root = os.path.join(GeneralConfig.application_dir.normalized, 'call_policies')
+    print(f'Files under {root}\n')
+    paths = []
+    if account:
+        paths.append(os.path.join(root, account[0], account + '.json'))
+    elif os.path.isdir(root):
+        for letter in sorted(os.listdir(root)):
+            folder = os.path.join(root, letter)
+            if os.path.isdir(folder):
+                paths.extend(os.path.join(folder, name) for name in sorted(os.listdir(folder)) if name.endswith('.json'))
+    policies = []
+    for path in paths:
+        try:
+            with open(path) as f:
+                policy = json.load(f)
+        except (OSError, ValueError):
+            continue
+        policy['account'] = os.path.basename(path)[:-len('.json')]
+        policies.append(policy)
+    return policies
+
+
+def show(policies, account=None):
+    if not policies:
+        print(f'No call policy for {account}: anonymous calls are accepted' if account else 'No call policies')
+        return
+    width = max(len('account'), *(len(policy['account']) for policy in policies))
+    print(f'{"account":<{width}}  {"reject_anonymous":>16}  updated')
+    for policy in sorted(policies, key=lambda policy: policy['account']):
+        flag = 'yes' if policy.get('reject_anonymous') else 'no'
+        print(f'{policy["account"]:<{width}}  {flag:>16}  {_when(policy.get("updated"))}')
+    if not account:
+        rejecting = sum(1 for policy in policies if policy.get('reject_anonymous'))
+        print(f'\n{len(policies)} accounts, {rejecting} rejecting anonymous calls')
+
+
+if __name__ == '__main__':
+    process.configuration.subdirectory = 'sylkserver'
+
+    parser = argparse.ArgumentParser(description='Show the call policies SylkServer keeps.')
+    parser.add_argument('--config-dir', '--config-folder', dest='config_directory', default=None, metavar='PATH', help='Set a config directory.')
+    parser.add_argument('account', nargs='?', help='only this account')
+    options = parser.parse_args()
+
+    if options.config_directory is not None:
+        process.configuration.local_directory = options.config_directory
+
+    from sylk.server import ServerConfig
+    ServerConfig.__cfgtype__(ServerConfig.__cfgfile__)
+
+    from sylk.applications.webrtcgateway.configuration import CassandraConfig
+    account = _aor(options.account) if options.account else None
+    try:
+        import cassandra.cqlengine  # noqa: F401
+        use_cassandra = bool(CassandraConfig.cluster_contact_points)
+    except ImportError:
+        use_cassandra = False
+    show(cassandra_policies(account) if use_cassandra else file_policies(account), account)

@@ -551,6 +551,10 @@ class SIPSimpleCall(SIPCallBackend):
 
     # Outgoing call
 
+    @property
+    def _call_link(self):
+        return self.session_info is not None and getattr(self.session_info, 'call_link', None) is not None
+
     def call(self, uri, sdp, headers):
         # should only be called from a green thread
         session_info = self.session_info
@@ -575,7 +579,10 @@ class SIPSimpleCall(SIPCallBackend):
         self.session = Session(DefaultAccount())
         NotificationCenter().add_observer(self, sender=self.session)
         self._awaiting_answer = True
-        self.session.connect(self.account.from_header, ToHeader(SIPURI.parse(target)), route, self.streams,
+        from_header = self.account.from_header
+        if session_info.call_link is not None:
+            from_header = FromHeader(from_header.uri, session_info.call_link['display_name'])
+        self.session.connect(from_header, ToHeader(SIPURI.parse(target)), route, self.streams,
                              contact_header=contact_header, credentials=self.account.credentials,
                              extra_headers=self._extra_headers(headers))
         self.log.info('sipsimple: calling {} via {} with {}'.format(target, route.uri, ', '.join(stream.type for stream in self.streams)))
@@ -829,7 +836,7 @@ class SIPSimpleCall(SIPCallBackend):
                 stream.index = proposed.index
                 new_streams.append(stream)
         has_chat = self.chat_stream is not None and self.chat_stream in session.streams
-        chat_streams = [] if has_chat else [stream for stream in proposed_streams if stream.type == 'chat'][:1]
+        chat_streams = [] if has_chat or self._call_link else [stream for stream in proposed_streams if stream.type == 'chat'][:1]
         if not new_streams and not chat_streams:
             self.log.info('sipsimple: rejecting re-INVITE of {} adding {}, not supported'.format(session.remote_identity.uri, ', '.join(stream.type for stream in proposed_streams)))
             call_in_green_thread(session.reject_proposal, 488)

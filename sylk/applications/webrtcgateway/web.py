@@ -35,11 +35,13 @@ from sylk.web import (File, Klein, StaticFileResource,
                       TrackedUploadHTTPChannel, server)
 
 from . import account_storage
+from . import call_links
 from . import devices
 from .account_storage import AccountStorage
+from .call_policy import CallPolicies
 from .audio_level_udp import AudioLevelUDPClient
 from .configuration import (BUILTIN_WEBSERVER, AccountStorageConfig,
-                            CassandraConfig, FileStorageConfig, GeneralConfig,
+                            CallLinksConfig, CassandraConfig, FileStorageConfig, GeneralConfig,
                             JanusConfig)
 from .datatypes import FileTransferData
 from .factory import SylkWebSocketServerFactory
@@ -866,6 +868,119 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
             return self._storage_request(request, account, delete, render)
 
         return self._storage_request(request, account, None, None)
+
+    # Temporary call links (call_links.py), authorised by the account API token
+
+    @staticmethod
+    def _call_links_cors(request):
+        request.setHeader('Access-Control-Allow-Origin', '*')
+        request.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS')
+        request.setHeader('Access-Control-Allow-Headers', 'content-type, authorization, x-sylk-device-id, x-sylk-device-name')
+
+    @staticmethod
+    def _call_links_failure(failure, request):
+        errors = {ApiTokenAuthError: (401, 'unauthorized'),
+                  account_storage.InvalidName: (400, None),
+                  call_links.InvalidRequest: (400, None),
+                  call_links.NotFound: (404, 'not found'),
+                  call_links.LimitExceeded: (409, None)}
+        for error_type, (code, message) in errors.items():
+            if failure.check(error_type):
+                break
+        else:
+            log.error(f'Call links request {request.method.decode()} {request.uri.decode()} failed: {failure.getErrorMessage()}')
+            code, message = 500, 'internal error'
+        request.setResponseCode(code)
+        request.setHeader('Content-Type', 'application/json')
+        return json.dumps({'ok': False, 'error': message or str(failure.value)})
+
+    @staticmethod
+    def _call_links_body(request):
+        try:
+            body = json.loads((request.content.read() if request.content else b'') or b'{}')
+        except ValueError:
+            raise call_links.InvalidRequest('the body is not JSON')
+        if not isinstance(body, dict):
+            raise call_links.InvalidRequest('the body is not a JSON object')
+        return body
+
+    def _call_links_request(self, request, account, operation, render):
+        self._call_links_cors(request)
+        if request.method == b'OPTIONS':
+            return b''
+        if not CallLinksConfig.enabled:
+            raise NotFound()
+        try:
+            account = account_storage.normalize_account(account)
+        except account_storage.InvalidName as e:
+            return self._call_links_failure(Failure(e), request)
+        deferred = defer.maybeDeferred(MessageStorage().get_account_token, account)
+        deferred.addCallback(lambda token: self._check_api_token(request, account, token))
+        deferred.addCallback(lambda _: self._device_seen(request, account))
+        deferred.addCallback(lambda _: threads.deferToThread(operation, call_links.CallLinks(), account))
+        deferred.addCallback(render)
+        deferred.addErrback(self._call_links_failure, request)
+        return deferred
+
+    @staticmethod
+    def _call_link_log(account, op, link, request):
+        expires = datetime.datetime.fromtimestamp(link['expires'] / 1000, datetime.timezone.utc).isoformat(timespec='minutes')
+        writer = account_storage.writer(request.getHeader('X-Sylk-Device-Id'), WebRTCGatewayWeb._device_name(request))
+        log.info(f'Call links: {account} {op} link {link["id"]} ({link["name"]}) valid until {expires} by {writer}')
+
+    @app.route('/call-links/<string:account>', methods=['OPTIONS', 'GET', 'POST'])
+    def call_links_list(self, request, account):
+        if request.method == b'POST':
+            try:
+                body = self._call_links_body(request)
+            except call_links.CallLinkError as e:
+                self._call_links_cors(request)
+                return self._call_links_failure(Failure(e), request)
+            device_id, device_name = request.getHeader('X-Sylk-Device-Id'), self._device_name(request)
+
+            def create(links, account):
+                return account, links.create(account, body.get('name'), body.get('expires'), device_id, device_name)
+
+            def render(result):
+                account, link = result
+                self._call_link_log(account, 'created', link, request)
+                return self._json_response(request, link, 201)
+            return self._call_links_request(request, account, create, render)
+
+        return self._call_links_request(request, account,
+                                        lambda links, account: {'account': account, 'links': links.list(account)},
+                                        lambda result: self._json_response(request, result))
+
+    @app.route('/call-links/<string:account>/<string:link_id>', methods=['OPTIONS', 'PUT', 'PATCH', 'DELETE'])
+    def call_link(self, request, account, link_id):
+        if request.method == b'DELETE':
+            def delete(links, account):
+                return account, links.delete(account, link_id)
+
+            def render(result):
+                account, link = result
+                self._call_link_log(account, 'removed', link, request)
+                request.setResponseCode(204)
+                return b''
+            return self._call_links_request(request, account, delete, render)
+
+        if request.method in (b'PUT', b'PATCH'):
+            try:
+                body = self._call_links_body(request)
+            except call_links.CallLinkError as e:
+                self._call_links_cors(request)
+                return self._call_links_failure(Failure(e), request)
+
+            def update(links, account):
+                return account, links.update(account, link_id, name=body.get('name'), expires=body.get('expires'))
+
+            def render(result):
+                account, link = result
+                self._call_link_log(account, 'updated', link, request)
+                return self._json_response(request, link)
+            return self._call_links_request(request, account, update, render)
+
+        return self._call_links_request(request, account, None, None)
 
     # Push proxy: mirrors the push server's API and relays to it. POST/DELETE
     # on /v2/tokens/<account> add and remove a device token. The
@@ -2747,7 +2862,8 @@ class AdminWebHandler(object, metaclass=Singleton):
 
         def purge_account_storage():
             files, size = AccountStorage().purge(account)
-            return {'storage_objects': files, 'storage_bytes': size}
+            CallPolicies().forget(account)
+            return {'storage_objects': files, 'storage_bytes': size, 'call_links': call_links.CallLinks().purge(account)}
 
         dl = defer.DeferredList([db_deferred, threads.deferToThread(purge_transfers), threads.deferToThread(purge_account_storage)],
                                 consumeErrors=True)

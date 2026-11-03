@@ -12,7 +12,7 @@ from sylk.configuration.datatypes import (URL, Path, SIPProxyAddress,
                                           VideoCodec)
 from sylk.resources import VarResources
 
-__all__ = 'GeneralConfig', 'JanusConfig', 'AccountStorageConfig', 'get_room_config', 'ExternalAuthConfig', 'get_auth_config', 'CassandraConfig'
+__all__ = 'GeneralConfig', 'JanusConfig', 'AccountStorageConfig', 'CallLinksConfig', 'get_room_config', 'ExternalAuthConfig', 'get_auth_config', 'CassandraConfig'
 
 
 # Datatypes
@@ -335,6 +335,17 @@ class AccountStorageConfig(ConfigSection):
     max_object_size = 262144
     max_account_size = 20971520
     max_objects = 10000
+
+
+class CallLinksConfig(ConfigSection):
+    __cfgfile__ = 'webrtcgateway.ini'
+    __section__ = 'CallLinks'
+
+    enabled = True
+    storage_dir = ConfigSetting(type=Path, value=Path(os.path.join(GeneralConfig.application_dir.normalized, 'call_links')))
+    max_links = 100
+    max_lifetime = 365          # days
+    retention = 7               # days an expired link stays listed
 
 
 class RoomConfig(ConfigSection):

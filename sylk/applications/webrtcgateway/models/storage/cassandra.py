@@ -82,3 +82,32 @@ class AccountObject(Model):
     device_id        = columns.Text(required=False)    # X-Sylk-Device-Id of the uploader
     device_name      = columns.Text(required=False)    # X-Sylk-Device-Name of the uploader, for humans
     data             = columns.Blob()
+
+
+class CallLink(Model):
+    __table_name__   = 'call_links_by_account'
+    account          = columns.Text(partition_key=True)
+    link_id          = columns.Text(primary_key=True)
+    token            = columns.Text()
+    name             = columns.Text()
+    created          = columns.BigInt()
+    expires          = columns.BigInt()
+    device_id        = columns.Text(required=False)
+    device_name      = columns.Text(required=False)
+    calls            = columns.Integer(required=False)
+    last_call        = columns.BigInt(required=False)
+
+
+class CallLinkToken(Model):
+    __table_name__   = 'call_links_by_token'
+    token            = columns.Text(partition_key=True)
+    account          = columns.Text()
+    link_id          = columns.Text()
+    expires          = columns.BigInt()
+
+
+class CallPolicy(Model):
+    __table_name__      = 'call_policies'
+    account             = columns.Text(partition_key=True)
+    reject_anonymous    = columns.Boolean(required=False)
+    updated             = columns.BigInt()

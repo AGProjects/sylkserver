@@ -210,6 +210,28 @@ api_secret = 0745f2f74f34451c89343afcdcae5809
 ; otherwise in files under storage_dir (single server only)
 ; enabled = True
 ; storage_dir = /var/lib/sylkserver/webrtcgateway/account_storage
+
+[CallLinks]
+; Temporary links others can call an account at, <web>/call/<token>@anonymous.invalid, without
+; learning its address. Managed with the account API token at:
+;     GET    /webrtcgateway/call-links/<account>                (list)
+;     POST   /webrtcgateway/call-links/<account>                {"name", "expires"}
+;     PUT    /webrtcgateway/call-links/<account>/<id>           {"name"} and/or {"expires"}
+;     DELETE /webrtcgateway/call-links/<account>/<id>
+; expires is a time in milliseconds since the epoch. The management page is
+; /webrtcgateway/call-links.html#account=<account>&token=<api token>&base=<web>;
+; set "temporaryCallLinks": true in the domain's _sylkserver configuration document so
+; clients offer it.
+; With the Cassandra backend the links are kept in the tables
+; call_links_by_account and call_links_by_token (tools/sylk-create-cassandra-tables
+; creates them), otherwise in files under storage_dir (single server only)
+; enabled = True
+; storage_dir = /var/lib/sylkserver/webrtcgateway/call_links
+; max_links = 100
+; Longest validity of a link, in days
+; max_lifetime = 365
+; Days an expired link stays listed
+; retention = 7
 ; Limits in bytes, and the maximum number of objects per account
 ; max_object_size = 262144
 ; max_account_size = 20971520
