@@ -1,3 +1,10 @@
+sylkserver (7.3.0) unstable; urgency=medium
+
+  * webrtcgateway: Added support for temporary links for incoming calls
+  * webrtcgateway: Answer SDES media lines with the RTP profile of the offer
+
+ -- Adrian Georgescu <ag@ag-projects.com>  Tue, 03 Nov 2026 11:18:38 -0300
+
 sylkserver (7.2.0) unstable; urgency=medium
 
   * Moved sounds to the separate sylkserver-sounds source package
