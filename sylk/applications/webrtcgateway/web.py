@@ -39,6 +39,7 @@ from . import call_links
 from . import devices
 from .account_storage import AccountStorage
 from .call_policy import CallPolicies
+from .sip_login import LoginError, TooManyAttempts, sip_login
 from .audio_level_udp import AudioLevelUDPClient
 from .configuration import (BUILTIN_WEBSERVER, AccountStorageConfig,
                             CallLinksConfig, CassandraConfig, FileStorageConfig, GeneralConfig,
@@ -950,6 +951,40 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
         return self._call_links_request(request, account,
                                         lambda links, account: {'account': account, 'links': links.list(account)},
                                         lambda result: self._json_response(request, result))
+
+    @app.route('/call-links/<string:account>/login', methods=['OPTIONS', 'POST'])
+    def call_links_login(self, request, account):
+        # SIP credentials for the API token, for a page opened without one (sip_login.py)
+        self._call_links_cors(request)
+        request.setHeader('Cache-Control', 'no-store')
+        if request.method == b'OPTIONS':
+            return b''
+        if not CallLinksConfig.enabled:
+            raise NotFound()
+        try:
+            body = self._call_links_body(request)
+        except call_links.CallLinkError as e:
+            return self._json_response(request, {'ok': False, 'error': str(e)}, 400)
+        peer = request.getClientAddress()
+        address = devices.forwarded_ip(request.getHeader('X-Forwarded-For'), getattr(peer, 'host', None))
+
+        def done(token):
+            answer = {'ok': True, 'account': account.strip().lower(), 'token': token}
+            if CallLinksConfig.public_url:
+                answer['base'] = CallLinksConfig.public_url.rstrip('/')
+            return self._json_response(request, answer)
+
+        def failed(failure):
+            if failure.check(TooManyAttempts):
+                return self._json_response(request, {'ok': False, 'error': str(failure.value)}, 429)
+            if failure.check(LoginError):
+                code = 401 if 'wrong' in str(failure.value) else 400 if 'invalid' in str(failure.value) or 'not allowed' in str(failure.value) else 502
+                return self._json_response(request, {'ok': False, 'error': str(failure.value)}, code)
+            log.error(f'SIP login for {account} failed: {failure.getErrorMessage()}')
+            return self._json_response(request, {'ok': False, 'error': 'internal error'}, 500)
+        deferred = sip_login().login(account, body.get('ha1'), address)
+        deferred.addCallbacks(done, failed)
+        return deferred
 
     @app.route('/call-links/<string:account>/<string:link_id>', methods=['OPTIONS', 'PUT', 'PATCH', 'DELETE'])
     def call_link(self, request, account, link_id):

@@ -346,6 +346,7 @@ class CallLinksConfig(ConfigSection):
     max_links = 100
     max_lifetime = 365          # days
     retention = 7               # days an expired link stays listed
+    public_url = ConfigSetting(type=str, value=None)    # web address the links start with, for a page opened without one
 
 
 class RoomConfig(ConfigSection):

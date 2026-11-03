@@ -232,6 +232,13 @@ api_secret = 0745f2f74f34451c89343afcdcae5809
 ; max_lifetime = 365
 ; Days an expired link stays listed
 ; retention = 7
+; The page can also be opened without a token: it then asks for the SIP
+; account and password, checked by the SIP proxy with a REGISTER that has no
+; Contact (a query), in exchange for the account API token:
+;     POST   /webrtcgateway/call-links/<account>/login            {"ha1": md5(user:domain:password)}
+; 5 failed logins per account or address in 15 minutes are refused (429).
+; The web address the links start with, for a page opened without one
+; public_url = https://webrtc.example.com
 ; Limits in bytes, and the maximum number of objects per account
 ; max_object_size = 262144
 ; max_account_size = 20971520
