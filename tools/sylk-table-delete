@@ -1,0 +1,103 @@
+#!/usr/bin/env python3
+"""Drop a SylkServer Cassandra table (DROP TABLE): the table and all its rows are gone.
+sylk-create-cassandra-tables --apply creates it again, empty.
+
+  sylk-table-delete <table> [--yes] [--config-dir PATH]
+
+The table is one of the configured keyspace. It asks for the table name to be
+typed again unless --yes is given.
+"""
+import argparse
+import logging
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from application import log
+from application.process import process
+
+logging.getLogger('cassandra').setLevel(logging.WARNING)
+
+
+def quote(name):
+    from cassandra.metadata import maybe_escape_name
+    return maybe_escape_name(name)
+
+
+def known_tables():
+    """The tables of the SylkServer models, by name."""
+    from cassandra.cqlengine.models import Model
+    from sylk.applications.webrtcgateway.configuration import CassandraConfig
+    from sylk.applications.webrtcgateway.models.storage import cassandra as models
+    if CassandraConfig.push_tokens_table:
+        models.PushTokens.__table_name__ = CassandraConfig.push_tokens_table
+    return {value.__table_name__ for value in vars(models).values()
+            if isinstance(value, type) and issubclass(value, Model) and value is not Model and getattr(value, '__table_name__', None)}
+
+
+def main(table, assume_yes):
+    from cassandra.cluster import EXEC_PROFILE_DEFAULT, Cluster, ExecutionProfile, NoHostAvailable
+    from cassandra.policies import DCAwareRoundRobinPolicy
+    from sylk.applications.webrtcgateway.configuration import CassandraConfig
+    if not CassandraConfig.cluster_contact_points or not CassandraConfig.keyspace:
+        log.warning('Cassandra is not configured (webrtcgateway.ini [Cassandra])')
+        sys.exit(1)
+    keyspace = CassandraConfig.keyspace
+    profile = ExecutionProfile(load_balancing_policy=DCAwareRoundRobinPolicy(), request_timeout=120)
+    cluster = Cluster(CassandraConfig.cluster_contact_points, protocol_version=4, execution_profiles={EXEC_PROFILE_DEFAULT: profile})
+    try:
+        session = cluster.connect()
+    except NoHostAvailable:
+        log.warning("Can't connect to Cassandra cluster")
+        sys.exit(1)
+    try:
+        print(f'Cluster: {", ".join(CassandraConfig.cluster_contact_points)}')
+        print(f'Keyspace: {keyspace}\n')
+        metadata = cluster.metadata.keyspaces.get(keyspace)
+        if metadata is None:
+            log.warning(f'Keyspace {keyspace} does not exist')
+            sys.exit(1)
+        if table not in metadata.tables:
+            log.warning(f'Table {table} does not exist in keyspace {keyspace}; tables: {", ".join(sorted(metadata.tables)) or "none"}')
+            sys.exit(1)
+        if table not in known_tables():
+            print(f'Note: {table} is not a table of the SylkServer models')
+        statement = f'DROP TABLE {quote(keyspace)}.{quote(table)}'
+        print(statement)
+        if not assume_yes:
+            try:
+                answer = input(f'Drop {keyspace}.{table}? Type the table name to confirm: ')
+            except (EOFError, KeyboardInterrupt):
+                print()
+                sys.exit(1)
+            if answer.strip() != table:
+                print('Not confirmed, nothing done')
+                sys.exit(1)
+        session.execute(statement, timeout=300)
+        print(f'{keyspace}.{table} dropped')
+    finally:
+        cluster.shutdown()
+
+
+if __name__ == '__main__':
+    process.configuration.subdirectory = 'sylkserver'
+
+    parser = argparse.ArgumentParser(description='''Drop a SylkServer Cassandra table (DROP TABLE): the table and all its rows are gone.''')
+    parser.add_argument('--config-dir', '--config-folder', dest='config_directory', default=None, metavar='PATH', help='Set a config directory.')
+    parser.add_argument('table', help='the table name')
+    parser.add_argument('--yes', action='store_true', help='do not ask for confirmation')
+    options = parser.parse_args()
+
+    if options.config_directory is not None:
+        process.configuration.local_directory = options.config_directory
+
+    from sylk.server import ServerConfig
+    ServerConfig.__cfgtype__(ServerConfig.__cfgfile__)
+
+    try:
+        import cassandra.cluster  # noqa: F401
+    except ImportError:
+        log.warning('The Cassandra driver (python3-cassandra) is not installed')
+        sys.exit(1)
+    main(options.table.strip(), options.yes)
