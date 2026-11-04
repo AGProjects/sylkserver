@@ -36,7 +36,8 @@ from .location import LOCATION_CONTENT_TYPE, location_envelope
 from .logger import log, file_transfers_log, messaging_log, QUIET_CONTENT_TYPES
 from .metadata import metadata_from_cpim_headers
 from .models import sylkrtc
-from .storage import MessageStorage
+from .errors import StorageError
+from .storage import MessageStorage, storage_errback
 
 
 def log_uri(uri):
@@ -248,6 +249,7 @@ class MessageHandler(object):
         existing_token = self.message_storage.get_account_token(account)
         if isinstance(existing_token, defer.Deferred):
             existing_token.addCallback(send_token)
+            existing_token.addErrback(storage_errback(messaging_log, f'API token request of {account} not answered'))
         else:
             send_token(existing_token)
 
@@ -293,6 +295,7 @@ class MessageHandler(object):
 
         account = defer.maybeDeferred(self.message_storage.get_account, from_account)
         account.addCallback(lambda result: mark_conversations_read(result))
+        account.addErrback(storage_errback(messaging_log, f'Conversation read of {from_account} not processed'))
 
     def _handle_conversation_remove(self):
         from_account = f'{self.from_header.uri.user}@{self.from_header.uri.host}'
@@ -344,6 +347,7 @@ class MessageHandler(object):
 
         account = defer.maybeDeferred(self.message_storage.get_account, from_account)
         account.addCallback(lambda result: remove_conversation(result))
+        account.addErrback(storage_errback(messaging_log, f'Conversation remove of {from_account} not processed'))
 
     # Requests a device sends to its own account, relayed to all its devices: the server journals the
     # payload under its own id, so offline devices get it at their next sync, and sends it live to every
@@ -415,6 +419,7 @@ class MessageHandler(object):
 
         stored = defer.maybeDeferred(self.message_storage.get_account, account)
         stored.addCallback(relay)
+        stored.addErrback(storage_errback(messaging_log, f'{label} of {account} not processed'))
 
     def _handle_message_remove(self):
         account = f'{self.from_header.uri.user}@{self.from_header.uri.host}'
@@ -427,7 +432,8 @@ class MessageHandler(object):
                 if message.message_id == msg_id and message.direction == 'incoming':
                     account = message.account
                     message_id = message.message_id
-                    self.message_storage.removeMessage(account=account, message_id=message_id)
+                    removed = defer.maybeDeferred(self.message_storage.removeMessage, account=account, message_id=message_id)
+                    removed.addErrback(storage_errback(messaging_log, f'Message {message_id} not removed from the journal of {account}'))
 
                     content = sylkrtc.AccountMessageRemoveEventData(contact=message.contact, message_id=message_id, direction="incoming")
                     self.message_storage.add(account=account,
@@ -465,11 +471,13 @@ class MessageHandler(object):
             messages = self.message_storage[[contact, '']]
             if isinstance(messages, defer.Deferred):
                 messages.addCallback(lambda result: remove_message_from_receiver(msg_id=message_id, messages=result))
+                messages.addErrback(storage_errback(messaging_log, f'Message {message_id} not removed from the journal of {contact}'))
             else:
                 remove_message_from_receiver(msg_id=message_id, messages=messages)
 
         removed = defer.maybeDeferred(self.message_storage.removeMessage, account, message_id)
         removed.addCallback(lambda result: update_other_endpoints(result))
+        removed.addErrback(storage_errback(messaging_log, f'Message {message_id} of {account} not removed'))
 
     def _store_message_for_sender(self, account):
         ignored_content_types = ("application/im-iscomposing+xml", 'text/pgp-public-key', IMDNDocument.content_type, 'application/sylk-storage-changed')
@@ -657,6 +665,11 @@ class MessageHandler(object):
                 messages = self.message_storage[[account.account, '']]
                 if isinstance(messages, defer.Deferred):
                     messages.addCallback(lambda result: get_unread_messages(messages=result, originator=message.sender))
+                    def push_without_count(failure):
+                        failure.trap(StorageError)
+                        messaging_log.warning(f'Unread count of {account.account} unknown (message storage unavailable), push sent with badge 1')
+                        get_unread_messages(messages=[], originator=message.sender)
+                    messages.addErrback(push_without_count)
                 else:
                     get_unread_messages(messages=messages, originator=message.sender)
 
@@ -703,12 +716,14 @@ class MessageHandler(object):
             sender_account = self.message_storage.get_account(f'{self.from_header.uri.user}@{self.from_header.uri.host}')
             if isinstance(sender_account, defer.Deferred):
                 sender_account.addCallback(lambda result: self._store_message_for_sender(result))
+                sender_account.addErrback(storage_errback(messaging_log, f'Message {self.parsed_message.message_id} not stored for the sender'))
             else:
                 self._store_message_for_sender(sender_account)
 
         account = self.message_storage.get_account(f'{self.to_header.uri.user}@{self.to_header.uri.host}')
         if isinstance(account, defer.Deferred):
             account.addCallback(lambda result: self._store_message_for_receiver(result))
+            account.addErrback(storage_errback(messaging_log, f'Message {self.parsed_message.message_id} not stored for the receiver'))
         else:
             self._store_message_for_receiver(account)
 

@@ -55,6 +55,7 @@ from .models import sylkrtc
 from .protocol import SYLK_WS_PROTOCOL
 from .push_proxy import PushProxy
 from .sip_handlers import MessageHandler
+from .errors import StorageError
 from .storage import CASSANDRA_MODULES_AVAILABLE, MessageStorage, TokenStorage
 
 __all__ = 'WebHandler', 'AdminWebHandler'
@@ -304,6 +305,10 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
             raise Exception("Sender account for file upload not found")
 
     def _handle_lookup_result(self, result, transfer_data, connection):
+        failure = next((value for (success, value) in result if success is not True and value.check(StorageError)), None)
+        if failure is not None:
+            file_transfers_log.warning('File upload rejected: message storage unavailable')
+            failure.raiseException()  # answered 503 by storage_error
         reject_session = all([success is not True for (success, value) in result])
         if reject_session:
             self._reject_upload("Sender and receiver accounts for file upload were not found")
@@ -433,6 +438,14 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
     def auth_error(self, request, failure):
         request.setResponseCode(401)
         return b'Unauthorized'
+
+    @app.handle_errors(StorageError)
+    def storage_error(self, request, failure):
+        # the cause is logged where it happened
+        log.warning(f'{request.method.decode()} {request.uri.decode()} answered 503: message storage unavailable')
+        request.setResponseCode(503)
+        request.setHeader('Retry-After', '30')
+        return b'Message storage unavailable'
 
     @app.route('/messages/history/<string:account>', methods=['OPTIONS', 'GET'])
     @app.route('/messages/history/<string:account>/<string:msg_id>', methods=['OPTIONS', 'GET'])
@@ -1266,6 +1279,14 @@ class AdminWebHandler(object, metaclass=Singleton):
     def auth_error(self, request, failure):
         request.setResponseCode(403)
         return 'Authentication error'
+
+    @app.handle_errors(StorageError)
+    def storage_error(self, request, failure):
+        # the cause is logged where it happened
+        log.warning(f'[admin] {request.method.decode()} {request.uri.decode()} answered 503: message storage unavailable')
+        request.setResponseCode(503)
+        request.setHeader('Retry-After', '30')
+        return 'Message storage unavailable'
 
     # ------------------------------------------------------------------
     # Browser login — username/password issues a session cookie that

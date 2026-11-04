@@ -57,6 +57,7 @@ from . import devices
 from .auth import AuthHandler
 from .configuration import (CallLinksConfig, ExternalAuthConfig, GeneralConfig, JanusConfig,
                             get_room_config)
+from .errors import StorageError
 from .janus import (JanusBackend, JanusError, JanusSession,
                     VideoroomPluginHandle)
 from .logger import ConnectionLogger, VideoroomLogger
@@ -65,7 +66,7 @@ from .metrics import Metrics
 from .models import janus, sylkrtc
 from .sip_backends import SIPBackendError, get_backend_class
 from .sip_handlers import MessageHandler, log_uri
-from .storage import MessageStorage, TokenStorage
+from .storage import CassandraMessageStorage, MessageStorage, TokenStorage, storage_errback
 
 
 _SIP_URI_RE = re.compile(r'^sips?:[^\s@]+@[^\s@]+$')
@@ -2039,7 +2040,7 @@ class ConnectionHandler(object):
         request = operation.data
         try:
             handler(request)
-        except (APIError, DNSLookupError, JanusError, SIPBackendError) as e:
+        except (APIError, DNSLookupError, JanusError, SIPBackendError, StorageError) as e:
             self.log.error('{operation.name}: {exception!s}'.format(operation=operation, exception=e))
             self.send(sylkrtc.ErrorResponse(transaction=request.transaction, error=str(e)))
         except Exception as e:
@@ -2362,7 +2363,9 @@ class ConnectionHandler(object):
         messages = storage[[account_info.id, request.message_id, since]]
 
         if isinstance(messages, defer.Deferred):
-            messages.addCallback(lambda result: self.send(sylkrtc.AccountSyncConversationsEvent(account=account_info.id, messages=result[:request.limit])))
+            # wait for it, so a failed storage is answered with an error response instead of the ack
+            messages = block_on(messages)
+            self.send(sylkrtc.AccountSyncConversationsEvent(account=account_info.id, messages=messages[:request.limit]))
 
     def _RH_account_mark_conversation_read(self, request):
         try:
@@ -2405,7 +2408,8 @@ class ConnectionHandler(object):
         message_id = request.message_id
 
         storage = MessageStorage()
-        storage.removeMessage(account=account_info.id, message_id=message_id)
+        removed = defer.maybeDeferred(storage.removeMessage, account=account_info.id, message_id=message_id)
+        removed.addErrback(storage_errback(self.log.messaging, f'Message {message_id} not removed from the journal of {account_info.id}'))
 
         content = sylkrtc.AccountMessageRemoveEventData(contact=contact, message_id=message_id)
         storage.add(account=account_info.id,
@@ -2434,7 +2438,8 @@ class ConnectionHandler(object):
                 contact = message["contact"] if is_dict else message.contact
                 if message_id == msg_id and direction == 'incoming':
                     storage = MessageStorage()
-                    storage.removeMessage(account=account, message_id=message_id)
+                    removed = defer.maybeDeferred(storage.removeMessage, account=account, message_id=message_id)
+                    removed.addErrback(storage_errback(self.log.messaging, f'Message {message_id} not removed from the journal of {account}'))
 
                     content = sylkrtc.AccountMessageRemoveEventData(contact=contact, message_id=message_id, direction="incoming")
                     storage.add(account=account,
@@ -2454,6 +2459,7 @@ class ConnectionHandler(object):
         messages = storage[[contact, '']]
         if isinstance(messages, defer.Deferred):
             messages.addCallback(lambda result: receiver_remove_message(msg_id=request.message_id, messages=result))
+            messages.addErrback(storage_errback(self.log.messaging, f'Message {request.message_id} not removed from the journal of {contact}'))
 
     def _RH_account_remove_conversation(self, request):
         try:

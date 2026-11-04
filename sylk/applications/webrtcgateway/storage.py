@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import pickle as pickle
+from functools import partial
 from collections import defaultdict
 from shutil import rmtree
 from types import SimpleNamespace
@@ -97,12 +98,67 @@ else:
         from cassandra.cqlengine.query import LWTException
         from cassandra.concurrent import execute_concurrent_with_args
         from cassandra.policies import DCAwareRoundRobinPolicy
+        from cassandra import DriverException, OperationTimedOut, RequestExecutionException
 
         from .models.storage.cassandra import (ChatAccount, ChatMessage,
                                                ChatMessageIdMapping, PublicKey,
                                                PushTokens)
         if CassandraConfig.push_tokens_table:
             PushTokens.__table_name__ = CassandraConfig.push_tokens_table
+
+
+def cassandra_error(e):
+    """One line describing a Cassandra driver error, with the error of every host tried."""
+    if isinstance(e, NoHostAvailable):
+        errors = getattr(e, 'errors', None) or {}
+        text = 'no Cassandra host available'
+        if errors:
+            text += ' (%s)' % ', '.join('%s: %s' % (host, error) for host, error in errors.items())
+        return text
+    return '%s: %s' % (type(e).__name__, e)
+
+
+def run_in_cassandra_thread(func=None, deferred=None):
+    """run_in_thread('cassandra') logging an unreachable or failing Cassandra as
+    one error line instead of a traceback. With deferred (the Deferred of a
+    lookup), a failure errbacks it with StorageError, so the caller is never
+    left waiting."""
+    if func is None:
+        return partial(run_in_cassandra_thread, deferred=deferred)
+    name = func.__qualname__.replace('.<locals>', '')
+
+    def fail(text):
+        if deferred is not None:
+            reactor.callFromThread(lambda: deferred.called or deferred.errback(StorageError(text)))
+
+    def wrapper(*args, **kw):
+        try:
+            return func(*args, **kw)
+        except StorageError as e:
+            fail(str(e) or 'storage error')  # already logged
+        except (NoHostAvailable, OperationTimedOut, RequestExecutionException, DriverException) as e:
+            text = 'Cassandra %s failed: %s' % (name, cassandra_error(e))
+            log.error(text)
+            fail(text)
+        except Exception as e:
+            if deferred is None:
+                raise
+            log.exception('Cassandra %s failed' % name)
+            fail('Cassandra %s failed: %s: %s' % (name, type(e).__name__, e))
+    # no functools.wraps: run_in_thread rebuilds the signature of what it wraps, and
+    # with __wrapped__ it would take func's parameters but the wrapper's (missing)
+    # defaults, making every argument with a default required
+    wrapper.__name__, wrapper.__qualname__, wrapper.__doc__, wrapper.__module__ = func.__name__, func.__qualname__, func.__doc__, func.__module__
+    return run_in_thread('cassandra')(wrapper)
+
+
+def storage_errback(logger, what):
+    """Errback for a storage lookup whose failure needs no answer: logs one line
+    for a StorageError (the cause is logged where it happened)."""
+    def errback(failure):
+        failure.trap(StorageError)
+        logger.warning('%s: message storage unavailable' % what)
+    return errback
 
 
 class FileTokenStorage(object):
@@ -186,7 +242,7 @@ class FileTokenStorage(object):
 
 
 class CassandraConnection(object, metaclass=Singleton):
-    @run_in_thread('cassandra')
+    @run_in_cassandra_thread
     def __init__(self):
         try:
             from cassandra.io import twistedreactor
@@ -197,14 +253,14 @@ class CassandraConnection(object, metaclass=Singleton):
 
 
 class CassandraTokenStorage(object):
-    @run_in_thread('cassandra')
+    @run_in_cassandra_thread
     def load(self):
         CassandraConnection()
 
     def __getitem__(self, key):
         deferred = defer.Deferred()
 
-        @run_in_thread('cassandra')
+        @run_in_cassandra_thread(deferred=deferred)
         def query_tokens(key):
             username, domain = key.split('@', 1)
             tokens = {}
@@ -217,7 +273,7 @@ class CassandraTokenStorage(object):
         query_tokens(key)
         return deferred
 
-    @run_in_thread('cassandra')
+    @run_in_cassandra_thread
     def add(self, account, contact_params, user_agent):
         username, domain = account.split('@', 1)
 
@@ -246,7 +302,7 @@ class CassandraTokenStorage(object):
             log.error(f'Storing token failed: {e}')
             raise StorageError
 
-    @run_in_thread('cassandra')
+    @run_in_cassandra_thread
     def remove(self, account, app_id, device_id):
         username, domain = account.split('@', 1)
         try:
@@ -768,14 +824,14 @@ class FileMessageStorage(object):
 
 
 class CassandraMessageStorage(object):
-    @run_in_thread('cassandra')
+    @run_in_cassandra_thread
     def load(self):
         CassandraConnection()
 
     def __getitem__(self, key):
         deferred = defer.Deferred()
 
-        @run_in_thread('cassandra')
+        @run_in_cassandra_thread(deferred=deferred)
         def query_messages(key, message_id, since):
             messages = []
             try:
@@ -810,7 +866,7 @@ class CassandraMessageStorage(object):
     def get_account(self, account):
         deferred = defer.Deferred()
 
-        @run_in_thread('cassandra')
+        @run_in_cassandra_thread(deferred=deferred)
         def query_tokens(account):
             try:
                 chat_account = ChatAccount.objects(ChatAccount.account == account)[0]
@@ -825,7 +881,7 @@ class CassandraMessageStorage(object):
     def get_account_token(self, account):
         deferred = defer.Deferred()
 
-        @run_in_thread('cassandra')
+        @run_in_cassandra_thread(deferred=deferred)
         def query_tokens(account):
             try:
                 chat_account = ChatAccount.objects(ChatAccount.account == account)[0]
@@ -837,7 +893,7 @@ class CassandraMessageStorage(object):
         query_tokens(account)
         return deferred
 
-    @run_in_thread('cassandra')
+    @run_in_cassandra_thread
     def add_account(self, account):
         timestamp = datetime.datetime.now()
 
@@ -847,7 +903,7 @@ class CassandraMessageStorage(object):
             log.error(f'Storing account failed: {e}')
             raise StorageError
 
-    @run_in_thread('cassandra')
+    @run_in_cassandra_thread
     def add_account_token(self, account, token):
         try:
             chat_account = ChatAccount.objects(account=account)[0]
@@ -856,7 +912,7 @@ class CassandraMessageStorage(object):
             log.error(f'Updating API token for {account} failed')
             raise StorageError
 
-    @run_in_thread('cassandra')
+    @run_in_cassandra_thread
     def mark_conversation_read(self, account, contact):
         for message in ChatMessage.objects(ChatMessage.account == account).limit(None):
             if message.contact == contact:
@@ -869,7 +925,7 @@ class CassandraMessageStorage(object):
     def get_public_key(self, account):
         deferred = defer.Deferred()
 
-        @run_in_thread('cassandra')
+        @run_in_cassandra_thread(deferred=deferred)
         def query_key(account):
             # no key is None; a failed query is an error, never "no key": a client
             # told there is no key generates a new one and orphans the old messages
@@ -885,7 +941,7 @@ class CassandraMessageStorage(object):
         query_key(account)
         return deferred
 
-    @run_in_thread('cassandra')
+    @run_in_cassandra_thread
     def update(self, account, state, message_id):
         try:
             timestamp = ChatMessageIdMapping.objects(ChatMessageIdMapping.message_id == message_id)[0]
@@ -910,7 +966,7 @@ class CassandraMessageStorage(object):
                     message.disposition.clear()
                 message.save()
 
-    @run_in_thread('cassandra')
+    @run_in_cassandra_thread
     def add(self, account, contact, direction, content, content_type, timestamp, disposition_notification, message_id, state=None, metadata=None):
         Metrics().count_message(content_type)
         try:
@@ -963,7 +1019,7 @@ class CassandraMessageStorage(object):
             log.error(f'Storing message failed: {e}')
             raise StorageError
 
-    @run_in_thread('cassandra')
+    @run_in_cassandra_thread
     def removeChat(self, account, contact):
         try:
             messages = ChatMessage.objects(ChatMessage.account == account).limit(None)
@@ -977,7 +1033,7 @@ class CassandraMessageStorage(object):
     def removeMessage(self, account, message_id):
         deferred = defer.Deferred()
 
-        @run_in_thread('cassandra')
+        @run_in_cassandra_thread(deferred=deferred)
         def remove(account, message_id):
             try:
                 timestamp = ChatMessageIdMapping.objects(ChatMessageIdMapping.message_id == message_id)[0]
@@ -1019,7 +1075,7 @@ class CassandraMessageStorage(object):
 
                     reactor.callFromThread(deferred.callback, result)
                 except LWTException:
-                    pass
+                    reactor.callFromThread(deferred.callback, False)
 
         remove(account, message_id)
         return deferred
@@ -1058,7 +1114,7 @@ class CassandraMessageStorage(object):
         """Remove these messages of the account, without cascade or tombstone. Fires with (removed ids, transfer folders removed)."""
         deferred = defer.Deferred()
 
-        @run_in_thread('cassandra')
+        @run_in_cassandra_thread(deferred=deferred)
         def remove(account, message_ids):
             removed = []
             files = 0
@@ -1117,7 +1173,7 @@ class CassandraMessageStorage(object):
         """
         deferred = defer.Deferred()
 
-        @run_in_thread('cassandra')
+        @run_in_cassandra_thread(deferred=deferred)
         def lookup(account, message_id, content_type):
             try:
                 mapping = ChatMessageIdMapping.objects(

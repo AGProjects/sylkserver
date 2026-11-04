@@ -11,7 +11,7 @@ from .configuration import GeneralConfig
 from .location import LOCATION_CONTENT_TYPE, location_push_content
 from .logger import log
 from .models import sylkpush
-from .storage import TokenStorage
+from .storage import TokenStorage, storage_errback
 
 __all__ = 'conference_invite', 'message'
 
@@ -65,6 +65,7 @@ def conference_invite(originator, destination, room, call_id, audio, video):
     else:
         if isinstance(user_tokens, defer.Deferred):
             user_tokens.addCallback(lambda result: _construct_and_send(result, request, destination))
+            user_tokens.addErrback(storage_errback(log, f'Push to {destination} not sent, its tokens are unknown'))
         else:
             _construct_and_send(user_tokens, request, destination)
 
@@ -92,6 +93,7 @@ def message(originator, destination, call_id, badge, message):
     else:
         if isinstance(user_tokens, defer.Deferred):
             user_tokens.addCallback(lambda result: _construct_and_send(result, request, destination))
+            user_tokens.addErrback(storage_errback(log, f'Push to {destination} not sent, its tokens are unknown'))
         else:
             _construct_and_send(user_tokens, request, destination)
 

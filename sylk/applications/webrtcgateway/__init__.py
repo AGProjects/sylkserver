@@ -26,6 +26,7 @@ from .datatypes import FileTransferData
 from .sip_backends.sipsimple import SIPSimpleBackend, contact_token
 from .sip_handlers import FileTransferHandler, MessageHandler
 from .logger import log, messaging_log, addressbook_log, file_transfers_log, LogCategories, QUIET_CONTENT_TYPES
+from .errors import StorageError
 from .storage import TokenStorage, MessageStorage
 from .web import WebHandler, AdminWebHandler
 
@@ -245,7 +246,16 @@ class WebRTCGatewayApplication(SylkApplication):
             session.transfer_data.update_path_for_receiver()
             raise Exception("Sender account for filetransfer not found")
 
+    @staticmethod
+    def _storage_failure(result):
+        # the account lookups of a DeferredList: the StorageError of one, if the storage failed
+        return next((value for (success, value) in result if success is not True and value.check(StorageError)), None)
+
     def _handle_lookup_result(self, result, session, stream):
+        failure = self._storage_failure(result)
+        if failure is not None:
+            self._reject_session(session, 'message storage unavailable: %s' % failure.getErrorMessage(), code=503)
+            return
         reject_session = all([success is not True for (success, value) in result])
         if reject_session:
             self._reject_session(session, "Sender and receiver accounts for filetransfer were not found")
@@ -265,6 +275,10 @@ class WebRTCGatewayApplication(SylkApplication):
         self._accept_session(session, [stream])
 
     def _handle_pull_transfer(self, result, session, stream):
+        failure = self._storage_failure(result)
+        if failure is not None:
+            self._reject_session(session, 'message storage unavailable: %s' % failure.getErrorMessage(), code=503)
+            return
         reject_session = all([success is not True for (success, value) in result])
         if reject_session:
             self._reject_session(session, "Sender and receiver accounts for filetransfer were not found")
@@ -308,9 +322,9 @@ class WebRTCGatewayApplication(SylkApplication):
             file_transfers_log.warning(f'File transfer rejected, {original_filename} file is not found')
             session.reject(500)
 
-    def _reject_session(self, session, error):
+    def _reject_session(self, session, error, code=404):
         file_transfers_log.warning(f'File transfer rejected: {error}')
-        session.reject(404)
+        session.reject(code)
 
     def _accept_session(self, session, streams):
         try:
