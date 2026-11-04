@@ -1,0 +1,326 @@
+#!/usr/bin/env python3
+"""Check that SylkServer's Cassandra database is reachable and sane.
+
+  sylk-cassandra-status [--config-dir PATH] [--timeout SECONDS] [--no-read]
+
+Uses the [Cassandra] section of webrtcgateway.ini and checks, in order:
+
+  config       cluster_contact_points and keyspace are set, the driver is installed
+  network      every contact point accepts a TCP connection on the CQL port
+  cluster      the driver connects; cluster name, version, every node up or down
+  schema       all nodes agree on the schema version
+  keyspace     it exists, its replication can be met by the nodes that are up
+  tables       every table the server uses exists with the right layout
+               (same comparison as sylk-create-cassandra-tables)
+  read         a one-row read from every table, at LOCAL_ONE and LOCAL_QUORUM
+
+Exit status: 0 all good, 1 warnings or errors, 2 Cassandra not reachable.
+"""
+import argparse
+import logging
+import os
+import socket
+import sys
+import time
+
+from importlib.machinery import SourceFileLoader
+from importlib.util import module_from_spec, spec_from_loader
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from application.process import process
+
+logging.getLogger('cassandra').setLevel(logging.CRITICAL)
+
+CASSANDRA_MODULES_AVAILABLE = False
+try:
+    from cassandra import ConsistencyLevel
+    from cassandra.cluster import EXEC_PROFILE_DEFAULT, Cluster, ExecutionProfile, NoHostAvailable
+    from cassandra.policies import DCAwareRoundRobinPolicy
+    from cassandra.query import SimpleStatement
+except ImportError:
+    pass
+else:
+    CASSANDRA_MODULES_AVAILABLE = True
+
+
+CQL_PORT = 9042
+
+
+class colors:
+    if sys.stdout.isatty():
+        GREEN = '\033[32m'
+        YELLOW = '\033[33m'
+        RED = '\033[31m'
+        BOLD = '\033[1m'
+        END = '\033[m'
+    else:
+        GREEN = YELLOW = RED = BOLD = END = ''
+
+
+def bold(text):
+    return colors.BOLD + str(text) + colors.END
+
+
+class Report(object):
+    def __init__(self):
+        self.warnings = 0
+        self.errors = 0
+
+    def section(self, title):
+        print('\n' + bold(title))
+
+    def ok(self, text):
+        print('  %s[ OK ]%s %s' % (colors.GREEN, colors.END, text))
+
+    def info(self, text):
+        print('         %s' % text)
+
+    def warning(self, text):
+        self.warnings += 1
+        print('  %s[WARN]%s %s' % (colors.YELLOW, colors.END, text))
+
+    def error(self, text):
+        self.errors += 1
+        print('  %s[FAIL]%s %s' % (colors.RED, colors.END, text))
+
+
+def no_host_error(e):
+    errors = getattr(e, 'errors', None) or {}
+    if not errors:
+        return str(e.args[0]) if e.args else 'no host available'
+    return '; '.join('%s: %s' % (host, error) for host, error in errors.items())
+
+
+def ms(seconds):
+    return '%.1f ms' % (seconds * 1000)
+
+
+def load_table_tool():
+    """The schema comparison of sylk-create-cassandra-tables, so both tools judge tables the same way."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'sylk-create-cassandra-tables')
+    if not os.path.exists(path):
+        return None
+    loader = SourceFileLoader('sylk_create_cassandra_tables', path)
+    module = module_from_spec(spec_from_loader(loader.name, loader))
+    loader.exec_module(module)
+    return module
+
+
+def contact_address(point):
+    host = str(point)
+    if host.startswith('[') and ']:' in host:
+        host, port = host[1:].split(']:', 1)
+        return host, int(port)
+    if host.count(':') == 1:
+        host, port = host.split(':')
+        return host, int(port)
+    return host, CQL_PORT
+
+
+def check_network(report, points, timeout):
+    report.section('Network')
+    reachable = 0
+    for point in points:
+        host, port = contact_address(point)
+        start = time.monotonic()
+        try:
+            with socket.create_connection((host, port), timeout=timeout):
+                pass
+        except OSError as e:
+            report.error('%s:%d not reachable: %s' % (host, port, e.strerror or e))
+        else:
+            reachable += 1
+            report.ok('%s:%d accepts connections (%s)' % (host, port, ms(time.monotonic() - start)))
+    return reachable
+
+
+def check_cluster(report, cluster, session):
+    report.section('Cluster')
+    metadata = cluster.metadata
+    row = session.execute('SELECT cluster_name, release_version, data_center FROM system.local').one()
+    report.ok('connected to %s, Cassandra %s' % (bold(row.cluster_name), row.release_version))
+    hosts = sorted(metadata.all_hosts(), key=lambda host: str(host.endpoint))
+    up = [host for host in hosts if host.is_up]
+    for host in hosts:
+        text = '%s  dc=%s rack=%s version=%s' % (host.endpoint, host.datacenter, host.rack, host.release_version)
+        if host.is_up:
+            report.ok('node %s up' % text)
+        else:
+            report.error('node %s DOWN' % text)
+    return hosts, up
+
+
+def check_schema(report, session):
+    report.section('Schema agreement')
+    versions = {}
+    local = session.execute('SELECT schema_version FROM system.local').one()
+    versions.setdefault(str(local.schema_version), []).append('local')
+    for row in session.execute('SELECT peer, schema_version FROM system.peers'):
+        versions.setdefault(str(row.schema_version), []).append(str(row.peer))
+    if len(versions) == 1:
+        report.ok('all nodes on schema version %s' % next(iter(versions)))
+    else:
+        report.error('nodes disagree on the schema version:')
+        for version, nodes in versions.items():
+            report.info('%s: %s' % (version, ', '.join(nodes)))
+
+
+def check_keyspace(report, cluster, keyspace, up_hosts):
+    report.section('Keyspace')
+    keyspace_metadata = cluster.metadata.keyspaces.get(keyspace)
+    if keyspace_metadata is None:
+        report.error('keyspace %s does not exist' % bold(keyspace))
+        return None
+    strategy = keyspace_metadata.replication_strategy
+    report.ok('keyspace %s exists, %s' % (bold(keyspace), strategy.export_for_schema()))
+    up_by_dc = {}
+    for host in up_hosts:
+        up_by_dc[host.datacenter] = up_by_dc.get(host.datacenter, 0) + 1
+    factors = {}
+    if hasattr(strategy, 'dc_replication_factors'):
+        factors = dict(strategy.dc_replication_factors)
+    elif hasattr(strategy, 'replication_factor'):
+        factors = {None: strategy.replication_factor}
+    for dc, factor in factors.items():
+        try:
+            factor = int(factor)
+        except (TypeError, ValueError):
+            continue
+        available = sum(up_by_dc.values()) if dc is None else up_by_dc.get(dc, 0)
+        where = 'in the cluster' if dc is None else 'in %s' % dc
+        quorum = factor // 2 + 1
+        if available >= factor:
+            report.ok('replication factor %d, %d node(s) up %s' % (factor, available, where))
+        elif available >= quorum:
+            report.warning('replication factor %d but only %d node(s) up %s: QUORUM still possible, ALL is not' % (factor, available, where))
+        else:
+            report.error('replication factor %d but only %d node(s) up %s: QUORUM reads/writes will fail' % (factor, available, where))
+    return keyspace_metadata
+
+
+def check_tables(report, tool, keyspace_metadata, keyspace):
+    report.section('Tables')
+    if tool is None:
+        report.warning('sylk-create-cassandra-tables not found next to this tool, table layout not checked')
+        return sorted(keyspace_metadata.tables)
+    specs = tool.expected_tables()
+    names = []
+    for spec in specs:
+        table = keyspace_metadata.tables.get(spec.name)
+        action, reasons, _statements = tool.plan_table(spec, table, keyspace)
+        if action == 'ok':
+            report.ok(spec.name)
+        elif action == 'create':
+            report.error('%s does not exist (run sylk-create-cassandra-tables)' % spec.name)
+        else:
+            (report.error if action == 'recreate' else report.warning)('%s needs %s (run sylk-create-cassandra-tables)' % (spec.name, action))
+            for reason in reasons:
+                report.info(reason)
+        if table is not None:
+            names.append(spec.name)
+    extra = sorted(set(keyspace_metadata.tables) - set(spec.name for spec in specs))
+    if extra:
+        report.info('other tables in the keyspace: %s' % ', '.join(extra))
+    return names
+
+
+def check_reads(report, session, keyspace, tables, timeout):
+    report.section('Reads')
+    for level_name in ('LOCAL_ONE', 'LOCAL_QUORUM'):
+        level = getattr(ConsistencyLevel, level_name)
+        failed = 0
+        slowest = (0, None)
+        for table in tables:
+            statement = SimpleStatement('SELECT * FROM "%s"."%s" LIMIT 1' % (keyspace, table), consistency_level=level)
+            start = time.monotonic()
+            try:
+                session.execute(statement, timeout=timeout)
+            except Exception as e:
+                failed += 1
+                report.error('%s read of %s failed: %s' % (level_name, table, no_host_error(e) if isinstance(e, NoHostAvailable) else '%s: %s' % (type(e).__name__, e)))
+            else:
+                elapsed = time.monotonic() - start
+                slowest = max(slowest, (elapsed, table))
+        if not failed and tables:
+            report.ok('%s: %d table(s) read, slowest %s (%s)' % (level_name, len(tables), slowest[1], ms(slowest[0])))
+
+
+def main(options):
+    from sylk.applications.webrtcgateway.configuration import CassandraConfig
+
+    report = Report()
+    report.section('Configuration')
+    if not CASSANDRA_MODULES_AVAILABLE:
+        report.error('the Cassandra driver is not installed (python3-cassandra)')
+        return 2
+    points = CassandraConfig.cluster_contact_points
+    keyspace = CassandraConfig.keyspace
+    if not points or not keyspace:
+        report.error('cluster_contact_points and keyspace must be set in the [Cassandra] section of webrtcgateway.ini')
+        return 2
+    report.ok('contact points %s, keyspace %s' % (bold(', '.join(str(point) for point in points)), bold(keyspace)))
+
+    if not check_network(report, points, options.timeout):
+        print()
+        return 2
+
+    profile = ExecutionProfile(load_balancing_policy=DCAwareRoundRobinPolicy(), request_timeout=options.timeout)
+    cluster = Cluster([contact_address(point)[0] for point in points], port=contact_address(points[0])[1], protocol_version=4,
+                      connect_timeout=options.timeout, control_connection_timeout=options.timeout,
+                      execution_profiles={EXEC_PROFILE_DEFAULT: profile})
+    try:
+        start = time.monotonic()
+        try:
+            session = cluster.connect()
+        except NoHostAvailable as e:
+            report.section('Cluster')
+            report.error('cannot connect: %s' % no_host_error(e))
+            print()
+            return 2
+        except Exception as e:
+            report.section('Cluster')
+            report.error('cannot connect: %s: %s' % (type(e).__name__, e))
+            print()
+            return 2
+        connect_time = time.monotonic() - start
+        hosts, up = check_cluster(report, cluster, session)
+        report.info('connected in %s' % ms(connect_time))
+        check_schema(report, session)
+        keyspace_metadata = check_keyspace(report, cluster, keyspace, up)
+        if keyspace_metadata is not None:
+            tables = check_tables(report, load_table_tool(), keyspace_metadata, keyspace)
+            if options.read:
+                check_reads(report, session, keyspace, tables, options.timeout)
+    finally:
+        cluster.shutdown()
+
+    print()
+    if report.errors:
+        print('%s%d error(s), %d warning(s)%s' % (colors.RED, report.errors, report.warnings, colors.END))
+        return 1
+    if report.warnings:
+        print('%s%d warning(s)%s' % (colors.YELLOW, report.warnings, colors.END))
+        return 1
+    print('%sCassandra is healthy%s' % (colors.GREEN, colors.END))
+    return 0
+
+
+if __name__ == '__main__':
+    process.configuration.subdirectory = 'sylkserver'
+
+    parser = argparse.ArgumentParser(add_help=False, description='Check that the Cassandra database of SylkServer is reachable and sane.')
+    parser.add_argument('-h', '--help', action='help', default=argparse.SUPPRESS, help='Show this help message and exit.')
+    parser.add_argument('--config-dir', '--config-folder', dest='config_directory', default=None, metavar='PATH', help='Set a config directory.')
+    parser.add_argument('--timeout', type=float, default=5, metavar='SECONDS', help='connect and request timeout (default 5)')
+    parser.add_argument('--no-read', dest='read', action='store_false', help='skip the read test of every table')
+    options = parser.parse_args()
+
+    if options.config_directory is not None:
+        process.configuration.local_directory = options.config_directory
+
+    from application.configuration import ConfigFile
+    files = ConfigFile('webrtcgateway.ini').files
+    print('Reading configuration from: %s' % (', '.join(files) if files else 'nowhere (no webrtcgateway.ini found)'))
+
+    sys.exit(main(options))
