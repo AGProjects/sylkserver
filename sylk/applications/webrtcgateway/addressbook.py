@@ -9,7 +9,7 @@ from twisted.web.iweb import IBodyProducer
 from zope.interface import implementer
 
 from .configuration import GeneralConfig
-from .logger import log
+from .logger import log, addressbook_log
 from .models import xcap
 from .storage import FileAddressBookStorage
 
@@ -242,10 +242,10 @@ def _send_update_addressbook(account, request, destination):
         try:
             payload, stamped = stamp_payload(request.type, payload, getattr(account, 'user_agent', None))
         except Exception as e:
-            log.warning("Cannot stamp addressbook %s %s: %s", request.type, getattr(request.data, 'id', None), e)
+            addressbook_log.warning("Cannot stamp addressbook %s %s: %s", request.type, getattr(request.data, 'id', None), e)
     # Who changed what: a removal carries no stamp in the document, so this
     # line is the only record of which client deleted an entry.
-    log.info("Addressbook %s %s %s for %s by %s%s", request.action, request.type,
+    addressbook_log.info("Addressbook %s %s %s for %s by %s%s", request.action, request.type,
              getattr(request.data, 'id', None), account.id,
              getattr(account, 'user_agent', None) or 'unknown client',
              ' (stamped here)' if stamped else '')
@@ -261,13 +261,13 @@ def _send_update_addressbook(account, request, destination):
     except Exception as e:
         # Transport-level failure (XCAP unreachable, DNS, connection reset) —
         # the write never landed, so it is safe and worthwhile to retry.
-        log.warning("Error updating addressbook to %s: %s", destination, e)
+        addressbook_log.warning("Error updating addressbook to %s: %s", destination, e)
         raise AddressbookUpdateError(str(e), retryable=True)
 
     if resp.code not in (200, 204):
         body = yield readBody(resp)
         body_text = body.decode('utf-8')
-        log.warning("Non-200 response (%s) updating addressbook to %s for account %s, %s id %s: %r",
+        addressbook_log.warning("Non-200 response (%s) updating addressbook to %s for account %s, %s id %s: %r",
                     resp.code, destination, account.id, request.type, getattr(request.data, 'id', None), body_text)
         try:
             detail = json.loads(body_text).get('detail', body_text)
@@ -289,7 +289,7 @@ def _send_update_addressbook(account, request, destination):
     except (ValueError, TypeError) as e:
         # The write SUCCEEDED (2xx); only parsing the echoed body failed.
         # Retrying would duplicate the change, so this is not retryable.
-        log.warning("Invalid JSON from %s: %s", destination, e)
+        addressbook_log.warning("Invalid JSON from %s: %s", destination, e)
         raise AddressbookUpdateError(str(e), retryable=False)
 
 
@@ -316,14 +316,14 @@ def _send_fetch_addressbook(account, destination, raise_on_error=False):
     except defer.CancelledError:
         raise
     except Exception as e:
-        log.warning("Error fetching addressbook for account %s from %s: %s", account.id, url, e)
+        addressbook_log.warning("Error fetching addressbook for account %s from %s: %s", account.id, url, e)
         if raise_on_error:
             raise
         return xcap.AddressBook(contacts=[], groups=[], policies=[])
 
     if resp.code == 404:
         yield readBody(resp)
-        log.debug("No addressbook found for account %s", account.id)
+        addressbook_log.debug("No addressbook found for account %s", account.id)
         if raise_on_error:
             raise Exception("No addressbook found for account %s" % account.id)
         return xcap.AddressBook(contacts=[], groups=[], policies=[])
@@ -331,7 +331,7 @@ def _send_fetch_addressbook(account, destination, raise_on_error=False):
     if resp.code != 200:
         body = yield readBody(resp)
         body_text = body.decode('utf-8')
-        log.warning("Non-200 response (%s) fetching addressbook for account %s from %s: %r", resp.code, account.id, url, body_text)
+        addressbook_log.warning("Non-200 response (%s) fetching addressbook for account %s from %s: %r", resp.code, account.id, url, body_text)
         if raise_on_error:
             raise Exception("Non-200 response (%s) fetching addressbook" % resp.code)
         return xcap.AddressBook(contacts=[], groups=[], policies=[])
@@ -340,11 +340,11 @@ def _send_fetch_addressbook(account, destination, raise_on_error=False):
         body = yield readBody(resp)
         payload = json.loads(body)
         addressbook = xcap.XCAPMapper.from_payload(payload)
-        log.debug('Fetched addressbook for %s from %s: %d contacts',
+        addressbook_log.debug('Fetched addressbook for %s from %s: %d contacts',
                  account.id, destination, len(addressbook.contacts or []))
         return addressbook
     except (ValueError, TypeError) as e:
-        log.warning("Invalid JSON from %s: %s", destination, e)
+        addressbook_log.warning("Invalid JSON from %s: %s", destination, e)
         if raise_on_error:
             raise
         return xcap.AddressBook(contacts=[], groups=[], policies=[])

@@ -26,18 +26,19 @@ disabled_applications = ircconference, xmppgateway
 ; Directory where extra applications are stored
 ; extra_applications_dir =
 
-trace_dir = /var/log/sylkserver
+; Directory for logs and traces (trace_dir in older versions)
+log_dir = /var/log/sylkserver
 
 ; The trace switches below are hot-reloadable: edit them here and the change
-; is picked up within a few seconds, with no server restart. trace_dns,
-; trace_msrp, trace_notifications and trace_sip toggle freely. trace_core is
-; self-gated: the engine only produces core/pjsip logs when trace_core was on
+; is picked up within a few seconds, with no server restart. log_dns,
+; log_msrp, log_notifications and log_sip toggle freely. log_core is
+; self-gated: the engine only produces core/pjsip logs when log_core was on
 ; at startup; the live toggle then only controls whether they are written.
-; trace_dns = False
-; trace_sip = False
-; trace_msrp = False
-; trace_core = False
-; trace_notifications = False
+; log_dns = False
+; log_sip = False
+; log_msrp = False
+; log_core = False
+; log_notifications = False
 
 ; Log level (one of debug, info, warning, error or critical).
 ;log_level = info

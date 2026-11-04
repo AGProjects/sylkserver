@@ -4,11 +4,11 @@ Long-running daemon on the WebRTC/Janus host. Clients drive it over a small
 HTTP API: they **register** a call (which starts a packet capture) and later
 **fetch** everything learned about that call, keyed by SIP Call-ID. No SSH.
 
-Everything per call is persisted under `<trace_dir>/qos/<call-id>/` so a call
+Everything per call is persisted under `<log_dir>/qos/<call-id>/` so a call
 can be reconstructed afterwards:
 
 ```
-<trace_dir>/qos/<call-id>/
+<log_dir>/qos/<call-id>/
   meta.json          registration params, 5-tuples, interface, host, timestamps
   capture.pcap       raw packet capture of the call's tuples (open in Wireshark)
   samples.ndjson     per-interval counter timeline (one JSON object per line)
@@ -18,7 +18,7 @@ can be reconstructed afterwards:
   events.log         human-readable [sylk-qos-server] lines
 ```
 
-`trace_dir` is taken from SylkServer's `config.ini` `[Server] trace_dir`
+`log_dir` is taken from SylkServer's `config.ini` `[Server] log_dir`
 (default `/var/log/sylkserver`), so by default captures land in
 `/var/log/sylkserver/qos/`.
 
@@ -37,7 +37,7 @@ qos-server/
 Read the SylkServer way from `--config-dir` (default `/etc/sylkserver`),
 same INI syntax as the other SylkServer files:
 
-- `config.ini` — only `[Server] trace_dir` is used (the trace prefix).
+- `config.ini` — only `[Server] log_dir` is used (the trace prefix).
 - `qos-server.ini` — this daemon's settings; see `qos-server.ini.sample`
   (`listen`, `auth_token`, `interface`, `expected_pps`, `sample_interval`,
   `max_capture_seconds`, `retention_days`, and `[MediaProxy]` for the optional
@@ -58,7 +58,7 @@ curl -s localhost:9810/health
 ```
 
 The unit grants only `CAP_NET_RAW`/`CAP_NET_ADMIN` (so tcpdump works without
-full root) and runs as the `sylkserver` user so it can write under `trace_dir`.
+full root) and runs as the `sylkserver` user so it can write under `log_dir`.
 Old call folders are pruned after `retention_days`.
 
 ## Automatic capture

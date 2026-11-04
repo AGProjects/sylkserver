@@ -132,7 +132,7 @@ class SylkServer(SIPApplication):
                        # Always let the engine emit SIP traces so sip_trace can be toggled at
                        # runtime (ConfigWatcher -> TraceLogManager). Whether they are written to
                        # disk is gated by the sip_trace logger, which still starts according to
-                       # [Server] trace_sip, so the default on-disk behaviour is unchanged.
+                       # [Server] log_sip, so the default on-disk behaviour is unchanged.
                        trace_sip=True,
                        # events and requests to handle
                        events={'conference': ['application/conference-info+xml'],

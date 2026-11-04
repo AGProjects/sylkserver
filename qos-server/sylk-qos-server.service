@@ -8,8 +8,8 @@ Type=simple
 # tcpdump needs raw-socket capability; grant just that instead of full root.
 AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
 CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN
-# Run as the SylkServer user so it can write under [Server] trace_dir from
-# config.ini (per-call folders go to <trace_dir>/qos/, e.g.
+# Run as the SylkServer user so it can write under [Server] log_dir from
+# config.ini (per-call folders go to <log_dir>/qos/, e.g.
 # /var/log/sylkserver/qos/). Adjust User/Group to your install.
 User=sylkserver
 Group=sylkserver
@@ -23,7 +23,7 @@ Restart=on-failure
 RestartSec=3
 
 # Hardening. ProtectSystem=full keeps /usr,/boot,/etc read-only while still
-# allowing writes under /var (where trace_dir lives).
+# allowing writes under /var (where log_dir lives).
 NoNewPrivileges=true
 ProtectSystem=full
 ProtectHome=true

@@ -3,6 +3,7 @@ import os
 
 from application.configuration import ConfigFile, ConfigSection, ConfigSetting
 
+from sylk.configuration import ServerConfig
 from sylk.configuration.datatypes import Path
 from sylk.resources import Resources
 
@@ -19,7 +20,7 @@ class GeneralConfig(ConfigSection):
     timeout = 60
     enable_chuck_norris_reply = True
     rtp_statistics_enabled = False
-    rtp_statistics_log = ConfigSetting(type=Path, value=Path('/var/log/sylkserver/playback/rtp.log'))
+    rtp_statistics_log = ConfigSetting(type=Path, value=Path(os.path.join(ServerConfig.log_dir.normalized, 'playback', 'rtp.log')))
     rtp_statistics_interval = 5
 
 

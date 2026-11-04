@@ -62,7 +62,7 @@ domains = example.com
 ; sip_session_timeout = 600
 
 ; Enable verbose logging of XMPP stantzas
-; trace_xmpp = False
+; log_xmpp = False
 
 ; Log presence activity (can get very verbose)
 ; log_presence = False

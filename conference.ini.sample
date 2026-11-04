@@ -15,14 +15,14 @@
 
 ; Directory for storing files transferred to rooms (a subdirectory for each
 ; room will be created)
-file_transfer_dir = /var/spool/sylkserver
+; file_transfer_dir = <spool_dir>/conference/files
 
 ; File transfer push support. If enabled files will be pushed to all active
 ; participants after receiving the file
 ; push_file_transfer = False
 
 ; Directory where images used by the Screen Sharing functionality will be stored
-screensharing_images_dir = /var/spool/sylkserver/conference/screensharing
+; screensharing_images_dir = <spool_dir>/conference/screensharing
 
 ; Advertise XMPP support in conference URIs and welcome (text) message
 ; advertise_xmpp_support = False

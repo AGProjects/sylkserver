@@ -178,7 +178,7 @@ class BlacklistHandler(object):
     reaches blacklist_threshold within blacklist_window (both in [SIP]) is
     blacklisted for the lifetime of the process. State is in-memory;
     blacklist.txt (runtime_dir) is truncated at startup and not read back,
-    blacklist.log (trace_dir) is append-only. Only sources that fail the
+    blacklist.log (log_dir) is append-only. Only sources that fail the
     trusted-peer ACL are ever counted; threshold 0 disables.
     """
 
@@ -197,7 +197,7 @@ class BlacklistHandler(object):
         if not self.enabled:
             return
         self._txt_path = os.path.join(ServerConfig.runtime_dir.normalized, 'blacklist.txt')
-        self._log_path = os.path.join(ServerConfig.trace_dir.normalized, 'blacklist.log')
+        self._log_path = os.path.join(ServerConfig.log_dir.normalized, 'blacklist.log')
         # runtime snapshot, not a persisted ACL: start empty each run
         try:
             os.makedirs(ServerConfig.runtime_dir.normalized, exist_ok=True)

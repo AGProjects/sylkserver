@@ -10,12 +10,12 @@ daemon learned about that call, keyed by SIP Call-ID.
 
 Configuration is read the SylkServer way, from <config-dir> (default
 /etc/sylkserver, override with --config-dir):
-  - config.ini      [Server] trace_dir   -> the trace prefix
+  - config.ini      [Server] log_dir     -> the trace prefix
   - qos-server.ini  this daemon's own settings (see qos-server.ini.sample)
 
 Everything the daemon learns about a call is persisted under
 
-    <trace_dir>/qos/<call-id>/
+    <log_dir>/qos/<call-id>/
 
 so a call can be fully reconstructed after the fact:
 
@@ -355,8 +355,8 @@ def load_config(config_dir):
 
     Two files in <config_dir> (default /etc/sylkserver), same INI syntax as the
     rest of SylkServer:
-      - config.ini      -> [Server] trace_dir  (the log/trace prefix; we write
-                           per-call folders under <trace_dir>/qos/)
+      - config.ini      -> [Server] log_dir    (the log/trace prefix; we write
+                           per-call folders under <log_dir>/qos/)
       - qos-server.ini  -> this daemon's own settings
 
     Returns a dict of effective settings. Missing files / keys fall back to the
@@ -374,7 +374,8 @@ def load_config(config_dir):
         main.read(main_ini)
     except configparser.Error as e:
         raise SystemExit('error reading {}: {}'.format(main_ini, e))
-    trace_dir = main.get('Server', 'trace_dir', fallback='/var/log/sylkserver').strip()
+    server_log_dir = main.get('Server', 'log_dir', fallback=None) or main.get('Server', 'trace_dir', fallback='/var/log/sylkserver')
+    server_log_dir = server_log_dir.strip()
     # Reuse SylkServer's webrtcgateway TLS: [WebServer] in config.ini holds the
     # HTTPS certificate (a PEM with the private key concatenated), optional
     # chain, and the hostname (the cert CN).
@@ -431,12 +432,12 @@ def load_config(config_dir):
     return {
         'config_dir': config_dir,
         'config_files': [p for p in (main_ini, qos_ini) if os.path.isfile(p)],
-        'trace_dir': trace_dir,
+        'server_log_dir': server_log_dir,
         'tls_certificate': tls_certificate or None,
         'tls_certificate_chain': tls_certificate_chain or None,
         'tls_hostname': tls_hostname or None,
-        # Per-call artifacts go under <trace_dir>/qos/<call-id>/
-        'log_dir': os.path.join(trace_dir, 'qos'),
+        # Per-call artifacts go under <log_dir>/qos/<call-id>/
+        'log_dir': os.path.join(server_log_dir, 'qos'),
         'listen': get('Server', 'listen', '0.0.0.0:9810'),
         # Plain-HTTP loopback listener so the co-located Janus can push events
         # over http://127.0.0.1 (the HTTPS cert CN won't match 127.0.0.1). 0 = off.
@@ -2386,7 +2387,7 @@ def main():
     try:
         log_dir.mkdir(parents=True, exist_ok=True)
     except Exception as e:
-        raise SystemExit('cannot create trace dir {} (is [Server] trace_dir in '
+        raise SystemExit('cannot create trace dir {} (is [Server] log_dir in '
                          'config.ini writable by this user?): {}'.format(log_dir, e))
 
     defaults = {
@@ -2494,7 +2495,7 @@ def main():
                                         cfg['tls_certificate'] or '-',
                                         ', hostname ' + cfg['tls_hostname'] if cfg['tls_hostname'] else '')),
         ('auth', 'token' if cfg['auth_token'] else 'localhost-only (no auth_token set)'),
-        ('trace_dir', cfg['trace_dir']),
+        ('server log_dir', cfg['server_log_dir']),
         ('log_dir', str(log_dir)),
         ('interface', defaults['interface']),
         ('expected_pps', defaults['expected_pps']),

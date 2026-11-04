@@ -33,7 +33,7 @@ from . import push
 from .configuration import GeneralConfig
 from .datatypes import FileTransferData
 from .location import LOCATION_CONTENT_TYPE, location_envelope
-from .logger import log, QUIET_CONTENT_TYPES
+from .logger import log, file_transfers_log, messaging_log, QUIET_CONTENT_TYPES
 from .metadata import metadata_from_cpim_headers
 from .models import sylkrtc
 from .storage import MessageStorage
@@ -116,7 +116,7 @@ class MessageHandler(object):
             raise DNSLookupError('DNS lookup error: no results found')
 
         route = random.choice([r for r in routes if r.transport == routes[0].transport])
-        log.debug('DNS lookup for SIP message proxy for {} yielded {}'.format(uri, route))
+        messaging_log.debug('DNS lookup for SIP message proxy for {} yielded {}'.format(uri, route))
         return route
 
     def _parse_message(self):
@@ -219,9 +219,9 @@ class MessageHandler(object):
         # from the local sylkserver identity. If From == sylkserver, this is a
         # looped-back reply, not a legitimate request — drop it silently.
         if self.from_header.uri.user == 'sylkserver':
-            log.warning(f'ignoring sylk-api-token request from sylkserver identity {account} to {destination} (loop suppression)')
+            messaging_log.warning(f'ignoring sylk-api-token request from sylkserver identity {account} to {destination} (loop suppression)')
             return
-        log.info(f'Adding {account} for storing messages (token request to {destination})')
+        messaging_log.info(f'Adding {account} for storing messages (token request to {destination})')
         self.message_storage.add_account(account)
         # a SIP-authenticated request: the device that sent it used the account (devices.py)
         from . import devices
@@ -236,10 +236,10 @@ class MessageHandler(object):
             # requests) keep invalidating each other's tokens and every 401
             # triggers yet another request — an endless request/401 loop.
             if existing_token:
-                log.info(f'Re-sending existing API token for {account}')
+                messaging_log.info(f'Re-sending existing API token for {account}')
                 token = existing_token
             else:
-                log.info(f'Generating new API token for {account}')
+                messaging_log.info(f'Generating new API token for {account}')
                 token = secrets.token_urlsafe()
             self.outgoing_message(self.from_header.uri, json.dumps({'token': token, 'url': f'{server.url}/webrtcgateway/messages/history/{account}', 'storage_url': f'{server.url}/webrtcgateway/storage/{account}'}), 'application/sylk-api-token')
             # store in both cases to refresh the token expiry/TTL
@@ -254,10 +254,10 @@ class MessageHandler(object):
     def _handle_lookup_pgp_key(self):
         account = f'{self.to_header.uri.user}@{self.to_header.uri.host}'
         public_key = self.message_storage.get_public_key(account)
-        log.info(f'Public key lookup for {account}')
+        messaging_log.info(f'Public key lookup for {account}')
         if isinstance(public_key, defer.Deferred):
             public_key.addCallback(lambda result: self._send_public_key(self.from_header.uri, self.to_header.uri, result))
-            public_key.addErrback(lambda failure: log.warning(f'Public key lookup for {account} failed: {failure.getErrorMessage()}'))
+            public_key.addErrback(lambda failure: messaging_log.warning(f'Public key lookup for {account} failed: {failure.getErrorMessage()}'))
         else:
             self._send_public_key(self.from_header.uri, self.to_header.uri, public_key)
 
@@ -268,7 +268,7 @@ class MessageHandler(object):
         try:
             contact = json.loads(self.parsed_message.content)['contact']
         except Exception as e:
-            log.warning(f"Can't process conversation read, parsing error {e}")
+            messaging_log.warning(f"Can't process conversation read, parsing error {e}")
             return
 
         def mark_conversations_read(account):
@@ -300,7 +300,7 @@ class MessageHandler(object):
         try:
             json_data = json.loads(self.parsed_message.content)
         except Exception as e:
-            log.warning(f"Can't remove conversation, parsing error {e}")
+            messaging_log.warning(f"Can't remove conversation, parsing error {e}")
             return
 
         try:
@@ -311,7 +311,7 @@ class MessageHandler(object):
         try:
             contact = json_data['contact']
         except KeyError:
-            log.warning("Can't remove conversation, missing contact")
+            messaging_log.warning("Can't remove conversation, missing contact")
             return
 
         notification_center = NotificationCenter()
@@ -361,12 +361,12 @@ class MessageHandler(object):
         account = f'{self.from_header.uri.user}@{self.from_header.uri.host}'
         target = f'{self.to_header.uri.user}@{self.to_header.uri.host}'
         if account != target:
-            log.warning(f'{label} from {account} to {target} refused')
+            messaging_log.warning(f'{label} from {account} to {target} refused')
             return
         try:
             payload = json.loads(self.parsed_message.content)
         except (TypeError, ValueError) as e:
-            log.warning(f'{label} from {account} refused, parsing error {e}')
+            messaging_log.warning(f'{label} from {account} refused, parsing error {e}')
             return
         self.relay_own_device_request(account, self.parsed_message.content_type, payload)
 
@@ -379,9 +379,9 @@ class MessageHandler(object):
     def relay_own_device_request(self, account, api_content_type, payload):
         label, content_type, id_field = self.OWN_DEVICE_REQUESTS[api_content_type]
         if isinstance(payload, dict):
-            log.info(f'{label} request {payload.get(id_field)} received from {account} device {payload.get("device_id")}')
+            messaging_log.info(f'{label} request {payload.get(id_field)} received from {account} device {payload.get("device_id")}')
         if not isinstance(payload, dict) or not isinstance(payload.get('criteria'), dict):
-            log.warning(f'{label} from {account} refused, it has no criteria')
+            messaging_log.warning(f'{label} from {account} refused, it has no criteria')
             return
         content = json.dumps(payload)
         timestamp = payload.get('timestamp') or str(ISOTimestamp.now())
@@ -411,7 +411,7 @@ class MessageHandler(object):
             criteria = dict(payload['criteria'])
             if isinstance(criteria.get('ids'), list):
                 criteria['ids'] = len(criteria['ids'])
-            log.info(f'{label} {message_id} for {account}: {json.dumps(criteria)}')
+            messaging_log.info(f'{label} {message_id} for {account}: {json.dumps(criteria)}')
 
         stored = defer.maybeDeferred(self.message_storage.get_account, account)
         stored.addCallback(relay)
@@ -441,7 +441,7 @@ class MessageHandler(object):
 
                     event = sylkrtc.AccountSyncEvent(account=account, type='message', action='remove', content=content)
                     notification_center.post_notification(name='SIPApplicationGotAccountRemoveMessage', sender=account, data=event)
-                    log.debug(f"Removed message {message_id} from the journal of its receiver {account}")
+                    messaging_log.debug(f"Removed message {message_id} from the journal of its receiver {account}")
                     break
 
         def update_other_endpoints(result):
@@ -477,17 +477,17 @@ class MessageHandler(object):
             return
 
         if account is None:
-            log.info('not storing %s message from non-existent account %s to %s' % (self.parsed_message.content_type, self.from_header.uri, '%s@%s' % (self.to_header.uri.user, self.to_header.uri.host)))
+            messaging_log.info('not storing %s message from non-existent account %s to %s' % (self.parsed_message.content_type, self.from_header.uri, '%s@%s' % (self.to_header.uri.user, self.to_header.uri.host)))
             return
 
-        log.debug(f"storage is enabled for originator {account.account}")
+        messaging_log.debug(f"storage is enabled for originator {account.account}")
 
         message = None
 
         if self.skip_journal is not Null:
-            log.debug('not storing {content_type} message {message_id} for account {originator} to {destination.uri} (skip journal set)'.format(content_type=self.parsed_message.content_type, message_id=self.parsed_message.message_id, originator=account.account, destination=self.parsed_message.destination))
+            messaging_log.debug('not storing {content_type} message {message_id} for account {originator} to {destination.uri} (skip journal set)'.format(content_type=self.parsed_message.content_type, message_id=self.parsed_message.message_id, originator=account.account, destination=self.parsed_message.destination))
         else:
-            log.debug('storing {content_type} message {message_id} for account {originator} to {destination.uri}'.format(content_type=self.parsed_message.content_type, message_id=self.parsed_message.message_id, originator=account.account, destination=self.parsed_message.destination))
+            messaging_log.debug('storing {content_type} message {message_id} for account {originator} to {destination.uri}'.format(content_type=self.parsed_message.content_type, message_id=self.parsed_message.message_id, originator=account.account, destination=self.parsed_message.destination))
             self.message_storage.add(account=account.account,
                                      contact=f'{self.to_header.uri.user}@{self.to_header.uri.host}',
                                      direction="outgoing",
@@ -529,10 +529,10 @@ class MessageHandler(object):
         unjournaled_content_types = ('application/sylk-storage-changed',)
 
         if account is None:
-            log.debug('not storing %s message from %s to non-existent account %s' % (self.parsed_message.content_type, self.from_header.uri, '%s@%s' % (self.to_header.uri.user, self.to_header.uri.host)))
+            messaging_log.debug('not storing %s message from %s to non-existent account %s' % (self.parsed_message.content_type, self.from_header.uri, '%s@%s' % (self.to_header.uri.user, self.to_header.uri.host)))
             return
 
-        log.debug(f'processing message for account {account.account} from {self.from_header.uri}')
+        messaging_log.debug(f'processing message for account {account.account} from {self.from_header.uri}')
 
         message = None
         notification_center = NotificationCenter()
@@ -542,7 +542,7 @@ class MessageHandler(object):
             imdn_message_id = document.message_id.value
             imdn_status = document.notification.status.__str__()
             imdn_datetime = document.datetime.__str__()
-            log.debug('storing IMDN {status} for message {message_id} from {originator.uri}'.format(status=imdn_status, message_id=imdn_message_id, originator=self.parsed_message.sender))
+            messaging_log.debug('storing IMDN {status} for message {message_id} from {originator.uri}'.format(status=imdn_status, message_id=imdn_message_id, originator=self.parsed_message.sender))
             self.message_storage.update(account=account.account,
                                         state=imdn_status,
                                         message_id=imdn_message_id)
@@ -576,11 +576,11 @@ class MessageHandler(object):
                                                   data=NotificationData(message=message, sender=self.parsed_message.sender))
         else:
             if self.parsed_message.content_type in unjournaled_content_types:
-                log.debug('not storing {content_type} message for account {account}'.format(content_type=self.parsed_message.content_type, account=account.account))
+                messaging_log.debug('not storing {content_type} message for account {account}'.format(content_type=self.parsed_message.content_type, account=account.account))
             elif self.skip_journal is not Null:
-                log.debug('not storing {content_type} message {message_id} for account {account} from {originator.uri} (skip journal set)'.format(content_type=self.parsed_message.content_type, message_id=self.parsed_message.message_id, originator=self.parsed_message.sender, account=account.account))
+                messaging_log.debug('not storing {content_type} message {message_id} for account {account} from {originator.uri} (skip journal set)'.format(content_type=self.parsed_message.content_type, message_id=self.parsed_message.message_id, originator=self.parsed_message.sender, account=account.account))
             else:
-                log.debug('storing {content_type} message {message_id} for account {account} from {originator.uri}'.format(content_type=self.parsed_message.content_type, message_id=self.parsed_message.message_id, originator=self.parsed_message.sender, account=account.account))
+                messaging_log.debug('storing {content_type} message {message_id} for account {account} from {originator.uri}'.format(content_type=self.parsed_message.content_type, message_id=self.parsed_message.message_id, originator=self.parsed_message.sender, account=account.account))
                 self.message_storage.add(account=account.account,
                                          contact=str(self.parsed_message.sender.uri),
                                          direction='incoming',
@@ -630,7 +630,7 @@ class MessageHandler(object):
                     # whose metadata went missing, or a body we cannot parse.
                     # It cannot be classified, so it gets no push -- worth a
                     # line while clients are rolling over to version 2.
-                    log.warning('no readable location envelope on message {message_id} for account {account} from {originator.uri} — no push sent'.format(message_id=self.parsed_message.message_id, account=account.account, originator=self.parsed_message.sender))
+                    messaging_log.warning('no readable location envelope on message {message_id} for account {account} from {originator.uri} — no push sent'.format(message_id=self.parsed_message.message_id, account=account.account, originator=self.parsed_message.sender))
                 return
 
             if self.parsed_message.content_type in ('text/plain', 'text/html', 'application/sylk-file-transfer'):
@@ -699,7 +699,7 @@ class MessageHandler(object):
             return
 
         if self.from_sip is not Null:
-            log.debug("message is originating from SIP endpoint")
+            messaging_log.debug("message is originating from SIP endpoint")
             sender_account = self.message_storage.get_account(f'{self.from_header.uri.user}@{self.from_header.uri.host}')
             if isinstance(sender_account, defer.Deferred):
                 sender_account.addCallback(lambda result: self._store_message_for_sender(result))
@@ -745,10 +745,10 @@ class MessageHandler(object):
             # sender is the local sylkserver identity — these are the messages
             # that come straight back to us and re-trigger the same handler.
             if str(identity) == str(uri) and 'sylkserver@' in str(identity):
-                log.warning("refusing to send self-addressed %s message from '%s' to '%s' (loop suppression)" % (content_type, log_uri(identity), log_uri(uri)))
+                messaging_log.warning("refusing to send self-addressed %s message from '%s' to '%s' (loop suppression)" % (content_type, log_uri(identity), log_uri(uri)))
                 return
 
-            log_message = log.debug if content_type in QUIET_CONTENT_TYPES else log.info
+            log_message = messaging_log.debug if content_type in QUIET_CONTENT_TYPES else messaging_log.info
             log_message("sending %s message from %s to %s via %s" % (content_type, log_uri(identity), log_uri(uri), log_uri(route)))
             headers = [Header('X-Sylk-To-Sip', 'yes')] + extra_headers
             self._outgoing_message(uri, identity, content, content_type, headers=headers, route=route)
@@ -760,7 +760,7 @@ class MessageHandler(object):
             if identity is None:
                 identity = f'sip:sylkserver@{SIPConfig.local_ip}'
 
-            log.debug("sending %s message from '%s' to '%s' to self %s" % (content_type, log_uri(identity), log_uri(uri), log_uri(route)))
+            messaging_log.debug("sending %s message from '%s' to '%s' to self %s" % (content_type, log_uri(identity), log_uri(uri), log_uri(route)))
             headers = [Header('X-Sylk-From-Sip', 'yes'), Header('X-Sylk-App', 'webrtcgateway')] + extra_headers
             self._outgoing_message(uri, identity, content, content_type, headers=headers, route=route, subscribe=False)
 
@@ -771,7 +771,7 @@ class MessageHandler(object):
             if identity is None:
                 identity = f'sip:sylkserver@{SIPConfig.local_ip}'
 
-            log.info("sending replicated %s message from %s to %s via %s" % (content_type, log_uri(identity), log_uri(uri), log_uri(route)))
+            messaging_log.info("sending replicated %s message from %s to %s via %s" % (content_type, log_uri(identity), log_uri(uri), log_uri(route)))
             headers = [Header('X-Sylk-To-Sip', 'yes'), Header('X-Replicated-Message', 'yes')] + extra_headers
             self._outgoing_message(uri, identity, content, content_type, headers=headers, route=route, message_type=ReplicatedMessage)
 
@@ -789,7 +789,7 @@ class MessageHandler(object):
         notification_center.remove_observer(self, sender=notification.sender)
         data = notification.data
         reason = data.reason.decode() if isinstance(data.reason, bytes) else data.reason
-        log.warning('could not deliver outgoing message %d %s' % (data.code, reason))
+        messaging_log.warning('could not deliver outgoing message %d %s' % (data.code, reason))
 
 
 @implementer(IObserver)
@@ -832,9 +832,9 @@ class FileTransferHandler(object):
                         output_file.write(json.dumps(metadata.__data__))
                 except (OSError, IOError):
                     unlink(meta_filepath)
-                    log.warning('Could not save metadata %s' % meta_filepath)
+                    file_transfers_log.warning('Could not save metadata %s' % meta_filepath)
 
-                log.info('File transfer finished, saved to %s' % transfer_data.full_path)
+                file_transfers_log.info('File transfer finished, saved to %s' % transfer_data.full_path)
 
                 message_handler = MessageHandler()
                 cpim_payload = transfer_data.cpim_message_payload(metadata)

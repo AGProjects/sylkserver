@@ -20,7 +20,7 @@ from twisted.internet import defer, reactor
 from zope.interface import implementer
 
 from .configuration import GeneralConfig
-from .logger import log
+from .logger import log, connections_log
 from .storage import MessageStorage
 
 __all__ = 'sip_login', 'LoginError', 'TooManyAttempts'
@@ -100,7 +100,7 @@ class SIPLogin(object):
         try:
             self.check_allowed(account, address)
         except TooManyAttempts as e:
-            log.warning(f'SIP login for {account} from {address} refused: too many failed attempts')
+            connections_log.warning(f'SIP login for {account} from {address} refused: too many failed attempts')
             return defer.fail(e)
 
         def query():
@@ -110,13 +110,13 @@ class SIPLogin(object):
 
         def checked(code):
             if code == 200:
-                log.info(f'SIP login for {account} from {address} succeeded')
+                connections_log.info(f'SIP login for {account} from {address} succeeded')
                 return self._token(account)
             if code in (401, 403, 407):
                 self._failed(account, address)
-                log.warning(f'SIP login for {account} from {address} failed: wrong credentials ({code})')
+                connections_log.warning(f'SIP login for {account} from {address} failed: wrong credentials ({code})')
                 raise LoginError('wrong account or password')
-            log.warning(f'SIP login for {account} from {address} failed: the proxy answered {code or "nothing"}')
+            connections_log.warning(f'SIP login for {account} from {address} failed: the proxy answered {code or "nothing"}')
             raise LoginError(f'the SIP proxy answered {code}' if code else 'the SIP proxy did not answer')
 
         deferred = deferToGreenThread(query)
@@ -131,7 +131,7 @@ class SIPLogin(object):
             if token:
                 return token
             token = secrets.token_urlsafe()
-            log.info(f'Generating new API token for {account} (SIP login)')
+            connections_log.info(f'Generating new API token for {account} (SIP login)')
             storage.add_account(account)
             storage.add_account_token(account=account, token=token)
             return token

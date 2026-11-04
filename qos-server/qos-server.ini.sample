@@ -4,8 +4,8 @@
 ; Same syntax as the other SylkServer .ini files. All settings below show
 ; their built-in defaults — uncomment only the ones you want to change.
 ;
-; The per-call trace folders are written under <trace_dir>/qos/, where
-; trace_dir is read from [Server] in config.ini (default /var/log/sylkserver),
+; The per-call trace folders are written under <log_dir>/qos/, where
+; log_dir is read from [Server] in config.ini (default /var/log/sylkserver),
 ; i.e. by default /var/log/sylkserver/qos/<call-id>/.
 
 [Server]

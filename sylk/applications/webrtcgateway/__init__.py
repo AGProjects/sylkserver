@@ -4,6 +4,8 @@ import time
 import errno
 import re
 
+from functools import partial
+
 from application.notification import IObserver, NotificationCenter, NotificationData
 from application.python import Null
 from application.system import unlink
@@ -14,6 +16,7 @@ from twisted.internet import defer, reactor
 from zope.interface import implementer
 
 from sylk.applications import SylkApplication
+from sylk.configwatch import ConfigWatcher
 from sylk.payloads import conference_info_extensions as _conference_payloads  # noqa: F401 -- registers conference-info+xml extensions on import so this app can parse them even if the conference application is not loaded. Lives under sylk.payloads (not sylk.applications.conference) so importing it does NOT pull in ConferenceApplication, whose metaclass would otherwise auto-register and auto-start it even when 'conference' is in [Server] disabled_applications.
 from sylk.session import IllegalStateError
 
@@ -22,7 +25,7 @@ from .configuration import GeneralConfig
 from .datatypes import FileTransferData
 from .sip_backends.sipsimple import SIPSimpleBackend, contact_token
 from .sip_handlers import FileTransferHandler, MessageHandler
-from .logger import log, QUIET_CONTENT_TYPES
+from .logger import log, messaging_log, addressbook_log, file_transfers_log, LogCategories, QUIET_CONTENT_TYPES
 from .storage import TokenStorage, MessageStorage
 from .web import WebHandler, AdminWebHandler
 
@@ -86,6 +89,10 @@ class WebRTCGatewayApplication(SylkApplication):
             GeneralConfig.sip_backend,
             ', per account: {}'.format(', '.join('%s:%s' % item for item in sorted(list(backend_map.accounts.items()) + list(backend_map.domains.items())))) if backend_map else '',
             ', clients may override' if GeneralConfig.sip_backend_override else ''))
+        log.info('Logging: {}'.format(LogCategories.describe()))
+        config_watcher = ConfigWatcher()
+        for key in LogCategories.hot_settings:
+            config_watcher.register(GeneralConfig.__cfgfile__, GeneralConfig.__section__, key, partial(LogCategories.set, key))
         self.web_handler.start()
         self.admin_web_handler.start()
         # Real-time audio-level UDP client. Subscribes to the conference
@@ -117,11 +124,11 @@ class WebRTCGatewayApplication(SylkApplication):
                 current_time = time.time()
                 remove_after_days = GeneralConfig.filetransfer_expire_days
                 if (statinfo.st_size >= 1024 * 1024 * 50 and statinfo.st_mtime < current_time - 86400 * remove_after_days):
-                    log.info(f"[housekeeper] Removing expired filetransfer file: {file}")
+                    file_transfers_log.info(f"[housekeeper] Removing expired filetransfer file: {file}")
                     removed_files += 1
                     unlink(file)
                 elif statinfo.st_mtime < current_time - 86400 * 2 * remove_after_days:
-                    log.info(f"[housekeeper] Removing expired file transfer file: {file}")
+                    file_transfers_log.info(f"[housekeeper] Removing expired file transfer file: {file}")
                     removed_files += 1
                     unlink(file)
 
@@ -134,9 +141,9 @@ class WebRTCGatewayApplication(SylkApplication):
                         pass
                 else:
                     removed_dirs += 1
-                    log.info(f"[housekeeper] Removing expired file transfer dir {dir}")
+                    file_transfers_log.info(f"[housekeeper] Removing expired file transfer dir {dir}")
 
-        log.info(f"[housekeeper] Removed {removed_files} files, {removed_dirs} directories")
+        file_transfers_log.info(f"[housekeeper] Removed {removed_files} files, {removed_dirs} directories")
         reactor.callLater(3600, self.clean_filetransfers)
 
     def handle_notification(self, notification):
@@ -150,7 +157,7 @@ class WebRTCGatewayApplication(SylkApplication):
                 # The proxy forks a file transfer to the registered contacts and to
                 # SylkServer itself, which receives it on behalf of all the devices
                 # (also the offline ones): the copies sent to the contacts are refused.
-                log.info('Refusing file transfer {session.call_id} sent to a WebRTC contact, SylkServer receives it for the account'.format(session=session))
+                file_transfers_log.info('Refusing file transfer {session.call_id} sent to a WebRTC contact, SylkServer receives it for the account'.format(session=session))
                 session.reject(486)
                 return
             SIPSimpleBackend.incoming_session(session)
@@ -169,7 +176,7 @@ class WebRTCGatewayApplication(SylkApplication):
 
         key = _invite_key(session)
         if key in self._file_transfer_invites:
-            log.info('Rejecting file transfer {session.call_id} from sip:{uri.user}@{uri.host}, a fork of an INVITE already handled'.format(session=session, uri=session.remote_identity.uri))
+            file_transfers_log.info('Rejecting file transfer {session.call_id} from sip:{uri.user}@{uri.host}, a fork of an INVITE already handled'.format(session=session, uri=session.remote_identity.uri))
             session.reject(486)
             return
         self._file_transfer_invites.add(key)
@@ -249,12 +256,12 @@ class WebRTCGatewayApplication(SylkApplication):
             sender, receiver = _aor(session.remote_identity.uri), _aor(session.local_identity.uri)
             if not _in_audio_call(receiver, sender):
                 # a file from outside is only accepted from someone the receiver is in an audio call with
-                log.info('Rejecting file transfer {session.call_id} from {sender} to {receiver}, no audio call between them'.format(session=session, sender=sender, receiver=receiver))
+                file_transfers_log.info('Rejecting file transfer {session.call_id} from {sender} to {receiver}, no audio call between them'.format(session=session, sender=sender, receiver=receiver))
                 session.reject(403, 'No Call In Progress')
                 return
 
         stream.handler.save_directory = session.transfer_data.path
-        log.info('File transfer from {sender.uri} to {receiver.uri} will be saved to {path}/{filename}'.format(**session.transfer_data.__dict__))
+        file_transfers_log.info('File transfer from {sender.uri} to {receiver.uri} will be saved to {path}/{filename}'.format(**session.transfer_data.__dict__))
         self._accept_session(session, [stream])
 
     def _handle_pull_transfer(self, result, session, stream):
@@ -288,7 +295,7 @@ class WebRTCGatewayApplication(SylkApplication):
                 with open(meta_filepath, 'r') as meta_file:
                     metadata = json.load(meta_file)
             except (OSError, IOError,ValueError):
-                log.warning('Could load metadata %s' % meta_filepath)
+                file_transfers_log.warning('Could load metadata %s' % meta_filepath)
                 session.reject(404)
                 return
             if stream.file_selector.hash == metadata['hash']:
@@ -298,11 +305,11 @@ class WebRTCGatewayApplication(SylkApplication):
                 self._accept_session(session, [stream])
                 return
         else:
-            log.warning(f'File transfer rejected, {original_filename} file is not found')
+            file_transfers_log.warning(f'File transfer rejected, {original_filename} file is not found')
             session.reject(500)
 
     def _reject_session(self, session, error):
-        log.warning(f'File transfer rejected: {error}')
+        file_transfers_log.warning(f'File transfer rejected: {error}')
         session.reject(404)
 
     def _accept_session(self, session, streams):
@@ -327,7 +334,7 @@ class WebRTCGatewayApplication(SylkApplication):
         if event is None and event_header is not None:
             event = _hval(event_header)
         if not event or 'xcap-diff' not in str(event).lower():
-            log.info('rejecting PUBLISH with unsupported event %r' % event)
+            addressbook_log.info('rejecting PUBLISH with unsupported event %r' % event)
             publish_request.answer(489)  # Bad Event
             return
 
@@ -338,7 +345,7 @@ class WebRTCGatewayApplication(SylkApplication):
 
         account = '%s@%s' % (request_uri.user, request_uri.host)
         publish_request.answer(200)
-        log.info('received xcap-diff PUBLISH for %s — notifying online devices to refresh addressbook' % account)
+        addressbook_log.info('received xcap-diff PUBLISH for %s — notifying online devices to refresh addressbook' % account)
         NotificationCenter().post_notification(name='SIPApplicationGotAddressbookUpdate',
                                                sender=account,
                                                data=NotificationData())
@@ -355,7 +362,7 @@ class WebRTCGatewayApplication(SylkApplication):
             # using the sipsimple SIP backend. Messages reach the clients through
             # the message storage, from the copy sent to this server, so like the
             # Janus SIP plugin does for its contacts, accept it and drop it.
-            log.debug('dropping SIP MESSAGE sent to WebRTC client contact %s' % data.request_uri)
+            messaging_log.debug('dropping SIP MESSAGE sent to WebRTC client contact %s' % data.request_uri)
             message_request.answer(200)
             return
         content_type = data.headers.get('Content-Type', Null).content_type
@@ -370,7 +377,7 @@ class WebRTCGatewayApplication(SylkApplication):
         to_account = '%s@%s' % (to_header.uri.user, to_header.uri.host)
 
         if not data.body:
-            log.warning('SIP message from %s to %s rejected: empty body' % (from_account, to_account))
+            messaging_log.warning('SIP message from %s to %s rejected: empty body' % (from_account, to_account))
             message_request.answer(400)
             return
 
@@ -379,7 +386,7 @@ class WebRTCGatewayApplication(SylkApplication):
             try:
                 cpim_message = CPIMPayload.decode(data.body)
             except (CPIMParserError, UnicodeDecodeError):  # TODO: fix decoding in sipsimple
-                log.warning('SIP message from %s to %s rejected: CPIM parse error' % (from_account, to_account))
+                messaging_log.warning('SIP message from %s to %s rejected: CPIM parse error' % (from_account, to_account))
                 message_request.answer(400)
                 return
             else:
@@ -392,12 +399,12 @@ class WebRTCGatewayApplication(SylkApplication):
         # looped back to us by the proxy, which would otherwise re-trigger the
         # same handler in an infinite cycle.
         if from_header.uri.user == 'sylkserver' and from_account == to_account:
-            log.warning('dropping looped SIP message (%s) from %s to %s — sylkserver self-addressed' %
+            messaging_log.warning('dropping looped SIP message (%s) from %s to %s — sylkserver self-addressed' %
                         (content_type, from_account, to_account))
             message_request.answer(200)
             return
 
-        log_message = log.debug if content_type in QUIET_CONTENT_TYPES else log.info
+        log_message = messaging_log.debug if content_type in QUIET_CONTENT_TYPES else messaging_log.info
         if message_id is not None:
             log_message('received SIP %s message %s from %s to %s' % (content_type, message_id, from_account, to_account))
         else:
@@ -424,17 +431,17 @@ class WebRTCGatewayApplication(SylkApplication):
                 message_request.answer(200)
                 MessageHandler().incoming_message(data)     # sends the key, as before
             else:
-                log.info('Public key lookup for %s: no public key' % account)
+                messaging_log.info('Public key lookup for %s: no public key' % account)
                 message_request.answer(404, reason='No Public Key')
 
         def failed(failure):
-            log.warning('Public key lookup for %s failed: %s' % (account, failure.getErrorMessage()))
+            messaging_log.warning('Public key lookup for %s failed: %s' % (account, failure.getErrorMessage()))
             message_request.answer(500)
 
         try:
             public_key = MessageStorage().get_public_key(account)
         except Exception as e:
-            log.warning('Public key lookup for %s failed: %s' % (account, e))
+            messaging_log.warning('Public key lookup for %s failed: %s' % (account, e))
             message_request.answer(500)
             return
         if isinstance(public_key, defer.Deferred):
@@ -459,4 +466,4 @@ class WebRTCGatewayApplication(SylkApplication):
     def _NH_SIPSessionDidFail(self, notification):
         session = notification.sender
         notification.center.remove_observer(self, sender=session)
-        log.info('File transfer from %s to %s failed: %s (%s)' % (session.remote_identity.uri, session.local_identity.uri, notification.data.reason, notification.data.failure_reason))
+        file_transfers_log.info('File transfer from %s to %s failed: %s (%s)' % (session.remote_identity.uri, session.local_identity.uri, notification.data.reason, notification.data.failure_reason))

@@ -54,7 +54,7 @@ class TraceLogManager(object, metaclass=Singleton):
         if self.started:
             return
         self.started = True
-        directory = ServerConfig.trace_dir.normalized
+        directory = ServerConfig.log_dir.normalized
         try:
             makedirs(directory)
         except Exception as e:
@@ -62,6 +62,8 @@ class TraceLogManager(object, metaclass=Singleton):
         else:
             for logger in (logger for logger in self.loggers if logger.enabled):
                 logger.start()
+                if logger.logger is None:
+                    continue
                 for name in logger.handled_notifications:
                     self.notification_map[name].add(logger)
             if self.notification_map:
@@ -100,6 +102,8 @@ class TraceLogManager(object, metaclass=Singleton):
         if enabled:
             logger.enabled = True          # shadow the stale class-level snapshot
             logger.start()
+            if logger.logger is None:
+                return False               # could not create its directory, logged by start()
             for n in logger.handled_notifications:
                 self.notification_map[n].add(logger)
             try:
@@ -134,6 +138,8 @@ class TraceLogManager(object, metaclass=Singleton):
         self.loggers.add(logger)
         if self.started and logger.enabled:
             logger.start()
+            if logger.logger is None:
+                return
             for name in logger.handled_notifications:
                 self.notification_map[name].add(logger)
             if self.notification_map:
@@ -183,6 +189,7 @@ class TraceLogger(object, metaclass=TraceLoggerType):
     owner = abstractproperty()      # The name of the application that owns this trace logger
     enabled = abstractproperty()    # Boolean indicating if this trace logger is enabled (usually mirrors a configuration setting)
     formatter = abstractproperty()  # The formatter used by this trace logger
+    subdir = None                   # Optional folder under log_dir for the log file (e.g. the application's)
 
     def __init__(self):
         self.logger = None
@@ -194,7 +201,15 @@ class TraceLogger(object, metaclass=TraceLoggerType):
     # noinspection PyTypeChecker
     def start(self):
         if self.enabled and self.logger is None:
-            self.logger = NotificationLogger(self.name, ServerConfig.trace_dir.normalized, self.formatter)
+            directory = ServerConfig.log_dir.normalized
+            if self.subdir:
+                directory = os.path.join(directory, self.subdir)
+                try:
+                    makedirs(directory)
+                except Exception as e:
+                    log.error('Failed to create tracelog directory at {directory}: {exception!s}'.format(directory=directory, exception=e))
+                    return
+            self.logger = NotificationLogger(self.name, directory, self.formatter)
 
     def stop(self):
         self.logger = None
@@ -311,7 +326,7 @@ class NotificationTraceFormatter(logging.Formatter):
 class DNSTraceLogger(TraceLogger):
     name = 'dns_trace'
     owner = 'core'
-    enabled = ServerConfig.trace_dns
+    enabled = ServerConfig.log_dns
     formatter = DNSTraceFormatter()
 
     def _NH_DNSLookupTrace(self, notification):
@@ -321,7 +336,7 @@ class DNSTraceLogger(TraceLogger):
 class SIPTraceLogger(TraceLogger):
     name = 'sip_trace'
     owner = 'core'
-    enabled = ServerConfig.trace_sip
+    enabled = ServerConfig.log_sip
     formatter = SIPTraceFormatter()
 
     def _NH_SIPEngineSIPTrace(self, notification):
@@ -335,7 +350,7 @@ class SIPTraceLogger(TraceLogger):
 class MSRPTraceLogger(TraceLogger):
     name = 'msrp_trace'
     owner = 'core'
-    enabled = ServerConfig.trace_msrp
+    enabled = ServerConfig.log_msrp
     formatter = MSRPTraceFormatter()
 
     def _NH_MSRPTransportTrace(self, notification):
@@ -349,7 +364,7 @@ class MSRPTraceLogger(TraceLogger):
 class CoreTraceLogger(TraceLogger):
     name = 'core_trace'
     owner = 'core'
-    enabled = ServerConfig.trace_core
+    enabled = ServerConfig.log_core
     formatter = CoreTraceFormatter()
 
     def _NH_SIPEngineLog(self, notification):
@@ -359,7 +374,7 @@ class CoreTraceLogger(TraceLogger):
 class NotificationTraceLogger(TraceLogger):
     name = 'notification_trace'
     owner = 'core'
-    enabled = ServerConfig.trace_notifications
+    enabled = ServerConfig.log_notifications
     formatter = NotificationTraceFormatter()
 
     @property

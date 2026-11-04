@@ -6,7 +6,7 @@ from application.configuration import ConfigFile, ConfigSection, ConfigSetting
 from application.configuration.datatypes import (HostnameList, NetworkAddress,
                                                  StringList)
 
-from sylk.configuration import ServerConfig
+from sylk.configuration import ServerConfig, rename_settings
 from sylk.configuration.datatypes import (URL, Path, SIPProxyAddress,
                                           TrustedPeerList, VideoBitrate,
                                           VideoCodec)
@@ -212,7 +212,18 @@ class GeneralConfig(ConfigSection):
     web_origins = ConfigSetting(type=StringList, value=['*'])
     sip_domains = ConfigSetting(type=StringList, value=['*'])
     outbound_sip_proxy = ConfigSetting(type=SIPProxyAddress, value=None)
-    trace_client = False
+    log_webrtc_client_api = False
+    log_webrtc_client_api_ping = False  # include the ping requests and their acks in the client API log
+    # Log categories, can be changed without a restart. A disabled category
+    # logs nothing; messaging, addressbook and file transfers log to their own
+    # file, connections to the main log.
+    log_messaging = False
+    log_addressbook = False
+    log_file_transfers = False
+    log_connections = True
+    messaging_log = ConfigSetting(type=Path, value=Path(os.path.join(ServerConfig.log_dir.normalized, 'webrtc', 'messaging.log')))
+    addressbook_log = ConfigSetting(type=Path, value=Path(os.path.join(ServerConfig.log_dir.normalized, 'webrtc', 'addressbook.log')))
+    file_transfers_log = ConfigSetting(type=Path, value=Path(os.path.join(ServerConfig.log_dir.normalized, 'webrtc', 'file_transfers.log')))
     websocket_ping_interval = 120
     application_dir = ApplicationConfig.application_dir
     recording_dir = ConfigSetting(type=Path, value=Path(os.path.join(ServerConfig.spool_dir.normalized, 'videoconference', 'recordings')))
@@ -299,7 +310,7 @@ class JanusConfig(ConfigSection):
 
     api_url = 'ws://127.0.0.1:8188'
     api_secret = '0745f2f74f34451c89343afcdcae5809'
-    trace_janus = False
+    log_janus_api = False
     max_bitrate = ConfigSetting(type=VideoBitrate, value=VideoBitrate(2016000))  # ~2 MBits/s
     video_codec = ConfigSetting(type=VideoCodec, value=VideoCodec('vp9'))
     # The H.264 profile all publishers of an h264 room must use. Without it Janus keeps each
@@ -308,6 +319,10 @@ class JanusConfig(ConfigSection):
     # Constrained Baseline level 3.1 is what every client offers.
     h264_profile = ConfigSetting(type=H264Profile, value=H264Profile('42e01f'))
     decline_code = 486
+
+
+rename_settings(GeneralConfig, {'log_webrtc_client_api': 'trace_client'})
+rename_settings(JanusConfig, {'log_janus_api': 'trace_janus'})
 
 
 class CassandraConfig(ConfigSection):

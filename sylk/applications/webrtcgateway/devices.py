@@ -32,7 +32,7 @@ from twisted.internet import threads
 
 from . import account_storage
 from .configuration import AccountStorageConfig
-from .logger import log
+from .logger import log, connections_log
 
 __all__ = 'NAMESPACE', 'seen', 'device_key', 'forwarded_ip'
 
@@ -118,7 +118,7 @@ def seen(account, device_id=None, device_name=None, user_agent=None, ip=None, vi
     def done(result):
         meta, new, entry = result
         if new:
-            log.info('Devices of %s: new device %s (%s, %s, via %s)'
+            connections_log.info('Devices of %s: new device %s (%s, %s, via %s)'
                      % (account, account_storage.writer(device_id, entry.get('device_name')),
                         entry.get('user_agent') or '-', entry.get('last_ip') or '-', via))
             from twisted.internet import reactor
@@ -130,7 +130,7 @@ def seen(account, device_id=None, device_name=None, user_agent=None, ip=None, vi
     def failed(failure):
         with _lock:
             _written.pop((account, key), None)
-        log.warning('Devices of %s: cannot record %s: %s' % (account, key, failure.getErrorMessage()))
+        connections_log.warning('Devices of %s: cannot record %s: %s' % (account, key, failure.getErrorMessage()))
 
     deferred = threads.deferToThread(_update, account, key, device_id, device_name, user_agent, ip, via or '-', now)
     deferred.addCallbacks(done, failed)

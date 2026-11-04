@@ -9,11 +9,18 @@ contexts at startup and still requires a restart; the watcher never touches it.
 
 Hot keys:
 
-    config.ini         [Server]  trace_dns, trace_sip, trace_msrp, trace_core,
-                                  trace_notifications
+    config.ini         [Server]  log_dns, log_sip, log_msrp, log_core,
+                                  log_notifications (or their old trace_* names)
     config.ini         [SIP]     trusted_peers (the source-IP ACL)
-    webrtcgateway.ini  [General] trace_client
-    webrtcgateway.ini  [Janus]   trace_janus
+    webrtcgateway.ini  [General] log_webrtc_client_api
+    webrtcgateway.ini  [Janus]   log_janus_api
+
+Settings renamed with sylk.configuration.rename_settings are also found under
+their old name (trace_*) when the new name is not set.
+
+Applications can add their own hot keys with ConfigWatcher().register(), e.g.
+webrtcgateway's log_messaging, log_addressbook, log_file_transfers and
+log_connections (and the matching log files).
 
 The trace flags are pushed to the TraceLogManager (which also owns the
 webrtcgateway client/janus trace loggers once that application is loaded).
@@ -22,23 +29,23 @@ effect on the next request.
 """
 
 from application import log
-from application.configuration import ConfigFile
+from application.configuration import ConfigFile, datatypes
 from application.python.types import Singleton
 from twisted.internet import task
 
-from sylk.configuration import SIPConfig
+from sylk.configuration import RENAMED_SETTINGS, SIPConfig
 from sylk.log import TraceLogManager
 
 
 # (config file, section, key, trace logger name)
 _TRACE_FLAGS = [
-    ('config.ini',        'Server',  'trace_dns',           'dns_trace'),
-    ('config.ini',        'Server',  'trace_sip',           'sip_trace'),
-    ('config.ini',        'Server',  'trace_msrp',          'msrp_trace'),
-    ('config.ini',        'Server',  'trace_core',          'core_trace'),
-    ('config.ini',        'Server',  'trace_notifications', 'notification_trace'),
-    ('webrtcgateway.ini', 'General', 'trace_client',        'webrtc_client_trace'),
-    ('webrtcgateway.ini', 'Janus',   'trace_janus',         'webrtc_janus_trace'),
+    ('config.ini',        'Server',  'log_dns',             'dns_trace'),
+    ('config.ini',        'Server',  'log_sip',             'sip_trace'),
+    ('config.ini',        'Server',  'log_msrp',            'msrp_trace'),
+    ('config.ini',        'Server',  'log_core',            'core_trace'),
+    ('config.ini',        'Server',  'log_notifications',   'notification_trace'),
+    ('webrtcgateway.ini', 'General', 'log_webrtc_client_api', 'webrtc_client_trace'),
+    ('webrtcgateway.ini', 'Janus',   'log_janus_api',       'webrtc_janus_trace'),
 ]
 
 # config.ini [SIP] keys handled by dedicated appliers
@@ -52,12 +59,23 @@ class ConfigWatcher(object, metaclass=Singleton):
         self._call = task.LoopingCall(self._poll)
         self._timestamps = {}   # cfgfile -> last ConfigFile.timestamp
         self._raw = {}          # (cfgfile, section, key) -> last raw string seen
+        self._callbacks = []    # (cfgfile, section, key, callback) added with register()
 
     @property
     def _files(self):
         files = {name for (name, _s, _k, _n) in _TRACE_FLAGS}
         files.add('config.ini')
+        files.update(name for (name, _s, _k, _c) in self._callbacks)
         return files
+
+    def register(self, cfgfile, section, key, callback):
+        """Call callback(raw_value) when key changes on disk, raw_value being
+        None when the key was removed. The value at registration time counts as
+        already applied."""
+        cfg = ConfigFile(cfgfile)
+        self._callbacks.append((cfgfile, section, key, callback))
+        self._raw[(cfgfile, section, key)] = self._raw_get(cfg, section, key)
+        self._timestamps.setdefault(cfgfile, cfg.timestamp)
 
     def start(self):
         # Seed timestamps and the raw snapshot from the current on-disk config
@@ -78,10 +96,15 @@ class ConfigWatcher(object, metaclass=Singleton):
 
     @staticmethod
     def _raw_get(cfg, section, key):
-        try:
-            return cfg.parser.get(section, key)
-        except Exception:
-            return None
+        keys = [key]
+        if (cfg.filename, section, key) in RENAMED_SETTINGS:
+            keys.append(RENAMED_SETTINGS[(cfg.filename, section, key)])   # the old name, used when the new one is not set
+        for name in keys:
+            try:
+                return cfg.parser.get(section, name)
+            except Exception:
+                pass
+        return None
 
     def _snapshot_raw(self):
         for name in self._files:
@@ -91,6 +114,9 @@ class ConfigWatcher(object, metaclass=Singleton):
                     self._raw[(name, section, key)] = self._raw_get(cfg, section, key)
             if name == 'config.ini':
                 for section, key in _SIP_KEYS:
+                    self._raw[(name, section, key)] = self._raw_get(cfg, section, key)
+            for (f, section, key, _c) in self._callbacks:
+                if f == name:
                     self._raw[(name, section, key)] = self._raw_get(cfg, section, key)
 
     def _changed(self, name, cfg, section, key):
@@ -121,7 +147,11 @@ class ConfigWatcher(object, metaclass=Singleton):
             changed, _raw = self._changed(name, cfg, section, key)
             if not changed:
                 continue
-            desired = bool(cfg.get_setting(section, key, type=bool, default=False))
+            try:
+                desired = bool(datatypes.Boolean(_raw)) if _raw is not None else False
+            except (TypeError, ValueError):
+                log.warning('ConfigWatcher: ignoring invalid %s %s value %r' % (name, key, _raw))
+                continue
             try:
                 mgr.set_trace(logger_name, desired)
             except ValueError:
@@ -129,6 +159,15 @@ class ConfigWatcher(object, metaclass=Singleton):
             log.info('ConfigWatcher: %s %s -> %s' % (name, key, 'on' if desired else 'off'))
         if name == 'config.ini':
             self._apply_acl(cfg)
+        for (f, section, key, callback) in self._callbacks:
+            if f != name:
+                continue
+            changed, raw = self._changed(name, cfg, section, key)
+            if changed:
+                try:
+                    callback(raw)
+                except Exception:
+                    log.exception('ConfigWatcher: error applying %s %s' % (name, key))
 
     # -- individual appliers --
 

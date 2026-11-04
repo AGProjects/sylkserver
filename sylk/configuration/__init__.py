@@ -1,5 +1,5 @@
 
-from application.configuration import ConfigSection, ConfigSetting
+from application.configuration import ConfigFile, ConfigSection, ConfigSetting
 from application.configuration.datatypes import NetworkRangeList, StringList
 from application.system import host
 from sipsimple.configuration.datatypes import NonNegativeInteger, SampleRate, SIPTransport
@@ -28,16 +28,43 @@ class ServerConfig(ConfigSection):
     application_map_by_content_type = ConfigSetting(type=StringList, value='')
     disabled_applications = ConfigSetting(type=StringList, value='')
     extra_applications_dir = ConfigSetting(type=Path, value=None)
-    trace_dir = ConfigSetting(type=Path, value=Path(VarResources.get('log/sylkserver')))
-    trace_dns = False
-    trace_sip = False
-    trace_msrp = False
-    trace_core = False
-    trace_notifications = False
+    log_dir = ConfigSetting(type=Path, value=Path(VarResources.get('log/sylkserver')))
+    log_dns = False
+    log_sip = False
+    log_msrp = False
+    log_core = False
+    log_notifications = False
     log_level = ConfigSetting(type=LogLevel, value=LogLevel('info'))
     spool_dir = ConfigSetting(type=Path, value=Path(VarResources.get('spool/sylkserver')))
     # Runtime (non-persistent) state directory, e.g. blacklist.txt.
     runtime_dir = ConfigSetting(type=Path, value=Path(VarResources.get('run/sylkserver')))
+
+
+# Renamed settings: the old name is still honoured when the new one is not set
+RENAMED_SETTINGS = {}  # (config file, section, new name) -> old name
+
+
+def rename_settings(section, renames):
+    """Read the old names (renames maps new name -> old name) of settings of
+    a ConfigSection that are not set under their new name, and remember them
+    for the ConfigWatcher."""
+    config = ConfigFile(section.__cfgfile__)
+    for name, old_name in renames.items():
+        RENAMED_SETTINGS[(section.__cfgfile__, section.__section__, name)] = old_name
+        if config.get_setting(section.__section__, name, default=None) is None:
+            value = config.get_setting(section.__section__, old_name, default=None)
+            if value is not None:
+                setattr(section, name, value)
+
+
+rename_settings(ServerConfig, {
+    'log_dir': 'trace_dir',
+    'log_dns': 'trace_dns',
+    'log_sip': 'trace_sip',
+    'log_msrp': 'trace_msrp',
+    'log_core': 'trace_core',
+    'log_notifications': 'trace_notifications',
+})
 
 
 class SIPConfig(ConfigSection):

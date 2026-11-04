@@ -25,7 +25,7 @@ class XMPPTraceFormatter(logging.Formatter):
 class XMPPTraceLogger(TraceLogger):
     name = 'xmpp_trace'
     owner = 'xmppgateway'
-    enabled = XMPPGatewayConfig.trace_xmpp
+    enabled = XMPPGatewayConfig.log_xmpp
     formatter = XMPPTraceFormatter()
 
     def _NH_XMPPMessageTrace(self, notification):

@@ -1889,7 +1889,7 @@ class ConnectionHandler(object):
             raise DNSLookupError('DNS lookup error: no results found')
 
         route = random.choice([r for r in routes if r.transport == routes[0].transport])
-        self.log.debug('DNS lookup for SIP message proxy for {} yielded {}'.format(uri, route))
+        self.log.messaging.debug('DNS lookup for SIP message proxy for {} yielded {}'.format(uri, route))
         return route
 
     def _send_sip_message(self, account, uri, message_id, content, content_type='text/plain', timestamp=None, add_disposition=True, skip_journal=False, metadata=None):
@@ -1899,7 +1899,7 @@ class ConnectionHandler(object):
             identity = str(account.uri)
             if account.display_name:
                 identity = '"%s" <%s>' % (account.display_name, identity)
-            self.log.debug("sending %s message %s from %s to %s via %s" % (content_type, message_id, log_uri(identity), log_uri(uri), log_uri(route)))
+            self.log.messaging.debug("sending %s message %s from %s to %s via %s" % (content_type, message_id, log_uri(identity), log_uri(uri), log_uri(route)))
 
             from_uri = SIPURI.parse(account.uri)
             content = content if isinstance(content, bytes) else content.encode()
@@ -1916,7 +1916,7 @@ class ConnectionHandler(object):
             if metadata_header is not None:
                 additional_headers.append(metadata_header)
             elif metadata:
-                self.log.warning('dropping unusable metadata on message {message_id} to {uri}'.format(message_id=message_id, uri=uri))
+                self.log.messaging.warning('dropping unusable metadata on message {message_id} to {uri}'.format(message_id=message_id, uri=uri))
             if GeneralConfig.local_sip_messages:
                 additional_sip_headers.append(Header('X-Sylk-App', 'webrtcgateway'))
             if skip_journal:
@@ -1956,7 +1956,7 @@ class ConnectionHandler(object):
             from_uri = SIPURI.parse(f'sip:{identity}')
             content = content if isinstance(content, bytes) else content.encode()
             if content_type not in ('application/sylk-conversation-read'):
-                self.log.debug("sending %s%s message from %s to %s via %s" % (content_type, f' for message {message_id}' if message_id else '',
+                self.log.messaging.debug("sending %s%s message from %s to %s via %s" % (content_type, f' for message {message_id}' if message_id else '',
                                                                             log_uri(identity), log_uri(uri), log_uri(route)))
 
             message_request = Message(FromHeader(from_uri),
@@ -1982,7 +1982,7 @@ class ConnectionHandler(object):
         identity = str(session.account.uri)
         if session.account.display_name:
             identity = '"%s" <%s>' % (session.account.display_name, identity)
-        self.log.info("sending in dialog message (%s) to %s" % (content_type, log_uri(session.remote_identity.uri)))
+        self.log.messaging.info("sending in dialog message (%s) to %s" % (content_type, log_uri(session.remote_identity.uri)))
 
         from_uri = SIPURI.parse(session.account.uri)
         sip_uri = SIPURI.parse('sip:%s' % session.remote_identity.uri)
@@ -2066,7 +2066,7 @@ class ConnectionHandler(object):
         if isinstance(public_key, defer.Deferred):
             public_key.addCallback(lambda result: self.send(sylkrtc.LookupPublicKeyEvent(uri=request.uri, public_key=result)))
             # no event on a failed query: an event without a key means "none kept"
-            public_key.addErrback(lambda failure: self.log.warning(f'Public key lookup for {request.uri} failed: {failure.getErrorMessage()}'))
+            public_key.addErrback(lambda failure: self.log.messaging.warning(f'Public key lookup for {request.uri} failed: {failure.getErrorMessage()}'))
         else:
             self.send(sylkrtc.LookupPublicKeyEvent(uri=request.uri, public_key=public_key))
 
@@ -2094,7 +2094,7 @@ class ConnectionHandler(object):
         notification_center.add_observer(self, sender=account_info.id)
         self.log.debug(f'Incoming header prefixes: {request.incoming_header_prefixes}')
         backend_note = ' (SIP backend {}, {})'.format(backend_name, backend_source) if backend_name != GeneralConfig.sip_backend else ''
-        self.log.info('added using {request.user_agent}{backend_note}'.format(request=request, backend_note=backend_note))
+        self.log.connections.info('added using {request.user_agent}{backend_note}'.format(request=request, backend_note=backend_note))
 
     @staticmethod
     def _sip_backend_note(account_info):
@@ -2115,7 +2115,7 @@ class ConnectionHandler(object):
             if GeneralConfig.sip_backend_override:
                 backend_name, source = request.sip_backend, 'requested by the client'
             else:
-                self.log.warning('ignoring SIP backend {request.sip_backend} requested for {request.account}, sip_backend_override is disabled'.format(request=request))
+                self.log.connections.warning('ignoring SIP backend {request.sip_backend} requested for {request.account}, sip_backend_override is disabled'.format(request=request))
         return backend_name, source
 
     def _RH_account_remove(self, request):
@@ -2130,7 +2130,7 @@ class ConnectionHandler(object):
         account_info.sip_backend.release()
         notification_center = NotificationCenter()
         notification_center.discard_observer(self, sender=account_info.id)
-        self.log.info('removed')
+        self.log.connections.info('removed')
 
         try:
             del(self.devices_map[request.account])
@@ -2184,7 +2184,7 @@ class ConnectionHandler(object):
             self._register_account(account_info)
             return
 
-        self.log.info('registration retry throttled after {count} failures, next attempt in {delay:.1f}s'.format(
+        self.log.connections.info('registration retry throttled after {count} failures, next attempt in {delay:.1f}s'.format(
             count=account_info.registration_failure_count, delay=remaining))
         account_info.register_retry_timer = reactor.callLater(remaining, call_in_green_thread,
                                                               self._deferred_account_register, account_info)
@@ -2199,7 +2199,7 @@ class ConnectionHandler(object):
             self._register_account(account_info)
         except (APIError, DNSLookupError, JanusError, SIPBackendError) as e:
             account_info.registration_failure_count += 1
-            self.log.warning('deferred registration attempt failed: {exception!s}'.format(exception=e))
+            self.log.connections.warning('deferred registration attempt failed: {exception!s}'.format(exception=e))
         except Exception as e:
             account_info.registration_failure_count += 1
             self.log.exception('deferred registration attempt failed: {exception!s}'.format(exception=e))
@@ -2218,7 +2218,7 @@ class ConnectionHandler(object):
         else:
             account_info.sip_backend.register(proxy)
             proxy_type = 'SIP Thor node' if ThorNodeConfig.outbound_proxy_enabled else 'SIP Proxy'
-            self.log.debug('registering to {proxy_type} {proxy}{backend_note}...'.format(proxy_type=proxy_type, proxy=proxy, backend_note=self._sip_backend_note(account_info)))
+            self.log.connections.debug('registering to {proxy_type} {proxy}{backend_note}...'.format(proxy_type=proxy_type, proxy=proxy, backend_note=self._sip_backend_note(account_info)))
 
     def _RH_account_unregister(self, request):
         try:
@@ -2238,7 +2238,7 @@ class ConnectionHandler(object):
             storage = TokenStorage()
             storage.remove(request.account, account_info.contact_params['pn_app'], account_info.contact_params['pn_device'])
 
-        self.log.info('unregistered')
+        self.log.connections.info('unregistered')
 
     def _RH_account_devicetoken(self, request):
         if request.account not in self.accounts_map:
@@ -2257,7 +2257,7 @@ class ConnectionHandler(object):
                 storage = TokenStorage()
                 storage.add(request.account, account_info.contact_params, account_info.user_agent)
 
-            self.log.info('added token on {request.platform} device {request.device})'.format(request=request))
+            self.log.connections.info('added token on {request.platform} device {request.device})'.format(request=request))
 
     def _RH_account_message(self, request):
         try:
@@ -2295,7 +2295,7 @@ class ConnectionHandler(object):
 
         storage = MessageStorage()
         if skip_journal:
-            self.log.info('skipping journal for message {message_id} to {uri} (skipJournal set)'.format(message_id=message_id, uri=uri))
+            self.log.messaging.info('skipping journal for message {message_id} to {uri} (skipJournal set)'.format(message_id=message_id, uri=uri))
         else:
             storage.add(account=account_info.id,
                         contact=uri,
@@ -2308,7 +2308,7 @@ class ConnectionHandler(object):
                         state='pending',
                         metadata=metadata)
 
-        self.log.info('sending {content_type} message {message_id} to {uri}'.format(message_id=message_id, content_type=content_type, uri=uri))
+        self.log.messaging.info('sending {content_type} message {message_id} to {uri}'.format(message_id=message_id, content_type=content_type, uri=uri))
         self._send_sip_message(account_info, uri, message_id, content, content_type, timestamp=timestamp, skip_journal=skip_journal, add_disposition=not skip_disposition, metadata=metadata)
 
         event = sylkrtc.AccountSyncEvent(account=account_info.id, type='message', action='add', content=request)
@@ -2338,7 +2338,7 @@ class ConnectionHandler(object):
         storage.update(account=account_info.id,
                        state=state,
                        message_id=message_id)
-        self.log.debug('sending IMDN {status} message {message_id} to {uri}'.format(status=state, message_id=message_id, uri=uri))
+        self.log.messaging.debug('sending IMDN {status} message {message_id} to {uri}'.format(status=state, message_id=message_id, uri=uri))
         self._send_sip_message(account_info, uri, str(uuid.uuid4()), content, IMDNDocument.content_type, add_disposition=False)
 
     def _RH_account_sync_conversations(self, request):
@@ -2355,7 +2355,7 @@ class ConnectionHandler(object):
             since = request.since
         except AttributeError:
             since = None
-        self.log.info('syncConversations for {account} from {message_id} using {device!r}'.format(
+        self.log.messaging.info('syncConversations for {account} from {message_id} using {device!r}'.format(
                           account=account_info.id,
                           message_id=request.message_id,
                           device=account_info.user_agent))
@@ -2449,7 +2449,7 @@ class ConnectionHandler(object):
                     event = sylkrtc.AccountSyncEvent(account=account, type='message', action='remove', content=content)
                     account_object = type('account_object', (object,), {'id': account})
                     self._fork_event_to_online_accounts(account_object, event)
-                    self.log.debug(f"Removed message {message_id} from the journal of its receiver {account}")
+                    self.log.messaging.debug(f"Removed message {message_id} from the journal of its receiver {account}")
                     break
         messages = storage[[contact, '']]
         if isinstance(messages, defer.Deferred):
@@ -2471,7 +2471,7 @@ class ConnectionHandler(object):
         # already prefixes [account <id>/<device_id>]; we add the session peer
         # and the client user-agent so a stray/looping remove can be traced back
         # to the exact client that sent it.
-        self.log.info('removeConversation: contact={contact} requested by account={account} '
+        self.log.messaging.info('removeConversation: contact={contact} requested by account={account} '
                       'session={session} device={device!r} (device_id={device_id})'.format(
                           contact=contact,
                           account=account_info.id,
@@ -3682,9 +3682,9 @@ class ConnectionHandler(object):
                          self._client_ip(), 'websocket')
             contact = account_info.sip_backend.contact
             if contact:
-                self.log.info('registered contact {}{}'.format(contact, self._sip_backend_note(account_info)))
+                self.log.connections.info('registered contact {}{}'.format(contact, self._sip_backend_note(account_info)))
             else:
-                self.log.info('registered{}'.format(self._sip_backend_note(account_info)))
+                self.log.connections.info('registered{}'.format(self._sip_backend_note(account_info)))
             storage = MessageStorage()
             storage.add_account(account=account_info.id)
             if 'pn_app' in account_info.contact_params:
@@ -3699,7 +3699,7 @@ class ConnectionHandler(object):
             # retry we scheduled ourselves.
             account_info.registration_failure_count += 1
             self.send(sylkrtc.AccountRegistrationFailedEvent(account=account_info.id, reason=reason))
-            self.log.info('registration failed via {proxy}{backend_note}: {reason} (attempt {count})'.format(
+            self.log.connections.info('registration failed via {proxy}{backend_note}: {reason} (attempt {count})'.format(
                 proxy=account_info.sip_backend.proxy, backend_note=self._sip_backend_note(account_info), reason=reason, count=account_info.registration_failure_count))
 
     def sip_account_incoming_session(self, account_info, session_info, originator, sdp, call_id, headers=None):
@@ -3908,7 +3908,7 @@ class ConnectionHandler(object):
                 content = content if isinstance(content, str) else content.decode('latin1')
                 cpim_message = CPIMPayload.decode(content.encode('utf-8'))
             except CPIMParserError:
-                self.log.info('message rejected: CPIM parse error')
+                self.log.messaging.info('message rejected: CPIM parse error')
                 return
             else:
                 body = cpim_message.content if isinstance(cpim_message.content, str) else cpim_message.content.decode()
@@ -3935,7 +3935,7 @@ class ConnectionHandler(object):
             imdn_message_id = document.message_id.value
             imdn_status = document.notification.status.__str__()
             imdn_datetime = document.datetime.__str__()
-            self.log.info('received in dialog IMDN message ({status}) from: {originator.uri}'.format(status=imdn_status, originator=sender))
+            self.log.messaging.info('received in dialog IMDN message ({status}) from: {originator.uri}'.format(status=imdn_status, originator=sender))
 
             self.send(sylkrtc.SessionMessageDispositionNotificationEvent(session=session_info.id,
                                                                          state=imdn_status,
@@ -3945,7 +3945,7 @@ class ConnectionHandler(object):
                                                                          code=200,
                                                                          reason=''))
         else:
-            self.log.info('received in dialog message ({content_type}) from: {originator.uri}'.format(content_type=content_type, originator=sender))
+            self.log.messaging.info('received in dialog message ({content_type}) from: {originator.uri}'.format(content_type=content_type, originator=sender))
 
             self.send(sylkrtc.SessionMessageEvent(session=session_info.id,
                                                   sender=sender,
@@ -3985,12 +3985,12 @@ class ConnectionHandler(object):
             try:
                 document = IMDNDocument.parse(content)
             except Exception as e:
-                self.log.warning('invalid IMDN chat message from {}: {}'.format(sender.uri, e))
+                self.log.messaging.warning('invalid IMDN chat message from {}: {}'.format(sender.uri, e))
                 return
             imdn_message_id = document.message_id.value
             imdn_status = str(document.notification.status)
             imdn_datetime = str(document.datetime)
-            self.log.info('received chat IMDN ({status}) for message {message_id} from {sender} in session {session}'.format(status=imdn_status, message_id=imdn_message_id, sender=sender.uri, session=session_info.id))
+            self.log.messaging.info('received chat IMDN ({status}) for message {message_id} from {sender} in session {session}'.format(status=imdn_status, message_id=imdn_message_id, sender=sender.uri, session=session_info.id))
             storage.update(account=account_info.id, state=imdn_status, message_id=imdn_message_id)
             self.send(sylkrtc.SessionMessageDispositionNotificationEvent(session=session_info.id,
                                                                          state=imdn_status,
@@ -4008,7 +4008,7 @@ class ConnectionHandler(object):
                                                                                                          reason=''))
             return
 
-        self.log.info('received {content_type} chat message {message_id} from {sender} in session {session}'.format(content_type=content_type, message_id=message_id, sender=sender.uri, session=session_info.id))
+        self.log.messaging.info('received {content_type} chat message {message_id} from {sender} in session {session}'.format(content_type=content_type, message_id=message_id, sender=sender.uri, session=session_info.id))
         self.send(sylkrtc.SessionMessageEvent(session=session_info.id,
                                               sender=sender,
                                               content=content,
@@ -4043,10 +4043,10 @@ class ConnectionHandler(object):
         account_info = session_info.account
         if code == 200:
             state = 'delivered'
-            self.log.info('chat message {} was delivered in session {}'.format(message_id, session_info.id))
+            self.log.messaging.info('chat message {} was delivered in session {}'.format(message_id, session_info.id))
         else:
             state = 'failed'
-            self.log.info('chat message {} was not delivered in session {}: {} {}'.format(message_id, session_info.id, code, reason))
+            self.log.messaging.info('chat message {} was not delivered in session {}: {} {}'.format(message_id, session_info.id, code, reason))
         now = str(ISOTimestamp.now())
         MessageStorage().update(account=account_info.id, state=state, message_id=message_id)
         self.send(sylkrtc.SessionMessageDispositionNotificationEvent(session=session_info.id,
@@ -4071,10 +4071,10 @@ class ConnectionHandler(object):
         timestamp = body.timestamp
 
         if code < 300:
-            self.log.info('in dialog message was delivered to remote party: %s', reason)
+            self.log.messaging.info('in dialog message was delivered to remote party: %s', reason)
             state = 'accepted'
         else:
-            self.log.info('message was not delivered to remote party %s: %s', code, reason)
+            self.log.messaging.info('message was not delivered to remote party %s: %s', code, reason)
             state = 'failed'
         self.send(sylkrtc.SessionMessageDispositionNotificationEvent(session=session_info.id,
                                                                      code=code,
@@ -4516,7 +4516,7 @@ class ConnectionHandler(object):
             return
 
         message = notification.data.message
-        self.log.debug('received IMDN {status} message {message_id} from {originator.uri}'.format(message_id=message.message_id, status=message.state, originator=notification.data.sender))
+        self.log.messaging.debug('received IMDN {status} message {message_id} from {originator.uri}'.format(message_id=message.message_id, status=message.state, originator=notification.data.sender))
         self.send(message)
 
     def _NH_SIPApplicationGotAccountMessage(self, notification):
@@ -4529,7 +4529,7 @@ class ConnectionHandler(object):
             return
 
         message = notification.data
-        self.log.info('received {content_type} message {message_id} from {originator.uri}'.format(message_id=message.message_id, content_type=message.content_type, originator=message.sender))
+        self.log.messaging.info('received {content_type} message {message_id} from {originator.uri}'.format(message_id=message.message_id, content_type=message.content_type, originator=message.sender))
         self.send(message)
 
     def _NH_SIPApplicationGotOutgoingAccountMessage(self, notification):
@@ -4542,7 +4542,7 @@ class ConnectionHandler(object):
             return
 
         message = notification.data
-        self.log.info('received outgoing {content_type} message {message_id} to {destination}'.format(message_id=message.content.message_id, content_type=message.content.content_type, destination=message.content.uri))
+        self.log.messaging.info('received outgoing {content_type} message {message_id} to {destination}'.format(message_id=message.content.message_id, content_type=message.content.content_type, destination=message.content.uri))
         self.send(message)
 
     def _NH_SIPApplicationGotAccountRemoveMessage(self, notification):
@@ -4594,7 +4594,7 @@ class ConnectionHandler(object):
         if not account_info.auth_state:
             return
 
-        self.log.info('addressbook changed on server (xcap-diff) — pushing refresh')
+        self.log.addressbook.info('addressbook changed on server (xcap-diff) — pushing refresh')
         # raise_on_error=True: if the re-fetch fails (XCAP unreachable / non-200),
         # do NOT broadcast. Pushing an empty addressbook to every online device
         # on a transient outage would look like a mass deletion and let clients
@@ -4606,7 +4606,7 @@ class ConnectionHandler(object):
         def _push_refresh(result):
             self.send(sylkrtc.AccountAddressBookFetchedEvent(addressbook=result, account=account_info.id))
         def _skip_refresh(failure):
-            self.log.warning('addressbook re-fetch failed (%s) — skipping broadcast, devices keep current data' % failure.value)
+            self.log.addressbook.warning('addressbook re-fetch failed (%s) — skipping broadcast, devices keep current data' % failure.value)
         addressbook.addCallbacks(_push_refresh, _skip_refresh)
         return addressbook
 
@@ -4618,7 +4618,7 @@ class ConnectionHandler(object):
 
         body = CPIMPayload.decode(notification.sender.body)
         message_id = next((header.value for header in body.additional_headers if header.name == 'Message-ID'), None)
-        self.log.debug('message %s was accepted' % message_id)
+        self.log.messaging.debug('message %s was accepted' % message_id)
         account = '{}@{}'.format(body.sender.uri.user.decode('utf-8'), body.sender.uri.host.decode('utf-8'))
         timestamp = body.timestamp
 
@@ -4654,7 +4654,7 @@ class ConnectionHandler(object):
         body = CPIMPayload.decode(notification.sender.body)
         reason = data.reason.decode() if isinstance(data.reason, bytes) else data.reason
         callid = data.headers.get('Call-ID', Null).body if hasattr(data, 'headers') else None
-        self.log.warning('could not deliver message to %s: %d %s (%s)' % (', '.join(([str(item.uri) for item in body.recipients])), data.code, reason, callid))
+        self.log.messaging.warning('could not deliver message to %s: %d %s (%s)' % (', '.join(([str(item.uri) for item in body.recipients])), data.code, reason, callid))
         message_id = next((header.value for header in body.additional_headers if header.name == 'Message-ID'), None)
         account = '{}@{}'.format(body.sender.uri.user.decode('utf-8'), body.sender.uri.host.decode('utf-8'))
         timestamp = body.timestamp

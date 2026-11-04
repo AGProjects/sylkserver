@@ -49,7 +49,7 @@ from .factory import SylkWebSocketServerFactory
 from .janus import JanusBackend
 from .location import (LOCATION_CONTENT_TYPE, location_envelope,
                        location_session_id)
-from .logger import log
+from .logger import log, file_transfers_log, messaging_log
 from .metrics import Metrics
 from .models import sylkrtc
 from .protocol import SYLK_WS_PROTOCOL
@@ -131,29 +131,29 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
                 if method == 'POST':
                     def log_result(result):
                         if isinstance(result, Failure):
-                            videoroom.log.warning('{file.uploader.uri} failed to upload {file.filename}: {error}'.format(file=upload_request.shared_file, error=result.value))
+                            videoroom.log.file_transfers.warning('{file.uploader.uri} failed to upload {file.filename}: {error}'.format(file=upload_request.shared_file, error=result.value))
                         else:
-                            videoroom.log.info('{file.uploader.uri} has uploaded {file.filename}'.format(file=upload_request.shared_file))
+                            videoroom.log.file_transfers.info('{file.uploader.uri} has uploaded {file.filename}'.format(file=upload_request.shared_file))
                         return result
 
                     filename = secure_filename(filename)
                     filesize = int(request.getHeader('Content-Length'))
                     shared_file = sylkrtc.SharedFile(filename=filename, filesize=filesize, uploader=dict(uri=session.account.id, display_name=session.account.display_name), session=session_id)
-                    session.owner.log.info('wants to upload file {filename} to video room {conference_uri} with session {session_id}'.format(filename=filename, conference_uri=conference_uri, session_id=session_id))
+                    session.owner.log.file_transfers.info('wants to upload file {filename} to video room {conference_uri} with session {session_id}'.format(filename=filename, conference_uri=conference_uri, session_id=session_id))
                     upload_request = FileUploadRequest(shared_file, request.content)
                     videoroom.add_file(upload_request)
                     upload_request.deferred.addBoth(log_result)
                     return upload_request.deferred
                 elif method == 'GET':
                     filename = secure_filename(filename)
-                    session.owner.log.info('wants to download file {filename} from video room {conference_uri} with session {session_id}'.format(filename=filename, conference_uri=conference_uri, session_id=session_id))
+                    session.owner.log.file_transfers.info('wants to download file {filename} from video room {conference_uri} with session {session_id}'.format(filename=filename, conference_uri=conference_uri, session_id=session_id))
                     try:
                         path = videoroom.get_file(filename)
                     except LookupError as e:
-                        videoroom.log.warning('{session.account.id} failed to download {filename}: {error}'.format(session=session, filename=filename, error=e))
+                        videoroom.log.file_transfers.warning('{session.account.id} failed to download {filename}: {error}'.format(session=session, filename=filename, error=e))
                         raise NotFound()
                     else:
-                        videoroom.log.info('{session.account.id} is downloading {filename}'.format(session=session, filename=filename))
+                        videoroom.log.file_transfers.info('{session.account.id} is downloading {filename}'.format(session=session, filename=filename))
                         request.setHeader('Content-Disposition', 'attachment;filename="%s"' % filename)
                         return File(path)
                 else:
@@ -230,7 +230,7 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
             log_path = os.path.join(sender, receiver, transfer_id, filename)
 
             if not path or not os.path.exists(path):
-                log.warning('Download failed, file not found: %s' % (log_path))
+                file_transfers_log.warning('Download failed, file not found: %s' % (log_path))
                 raise NotFound()
 
             _, file_extension = os.path.splitext(path)
@@ -244,14 +244,14 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
 
             request.setHeader('Content-Disposition', '%s;filename="%s"' % (render_type, filename))
             file_size = os.path.getsize(path)
-            log.info('Web %s file download %s (%s)' % (render_type, log_path, FileTransferData.format_file_size(file_size)))
+            file_transfers_log.info('Web %s file download %s (%s)' % (render_type, log_path, FileTransferData.format_file_size(file_size)))
             return File(path)
         else:
             return 'OK'
 
     @app.route('/filetransfer/cancel/<string:transfer_id>', methods=['POST', 'GET'])
     def cancel_upload(self, request, transfer_id):
-        log.info(f'Cancel upload {transfer_id}')
+        file_transfers_log.info(f'Cancel upload {transfer_id}')
         channel = TrackedUploadHTTPChannel.active_uploads.get(transfer_id)
         if channel:
             try:
@@ -259,7 +259,7 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
             except AttributeError:
                 pass
             TrackedUploadHTTPChannel.active_uploads.pop(transfer_id, None)
-            log.debug(f'Cancelled upload {transfer_id}')
+            file_transfers_log.debug(f'Cancelled upload {transfer_id}')
             return f"Cancelled upload {transfer_id}\n"
         else:
             return f"No active upload with transfer_id {transfer_id}\n"
@@ -274,25 +274,25 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
         reads back here.
         """
         if not token:
-            log.warning(f'No API token stored for {account}, cannot authorise the file upload')
+            file_transfers_log.warning(f'No API token stored for {account}, cannot authorise the file upload')
             raise ApiTokenAuthError()
 
         auth_headers = request.requestHeaders.getRawHeaders('Authorization', default=None)
         if not auth_headers:
-            log.warning(f'File upload from {account} has no WebSocket session here and no Authorization header')
+            file_transfers_log.warning(f'File upload from {account} has no WebSocket session here and no Authorization header')
             raise ApiTokenAuthError()
         try:
             method, auth_token = auth_headers[0].split()
         except ValueError:
-            log.warning(f'Authorization header is not correct for a file upload from {account}, it should be in the format: Apikey [TOKEN]')
+            file_transfers_log.warning(f'Authorization header is not correct for a file upload from {account}, it should be in the format: Apikey [TOKEN]')
             raise ApiTokenAuthError()
         # compare_digest rather than !=: this is a secret being checked
         # against one an unauthenticated caller supplies, and == leaks its
         # length and its matching prefix through timing.
         if method != 'Apikey' or not hmac.compare_digest(auth_token, token):
-            log.warning(f'Token authentication error for a file upload from {account}')
+            file_transfers_log.warning(f'Token authentication error for a file upload from {account}')
             raise ApiTokenAuthError()
-        log.info(f'File upload from {account} authorised by API token')
+        file_transfers_log.info(f'File upload from {account} authorised by API token')
 
     def _check_receiver(self, account):
         if account is None:
@@ -309,11 +309,11 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
             self._reject_upload("Sender and receiver accounts for file upload were not found")
             return
 
-        log.info('File upload from {sender.uri} to {receiver.uri} will be saved to {path}/{filename}'.format(**transfer_data.__dict__))
+        file_transfers_log.info('File upload from {sender.uri} to {receiver.uri} will be saved to {path}/{filename}'.format(**transfer_data.__dict__))
         return self._accept_upload(transfer_data, connection)
 
     def _reject_upload(self, error):
-        log.warning(f'File upload rejected: {error}')
+        file_transfers_log.warning(f'File upload rejected: {error}')
         raise NotFound()
 
     def _accept_upload(self, transfer_data, connection):
@@ -342,7 +342,7 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
             with open(meta_filepath, 'w+') as output_file:
                 output_file.write(json.dumps(metadata.__data__))
         except (OSError, IOError):
-            log.warning('Could not save metadata %s' % meta_filepath)
+            file_transfers_log.warning('Could not save metadata %s' % meta_filepath)
 
         message_handler = MessageHandler()
         payload = transfer_data.cpim_message_payload(metadata)
@@ -367,9 +367,9 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
                 try:
                     method, auth_token = auth_headers[0].split()
                 except ValueError:
-                    log.warning(f'Authorization headers is not correct for message history request for {account}, it should be in the format: Apikey [TOKEN]')
+                    messaging_log.warning(f'Authorization headers is not correct for message history request for {account}, it should be in the format: Apikey [TOKEN]')
             else:
-                log.warning(f'Authorization headers missing on message history request for {account}')
+                messaging_log.warning(f'Authorization headers missing on message history request for {account}')
 
             if not auth_headers or method != 'Apikey' or auth_token != token:
                 #log.warning(f'Token authentication error for {account}')
@@ -378,7 +378,7 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
                 self._device_seen(request, account)
                 return self.get_account_messages(request, account, msg_id)
         else:
-            log.debug(f'Token not found for {account}')
+            messaging_log.debug(f'Token not found for {account}')
             raise ApiTokenAuthError()
 
     def tokenError(self, error, request):
@@ -389,7 +389,7 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
         # client and was originally added while wiring up the message
         # storage endpoint. Re-enable by flipping to .info when
         # troubleshooting the history HTTP path.
-        log.debug(f'Returning message history for {account}')
+        messaging_log.debug(f'Returning message history for {account}')
         account = account.lower()
         storage = MessageStorage()
         since = request.args.get(b'since', [None])[0]
@@ -424,7 +424,7 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
                 return str(value or '').lower()
             unfiltered = len(result)
             result = [message for message in result if content_type(message) in content_types]
-            log.info(f'Message history for {account}: {len(result)} of {unfiltered} entries after the cursor are of the content types asked for '
+            messaging_log.info(f'Message history for {account}: {len(result)} of {unfiltered} entries after the cursor are of the content types asked for '
                      f'({", ".join(sorted(content_types))}), {min(len(result), 5000)} returned')
         request.setHeader('X-Sylk-Journal-Remaining', str(len(result)))
         return json.dumps(sylkrtc.MessageHistoryData(account=account, messages=result[:5000]).__data__)
@@ -487,7 +487,7 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
         every = payload.get('progress')
         stream = isinstance(every, int) and not isinstance(every, bool) and every > 0
         request_id = str(payload.get('request_id') or uuid.uuid4())[:64]
-        log.info(f'Bulk removal {request_id} of {len(ids)} messages requested for {account} from {request.getClientIP()}')
+        messaging_log.info(f'Bulk removal {request_id} of {len(ids)} messages requested for {account} from {request.getClientIP()}')
         gone = []
         progress = None
         if stream:
@@ -503,7 +503,7 @@ class WebRTCGatewayWeb(object, metaclass=Singleton):
 
         def done(result):
             removed, files = result
-            log.info(f'Bulk removal {request_id} for {account} done: {len(removed)} of {len(ids)} messages removed, {files} transfer folders removed'
+            messaging_log.info(f'Bulk removal {request_id} for {account} done: {len(removed)} of {len(ids)} messages removed, {files} transfer folders removed'
                      + (', stopped by the client' if gone and len(removed) < len(ids) else ''))
             result = json.dumps({'ok': True, 'requested': len(ids), 'removed': removed})
             return result + '\n' if stream else result

@@ -103,11 +103,11 @@ class FileTransferSettingsExtension(FileTransferSettings):
 
 
 class LogsSettingsExtension(LogsSettings):
-    directory = Setting(type=Path, default=ServerConfig.trace_dir)
-    trace_sip = Setting(type=bool, default=ServerConfig.trace_sip)
-    trace_msrp = Setting(type=bool, default=ServerConfig.trace_msrp)
-    trace_pjsip = Setting(type=bool, default=ServerConfig.trace_core)
-    trace_notifications = Setting(type=bool, default=ServerConfig.trace_notifications)
+    directory = Setting(type=Path, default=ServerConfig.log_dir)
+    trace_sip = Setting(type=bool, default=ServerConfig.log_sip)
+    trace_msrp = Setting(type=bool, default=ServerConfig.log_msrp)
+    trace_pjsip = Setting(type=bool, default=ServerConfig.log_core)
+    trace_notifications = Setting(type=bool, default=ServerConfig.log_notifications)
 
 
 

@@ -20,7 +20,7 @@
 ; Log per-call RTP statistics (RTT, loss, RX/TX bandwidth), one line per
 ; stream every rtp_statistics_interval seconds, prefixed by Call-ID and caller
 ; rtp_statistics_enabled = False
-; rtp_statistics_log = /var/log/sylkserver/playback/rtp.log
+; rtp_statistics_log = <log_dir>/playback/rtp.log
 ; rtp_statistics_interval = 5
 
 ; [test@conference.example.com]

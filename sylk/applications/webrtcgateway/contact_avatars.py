@@ -28,7 +28,7 @@ from twisted.internet import defer, threads
 
 from . import account_storage
 from .configuration import AccountStorageConfig
-from .logger import log
+from .logger import log, addressbook_log
 from .models import xcap
 
 __all__ = 'NAMESPACE', 'attach_avatars', 'apply_contact_avatar', 'remove_contact_avatar', 'strip_avatar'
@@ -105,7 +105,7 @@ def _attach(account, addressbook, known):
                 collected += 1
             except account_storage.AccountStorageError:
                 pass
-    log.debug('Addressbook avatars for %s: %d stored, %d sent with data, %d orphans deleted'
+    addressbook_log.debug('Addressbook avatars for %s: %d stored, %d sent with data, %d orphans deleted'
              % (account, len(objects), sent, collected))
     return held
 
@@ -121,7 +121,7 @@ def attach_avatars(account_info, addressbook, known):
         return addressbook
 
     def failed(failure):
-        log.warning('Cannot attach avatars for %s: %s' % (account_info.id, failure.getErrorMessage()))
+        addressbook_log.warning('Cannot attach avatars for %s: %s' % (account_info.id, failure.getErrorMessage()))
         return addressbook
 
     deferred = threads.deferToThread(_attach, account_info.id, addressbook, dict(known or {}))
@@ -162,7 +162,7 @@ def apply_contact_avatar(account_info, contact, avatar):
         def removed(result):
             account, meta = result
             if meta is not None:
-                log.info('Account storage: %s removed %s/%s (contact update)' % (account, NAMESPACE, contact.id))
+                addressbook_log.info('Account storage: %s removed %s/%s (contact update)' % (account, NAMESPACE, contact.id))
                 account_storage.announce_change(account, NAMESPACE, contact.id, 'delete', meta, device_id, device_name)
             if account_info.avatar_etags is not None:
                 account_info.avatar_etags.pop(contact.id, None)
@@ -172,7 +172,7 @@ def apply_contact_avatar(account_info, contact, avatar):
     else:
         def stored(result):
             account, meta, data = result
-            log.info('Account storage: %s stored %s/%s (%d bytes, contact update)' % (account, NAMESPACE, contact.id, meta['size']))
+            addressbook_log.info('Account storage: %s stored %s/%s (%d bytes, contact update)' % (account, NAMESPACE, contact.id, meta['size']))
             account_storage.announce_change(account, NAMESPACE, contact.id, 'put', meta, device_id, device_name)
             if account_info.avatar_etags is not None:
                 account_info.avatar_etags[contact.id] = meta['etag']
@@ -197,13 +197,13 @@ def remove_contact_avatar(account_info, contact_id):
     def removed(result):
         account, meta = result
         if meta is not None:
-            log.info('Account storage: %s removed %s/%s (contact deleted)' % (account, NAMESPACE, contact_id))
+            addressbook_log.info('Account storage: %s removed %s/%s (contact deleted)' % (account, NAMESPACE, contact_id))
             account_storage.announce_change(account, NAMESPACE, contact_id, 'delete', meta)
         if account_info.avatar_etags is not None:
             account_info.avatar_etags.pop(contact_id, None)
 
     deferred = threads.deferToThread(_remove, account_info.id, contact_id)
     deferred.addCallback(removed)
-    deferred.addErrback(lambda failure: log.warning('Cannot remove the avatar of deleted contact %s: %s'
+    deferred.addErrback(lambda failure: addressbook_log.warning('Cannot remove the avatar of deleted contact %s: %s'
                                                     % (contact_id, failure.getErrorMessage())))
     return deferred

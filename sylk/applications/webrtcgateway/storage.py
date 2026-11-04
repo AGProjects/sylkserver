@@ -22,7 +22,7 @@ from .configuration import CassandraConfig, FileStorageConfig, GeneralConfig
 from .datatypes import FileTransferData
 from .errors import StorageError
 from .location import location_session_id
-from .logger import log
+from .logger import log, file_transfers_log, messaging_log
 from .metrics import Metrics
 from .models import xcap
 
@@ -71,7 +71,7 @@ def release_transfer_files(account, contact, transfer_id, peer_keeps):
     removed = 0
     for folder in transfer_folders(account, contact, transfer_id):
         rmtree(folder, ignore_errors=True)
-        log.info(f'Removed transfer files {folder}')
+        file_transfers_log.info(f'Removed transfer files {folder}')
         removed += 1
     return removed
 
@@ -670,7 +670,7 @@ class FileMessageStorage(object):
                                 siblings = [m for m in messages if location_track_session_id(m.get('content_type'), m.get('content'), m.get('metadata')) == session_id]
                                 for m in siblings:
                                     messages.remove(m)
-                                log.info('removed %d location entries for session %s of %s' % (1 + len(siblings), session_id, account))
+                                messaging_log.info('removed %d location entries for session %s of %s' % (1 + len(siblings), session_id, account))
                             self._save_messages(account, messages)
                             reactor.callFromThread(deferred.callback, True)
                             return
@@ -1014,8 +1014,8 @@ class CassandraMessageStorage(object):
                                     m.delete()
                                     cascaded += 1
                         except Exception as e:
-                            log.warning('removeMessage: location-track cascade scan failed for session %s (account %s): %s' % (session_id, account, e))
-                        log.info('removed %d messages for location session %s of %s' % (cascaded, session_id, account))
+                            messaging_log.warning('removeMessage: location-track cascade scan failed for session %s (account %s): %s' % (session_id, account, e))
+                        messaging_log.info('removed %d messages for location session %s of %s' % (cascaded, session_id, account))
 
                     reactor.callFromThread(deferred.callback, result)
                 except LWTException:
@@ -1032,7 +1032,7 @@ class CassandraMessageStorage(object):
             return ChatMessage.objects(ChatMessage.account == contact, ChatMessage.created_at == created_at,
                                        ChatMessage.message_id == message_id).count() > 0
         except Exception as e:
-            log.warning('Cannot tell if %s still has message %s, keeping its files: %s' % (contact, message_id, e))
+            messaging_log.warning('Cannot tell if %s still has message %s, keeping its files: %s' % (contact, message_id, e))
             return True
 
     BULK_CONCURRENCY = 64
@@ -1065,7 +1065,7 @@ class CassandraMessageStorage(object):
             try:
                 session, lookup, read, delete = self._bulk_prepared()
             except Exception as e:
-                log.warning('removeMessages: cannot prepare statements: %s' % e)
+                messaging_log.warning('removeMessages: cannot prepare statements: %s' % e)
                 reactor.callFromThread(deferred.callback, (removed, files))
                 return
 
@@ -1075,13 +1075,13 @@ class CassandraMessageStorage(object):
             step = max(int(every or 100), 1)
             for start in range(0, len(message_ids), step):
                 if should_stop is not None and should_stop():
-                    log.info('removeMessages: stopped for %s after %d of %d' % (account, start, len(message_ids)))
+                    messaging_log.info('removeMessages: stopped for %s after %d of %d' % (account, start, len(message_ids)))
                     break
                 chunk = message_ids[start:start + step]
                 keys = []
                 for message_id, (ok, result) in zip(chunk, run(lookup, [(message_id,) for message_id in chunk])):
                     if not ok:
-                        log.warning('removeMessages: lookup of %s for %s failed: %s' % (message_id, account, result))
+                        messaging_log.warning('removeMessages: lookup of %s for %s failed: %s' % (message_id, account, result))
                         continue
                     rows = list(result)
                     if rows:
@@ -1089,14 +1089,14 @@ class CassandraMessageStorage(object):
                 present = []
                 for (message_id, created_at), (ok, result) in zip(keys, run(read, [(account, created_at, message_id) for message_id, created_at in keys])):
                     if not ok:
-                        log.warning('removeMessages: reading %s for %s failed: %s' % (message_id, account, result))
+                        messaging_log.warning('removeMessages: reading %s for %s failed: %s' % (message_id, account, result))
                         continue
                     rows = list(result)
                     if rows:
                         present.append((message_id, created_at, self._column(rows[0], 'contact'), self._column(rows[0], 'content_type')))
                 for (message_id, created_at, contact, content_type), (ok, result) in zip(present, run(delete, [(account, created_at, message_id) for message_id, created_at, _, _ in present])):
                     if not ok:
-                        log.warning('removeMessages: removing %s for %s failed: %s' % (message_id, account, result))
+                        messaging_log.warning('removeMessages: removing %s for %s failed: %s' % (message_id, account, result))
                         continue
                     removed.append(message_id)
                     if content_type == 'application/sylk-file-transfer':
