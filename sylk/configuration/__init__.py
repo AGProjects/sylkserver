@@ -103,12 +103,12 @@ class SIPConfig(ConfigSection):
     maximum_call_count_per_ip = ConfigSetting(type=NonNegativeInteger, value=10)
     maximum_call_count_exclude_ips = ConfigSetting(type=NetworkRangeList, value=NetworkRangeList('none'))
 
-    # Per-IP INVITE-flood blacklisting. A source IP that reaches
-    # blacklist_threshold 403-rejected INVITEs within blacklist_window seconds
-    # is blacklisted; further INVITEs from it are refused 403 without logging.
-    # Only untrusted sources (those that fail the trusted-peer ACL) are
-    # counted, so trusted peers are never affected. 0 disables.
-    blacklist_threshold = ConfigSetting(type=NonNegativeInteger, value=5)
+    # Per-IP blacklisting of untrusted sources. A source IP that reaches
+    # blacklist_threshold requests rejected by the trusted-peer ACL within
+    # blacklist_window seconds is blacklisted; further requests from it are
+    # refused 403 without logging. Default 1: a single request from outside
+    # trusted_peers is an attack. Trusted peers are never counted. 0 disables.
+    blacklist_threshold = ConfigSetting(type=NonNegativeInteger, value=1)
     blacklist_window = ConfigSetting(type=NonNegativeInteger, value=60)
 
 

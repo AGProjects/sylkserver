@@ -2356,9 +2356,16 @@ class ConnectionHandler(object):
             since = request.since
         except AttributeError:
             since = None
-        self.log.messaging.info('syncConversations for {account} from {message_id} using {device!r}'.format(
+        if request.message_id:
+            start = 'after message {}'.format(request.message_id) + (' (else since {})'.format(since) if since else '')
+        elif since:
+            start = 'from the start (no cursor, since {})'.format(since)
+        else:
+            # what the storage returns without either, see MessageStorage.__getitem__
+            start = 'from the start (no cursor, no since: {})'.format('last 3 days' if isinstance(storage, CassandraMessageStorage) else 'whole journal')
+        self.log.messaging.info('syncConversations for {account} {start} using {device!r}'.format(
                           account=account_info.id,
-                          message_id=request.message_id,
+                          start=start,
                           device=account_info.user_agent))
         messages = storage[[account_info.id, request.message_id, since]]
 

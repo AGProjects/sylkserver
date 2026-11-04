@@ -172,9 +172,10 @@ class ApplicationNotLoadedError(Exception):
 
 
 class BlacklistHandler(object):
-    """Per-source-IP INVITE-flood detector and runtime blacklist.
+    """Per-source-IP blacklist of untrusted senders.
 
-    Counts 403-rejected INVITEs per source IP in a sliding window; an IP that
+    Counts requests rejected by the trusted-peer ACL per source IP in a
+    sliding window; an IP that
     reaches blacklist_threshold within blacklist_window (both in [SIP]) is
     blacklisted for the lifetime of the process. State is in-memory;
     blacklist.txt (runtime_dir) is truncated at startup and not read back,
@@ -210,7 +211,7 @@ class BlacklistHandler(object):
         return ip_str in self.blacklisted
 
     def record_rejection(self, ip_str):
-        """Note one rejected INVITE from ip_str and blacklist the source once
+        """Note one rejected request from ip_str and blacklist the source once
         it crosses the configured rate. Returns True iff this call tripped
         the blacklist."""
         if not self.enabled or ip_str in self.blacklisted:
@@ -230,7 +231,7 @@ class BlacklistHandler(object):
 
     def _blacklist(self, ip_str, count, window):
         self.blacklisted.add(ip_str)
-        message = 'blacklisted %s after %d rejected INVITEs within %ds' % (ip_str, count, window)
+        message = 'blacklisted %s after %d untrusted request(s) within %ds' % (ip_str, count, window)
         log.info(message)
         self._append(self._txt_path, '%s\n' % ip_str)
         self._append(self._log_path, '%s %s\n' % (datetime.now().isoformat(), message))
@@ -404,7 +405,7 @@ class IncomingRequestHandler(object, metaclass=Singleton):
         session = notification.sender
         peer_ip = self._peer_ip(session.peer_address)
         if self.blacklist_handler.is_blacklisted(peer_ip):
-            session.reject(403)  # known flooder: drop without logging
+            session.reject(403)
             return
         try:
             self.authorization_handler.authorize_source(session.peer_address.ip)
@@ -436,6 +437,10 @@ class IncomingRequestHandler(object, metaclass=Singleton):
 
     def _NH_SIPIncomingSubscriptionGotSubscribe(self, notification):
         subscribe_request = notification.sender
+        peer_ip = self._peer_ip(subscribe_request.peer_address)
+        if self.blacklist_handler.is_blacklisted(peer_ip):
+            subscribe_request.reject(403)
+            return
         try:
             self.authorization_handler.authorize_source(subscribe_request.peer_address.ip)
         except UnauthorizedRequest as e:
@@ -443,6 +448,7 @@ class IncomingRequestHandler(object, metaclass=Singleton):
                 'SUBSCRIBE', notification.data.request_uri,
                 subscribe_request.peer_address, notification.data.headers), e))
             subscribe_request.reject(403)
+            self.blacklist_handler.record_rejection(peer_ip)
             return
         try:
             app = self.get_application(notification.data.request_uri, notification.data.headers)
@@ -456,6 +462,10 @@ class IncomingRequestHandler(object, metaclass=Singleton):
 
     def _NH_SIPIncomingReferralGotRefer(self, notification):
         refer_request = notification.sender
+        peer_ip = self._peer_ip(refer_request.peer_address)
+        if self.blacklist_handler.is_blacklisted(peer_ip):
+            refer_request.reject(403)
+            return
         try:
             self.authorization_handler.authorize_source(refer_request.peer_address.ip)
         except UnauthorizedRequest as e:
@@ -463,6 +473,7 @@ class IncomingRequestHandler(object, metaclass=Singleton):
                 'REFER', notification.data.request_uri,
                 refer_request.peer_address, notification.data.headers), e))
             refer_request.reject(403)
+            self.blacklist_handler.record_rejection(peer_ip)
             return
         try:
             app = self.get_application(notification.data.request_uri, notification.data.headers)
@@ -477,6 +488,10 @@ class IncomingRequestHandler(object, metaclass=Singleton):
     def _NH_SIPIncomingRequestGotRequest(self, notification):
         request = notification.sender
         method = notification.data.method
+        peer_ip = self._peer_ip(request.peer_address)
+        if self.blacklist_handler.is_blacklisted(peer_ip):
+            request.answer(403)
+            return
         if method not in ('MESSAGE', 'PUBLISH'):
             log.info('rejected 405 %s — only MESSAGE and PUBLISH are accepted as out-of-dialog requests' % self._request_summary(
                 method, notification.data.request_uri,
@@ -490,6 +505,7 @@ class IncomingRequestHandler(object, metaclass=Singleton):
                 method, notification.data.request_uri,
                 request.peer_address, notification.data.headers), e))
             request.answer(403)
+            self.blacklist_handler.record_rejection(peer_ip)
             return
         try:
             app = self.get_application(notification.data.request_uri, notification.data.headers)

@@ -125,6 +125,15 @@ certificate = /etc/sylkserver/tls/default.crt
 ; and 'none'. Defaults to 'none' (no exemptions).
 ; maximum_call_count_exclude_ips = none
 
+; Blacklisting of untrusted sources. A source IP that sends
+; blacklist_threshold requests rejected by trusted_peers within
+; blacklist_window seconds is blacklisted for the lifetime of the process:
+; its requests are refused 403 without logging or tracing. Blacklisted IPs
+; are written to blacklist.txt in runtime_dir (e.g. to feed a firewall) and
+; to blacklist.log in log_dir. 0 disables.
+; blacklist_threshold = 1
+; blacklist_window = 60
+
 
 [MSRP]
 
