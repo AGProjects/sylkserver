@@ -475,6 +475,7 @@ class RelayedRTPStream(object):
         self.type = media_type
         self.sdp_index = sdp_index  # index of the media line in the NoSIP SDP
         self.index = None           # index in the session's SDP, set by Session
+        self.removed = False        # its media line was removed: the NoSIP line is free for a stream of the same type
         self.session = None
         self.direction = None
         self.encryption = _NoEncryption()
@@ -516,7 +517,7 @@ class RelayedRTPStream(object):
         pass
 
     def end(self):
-        pass
+        self.removed = True
 
 
 @implementer(IObserver)
@@ -688,6 +689,11 @@ class SIPSimpleCall(SIPCallBackend):
             self.log.info('sipsimple: dropped {} {} SDP attributes above the pjmedia limit of {}'.format(count, media_type, MAX_SDP_MEDIA_ATTRIBUTES))
         self.local_sdp = SDPSession.parse(sdp.encode())
 
+    def _with_replacements(self, streams):
+        # self.streams with the given (new) streams in it, each one replacing the removed stream it takes the NoSIP line of
+        taken = {stream.sdp_index for stream in streams}
+        return [stream for stream in self.streams if stream.sdp_index not in taken] + list(streams)
+
     def _filtered_sdp(self, sdp, streams, disabled_lines=()):
         # The lines of sdp (a remote SDP) for the given streams, in the order of
         # the NoSIP SDP (sdp_index), which is the form NoSIP needs; a stream
@@ -754,7 +760,7 @@ class SIPSimpleCall(SIPCallBackend):
         negotiation = self._negotiation
         plain_lines = []
         try:
-            streams = self.streams + self._added_streams
+            streams = self._with_replacements(self._added_streams)
             plain_lines = _plain_rtp_lines(remote_sdp, [stream.index for stream in streams if stream.index is not None])
             if plain_lines:
                 # The remote party would send plain RTP on these lines, which crashes
@@ -830,9 +836,22 @@ class SIPSimpleCall(SIPCallBackend):
         if self._ended or session.state != 'received_proposal':
             return
         new_streams = []
+        free_slots = [stream for stream in self.streams if stream.removed]
+        appended = 0
         for proposed in proposed_streams:
             if proposed.type in ('audio', 'video'):
-                stream = RelayedRTPStream(self, proposed.type, len(self.streams) + len(new_streams))
+                # A media line that was removed before takes over the NoSIP line of the removed
+                # stream: NoSIP (and the browser) never drop a line, so appending one would leave
+                # the client with two lines for one SIP line, both active, and it would put its
+                # camera on one and answer the other recvonly.
+                slot = next((item for item in free_slots if item.type == proposed.type and item.index == proposed.index), None) or \
+                       next((item for item in free_slots if item.type == proposed.type), None)
+                if slot is not None:
+                    free_slots.remove(slot)
+                    stream = RelayedRTPStream(self, proposed.type, slot.sdp_index)
+                else:
+                    stream = RelayedRTPStream(self, proposed.type, len(self.streams) + appended)
+                    appended += 1
                 stream.index = proposed.index
                 new_streams.append(stream)
         has_chat = self.chat_stream is not None and self.chat_stream in session.streams
@@ -852,10 +871,11 @@ class SIPSimpleCall(SIPCallBackend):
         remote_sdp = session._invitation.sdp.proposed_remote
         self._answered_offer = str(remote_sdp)
         try:
-            plain_lines = _plain_rtp_lines(remote_sdp, [stream.index for stream in self.streams + new_streams])
+            streams = self._with_replacements(new_streams)
+            plain_lines = _plain_rtp_lines(remote_sdp, [stream.index for stream in streams])
             if plain_lines:
                 self.log.warning('sipsimple: re-INVITE of {} mixes SRTP and plain RTP, rejecting the plain RTP lines'.format(session.remote_identity.uri))
-            offer = self._filtered_sdp(remote_sdp, self.streams + new_streams, disabled_lines=plain_lines)
+            offer = self._filtered_sdp(remote_sdp, streams, disabled_lines=plain_lines)
             result, jsep = self.janus_handle.process(_nosip_sdp(offer), 'offer')
         except JanusError as e:
             self.log.warning('sipsimple: Janus could not use the re-INVITE offer of {}: {}'.format(session.remote_identity.uri, e))
@@ -1012,8 +1032,11 @@ class SIPSimpleCall(SIPCallBackend):
         self._previous_local_sdp = self.local_sdp
         self._set_local_sdp(result.sdp)
         count = len(self.streams)
+        removed = {stream.sdp_index: stream for stream in self.streams if stream.removed}
+        # new lines, and lines of removed streams the client uses again (a browser recycles the transceiver)
         self._added_streams = [RelayedRTPStream(self, _text(media.media), index) for index, media in enumerate(self.local_sdp.media)
-                               if index >= count and media.port != 0 and _text(media.media) in ('audio', 'video')]
+                               if (index >= count or (index in removed and removed[index].type == _text(media.media)))
+                               and media.port != 0 and _text(media.media) in ('audio', 'video')]
         self._negotiation = 'update'
         self._awaiting_answer = True
         self._local_update_pending = True
@@ -1196,7 +1219,12 @@ class SIPSimpleCall(SIPCallBackend):
 
     def _NH_SIPSessionProposalAccepted(self, notification):
         accepted = [stream for stream in notification.data.accepted_streams if isinstance(stream, RelayedRTPStream) and stream not in self.streams]
-        self.streams.extend(accepted)
+        for stream in accepted:
+            position = next((position for position, item in enumerate(self.streams) if item.sdp_index == stream.sdp_index and item.removed), None)
+            if position is not None:
+                self.streams[position] = stream
+            else:
+                self.streams.append(stream)
         self._added_streams = [stream for stream in self._added_streams if stream not in accepted]
 
     def _NH_SIPSessionProposalRejected(self, notification):
