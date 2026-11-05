@@ -1,0 +1,123 @@
+--- a/src/plugins/janus_nosip.c
++++ b/src/plugins/janus_nosip.c
+@@ -302,6 +302,8 @@
+ 	srtp_t audio_srtp_in, audio_srtp_out;
+ 	srtp_policy_t audio_remote_policy, audio_local_policy;
+ 	char *audio_srtp_local_profile, *audio_srtp_local_crypto;
++	char *audio_srtp_remote_crypto;		/* the remote key in use */
++	char *audio_srtp_pending_profile, *audio_srtp_pending_crypto;	/* a new remote key, applied by the relay thread */
+ 	gboolean audio_send;
+ 	int has_video:1;
+ 	int video_rtp_fd, video_rtcp_fd;
+@@ -315,6 +317,8 @@
+ 	srtp_t video_srtp_in, video_srtp_out;
+ 	srtp_policy_t video_remote_policy, video_local_policy;
+ 	char *video_srtp_local_profile, *video_srtp_local_crypto;
++	char *video_srtp_remote_crypto;		/* the remote key in use */
++	char *video_srtp_pending_profile, *video_srtp_pending_crypto;	/* a new remote key, applied by the relay thread */
+ 	gboolean video_send;
+ 	janus_rtp_switching_context acontext, vcontext;
+ 	int pipefd[2];
+@@ -584,8 +588,36 @@
+ 	if((video && session->media.video_srtp_in) || (!video && session->media.audio_srtp_in)) {
+ 		JANUS_LOG(LOG_VERB, "%s inbound SRTP session created\n", video ? "Video" : "Audio");
+ 	}
++	char **remote_crypto = video ? &session->media.video_srtp_remote_crypto : &session->media.audio_srtp_remote_crypto;
++	g_free(*remote_crypto);
++	*remote_crypto = g_strdup(crypto);
+ 	return 0;
+ }
++/* The peer changed its SDES key on a re-INVITE (e.g., a media line that was
++ * removed and added again, a new stream with a new key): replace the inbound
++ * context. Only the relay thread does this, as it is the one using it. */
++static void janus_nosip_srtp_apply_pending(janus_nosip_session *session, gboolean video) {
++	char **profile = video ? &session->media.video_srtp_pending_profile : &session->media.audio_srtp_pending_profile;
++	char **crypto = video ? &session->media.video_srtp_pending_crypto : &session->media.audio_srtp_pending_crypto;
++	if(*profile == NULL || *crypto == NULL)
++		return;
++	srtp_t *srtp_in = video ? &session->media.video_srtp_in : &session->media.audio_srtp_in;
++	srtp_policy_t *policy = video ? &session->media.video_remote_policy : &session->media.audio_remote_policy;
++	if(*srtp_in)
++		srtp_dealloc(*srtp_in);
++	*srtp_in = NULL;
++	g_free(policy->key);
++	policy->key = NULL;
++	if(janus_nosip_srtp_set_remote(session, video, *profile, *crypto) < 0) {
++		JANUS_LOG(LOG_ERR, "[NoSIP-%p] Could not use the new remote %s SRTP key\n", session, video ? "video" : "audio");
++	} else {
++		JANUS_LOG(LOG_INFO, "[NoSIP-%p] New remote %s SRTP key in use\n", session, video ? "video" : "audio");
++	}
++	g_free(*profile);
++	*profile = NULL;
++	g_free(*crypto);
++	*crypto = NULL;
++}
+ static void janus_nosip_srtp_cleanup(janus_nosip_session *session) {
+ 	if(session == NULL)
+ 		return;
+@@ -613,6 +645,12 @@
+ 		g_free(session->media.audio_srtp_local_crypto);
+ 		session->media.audio_srtp_local_crypto = NULL;
+ 	}
++	g_free(session->media.audio_srtp_remote_crypto);
++	session->media.audio_srtp_remote_crypto = NULL;
++	g_free(session->media.audio_srtp_pending_profile);
++	session->media.audio_srtp_pending_profile = NULL;
++	g_free(session->media.audio_srtp_pending_crypto);
++	session->media.audio_srtp_pending_crypto = NULL;
+ 	/* Video */
+ 	session->media.video_srtp_tag = 0;
+ 	if(session->media.video_srtp_out)
+@@ -633,6 +671,12 @@
+ 		g_free(session->media.video_srtp_local_crypto);
+ 		session->media.video_srtp_local_crypto = NULL;
+ 	}
++	g_free(session->media.video_srtp_remote_crypto);
++	session->media.video_srtp_remote_crypto = NULL;
++	g_free(session->media.video_srtp_pending_profile);
++	session->media.video_srtp_pending_profile = NULL;
++	g_free(session->media.video_srtp_pending_crypto);
++	session->media.video_srtp_pending_crypto = NULL;
+ }
+ 
+ void janus_nosip_media_reset(janus_nosip_session *session) {
+@@ -1869,7 +1913,29 @@
+ 				if(!strcasecmp(a->name, "crypto")) {
+ 					if(m->type == JANUS_SDP_AUDIO || m->type == JANUS_SDP_VIDEO) {
+ 						if((m->type == JANUS_SDP_AUDIO && session->media.audio_srtp_in != NULL) || (m->type == JANUS_SDP_VIDEO && session->media.video_srtp_in != NULL)) {
+-							/* Remote SRTP is already set */
++							/* Remote SRTP is already set: keep it, unless the peer changed the key */
++							gboolean video = (m->type == JANUS_SDP_VIDEO);
++							const char *current = video ? session->media.video_srtp_remote_crypto : session->media.audio_srtp_remote_crypto;
++							gint32 tag = 0;
++							char profile[101], crypto[101];
++							if(update && a->value && sscanf(a->value, "%"SCNi32" %100s inline:%100s", &tag, profile, crypto) == 3 &&
++									(!answer || tag == (video ? session->media.video_srtp_tag : session->media.audio_srtp_tag)) &&
++									current != NULL && strcmp(current, crypto)) {
++								char **pending_profile = video ? &session->media.video_srtp_pending_profile : &session->media.audio_srtp_pending_profile;
++								char **pending_crypto = video ? &session->media.video_srtp_pending_crypto : &session->media.audio_srtp_pending_crypto;
++								g_free(*pending_profile);
++								*pending_profile = g_strdup(profile);
++								g_free(*pending_crypto);
++								*pending_crypto = g_strdup(crypto);
++								if(video)
++									session->media.video_srtp_tag = tag;
++								else
++									session->media.audio_srtp_tag = tag;
++								JANUS_LOG(LOG_INFO, "[NoSIP-%p] The peer changed its %s SRTP key\n", session, video ? "video" : "audio");
++								/* Wake up the relay thread, it replaces the inbound context */
++								if(changed)
++									*changed = TRUE;
++							}
+ 							tempA = tempA->next;
+ 							continue;
+ 						}
+@@ -2319,6 +2385,8 @@
+ 		if(session->media.updated) {
+ 			/* Apparently there was a session update, or the loop has just been entered */
+ 			session->media.updated = FALSE;
++			janus_nosip_srtp_apply_pending(session, FALSE);
++			janus_nosip_srtp_apply_pending(session, TRUE);
+ 
+ 			have_audio_server_ip = session->media.remote_audio_ip != NULL;
+ 			struct sockaddr_in audio_server_addr = { 0 };

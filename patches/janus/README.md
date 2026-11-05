@@ -95,3 +95,22 @@ API enabled: "Janus died" before, "Janus is alive" after. In production, a
 sylk-session video call to 3333 (answered with opus, see
 `docs/janus/rtcp-fb-answer.md`) no longer logs
 `janus.service: Main process exited, code=dumped, status=11/SEGV`.
+
+## 002-nosip-srtp-rekey.patch
+
+NoSIP plugin (`src/plugins/janus_nosip.c`): use the new SDES key when the SIP
+peer changes it on a re-INVITE.
+
+When the remote party removes a media line and adds it again (video turned
+off and on in Blink), the line comes back as a new stream with a new
+`a=crypto` key and port. NoSIP took the new port but kept the first inbound
+SRTP context ("Remote SRTP is already set"), so every packet from the peer
+failed authentication and was dropped: the WebRTC client got no video while
+the peer was sending it.
+
+Fix: on an update, an `a=crypto` key different from the one in use is queued
+(`*_srtp_pending_*`) and the relay thread is woken through the existing
+`updated` pipe; it replaces the inbound context itself
+(`janus_nosip_srtp_apply_pending()`), as it is the only user of that context,
+so the swap never races `srtp_unprotect()`. Our own (outbound) key does not
+change. Only `libjanus_nosip.so` changes.
